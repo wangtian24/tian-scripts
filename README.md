@@ -1,9 +1,9 @@
-# Yupp Server
+# Yupp LLMs
 
 
 ## Purpose
 
-The backend for providing services over multiple AIs.
+The backend for providing services over multiple LLMs.
 
 ## Setup
 
