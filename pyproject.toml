@@ -1,0 +1,115 @@
+[project]
+name = "yupp-server"
+description = "Backend service for Yupp"
+version = "0.0.1"
+readme = "README.md"
+requires-python = ">=3.11"
+
+
+[tool.ruff]
+# The directories to consider when resolving first- vs. third-party imports
+src = ["."]
+exclude = []
+
+line-length = 120
+indent-width = 4
+
+# Run ruff on jupyter notebooks (this is not enabled by default).
+extend-include = ["*.ipynb"]
+
+[tool.ruff.lint.per-file-ignores]
+# ignore star and unused imports
+"__init__.py" = ["F403", "F405"]
+
+[tool.ruff.lint]
+select = [
+    # flake8-bugbear
+    "B",
+    # pycodestyle error
+    "E",
+    # pyflakes
+    "F",
+    # isort
+    "I",
+    # pyupgrade
+    "UP",
+    # pycodestyle warning
+    "W",
+]
+
+# Rule codes to ignore.
+ignore = []
+
+# Allows fix for all enabled rules when `--fix` is provided
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.format]
+# Like Black, use double quotes, indent with spaces, and respect trailing commas
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.ruff.lint.isort]
+order-by-type = true
+no-lines-before = ["future", "standard-library"]
+
+[tool.poetry]
+name = "yupp-server"
+version = "0.0.1"
+description = "Backend service for Yupp"
+license = "Proprietary"
+authors = [
+    "Yupp Eng <eng@yupp.ai>",
+]
+readme = "README.md"
+package-mode = true
+
+[tool.poetry.dependencies]
+click = "8.1.7"
+fastapi = "0.110.0"
+langchain = "^0.2.10"
+langchain-openai = "^0.1.17"
+openai = "^1.36.1"
+orjson = "^3.10.0"
+pandas = "2.2.1"
+pydantic = "^2.6.4"
+pydantic-settings = "2.2.1"
+pytest-mock = "^3.14.0"
+python = "^3.11"
+python-dotenv = "1.0.1"
+scikit-learn = "^1.4.2"
+tqdm = "^4.66.2"
+uvicorn = {version = "0.28.0", extras = ["standard"]}
+
+[tool.poetry.group.dev.dependencies]
+pre-commit = "3.5.0"
+mypy = "1.9.0"
+ruff = "0.2.1"
+pandas-stubs = "^2.2.0.240218"
+pytest = "^8.1.1"
+httpx = "^0.27.0"
+
+[tool.mypy]
+python_version = "3.11"
+check_untyped_defs = true  # Type-check the interior of functions without type annotations
+disallow_untyped_defs = true  # Prevent functions without type annotations
+disallow_untyped_calls = true  # Prevent calls to functions without type annotations
+disallow_incomplete_defs = true  # Prevent functions with incomplete type annotations
+disallow_subclassing_any = true  # Prevent subclassing a value of type 'Any'
+no_implicit_optional = true  # Treat None and optional separately
+strict_optional = true  # Enable strict Optional checks
+warn_redundant_casts = true  # Warn about redundant casts
+warn_unused_ignores = true  # Warn about unneeded '# type: ignore' comments
+warn_return_any = true  # Warn about returning values of type 'Any' from functions
+ignore_missing_imports = true  # Ignore errors for missing imports
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore::DeprecationWarning:httpx.*:",
+]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
