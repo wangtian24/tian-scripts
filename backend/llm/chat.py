@@ -1,4 +1,3 @@
-
 from enum import Enum
 
 from langchain_anthropic import ChatAnthropic
@@ -17,7 +16,7 @@ class ChatProvider(Enum):
     GOOGLE = 3
 
     @classmethod
-    def from_string(cls, provider: str):
+    def from_string(cls, provider: str) -> "ChatProvider":
         try:
             return cls[provider.upper()]
         except KeyError as e:
@@ -27,22 +26,22 @@ class ChatProvider(Enum):
 def get_chat_model(provider: ChatProvider | str, model: str, api_key: str) -> BaseChatModel:
     if isinstance(provider, str):
         provider = ChatProvider.from_string(provider)
-        print("===", provider)
 
     chat_llms = {
         ChatProvider.OPENAI: ChatOpenAI,
         ChatProvider.ANTHROPIC: ChatAnthropic,
-        ChatProvider.GOOGLE: ChatGoogleGenerativeAI
+        ChatProvider.GOOGLE: ChatGoogleGenerativeAI,
     }
 
     chat_llm_cls = chat_llms.get(provider)
     if not chat_llm_cls:
         raise ValueError(f"Unsupported provider: {provider}")
 
-    return chat_llm_cls(api_key=SecretStr(api_key), model=model)
+    return chat_llm_cls(api_key=SecretStr(api_key), model=model)  # type: ignore
+
 
 def compare_llm_responses(
-        provider: ChatProvider | str, model: str, api_key: str, prompt: str, responses: dict[str, str]
+    provider: ChatProvider | str, model: str, api_key: str, prompt: str, responses: dict[str, str]
 ) -> BaseMessage:
     llm = get_chat_model(provider=provider, model=model, api_key=api_key)
     chain = prompts.COMPARE_RESPONSES_PROMPT | llm
