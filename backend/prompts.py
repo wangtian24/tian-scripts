@@ -1,4 +1,3 @@
-
 from langchain_core.prompts import ChatPromptTemplate
 
 COMPARE_RESPONSES_SYSTEM_PROMPT = """
@@ -27,7 +26,9 @@ COMPARE_RESPONSES_USER_PROMPT = """
 
 """
 
-COMPARE_RESPONSES_PROMPT = ChatPromptTemplate.from_messages([
-    ("system", COMPARE_RESPONSES_SYSTEM_PROMPT),
-    ("user", COMPARE_RESPONSES_USER_PROMPT),
-])
+COMPARE_RESPONSES_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        ("system", COMPARE_RESPONSES_SYSTEM_PROMPT),
+        ("user", COMPARE_RESPONSES_USER_PROMPT),
+    ]
+)

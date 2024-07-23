@@ -10,4 +10,3 @@ def check_environment() -> None:
     """
     if settings.ENVIRONMENT not in ("test", "local"):
         raise ValueError("Tests should only be run in a local test environment.")
-
