@@ -30,7 +30,7 @@ Your task is to:
   "similar": "Tuples of sentences or text blocks that are similar across the responses.",
   "unique": "A list of sentences or text blocks that are unique to each response.",
 
-Be sure to quote exact sentences from the responses in your output; do not modify them.  
+Be sure to quote exact sentences from the responses in your output; do not modify them.
 
 The input is structured as JSON too, with an entry for the prompt and another for each response,
 keyed on the responding LLM.

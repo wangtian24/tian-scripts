@@ -1,21 +1,18 @@
 from enum import Enum
+from typing import Any
 
+import torch
 from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
+from nltk.tokenize import sent_tokenize
 from pydantic.v1 import SecretStr
 from sentence_transformers import SentenceTransformer
-from nltk.tokenize import sent_tokenize
-from backend.llm.utils import combine_short_sentences
-from typing import Any
-import torch
-
 
 from backend import prompts
-import numpy as np
-from sentence_transformers import SentenceTransformer
+from backend.llm.utils import combine_short_sentences
 
 
 class ChatProvider(Enum):

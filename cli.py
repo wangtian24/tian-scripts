@@ -1,5 +1,6 @@
-import click
 import json
+
+import click
 
 from backend.config import settings
 from backend.llm.chat import (
@@ -8,7 +9,6 @@ from backend.llm.chat import (
     highlight_llm_similarities,
     highlight_llm_similarities_with_embeddings,
 )
-
 
 SAMPLE: dict = {
     "prompt": "What is the difference between marriage license and marriage certificate?",
