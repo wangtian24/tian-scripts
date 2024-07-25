@@ -6,8 +6,16 @@ from langchain_core.messages import BaseMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from pydantic.v1 import SecretStr
+from sentence_transformers import SentenceTransformer
+from nltk.tokenize import sent_tokenize
+from backend.llm.utils import combine_short_sentences
+from typing import Any
+import torch
+
 
 from backend import prompts
+import numpy as np
+from sentence_transformers import SentenceTransformer
 
 
 class ChatProvider(Enum):
@@ -46,3 +54,61 @@ def compare_llm_responses(
     llm = get_chat_model(provider=provider, model=model, api_key=api_key)
     chain = prompts.COMPARE_RESPONSES_PROMPT | llm
     return chain.invoke(input={"prompt": prompt, "responses": responses})
+
+
+def highlight_llm_similarities(
+    provider: ChatProvider | str, model: str, api_key: str, responses: dict[str, str]
+) -> BaseMessage:
+    llm = get_chat_model(provider=provider, model=model, api_key=api_key)
+    chain = prompts.HIGHLIGHT_SIMILARITIES_PROMPT | llm
+    return chain.invoke(input={"prompt": "None", "responses": responses})
+
+
+def highlight_llm_similarities_with_embeddings(
+    response_a: str,
+    response_b: str,
+    high_sim_threshold: float = 0.825,
+    uniqueness_threshold: float = 0.75,
+) -> dict[str, Any]:
+    model = SentenceTransformer("all-MiniLM-L6-v2")
+    sentences_a = combine_short_sentences(sent_tokenize(response_a))
+    sentences_b = combine_short_sentences(sent_tokenize(response_b))
+
+    embeddings_a = model.encode(sentences_a, convert_to_tensor=True)
+    embeddings_b = model.encode(sentences_b, convert_to_tensor=True)
+
+    similarities = model.similarity(embeddings_a, embeddings_b)  # type: ignore
+
+    high_similarity_pairs = []
+    unique_sentences_a = []
+    unique_sentences_b = []
+
+    # Find high-similarity pairs
+    for i, row in enumerate(similarities):
+        for j, sim in enumerate(row):
+            if sim >= high_sim_threshold:
+                high_similarity_pairs.append(
+                    {
+                        "sentence_a": sentences_a[i],
+                        "sentence_b": sentences_b[j],
+                        "similarity": round(sim.item(), 4),
+                    }
+                )
+
+    # Find unique sentences
+    max_similarities_a = torch.max(similarities, dim=1)
+    max_similarities_b = torch.max(similarities, dim=0)
+
+    for i, max_sim in enumerate(max_similarities_a.values):
+        if max_sim < uniqueness_threshold:
+            unique_sentences_a.append(sentences_a[i])
+
+    for j, max_sim in enumerate(max_similarities_b.values):
+        if max_sim < uniqueness_threshold:
+            unique_sentences_b.append(sentences_b[j])
+
+    return {
+        "high_similarity_pairs": high_similarity_pairs,
+        "unique_sentences_a": unique_sentences_a,
+        "unique_sentences_b": unique_sentences_b,
+    }
