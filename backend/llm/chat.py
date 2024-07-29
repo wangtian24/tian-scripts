@@ -1,6 +1,7 @@
 from enum import Enum
 from typing import Any
 
+import nltk
 import torch
 from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -16,6 +17,10 @@ from backend.llm.utils import combine_short_sentences
 
 DEFAULT_HIGH_SIM_THRESHOLD = 0.825
 DEFAULT_UNIQUENESS_THRESHOLD = 0.75
+
+# Ensure the punkt resource is available
+# TODO(gm): move this to a serverless startup script
+nltk.download("punkt")
 
 
 class ChatProvider(Enum):
