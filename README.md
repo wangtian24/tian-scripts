@@ -62,5 +62,27 @@ Important credentials (ie LLM API keys) can be found in 1Password.
 ### Linting and type checking
 
 This repo uses `ruff` for Python linting and `mypy` to make sure Python code is typed.
+Github actions in `.github/workflows` are set up to run these linters on push and pull requests.
 
-# TODO(gm): add GitHub actions to run linters
+## Deployment
+
+This repo uses `Docker` to build the backend image.
+
+To manually build version `v1`:
+
+```sh
+export YUPP_VERSION=v1
+
+docker build \
+  --platform linux/amd64 \
+  -t gcr.io/yupp-llms/backend:$YUPP_VERSION .
+
+docker push gcr.io/yupp-llms/backend:$YUPP_VERSION
+
+gcloud run deploy backend \
+  --image gcr.io/yupp-llms/backend:$YUPP_VERSION \
+  --platform managed \
+  --region us-east4 \
+  --cpu 2 \
+  --memory 2Gi
+```
