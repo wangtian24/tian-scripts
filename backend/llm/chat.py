@@ -14,6 +14,9 @@ from sentence_transformers import SentenceTransformer
 from backend import prompts
 from backend.llm.utils import combine_short_sentences
 
+DEFAULT_HIGH_SIM_THRESHOLD = 0.825
+DEFAULT_UNIQUENESS_THRESHOLD = 0.75
+
 
 class ChatProvider(Enum):
     OPENAI = 1
@@ -64,9 +67,9 @@ def highlight_llm_similarities(
 def highlight_llm_similarities_with_embeddings(
     response_a: str,
     response_b: str,
-    high_sim_threshold: float = 0.825,
-    uniqueness_threshold: float = 0.75,
-) -> dict[str, Any]:
+    high_sim_threshold: float = DEFAULT_HIGH_SIM_THRESHOLD,
+    uniqueness_threshold: float = DEFAULT_UNIQUENESS_THRESHOLD,
+) -> dict[str, list[str] | list[dict[str, Any]]]:
     model = SentenceTransformer("all-MiniLM-L6-v2")
     sentences_a = combine_short_sentences(sent_tokenize(response_a))
     sentences_b = combine_short_sentences(sent_tokenize(response_b))
