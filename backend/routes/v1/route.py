@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, Query
 from mabwiser.mab import LearningPolicy
 
@@ -7,6 +6,7 @@ from backend.llm.mab_router import MABRouter
 
 router = APIRouter()
 mab_router_singleton = None
+
 
 def get_mab_router() -> MABRouter:
     global mab_router_singleton
@@ -18,13 +18,15 @@ def get_mab_router() -> MABRouter:
     mab_router_singleton.fit(MODELS, [1.0] * len(MODELS))
     return mab_router_singleton
 
+
 @router.post("/select_models")
 def select_models(
     prompt: str = Query(..., description="Prompt"),
     num_arms: int = Query(default=2, description="Number of different arms to route to"),
-    budget: float = Query(default=float('inf'), description="Budget"),
+    budget: float = Query(default=float("inf"), description="Budget"),
 ) -> list[str]:
     return get_mab_router().select_arms(num_arms, budget=budget)
+
 
 @router.post("/update_router")
 def update_router(

@@ -7,14 +7,14 @@ class MABRouter:
     """A multi-armed bandit router that selects arms based on expected rewards and costs."""
 
     def __init__(
-            self,
-            arms: list[Any],
-            learning_policy: Any,
-            neighborhood_policy: Any = None,
-            costs: list[float] | None = None,
-            seed: int = 123,
-            n_jobs: int = 1,
-        ):
+        self,
+        arms: list[Any],
+        learning_policy: Any,
+        neighborhood_policy: Any = None,
+        costs: list[float] | None = None,
+        seed: int = 123,
+        n_jobs: int = 1,
+    ):
         if not costs:
             self.costs = [1.0] * len(arms)
         else:
@@ -39,7 +39,7 @@ class MABRouter:
         """Update the router based on new data."""
         self.mab.partial_fit(arms, rewards)
 
-    def select_arms(self, num_arms: int, budget: float = float('inf')) -> list[Any]:
+    def select_arms(self, num_arms: int, budget: float = float("inf")) -> list[Any]:
         """Select `num_arms` arms, within budget, to route to."""
         if num_arms > len(self.arms):
             raise ValueError(f"Can't select ({num_arms}) arms out of {len(self.arms)} available ones")
