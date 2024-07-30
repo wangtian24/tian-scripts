@@ -84,5 +84,5 @@ gcloud run deploy backend \
   --platform managed \
   --region us-east4 \
   --cpu 2 \
-  --memory 2Gi
+  --memory 4Gi
 ```
