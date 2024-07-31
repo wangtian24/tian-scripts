@@ -1,39 +1,22 @@
-from enum import Enum
 from typing import Any
 
-import nltk
 import torch
 from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_mistralai import ChatMistralAI
 from langchain_openai import ChatOpenAI
 from nltk.tokenize import sent_tokenize
 from pydantic.v1 import SecretStr
 from sentence_transformers import SentenceTransformer
 
 from backend import prompts
+from backend.llm.constants import MODELS_BY_PROVIDER, ChatProvider
 from backend.llm.utils import combine_short_sentences
 
 DEFAULT_HIGH_SIM_THRESHOLD = 0.825
 DEFAULT_UNIQUENESS_THRESHOLD = 0.75
-
-# Ensure the punkt resource is available
-# TODO(gm): move this to a serverless startup script
-nltk.download("punkt")
-
-
-class ChatProvider(Enum):
-    OPENAI = 1
-    ANTHROPIC = 2
-    GOOGLE = 3
-
-    @classmethod
-    def from_string(cls, provider: str) -> "ChatProvider":
-        try:
-            return cls[provider.upper()]
-        except KeyError as e:
-            raise ValueError(f"Unsupported provider string: {provider}") from e
 
 
 def get_chat_model(provider: ChatProvider | str, model: str, api_key: str) -> BaseChatModel:
@@ -44,11 +27,15 @@ def get_chat_model(provider: ChatProvider | str, model: str, api_key: str) -> Ba
         ChatProvider.OPENAI: ChatOpenAI,
         ChatProvider.ANTHROPIC: ChatAnthropic,
         ChatProvider.GOOGLE: ChatGoogleGenerativeAI,
+        ChatProvider.MISTRAL: ChatMistralAI,
     }
 
     chat_llm_cls = chat_llms.get(provider)
     if not chat_llm_cls:
         raise ValueError(f"Unsupported provider: {provider}")
+
+    if model not in MODELS_BY_PROVIDER.get(provider, []):
+        raise ValueError(f"Unsupported model: {model} for provider: {provider}")
 
     return chat_llm_cls(api_key=SecretStr(api_key), model=model)  # type: ignore
 
