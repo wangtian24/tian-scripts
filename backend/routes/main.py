@@ -1,7 +1,10 @@
+from dotenv import load_dotenv
 from fastapi import APIRouter
 
 from backend.routes.v1 import health, highlight_similar_content
 from backend.routes.v1 import route as llm_route
+
+load_dotenv()
 
 api_router = APIRouter()
 api_router.include_router(health.router, prefix="/v1", tags=["health"])
