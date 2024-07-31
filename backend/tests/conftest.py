@@ -14,5 +14,5 @@ def check_environment() -> None:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def load_env():
+def load_env() -> None:
     load_dotenv()
