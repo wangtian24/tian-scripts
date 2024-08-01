@@ -1,5 +1,7 @@
+import os
 from typing import Any
 
+import nltk
 import torch
 from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -17,6 +19,15 @@ from backend.llm.utils import combine_short_sentences
 
 DEFAULT_HIGH_SIM_THRESHOLD = 0.825
 DEFAULT_UNIQUENESS_THRESHOLD = 0.75
+
+nltk_init = False
+
+
+def init_nltk() -> None:
+    global nltk_init
+    if not nltk_init:
+        nltk.data.path.append(os.environ.get("NLTK_DATA"))
+        nltk_init = True
 
 
 def get_chat_model(provider: ChatProvider | str, model: str, api_key: str) -> BaseChatModel:
@@ -62,6 +73,7 @@ def highlight_llm_similarities_with_embeddings(
     high_sim_threshold: float = DEFAULT_HIGH_SIM_THRESHOLD,
     uniqueness_threshold: float = DEFAULT_UNIQUENESS_THRESHOLD,
 ) -> dict[str, list[str] | list[dict[str, Any]]]:
+    init_nltk()
     model = SentenceTransformer("all-MiniLM-L6-v2")
     sentences_a = combine_short_sentences(sent_tokenize(response_a))
     sentences_b = combine_short_sentences(sent_tokenize(response_b))
