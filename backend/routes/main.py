@@ -1,10 +1,19 @@
+import os
+
+import nltk
 from dotenv import load_dotenv
 from fastapi import APIRouter
 
 from backend.routes.v1 import health, highlight_similar_content
 from backend.routes.v1 import route as llm_route
 
-load_dotenv()
+
+def app_init() -> None:
+    load_dotenv()
+    nltk_data_path = os.getenv("NLTK_DATA")
+    if nltk_data_path:
+        nltk.data.path.append(nltk_data_path)
+
 
 api_router = APIRouter()
 api_router.include_router(health.router, prefix="/v1", tags=["health"])

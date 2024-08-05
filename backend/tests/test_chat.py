@@ -1,4 +1,4 @@
-from backend.llm.chat import highlight_llm_similarities_with_embeddings
+from backend.llm.chat import highlight_llm_similarities_with_embeddings, prompt_difficulty
 
 SAMPLE_RESPONSES: dict = {
     "prompt": "What is the difference between marriage license and marriage certificate?",
@@ -37,3 +37,49 @@ def test_highlight_llm_similarities_with_embeddings() -> None:
         "The marriage license has to be signed by the couple, their witnesses, and the officiant conducting the marriage ceremony, then returned to the license issuer for recording.",  # noqa: E501
         "It's issued after the marriage ceremony, once the signed marriage license has been returned and recorded.",
     ]
+
+
+def test_prompt_difficulty() -> None:
+    prompt = SAMPLE_RESPONSES["prompt"]
+    responses = [
+        SAMPLE_RESPONSES["responses"]["response_a"],
+        SAMPLE_RESPONSES["responses"]["response_b"],
+    ]
+
+    result = prompt_difficulty(prompt, responses)
+
+    assert isinstance(result, dict)
+    assert "prompt_difficulty" in result
+    assert "embedding_similarity" in result
+    assert "structure_similarity" in result
+    assert "content_similarity" in result
+
+    assert isinstance(result["prompt_difficulty"], float)
+    assert isinstance(result["embedding_similarity"], float)
+    assert isinstance(result["structure_similarity"], float)
+    assert isinstance(result["content_similarity"], float)
+
+    assert 0 <= result["prompt_difficulty"] <= 1
+    assert 0 <= result["embedding_similarity"] <= 1
+    assert 0 <= result["structure_similarity"] <= 1
+    assert 0 <= result["content_similarity"] <= 1
+
+    # Test with similar responses (should have high similarity scores)
+    similar_responses = [
+        "A dog is a domesticated mammal.",
+        "A dog is a domesticated animal that belongs to the mammal class.",
+    ]
+    similar_result = prompt_difficulty("What is a dog?", similar_responses)
+    assert similar_result["prompt_difficulty"] < 0.15
+    assert similar_result["embedding_similarity"] > 0.9
+    assert similar_result["content_similarity"] > 0.4
+
+    # Test with dissimilar responses (should have low similarity scores)
+    dissimilar_responses = [
+        "Python is a programming language.",
+        "An apple is a type of fruit.",
+    ]
+    dissimilar_result = prompt_difficulty("Random prompt", dissimilar_responses)
+    assert dissimilar_result["prompt_difficulty"] > 0.35
+    assert dissimilar_result["embedding_similarity"] < 0.6
+    assert dissimilar_result["content_similarity"] < 0.3
