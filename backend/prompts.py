@@ -36,6 +36,7 @@ The input is structured as JSON too, with an entry for the prompt and another fo
 keyed on the responding LLM.
 """
 
+
 RESPONSES_USER_PROMPT = """
 
   "prompt": {prompt}
@@ -43,6 +44,27 @@ RESPONSES_USER_PROMPT = """
   "responses": {responses}
 
 """
+
+PROMPT_DIFFICULTY_SYSTEM_PROMPT = """
+You are a specialized language model designed to analyze prompts sent by users to LLMs.
+Your task is to take in a prompt, and determine how complex it is for an LLM to answer it,
+as a float between 0 and 1, where 0 is "easy" and 1 is "difficult".
+
+Your response should be just the float, with no other text.
+"""
+
+PROMPT_DIFFICULTY_WITH_RESPONSES_SYSTEM_PROMPT = """
+You are a specialized language model designed to analyze prompts sent by users to LLMs.
+Your task is to take in a prompt and responses to it from different models,
+and determine how complex it is for an LLM to answer it,
+as a float between 0 and 1, where 0 is "easy" and 1 is "difficult".
+One way to do this is to compare the responses; if they differ, the prompt is likely more complex.
+
+Your response should be just the float, with no other text.
+"""
+
+PROMPT_DIFFICULTY_USER_PROMPT = "prompt: {prompt}"
+
 
 COMPARE_RESPONSES_PROMPT = ChatPromptTemplate.from_messages(
     [
@@ -54,6 +76,20 @@ COMPARE_RESPONSES_PROMPT = ChatPromptTemplate.from_messages(
 HIGHLIGHT_SIMILARITIES_PROMPT = ChatPromptTemplate.from_messages(
     [
         ("system", HIGHLIGHT_SIMILARITIES_SYSTEM_PROMPT),
+        ("user", RESPONSES_USER_PROMPT),
+    ]
+)
+
+PROMPT_DIFFICULTY_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        ("system", PROMPT_DIFFICULTY_SYSTEM_PROMPT),
+        ("user", PROMPT_DIFFICULTY_USER_PROMPT),
+    ]
+)
+
+PROMPT_DIFFICULTY_WITH_RESPONSES_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        ("system", PROMPT_DIFFICULTY_WITH_RESPONSES_SYSTEM_PROMPT),
         ("user", RESPONSES_USER_PROMPT),
     ]
 )

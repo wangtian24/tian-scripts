@@ -1,7 +1,5 @@
-import os
 from typing import Any
 
-import nltk
 import torch
 from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -9,7 +7,7 @@ from langchain_core.messages import BaseMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_mistralai import ChatMistralAI
 from langchain_openai import ChatOpenAI
-from nltk.tokenize import sent_tokenize
+from nltk.tokenize import sent_tokenize, word_tokenize
 from pydantic.v1 import SecretStr
 from sentence_transformers import SentenceTransformer
 
@@ -19,15 +17,6 @@ from backend.llm.utils import combine_short_sentences
 
 DEFAULT_HIGH_SIM_THRESHOLD = 0.825
 DEFAULT_UNIQUENESS_THRESHOLD = 0.75
-
-nltk_init = False
-
-
-def init_nltk() -> None:
-    global nltk_init
-    if not nltk_init:
-        nltk.data.path.append(os.environ.get("NLTK_DATA"))
-        nltk_init = True
 
 
 def get_chat_model(provider: ChatProvider | str, model: str, api_key: str) -> BaseChatModel:
@@ -73,7 +62,6 @@ def highlight_llm_similarities_with_embeddings(
     high_sim_threshold: float = DEFAULT_HIGH_SIM_THRESHOLD,
     uniqueness_threshold: float = DEFAULT_UNIQUENESS_THRESHOLD,
 ) -> dict[str, list[str] | list[dict[str, Any]]]:
-    init_nltk()
     model = SentenceTransformer("all-MiniLM-L6-v2")
     sentences_a = combine_short_sentences(sent_tokenize(response_a))
     sentences_b = combine_short_sentences(sent_tokenize(response_b))
@@ -116,3 +104,59 @@ def highlight_llm_similarities_with_embeddings(
         "unique_sentences_a": unique_sentences_a,
         "unique_sentences_b": unique_sentences_b,
     }
+
+
+def prompt_difficulty(
+    prompt: str,
+    responses: list[str],
+    embedding_similarity_weight: float = 0.5,
+    structure_similarity_weight: float = 0.3,
+    content_similarity_weight: float = 0.2,
+) -> dict[str, Any]:
+    # Embedding similarity
+    model = SentenceTransformer("all-MiniLM-L6-v2")
+    embeddings = model.encode(responses, convert_to_tensor=True)
+    similarity_matrix = model.similarity(embeddings, embeddings)  # type: ignore
+    n = len(responses)
+    avg_embedding_similarity = torch.mean(similarity_matrix[torch.triu_indices(n, n, offset=1)])
+
+    # Structure similarity
+    sentence_counts = torch.tensor([len(sent_tokenize(response)) for response in responses])
+    avg_sentence_count = torch.mean(sentence_counts.float())
+    sentence_count_variance = torch.var(sentence_counts.float())
+    structure_similarity = 1 - (sentence_count_variance / avg_sentence_count)
+    coeff_variation = torch.sqrt(sentence_count_variance) / avg_sentence_count
+    structure_similarity = 1 / (1 + coeff_variation)
+
+    # Content similarity
+    word_sets = [set(word_tokenize(response.lower())) for response in responses]
+    common_words = set.intersection(*word_sets)
+    total_words = set.union(*word_sets)
+    content_similarity = len(common_words) / len(total_words)
+
+    prompt_difficulty = (
+        (1 - avg_embedding_similarity) * embedding_similarity_weight
+        + (1 - structure_similarity) * structure_similarity_weight
+        + (1 - content_similarity) * content_similarity_weight
+    )
+
+    return {
+        "prompt_difficulty": prompt_difficulty.item(),
+        "embedding_similarity": avg_embedding_similarity.item(),
+        "structure_similarity": structure_similarity.item(),
+        "content_similarity": content_similarity,
+    }
+
+
+def prompt_difficulty_by_llm(provider: ChatProvider | str, model: str, api_key: str, prompt: str) -> BaseMessage:
+    llm = get_chat_model(provider=provider, model=model, api_key=api_key)
+    chain = prompts.PROMPT_DIFFICULTY_PROMPT | llm
+    return chain.invoke(input={"prompt": prompt})
+
+
+def prompt_difficulty_by_llm_with_responses(
+    provider: ChatProvider | str, model: str, api_key: str, prompt: str, responses: dict[str, str]
+) -> BaseMessage:
+    llm = get_chat_model(provider=provider, model=model, api_key=api_key)
+    chain = prompts.PROMPT_DIFFICULTY_WITH_RESPONSES_PROMPT | llm
+    return chain.invoke(input={"prompt": prompt, "responses": responses})
