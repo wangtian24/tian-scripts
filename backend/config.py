@@ -36,8 +36,14 @@ class Settings(BaseSettings):
 
     DOMAIN: str = "localhost"
     ENVIRONMENT: Literal["test", "local", "staging", "production"] = "local"
-    PROJECT_NAME: str
+    PROJECT_NAME: str = ""
     BACKEND_CORS_ORIGINS: Annotated[CorsOrigins, BeforeValidator(parse_cors)] = []
+
+    POSTGRES_USER: str = ""
+    POSTGRES_PASSWORD: str = ""
+    POSTGRES_HOST: str = ""
+    POSTGRES_HOST_NON_POOLING: str = ""
+    POSTGRES_DATABASE: str = ""
 
     @computed_field  # type: ignore[misc]
     @property
@@ -46,6 +52,11 @@ class Settings(BaseSettings):
         if self.ENVIRONMENT == "local":
             return f"http://{self.DOMAIN}"
         return f"https://{self.DOMAIN}"
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def db_url(self) -> str:
+        return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}/{self.POSTGRES_DATABASE}?sslmode=require"
 
     def _check_default_secret(self, var_name: str, value: str | None) -> None:
         if value == DEFAULT_UNSAFE_PASSWORD:
@@ -66,4 +77,4 @@ class Settings(BaseSettings):
         return self
 
 
-settings = Settings()  # type: ignore
+settings = Settings()

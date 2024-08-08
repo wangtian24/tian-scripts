@@ -1,0 +1,19 @@
+# Postgresql migration history
+
+Database migration script and history for the postgresql database.
+
+The environment variables for the database can be found on vercel or in the template file in 1password. 
+
+We use [Alembic](https://alembic.sqlalchemy.org/en/latest/) to manage migrations. 
+
+## Creating a new migration
+
+1. Change table definiton: update the models in `db/models.py`. 
+2. Generate migration script: run the following command to create a new migration:
+```bash
+alembic revision --autogenerate -m "description for the migration"
+```
+3. A new file will be created in the `versions` folder. Review and make necessary changes. 
+4. TODO(minqi): Document the process of testing migration in development environment.
+5. TODO(minqi): Document the process of deploying migration to production.
+6. Apply actual migration: for now, apply the correct .env file and run `alembic upgrade head` to apply the migration to the corresponding database. 

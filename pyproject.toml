@@ -9,7 +9,10 @@ requires-python = ">=3.11"
 [tool.ruff]
 # The directories to consider when resolving first- vs. third-party imports
 src = ["."]
-exclude = []
+
+exclude = [
+    "alembic/versions/*",
+]
 
 line-length = 120
 indent-width = 4
@@ -67,6 +70,7 @@ readme = "README.md"
 package-mode = true
 
 [tool.poetry.dependencies]
+alembic = "^1.13.2"
 click = "8.1.7"
 fastapi = "0.110.0"
 langchain = "^0.2.10"
@@ -84,7 +88,9 @@ pydantic-settings = "2.2.1"
 pytest-mock = "^3.14.0"
 python = "^3.11"
 python-dotenv = "1.0.1"
+psycopg2 = "^2.9.9"
 scikit-learn = "^1.4.2"
+sqlalchemy = "^2.0.32"
 sentence-transformers = "^3.0.1"
 tqdm = "^4.66.2"
 uvicorn = {version = "0.28.0", extras = ["standard"]}
