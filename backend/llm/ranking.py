@@ -1,6 +1,8 @@
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
+from functools import cache
+from typing import Any, ClassVar
 
 import numpy as np
 import pandas as pd
@@ -9,6 +11,8 @@ ELO_INIT_RATING = 1000.0
 ELO_K = 4
 ELO_BASE = 10
 ELO_SCALE = 400
+
+RANKERS: dict[str, "Ranker"] = {}
 
 
 @dataclass
@@ -30,7 +34,17 @@ class AnnotatedFloat:
         return self.value
 
 
+@dataclass
+class RankedModel:
+    """A model with a rank."""
+
+    model: str
+    rank: AnnotatedFloat
+
+
 class Ranker:
+    ranker_type: ClassVar[str]
+
     def predict(self, model_a: str, model_b: str) -> AnnotatedFloat:
         """Predict the likely outcome of a battle between `model_a` and `model_b`."""
         raise NotImplementedError
@@ -41,6 +55,10 @@ class Ranker:
 
     def rank(self, model: str) -> AnnotatedFloat:
         """Return the relative rank of a model, compared to others."""
+        raise NotImplementedError
+
+    def leaderboard(self) -> list[RankedModel]:
+        """Return the leaderboard."""
         raise NotImplementedError
 
 
@@ -63,9 +81,16 @@ class DataFrameRanker(Ranker):
         else:
             self.battles = pd.concat([self.battles, battle], ignore_index=True)
 
+    def leaderboard(self) -> list[RankedModel]:
+        """Return the leaderboard."""
+        models = set(self.battles["model_a"].unique()) | set(self.battles["model_b"].unique())
+        return [RankedModel(model, self.rank(model)) for model in models]
+
 
 class NaiveRanker(DataFrameRanker):
     """A ranker that uses simple history stats."""
+
+    ranker_type = "naive"
 
     def _count_and_sum_results(self, model_a: str, model_b: str, reverse: bool = False) -> tuple[int, float]:
         """Counts the number of battles between the models and sums the results.
@@ -124,6 +149,8 @@ class NaiveRanker(DataFrameRanker):
 
 class EloRanker(DataFrameRanker):
     """A ranker that uses the Elo rating system."""
+
+    ranker_type = "elo"
 
     def __init__(
         self,
@@ -191,3 +218,15 @@ class EloRanker(DataFrameRanker):
         rating_b = self.ratings[model_b]
         win_probability = 1 / (1 + self.base ** ((rating_b - rating_a) / self.scale))
         return AnnotatedFloat(value=win_probability, annotation=f"{rating_a=:.2f}, {rating_b=:.2f}")
+
+
+RANKER_CLASSES: tuple[type[Ranker], ...] = (EloRanker, NaiveRanker)
+RANKER_TYPES: list[str] = [cls.ranker_type for cls in RANKER_CLASSES]
+
+
+@cache
+def get_ranker(ranker_type: str, *args: Any, **kwargs: Any) -> Ranker:
+    for ranker_cls in RANKER_CLASSES:
+        if ranker_type == ranker_cls.ranker_type:
+            return ranker_cls(*args, **kwargs)
+    raise ValueError(f"Unsupported ranking type: {ranker_type}")
