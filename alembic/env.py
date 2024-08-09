@@ -1,9 +1,12 @@
 from logging.config import fileConfig
 
+import alembic_postgresql_enum  # noqa: F401 for side-effect to handle enum definition in alembic.
 from sqlalchemy import create_engine
 
 from alembic import context
 from backend.config import Settings
+from db import chats  # noqa: F401
+from db.base import BaseModel
 
 config = context.config
 settings = Settings()
@@ -11,7 +14,7 @@ settings = Settings()
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-target_metadata = None
+target_metadata = BaseModel.metadata
 
 
 def run_migrations_offline() -> None:

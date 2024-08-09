@@ -71,6 +71,7 @@ package-mode = true
 
 [tool.poetry.dependencies]
 alembic = "^1.13.2"
+alembic-postgresql-enum = "^1.3.0"
 click = "8.1.7"
 fastapi = "0.110.0"
 langchain = "^0.2.10"
@@ -117,6 +118,7 @@ warn_redundant_casts = true  # Warn about redundant casts
 warn_unused_ignores = true  # Warn about unneeded '# type: ignore' comments
 warn_return_any = true  # Warn about returning values of type 'Any' from functions
 ignore_missing_imports = true  # Ignore errors for missing imports
+exclude = ["alembic/versions"]
 
 [tool.pytest.ini_options]
 filterwarnings = [
