@@ -22,6 +22,7 @@ class Battle:
 @dataclass
 class AnnotatedFloat:
     """An annotated value."""
+
     value: float | None
     annotation: str
 
