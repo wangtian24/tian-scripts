@@ -43,7 +43,6 @@ class Turn(BaseModel):
 
 
 class MessageType(enum.Enum):
-    CHAT_MESSAGE = "chat_message"
     USER_MESSAGE = "user_message"
     ASSISTANT_MESSAGE = "assistant_message"
 
@@ -59,7 +58,7 @@ class ChatMessage(BaseModel):
 
     __mapper_args__ = {
         "polymorphic_on": "message_type",
-        "polymorphic_identity": MessageType.CHAT_MESSAGE,
+        "polymorphic_abstract": True,
     }
 
     content = mapped_column(Text, nullable=False)

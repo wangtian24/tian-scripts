@@ -5,7 +5,7 @@ from sqlalchemy import create_engine
 
 from alembic import context
 from backend.config import Settings
-from db import chats  # noqa: F401
+from db.all_models import all_models  # noqa: F401 for populating metadata.
 from db.base import BaseModel
 
 config = context.config
