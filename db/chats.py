@@ -20,7 +20,9 @@ class Chat(BaseModel):
         back_populates="chat",
         order_by="Turn.sequence",
     )
-    # TODO(minqi): define user relationship
+
+    creator_user_id = mapped_column(Text, ForeignKey("users.id", name="chat_creator_user_id_fkey"), nullable=False)
+    creator = relationship("User", back_populates="chats")
 
 
 class Turn(BaseModel):
@@ -38,6 +40,9 @@ class Turn(BaseModel):
     chat_messages: Mapped[list["ChatMessage"]] = relationship(
         back_populates="turn",
     )
+
+    creator_user_id = mapped_column(Text, ForeignKey("users.id", name="turn_creator_user_id_fkey"), nullable=False)
+    creator = relationship("User", back_populates="turns")
 
     __table_args__ = (UniqueConstraint("chat_id", "sequence_id", name="uq_chat_sequence"),)
 
