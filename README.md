@@ -10,7 +10,7 @@ The backend for providing services over multiple LLMs.
 ### Conda
 
 1. Install micoconda by following the [operating system-specific instructions](https://docs.conda.io/projects/miniconda/en/latest/). 
-1. Insta mamba through the [recommended Miniforge distribution](https://mamba.readthedocs.io/en/latest/installation/mamba-installation.html/).
+1. Insta mamba through the [recommended Miniforge distribution](https://mamba.readthedocs.io/en/latest/installation/mamba-installation.html).
 1. Run the following command to create the run environment. This will createa a minimal virtual environment.
 
 ```sh
