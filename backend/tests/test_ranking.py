@@ -1,6 +1,12 @@
-from pytest import approx
+from pytest import approx, mark, raises
 
-from backend.llm.ranking import AnnotatedFloat, EloRanker, NaiveRanker
+from backend.llm.ranking import (
+    CHOIX_RANKER_ALGORITHMS,
+    ChoixRanker,
+    EloRanker,
+    NaiveRanker,
+)
+from backend.llm.utils import AnnotatedFloat
 
 
 def _assert_approx(annotated_float: AnnotatedFloat, value: float | None, annotation: str) -> None:
@@ -67,3 +73,35 @@ def test_elo_ranker() -> None:
         ranker.rank("a"), 672.676, "Starting value 1000.0; 1005 adjustments (1002 negative, mean=-0.33, stdev=0.39)"
     )
     _assert_approx(ranker.predict("a", "b"), 0.023, "rating_a=672.68, rating_b=1327.32")
+
+
+@mark.filterwarnings("ignore:Mean of empty slice")
+@mark.filterwarnings("ignore:invalid value encountered in scalar divide")
+@mark.parametrize("algo", CHOIX_RANKER_ALGORITHMS)
+def test_choix_ranker(algo: str) -> None:
+    ranker = ChoixRanker(choix_ranker_algorithm=algo)
+
+    assert ranker.rank("a") == AnnotatedFloat(0, "No battles")
+    with raises(ValueError):
+        ranker.predict("a", "b")
+
+    for _ in range(20):
+        ranker.update("a", "b", 1.0)
+    for _ in range(10):
+        ranker.update("a", "b", 0.0)
+    for _ in range(10):
+        ranker.update("a", "b", 0.5)
+
+    _assert_approx(ranker.rank("a"), 0.203, "Wins: 20, Losses: 10, Ties: 10")
+    _assert_approx(ranker.rank("b"), -0.203, "Wins: 10, Losses: 20, Ties: 10")
+    _assert_approx(ranker.predict("a", "b"), 0.6, "rank_a=0.20, rank_b=-0.20")
+
+    for _ in range(5):
+        ranker.update("a", "b", 0.0)
+
+    leaderboard = ranker.leaderboard()
+    assert len(leaderboard) == 2
+    assert leaderboard[0].model == "a"
+    assert leaderboard[1].model == "b"
+    assert leaderboard[0].rank.value == approx(0.09, abs=0.01)
+    assert leaderboard[1].rank.value == approx(-0.09, abs=0.01)
