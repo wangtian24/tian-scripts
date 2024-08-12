@@ -15,13 +15,13 @@ ELO_BASE = 10
 ELO_SCALE = 400
 
 # See https://choix.lum.li/ for more details.
-CHOIX_RANKER_ALGORITHMS = [
+CHOIX_RANKER_ALGORITHMS = (
     "ilsr_pairwise",
     "lsr_pairwise",
     "mm_pairwise",
     "opt_pairwise",
     "rank_centrality",
-]
+)
 
 
 class Ranker:
