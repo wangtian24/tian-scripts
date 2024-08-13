@@ -1,6 +1,9 @@
-from typing import Any
+from typing import Any, Literal
 
+import numpy as np
 from mabwiser.mab import MAB
+
+DEFAULT_COST = 1.0
 
 
 class MABRouter:
@@ -16,7 +19,7 @@ class MABRouter:
         n_jobs: int = 1,
     ):
         if not costs:
-            self.costs = [1.0] * len(arms)
+            self.costs = [DEFAULT_COST] * len(arms)
         else:
             assert len(arms) == len(costs), f"Number of arms ({len(arms)}) and costs ({len(costs)}) differ"
             self.costs = costs
@@ -39,17 +42,32 @@ class MABRouter:
         """Update the router based on new data."""
         self.mab.partial_fit(arms, rewards)
 
-    def select_arms(self, num_arms: int, budget: float = float("inf")) -> list[Any]:
+    def select_arms(
+        self, num_arms: int, budget: float = float("inf"), policy: Literal["best", "probability"] = "best"
+    ) -> list[Any]:
         """Select `num_arms` arms, within budget, to route to."""
         if num_arms > len(self.arms):
             raise ValueError(f"Can't select ({num_arms}) arms out of {len(self.arms)} available ones")
 
-        selected_arms: list[Any] = []
-        total_cost = 0.0
-
         expectations = self.mab.predict_expectations()
 
+        if policy == "best":
+            return self._select_best_arms(expectations, num_arms, budget)
+        elif policy == "probability":
+            return self._select_probability_weighted_arms(expectations, num_arms, budget)
+
+    def _select_probability_weighted_arms(
+        self, expectations: dict[Any, float], num_arms: int, budget: float
+    ) -> list[Any]:
+        probabilities = {arm: expectations[arm] / sum(expectations.values()) for arm in expectations}
+        arms = list(probabilities.keys())
+        return list(np.random.choice(arms, size=2, p=list(probabilities.values()), replace=False))
+
+    def _select_best_arms(self, expectations: dict[Any, float], num_arms: int, budget: float) -> list[Any]:
         sorted_arms = sorted(expectations.items(), key=lambda x: x[1], reverse=True)
+
+        selected_arms: list[Any] = []
+        total_cost = 0.0
 
         for arm, _ in sorted_arms:
             cost = self.costs[self.arms.index(arm)]
@@ -61,3 +79,8 @@ class MABRouter:
             raise ValueError(f"Budget too low to select {num_arms} arms")
 
         return selected_arms
+
+    def add_arm(self, arm: str, cost: float = DEFAULT_COST) -> None:
+        self.arms.append(arm)
+        self.costs.append(cost)
+        self.mab.add_arm(arm)
