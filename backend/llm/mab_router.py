@@ -45,7 +45,17 @@ class MABRouter:
     def select_arms(
         self, num_arms: int, budget: float = float("inf"), policy: Literal["best", "probability"] = "best"
     ) -> list[Any]:
-        """Select `num_arms` arms, within budget, to route to."""
+        """Select `num_arms` arms, within budget, to route to.
+
+        Args:
+            num_arms: The number of arms to select.
+            budget: The max total budget for the arms.
+            policy: The policy to use for selecting arms: "best" for selecting the best arms within budget,
+                "probability" for selecting arms based on probability weighted by expected reward.
+
+        Returns:
+            The selected arms.
+        """
         if num_arms > len(self.arms):
             raise ValueError(f"Can't select ({num_arms}) arms out of {len(self.arms)} available ones")
 
@@ -81,6 +91,7 @@ class MABRouter:
         return selected_arms
 
     def add_arm(self, arm: str, cost: float = DEFAULT_COST) -> None:
+        """Add an arm to the router."""
         self.arms.append(arm)
         self.costs.append(cost)
         self.mab.add_arm(arm)
