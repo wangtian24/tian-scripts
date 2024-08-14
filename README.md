@@ -37,7 +37,7 @@ The backend for providing services over multiple LLMs.
     Warning: copied instructions can get outdated. Please update if you find there is a new or better way.
     </details>
 
-1. Run the following command to create the run environment. This will createa a minimal virtual environment.
+1. In the yupp-llms project directory, run the following command to create the run environment. This will create a minimal virtual environment.
 
 ```sh
 mamba env create -n ys-dev --file envs/dev.yml
