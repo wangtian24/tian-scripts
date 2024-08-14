@@ -87,3 +87,9 @@ def test_update_model() -> None:
     router.update(decisions, rewards)
     arm_counts = _get_arm_counts(router, 100)
     assert arm_counts["chatgpt"] < arm_counts["llama"]
+
+    router.add_arm("claude", 10.0)
+    decisions, rewards = _get_decisions_and_rewards({"chatgpt": 0.1, "llama": 0.1, "claude": 0.8}, 100)
+    router.update(decisions, rewards)
+    arm_counts = _get_arm_counts(router, 100)
+    assert arm_counts["claude"] > 1
