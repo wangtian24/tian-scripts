@@ -9,8 +9,34 @@ The backend for providing services over multiple LLMs.
 
 ### Conda
 
-1. Install micoconda by following the [operating system-specific instructions](https://docs.conda.io/projects/miniconda/en/latest/). 
+1. Install miniconda by following the [operating system-specific instructions](https://docs.conda.io/projects/miniconda/en/latest/).
+
+    <details>
+    <summary>Sample for macOS with zsh (click to expand)</summary>
+
+    ```sh
+    mkdir -p ~/miniconda3
+    curl https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-arm64.sh -o ~/miniconda3/miniconda.sh
+    bash ~/miniconda3/miniconda.sh -b -u -p ~/miniconda3
+    rm -rf ~/miniconda3/miniconda.sh
+    ~/miniconda3/bin/conda init zsh
+    ```
+
+    Warning: copied instructions can get outdated. Please update if you find there is a new or better way.
+    </details>
+
 1. Insta mamba through the [recommended Miniforge distribution](https://mamba.readthedocs.io/en/latest/installation/mamba-installation.html).
+
+    <details>
+    <summary>Sample macOS (click to expand)</summary>
+    
+    ```sh
+    brew install miniforge
+    ```
+
+    Warning: copied instructions can get outdated. Please update if you find there is a new or better way.
+    </details>
+
 1. Run the following command to create the run environment. This will createa a minimal virtual environment.
 
 ```sh
@@ -25,6 +51,8 @@ Once the virtual environment is setup and activated, dependencies are managed by
 ```sh
 poetry install --no-root
 ```
+
+If you get an error about `psycopg2`, installing postres fixes it. `brew install postgresql` and then rerun poetry.
 
 Once all the dependencies are installed, make a copy of the sample `.env.copy` environment and fill in the values:
 
