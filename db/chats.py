@@ -1,7 +1,8 @@
 import enum
 import uuid
+from enum import Enum
 
-from sqlalchemy import ForeignKey, Integer, String, Text, UniqueConstraint, Uuid
+from sqlalchemy import JSON, ForeignKey, Integer, String, Text, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from db.base import BaseModel
@@ -84,6 +85,21 @@ class AssistantMessage(ChatMessage):
     # the model identifier for the language model that generated this message.
     # TODO(minqi): convert to a model relationship when we need it.
     assistant_model_name = mapped_column(String)
+
+
+class EvalType(Enum):
+    # Primitive evaluation of two responses where the user distributes 100 points between two responses.
+    # The eval result is a dictionary where the key is the model name and the value is the number of points.
+    SLIDER_V0 = "slider_v0"
+
+
+class Eval(BaseModel):
+    __tablename__ = "evals"
+
+    eval_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    eval_type: Mapped[EvalType] = mapped_column(nullable=False)
+    eval_result_json: Mapped[dict] = mapped_column(JSON, nullable=False)
 
 
 # TODO(minqi): Add comparison result (fka yupptake).
