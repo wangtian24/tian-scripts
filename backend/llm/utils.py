@@ -1,5 +1,10 @@
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
+
+import numpy as np
+
+EPSILON = 1e-9
 
 
 def combine_short_sentences(
@@ -62,3 +67,25 @@ class RankedModel:
 
     def to_dict(self) -> dict[str, Any]:
         return {"model": self.model, "rank": self.rank.value, "annotation": self.rank.annotation}
+
+
+def norm_softmax(arr: Iterable[float]) -> np.ndarray:
+    """
+    Returns pseudo-probabilities using a sigmoid-like normalization and softmax.
+    """
+    arr = np.array(arr, dtype=float)
+
+    if any(np.isnan(x) or np.isinf(x) for x in arr):
+        raise ValueError("Input array contains infinite or NaN values.")
+
+    if len(arr) <= 1:
+        return np.array([1] * len(arr))
+
+    if np.all(arr == arr[0]):
+        return np.full_like(arr, 1 / len(arr))  # Uniform distribution
+
+    scale = max(np.abs(arr).max(), EPSILON)
+    sigmoid = 1 / (1 + np.exp(-arr / scale))
+    exp_sigmoid = np.exp(sigmoid)
+
+    return np.array(exp_sigmoid / np.sum(exp_sigmoid))
