@@ -11,7 +11,7 @@ def model_rank(
     ranker_type: str = Query(default="elo", description="The ranker type", choices=RANKER_TYPES),
     model_name: str = Query(..., description="The model name"),
 ) -> AnnotatedFloat:
-    return get_ranker(ranker_type).rank(model_name)
+    return get_ranker(ranker_type).rank_annotate(model_name)
 
 
 @router.get("/leaderboard")
