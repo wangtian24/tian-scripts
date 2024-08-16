@@ -2,10 +2,11 @@ import enum
 import uuid
 from enum import Enum
 
-from sqlalchemy import JSON, ForeignKey, Integer, String, Text, UniqueConstraint, Uuid
+from sqlalchemy import ForeignKey, Integer, String, Text, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from db.base import BaseModel
+from db.users import User
 
 
 # A chat can contain multiple conversations.
@@ -96,10 +97,17 @@ class EvalType(Enum):
 class Eval(BaseModel):
     __tablename__ = "evals"
 
-    eval_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    eval_id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    user: Mapped[User] = relationship()
     eval_type: Mapped[EvalType] = mapped_column(nullable=False)
-    eval_result_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    message_1_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("chat_messages.message_id"), nullable=False)
+    message_1: Mapped[ChatMessage] = relationship()
+    message_2_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("chat_messages.message_id"), nullable=True)
+    message_2: Mapped[ChatMessage] = relationship()
+    score_1: Mapped[float] = mapped_column(nullable=True)
+    score_2: Mapped[float] = mapped_column(nullable=True)
+    user_comment: Mapped[str] = mapped_column(nullable=True)
 
 
 # TODO(minqi): Add comparison result (fka yupptake).

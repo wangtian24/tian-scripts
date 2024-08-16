@@ -2,7 +2,7 @@
 
 Revision ID: bc010c576bd1
 Revises: 6603078f1072
-Create Date: 2024-08-14 18:45:33.466878+00:00
+Create Date: 2024-08-15 23:59:08.407595+00:00
 
 """
 from collections.abc import Sequence
@@ -23,12 +23,18 @@ def upgrade() -> None:
     sa.Enum('SLIDER_V0', name='evaltype').create(op.get_bind())
     op.create_table('evals',
     sa.Column('eval_id', sa.Uuid(), nullable=False),
-    sa.Column('user_id', sa.Uuid(), nullable=False),
+    sa.Column('user_id', sa.Text(), nullable=False),
     sa.Column('eval_type', postgresql.ENUM('SLIDER_V0', name='evaltype', create_type=False), nullable=False),
-    sa.Column('eval_result_json', sa.JSON(), nullable=False),
+    sa.Column('message_1_id', sa.Uuid(), nullable=False),
+    sa.Column('message_2_id', sa.Uuid(), nullable=True),
+    sa.Column('score_1', sa.Float(), nullable=True),
+    sa.Column('score_2', sa.Float(), nullable=True),
+    sa.Column('user_comment', sa.String(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.Column('modified_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
+    sa.ForeignKeyConstraint(['message_1_id'], ['chat_messages.message_id'], ),
+    sa.ForeignKeyConstraint(['message_2_id'], ['chat_messages.message_id'], ),
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ),
     sa.PrimaryKeyConstraint('eval_id')
     )
