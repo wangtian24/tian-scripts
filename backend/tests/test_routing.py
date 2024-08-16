@@ -1,6 +1,6 @@
 from collections import Counter
 
-from backend.llm.ranking import Battle, ChoixRanker, EloRanker
+from backend.llm.ranking import Battle, ChoixRanker, ChoixRankerConfIntervals, EloRanker
 from backend.llm.routing import RankedRouter, RoutingPolicy
 from backend.tests.utils import get_battles
 
@@ -47,3 +47,35 @@ def test_top_routing() -> None:
     counts = _get_model_counts_in_battles(routed_battles)  # type: ignore
     assert len(counts) == 2
     assert counts["gpt-3"] == counts["gpt-2"]
+
+
+def test_decrease_conf_interval_routing() -> None:
+    models = ["a", "b", "c", "d"]
+    ranker = ChoixRankerConfIntervals(
+        models=models,
+        num_bootstrap_iterations=5,
+        choix_ranker_algorithm="lsr_pairwise",
+    )
+
+    # a and b have the same amount of wins/losses against each other, while c always wins over d,
+    # so the confidence intervals should be wider for a and b.
+    for _ in range(2):
+        ranker.update("a", "b", 1.0)
+        ranker.update("a", "b", 0.0)
+        ranker.update("c", "d", 1.0)
+        ranker.update("d", "c", 0.0)
+
+    router = RankedRouter(models, ranker)
+    routed_battles = [router.select_models(2, policy=RoutingPolicy.DECREASE_CONF_INTERVAL) for _ in range(10)]
+
+    assert sorted(routed_battles[0]) == ["a", "b"]
+
+    # Make the battles less ambiguous for a/b, and more ambiguous for c/d.
+    for _ in range(3):
+        ranker.update("a", "b", 1.0)
+        ranker.update("b", "a", 0.0)
+        ranker.update("c", "d", 0.0)
+        ranker.update("c", "d", 1.0)
+
+    routed_battles = [router.select_models(2, policy=RoutingPolicy.DECREASE_CONF_INTERVAL) for _ in range(10)]
+    assert sorted(routed_battles[0]) == ["c", "d"]
