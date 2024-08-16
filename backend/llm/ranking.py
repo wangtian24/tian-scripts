@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 from collections import Counter, defaultdict
 from collections.abc import Iterable
 from functools import cache
@@ -100,6 +101,13 @@ class Ranker:
         """Add a model to the ranker."""
         self.models.append(model)
         self.costs.append(cost)
+
+
+class ConfidenceIntervalRankerMixin(ABC):
+    @abstractmethod
+    def confidence_intervals(self) -> dict[str, ConfInterval]:
+        """Returns the confidence intervals of all models."""
+        raise NotImplementedError
 
 
 class DataFrameRanker(Ranker):
@@ -461,7 +469,7 @@ class ChoixRanker(Ranker):
         return f"{rank_a=:.2f}, {rank_b=:.2f}"
 
 
-class ChoixRankerConfIntervals(ChoixRanker):
+class ChoixRankerConfIntervals(ChoixRanker, ConfidenceIntervalRankerMixin):
     """A ChoixRanker that adds confidence intervals to the predictions."""
 
     ranker_type = "choix_conf_intervals"
@@ -491,6 +499,11 @@ class ChoixRankerConfIntervals(ChoixRanker):
         rank = self.rank(model)
         conf_intervals = self.conf_intervals.get(model, (None, None))
         return rank, conf_intervals[0], conf_intervals[1]
+
+    def confidence_intervals(self) -> dict[str, ConfInterval]:
+        """Returns the confidence intervals of all models."""
+        self._maybe_update_ranks()
+        return self.conf_intervals
 
     def ranks_conf_intervals(self) -> dict[str, tuple[float, ConfInterval]]:
         """Returns the ranks of all models, along with their confidence intervals."""

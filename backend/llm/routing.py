@@ -4,7 +4,7 @@ from typing import Any
 
 import numpy as np
 
-from backend.llm.ranking import Ranker
+from backend.llm.ranking import ConfidenceIntervalRankerMixin, Ranker
 from backend.llm.utils import norm_softmax
 
 
@@ -45,6 +45,9 @@ class RankedRouter(Router):
         self.ranker = ranker
         self.rng = np.random.RandomState(seed)
 
+    def update_ranker(self, model_a: str, model_b: str, result: float) -> None:
+        return self.ranker.update(model_a, model_b, result)
+
     def select_models(
         self, num_models: int, policy: RoutingPolicy = RoutingPolicy.TOP, budget: float = float("inf"), **kwargs: Any
     ) -> list[Any]:
@@ -62,22 +65,25 @@ class RankedRouter(Router):
         if num_models > len(self.models):
             raise ValueError(f"Can't select ({num_models}) models out of {len(self.models)} available ones")
 
-        ranks = self.ranker.ranks()
-
         if policy == RoutingPolicy.TOP:
-            return self._select_best_models(ranks, num_models, budget)
+            return self._select_best_models(num_models, budget)
         elif policy == RoutingPolicy.PROPORTIONAL:
-            return self._select_probability_weighted_models(ranks, num_models, budget)
+            return self._select_probability_weighted_models(num_models, budget)
+        elif policy == RoutingPolicy.DECREASE_CONF_INTERVAL:
+            return self._select_decrease_conf_interval_models(num_models, budget)
         else:
             raise ValueError(f"Unsupported routing policy: {policy}")
 
-    def _select_probability_weighted_models(self, ranks: dict[Any, float], num_models: int, budget: float) -> list[Any]:
+    def _select_probability_weighted_models(self, num_models: int, budget: float) -> list[Any]:
+        ranks = self.ranker.ranks()
+
         # Convert ranks to probabilities with a sigmoid.
         probabilities = norm_softmax(np.array(list(ranks.values())))
         models = list(ranks.keys())
         return list(self.rng.choice(models, size=num_models, p=probabilities, replace=False))
 
-    def _select_best_models(self, ranks: dict[Any, float], num_models: int, budget: float) -> list[Any]:
+    def _select_best_models(self, num_models: int, budget: float) -> list[Any]:
+        ranks = self.ranker.ranks()
         sorted_models = sorted(ranks.items(), key=lambda x: x[1], reverse=True)
 
         selected_models: list[Any] = []
@@ -94,3 +100,10 @@ class RankedRouter(Router):
             raise ValueError(f"Budget too low to select {num_models} models")
 
         return selected_models
+
+    def _select_decrease_conf_interval_models(self, num_models: int, budget: float) -> list[Any]:
+        if not isinstance(self.ranker, ConfidenceIntervalRankerMixin):
+            raise ValueError("Ranker must be a confidence interval ranker")
+        conf_intervals = self.ranker.confidence_intervals()
+        sorted_models = sorted(conf_intervals.items(), key=lambda x: abs(x[1][1] - x[1][0]), reverse=True)
+        return [model for model, _ in sorted_models[:num_models]]

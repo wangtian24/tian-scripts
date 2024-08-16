@@ -37,4 +37,4 @@ def update_router(
     model_b: str = Query(..., description="Model B"),  # noqa: B008
     result: float = Query(..., description="Outcome (for Model A)"),  # noqa: B008
 ) -> None:
-    get_router().ranker.update(model_a, model_b, result)
+    get_router().update_ranker(model_a, model_b, result)
