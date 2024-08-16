@@ -2,7 +2,7 @@
 
 Revision ID: bc010c576bd1
 Revises: 6603078f1072
-Create Date: 2024-08-15 23:59:08.407595+00:00
+Create Date: 2024-08-16 18:35:54.195691+00:00
 
 """
 from collections.abc import Sequence
@@ -24,6 +24,7 @@ def upgrade() -> None:
     op.create_table('evals',
     sa.Column('eval_id', sa.Uuid(), nullable=False),
     sa.Column('user_id', sa.Text(), nullable=False),
+    sa.Column('turn_id', sa.Uuid(), nullable=False),
     sa.Column('eval_type', postgresql.ENUM('SLIDER_V0', name='evaltype', create_type=False), nullable=False),
     sa.Column('message_1_id', sa.Uuid(), nullable=False),
     sa.Column('message_2_id', sa.Uuid(), nullable=True),
@@ -35,6 +36,7 @@ def upgrade() -> None:
     sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
     sa.ForeignKeyConstraint(['message_1_id'], ['chat_messages.message_id'], ),
     sa.ForeignKeyConstraint(['message_2_id'], ['chat_messages.message_id'], ),
+    sa.ForeignKeyConstraint(['turn_id'], ['turns.turn_id'], ),
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ),
     sa.PrimaryKeyConstraint('eval_id')
     )

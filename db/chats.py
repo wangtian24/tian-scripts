@@ -46,6 +46,8 @@ class Turn(BaseModel):
     creator_user_id = mapped_column(Text, ForeignKey("users.id", name="turn_creator_user_id_fkey"), nullable=False)
     creator = relationship("User", back_populates="turns")
 
+    evals: Mapped[list["Eval"]] = relationship(back_populates="turn")
+
     __table_args__ = (UniqueConstraint("chat_id", "sequence_id", name="uq_chat_sequence"),)
 
 
@@ -100,6 +102,8 @@ class Eval(BaseModel):
     eval_id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     user: Mapped[User] = relationship()
+    turn_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("turns.turn_id"), nullable=False)
+    turn: Mapped[Turn] = relationship()
     eval_type: Mapped[EvalType] = mapped_column(nullable=False)
     message_1_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("chat_messages.message_id"), nullable=False)
     message_1: Mapped[ChatMessage] = relationship()
