@@ -52,7 +52,7 @@ Once the virtual environment is setup and activated, dependencies are managed by
 poetry install --no-root
 ```
 
-If you get an error about `psycopg2`, installing postres fixes it. `brew install postgresql` and then rerun poetry.
+If you get an error about `psycopg2`, installing postgresql fixes it. `brew install postgresql` and then rerun poetry.
 
 Once all the dependencies are installed, make a copy of the sample `.env.copy` environment and fill in the values:
 
