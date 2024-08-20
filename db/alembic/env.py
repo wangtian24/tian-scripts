@@ -1,9 +1,9 @@
 from logging.config import fileConfig
 
 import alembic_postgresql_enum  # noqa: F401 for side-effect to handle enum definition in alembic.
+from alembic import context
 from sqlalchemy import create_engine
 
-from alembic import context
 from backend.config import Settings
 from db.all_models import all_models  # noqa: F401 for populating metadata.
 from db.base import BaseModel

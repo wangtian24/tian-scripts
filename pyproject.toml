@@ -11,7 +11,7 @@ requires-python = ">=3.11"
 src = ["."]
 
 exclude = [
-    "alembic/versions/*",
+    "db/alembic/versions/*",
     "tmp/",
 ]
 
@@ -119,7 +119,7 @@ warn_redundant_casts = true  # Warn about redundant casts
 warn_unused_ignores = true  # Warn about unneeded '# type: ignore' comments
 warn_return_any = true  # Warn about returning values of type 'Any' from functions
 ignore_missing_imports = true  # Ignore errors for missing imports
-exclude = ["alembic/", "tmp/"]
+exclude = ["db/alembic/", "tmp/"]
 
 [tool.pytest.ini_options]
 filterwarnings = [
