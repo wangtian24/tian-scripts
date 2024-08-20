@@ -1,0 +1,5 @@
+date=2024-08-20 17:31:27+0000
+os=Linux 6.10.0-linuxkit
+schemaspy-version=7.0.0-SNAPSHOT
+schemaspy-revision=2968415dda55998022ccfbc2a4ff09066c1d6dff
+renderer=Graphviz dot 2.43.0 

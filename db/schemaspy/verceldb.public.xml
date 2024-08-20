@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<database name="verceldb" schema="public" type="PostgreSQL - 16.3">
+   <tables>
+      <table name="accounts" remarks="" schema="public" type="TABLE">
+         <column autoUpdated="false" defaultValue="null" digits="0" id="0" name="provider" nullable="false" remarks="" size="2147483647" type="text" typeCode="12"/>
+         <column autoUpdated="false" defaultValue="null" digits="0" id="1" name="provider_account_id" nullable="false" remarks="" size="2147483647" type="text" typeCode="12"/>
+         <column autoUpdated="false" defaultValue="null" digits="0" id="2" name="user_id" nullable="false" remarks="" size="2147483647" type="text" typeCode="12">
+            <parent column="id" foreignKey="accounts_user_id_fkey" implied="false" onDeleteCascade="true" schema="public" table="users"/>
+         </column>
+         <column autoUpdated="false" defaultValue="null" digits="0" id="3" name="type" nullable="false" remarks="" size="2147483647" type="text" typeCode="12"/>
+         <column autoUpdated="false" defaultValue="null" digits="0" id="4" name="refresh_token" nullable="true" remarks="" size="2147483647" type="text" typeCode="12"/>
+         <column autoUpdated="false" defaultValue="null" digits="0" id="5" name="access_token" nullable="true" remarks="" size="2147483647" type="text" typeCode="12"/>
+         <column autoUpdated="false" defaultValue="null" digits="0" id="6" name="expires_at" nullable="true" remarks="" size="10" type="int4" typeCode="4"/>
+         <column autoUpdated="false" defaultValue="null" digits="0" id="7" name="token_type" nullable="true" remarks="" size="2147483647" type="text" typeCode="12"/>
+         <column autoUpdated="false" defaultValue="null" digits="0" id="8" name="scope" nullable="true" remarks="" size="2147483647" type="text" typeCode="12"/>
+         <column autoUpdated="false" defaultValue="null" digits="0" id="9" name="id_token" nullable="true" remarks="" size="2147483647" type="text" typeCode="12"/>
+         <column autoUpdated="false" defaultValue="null" digits="0" id="10" name="session_state" nullable="true" remarks="" size="2147483647" type="text" typeCode="12"/>
+         <column autoUpdated="false" defaultValue="now()" digits="6" id="11" name="created_at" nullable="true" remarks="" size="35" type="timestamptz" typeCode="93"/>
+         <column autoUpdated="false" defaultValue="now()" digits="6" id="12" name="modified_at" nullable="true" remarks="" size="35" type="timestamptz" typeCode="93"/>
+         <column autoUpdated="false" defaultValue="null" digits="6" id="13" name="deleted_at" nullable="true" remarks="" size="35" type="timestamptz" typeCode="93"/>
+         <primaryKey column="provider" sequenceNumberInPK="1"/>
+         <primaryKey column="provider_account_id" sequenceNumberInPK="2"/>
+         <index name="accounts_pkey" unique="true">
+            <column ascending="true" name="provider"/>
+            <column ascending="true" name="provider_account_id"/>
+         </index>
+      </table>
+      <table name="alembic_version" remarks="" schema="public" type="TABLE">
+         <column autoUpdated="false" defaultValue="null" digits="0" id="0" name="version_num" nullable="false" remarks="" size="32" type="varchar" typeCode="12"/>
+         <primaryKey column="version_num" sequenceNumberInPK="1"/>
+         <index name="alembic_version_pkc" unique="true">
+            <column ascending="true" name="version_num"/>
+         </index>
+      </table>
+      <table name="chat_messages" numRows="620" remarks="" schema="public" type="TABLE">
+         <column autoUpdated="false" defaultValue="null" digits="0" id="0" name="message_id" nullable="false" remarks="" size="2147483647" type="uuid" typeCode="1111">
+            <child column="message_1_id" foreignKey="evals_message_1_id_fkey" implied="false" onDeleteCascade="false" schema="public" table="evals"/>
+            <child column="message_2_id" foreignKey="evals_message_2_id_fkey" implied="false" onDeleteCascade="false" schema="public" table="evals"/>
+         </column>
+         <column autoUpdated="false" defaultValue="null" digits="0" id="1" name="message_type" nullable="false" remarks="" size="2147483647" type="messagetype" typeCode="12"/>
+         <column autoUpdated="false" defaultValue="null" digits="0" id="2" name="turn_id" nullable="false" remarks="" size="2147483647" type="uuid" typeCode="1111">
+            <parent column="turn_id" foreignKey="chat_messages_turn_id_fkey" implied="false" onDeleteCascade="false" schema="public" table="turns"/>
+         </column>
+         <column autoUpdated="false" defaultValue="null" digits="0" id="3" name="content" nullable="false" remarks="" size="2147483647" type="text" typeCode="12"/>
+         <column autoUpdated="false" defaultValue="now()" digits="6" id="4" name="created_at" nullable="true" remarks="" size="35" type="timestamptz" typeCode="93"/>
+         <column autoUpdated="false" defaultValue="now()" digits="6" id="5" name="modified_at" nullable="true" remarks="" size="35" type="timestamptz" typeCode="93"/>
+         <column autoUpdated="false" defaultValue="null" digits="6" id="6" name="deleted_at" nullable="true" remarks="" size="35" type="timestamptz" typeCode="93"/>
+         <column autoUpdated="false" defaultValue="null" digits="0" id="7" name="assistant_model_name" nullable="true" remarks="" size="2147483647" type="varchar" typeCode="12"/>
+         <primaryKey column="message_id" sequenceNumberInPK="1"/>
+         <index name="chat_messages_pkey" unique="true">
+            <column ascending="true" name="message_id"/>
+         </index>
+      </table>
+      <table name="chats" remarks="" schema="public" type="TABLE">
+         <column autoUpdated="false" defaultValue="null" digits="0" id="0" name="chat_id" nullable="false" remarks="" size="2147483647" type="uuid" typeCode="1111">
+            <child column="chat_id" foreignKey="turns_chat_id_fkey" implied="false" onDeleteCascade="false" schema="public" table="turns"/>
+         </column>
+         <column autoUpdated="false" defaultValue="null" digits="0" id="1" name="title" nullable="false" remarks="" size="2147483647" type="text" typeCode="12"/>
+         <column autoUpdated="false" defaultValue="null" digits="0" id="2" name="path" nullable="false" remarks="" size="2147483647" type="text" typeCode="12"/>
+         <column autoUpdated="false" defaultValue="now()" digits="6" id="3" name="created_at" nullable="true" remarks="" size="35" type="timestamptz" typeCode="93"/>
+         <column autoUpdated="false" defaultValue="now()" digits="6" id="4" name="modified_at" nullable="true" remarks="" size="35" type="timestamptz" typeCode="93"/>
+         <column autoUpdated="false" defaultValue="null" digits="6" id="5" name="deleted_at" nullable="true" remarks="" size="35" type="timestamptz" typeCode="93"/>
+         <column autoUpdated="false" defaultValue="null" digits="0" id="6" name="creator_user_id" nullable="false" remarks="" size="2147483647" type="text" typeCode="12">
+            <parent column="id" foreignKey="chat_creator_user_id_fkey" implied="false" onDeleteCascade="false" schema="public" table="users"/>
+         </column>
+         <primaryKey column="chat_id" sequenceNumberInPK="1"/>
+         <index name="chats_pkey" unique="true">
+            <column ascending="true" name="chat_id"/>
+         </index>
+         <index name="ix_chats_path" unique="true">
+            <column ascending="true" name="path"/>
+         </index>
+      </table>
+      <table name="evals" remarks="" schema="public" type="TABLE">
+         <column autoUpdated="false" defaultValue="null" digits="0" id="0" name="eval_id" nullable="false" remarks="" size="2147483647" type="uuid" typeCode="1111"/>
+         <column autoUpdated="false" defaultValue="null" digits="0" id="1" name="user_id" nullable="false" remarks="" size="2147483647" type="text" typeCode="12">
+            <parent column="id" foreignKey="evals_user_id_fkey" implied="false" onDeleteCascade="false" schema="public" table="users"/>
+         </column>
+         <column autoUpdated="false" defaultValue="null" digits="0" id="2" name="turn_id" nullable="false" remarks="" size="2147483647" type="uuid" typeCode="1111">
+            <parent column="turn_id" foreignKey="evals_turn_id_fkey" implied="false" onDeleteCascade="false" schema="public" table="turns"/>
+         </column>
+         <column autoUpdated="false" defaultValue="null" digits="0" id="3" name="eval_type" nullable="false" remarks="" size="2147483647" type="evaltype" typeCode="12"/>
+         <column autoUpdated="false" defaultValue="null" digits="0" id="4" name="message_1_id" nullable="false" remarks="" size="2147483647" type="uuid" typeCode="1111">
+            <parent column="message_id" foreignKey="evals_message_1_id_fkey" implied="false" onDeleteCascade="false" schema="public" table="chat_messages"/>
+         </column>
+         <column autoUpdated="false" defaultValue="null" digits="0" id="5" name="message_2_id" nullable="true" remarks="" size="2147483647" type="uuid" typeCode="1111">
+            <parent column="message_id" foreignKey="evals_message_2_id_fkey" implied="false" onDeleteCascade="false" schema="public" table="chat_messages"/>
+         </column>
+         <column autoUpdated="false" defaultValue="null" digits="17" id="6" name="score_1" nullable="true" remarks="" size="17" type="float8" typeCode="8"/>
+         <column autoUpdated="false" defaultValue="null" digits="17" id="7" name="score_2" nullable="true" remarks="" size="17" type="float8" typeCode="8"/>
+         <column autoUpdated="false" defaultValue="null" digits="0" id="8" name="user_comment" nullable="true" remarks="" size="2147483647" type="varchar" typeCode="12"/>
+         <column autoUpdated="false" defaultValue="now()" digits="6" id="9" name="created_at" nullable="true" remarks="" size="35" type="timestamptz" typeCode="93"/>
+         <column autoUpdated="false" defaultValue="now()" digits="6" id="10" name="modified_at" nullable="true" remarks="" size="35" type="timestamptz" typeCode="93"/>
+         <column autoUpdated="false" defaultValue="null" digits="6" id="11" name="deleted_at" nullable="true" remarks="" size="35" type="timestamptz" typeCode="93"/>
+         <primaryKey column="eval_id" sequenceNumberInPK="1"/>
+         <index name="evals_pkey" unique="true">
+            <column ascending="true" name="eval_id"/>
+         </index>
+      </table>
+      <table name="sessions" remarks="" schema="public" type="TABLE">
+         <column autoUpdated="false" defaultValue="null" digits="0" id="0" name="session_id" nullable="false" remarks="" size="2147483647" type="uuid" typeCode="1111"/>
+         <column autoUpdated="false" defaultValue="null" digits="0" id="1" name="session_token" nullable="false" remarks="" size="2147483647" type="text" typeCode="12"/>
+         <column autoUpdated="false" defaultValue="null" digits="0" id="2" name="user_id" nullable="false" remarks="" size="2147483647" type="text" typeCode="12">
+            <parent column="id" foreignKey="sessions_user_id_fkey" implied="false" onDeleteCascade="true" schema="public" table="users"/>
+         </column>
+         <column autoUpdated="false" defaultValue="null" digits="6" id="3" name="expires" nullable="false" remarks="" size="29" type="timestamp" typeCode="93"/>
+         <column autoUpdated="false" defaultValue="now()" digits="6" id="4" name="created_at" nullable="true" remarks="" size="35" type="timestamptz" typeCode="93"/>
+         <column autoUpdated="false" defaultValue="now()" digits="6" id="5" name="modified_at" nullable="true" remarks="" size="35" type="timestamptz" typeCode="93"/>
+         <column autoUpdated="false" defaultValue="null" digits="6" id="6" name="deleted_at" nullable="true" remarks="" size="35" type="timestamptz" typeCode="93"/>
+         <primaryKey column="session_id" sequenceNumberInPK="1"/>
+         <index name="sessions_pkey" unique="true">
+            <column ascending="true" name="session_id"/>
+         </index>
+         <index name="sessions_session_token_key" unique="true">
+            <column ascending="true" name="session_token"/>
+         </index>
+      </table>
+      <table name="turns" remarks="" schema="public" type="TABLE">
+         <column autoUpdated="false" defaultValue="null" digits="0" id="0" name="turn_id" nullable="false" remarks="" size="2147483647" type="uuid" typeCode="1111">
+            <child column="turn_id" foreignKey="chat_messages_turn_id_fkey" implied="false" onDeleteCascade="false" schema="public" table="chat_messages"/>
+            <child column="turn_id" foreignKey="evals_turn_id_fkey" implied="false" onDeleteCascade="false" schema="public" table="evals"/>
+         </column>
+         <column autoUpdated="false" defaultValue="null" digits="0" id="1" name="chat_id" nullable="false" remarks="" size="2147483647" type="uuid" typeCode="1111">
+            <parent column="chat_id" foreignKey="turns_chat_id_fkey" implied="false" onDeleteCascade="false" schema="public" table="chats"/>
+         </column>
+         <column autoUpdated="false" defaultValue="null" digits="0" id="2" name="sequence_id" nullable="false" remarks="" size="10" type="int4" typeCode="4"/>
+         <column autoUpdated="false" defaultValue="now()" digits="6" id="3" name="created_at" nullable="true" remarks="" size="35" type="timestamptz" typeCode="93"/>
+         <column autoUpdated="false" defaultValue="now()" digits="6" id="4" name="modified_at" nullable="true" remarks="" size="35" type="timestamptz" typeCode="93"/>
+         <column autoUpdated="false" defaultValue="null" digits="6" id="5" name="deleted_at" nullable="true" remarks="" size="35" type="timestamptz" typeCode="93"/>
+         <column autoUpdated="false" defaultValue="null" digits="0" id="6" name="creator_user_id" nullable="false" remarks="" size="2147483647" type="text" typeCode="12">
+            <parent column="id" foreignKey="turn_creator_user_id_fkey" implied="false" onDeleteCascade="false" schema="public" table="users"/>
+         </column>
+         <primaryKey column="turn_id" sequenceNumberInPK="1"/>
+         <index name="turns_pkey" unique="true">
+            <column ascending="true" name="turn_id"/>
+         </index>
+         <index name="uq_chat_sequence" unique="true">
+            <column ascending="true" name="chat_id"/>
+            <column ascending="true" name="sequence_id"/>
+         </index>
+      </table>
+      <table name="users" remarks="" schema="public" type="TABLE">
+         <column autoUpdated="false" defaultValue="null" digits="0" id="0" name="id" nullable="false" remarks="" size="2147483647" type="text" typeCode="12">
+            <child column="user_id" foreignKey="accounts_user_id_fkey" implied="false" onDeleteCascade="true" schema="public" table="accounts"/>
+            <child column="creator_user_id" foreignKey="chat_creator_user_id_fkey" implied="false" onDeleteCascade="false" schema="public" table="chats"/>
+            <child column="user_id" foreignKey="evals_user_id_fkey" implied="false" onDeleteCascade="false" schema="public" table="evals"/>
+            <child column="user_id" foreignKey="sessions_user_id_fkey" implied="false" onDeleteCascade="true" schema="public" table="sessions"/>
+            <child column="creator_user_id" foreignKey="turn_creator_user_id_fkey" implied="false" onDeleteCascade="false" schema="public" table="turns"/>
+         </column>
+         <column autoUpdated="false" defaultValue="null" digits="0" id="1" name="name" nullable="true" remarks="" size="2147483647" type="text" typeCode="12"/>
+         <column autoUpdated="false" defaultValue="null" digits="0" id="2" name="email" nullable="false" remarks="" size="2147483647" type="text" typeCode="12"/>
+         <column autoUpdated="false" defaultValue="null" digits="6" id="3" name="email_verified" nullable="true" remarks="" size="29" type="timestamp" typeCode="93"/>
+         <column autoUpdated="false" defaultValue="null" digits="0" id="4" name="image" nullable="true" remarks="" size="2147483647" type="text" typeCode="12"/>
+         <column autoUpdated="false" defaultValue="now()" digits="6" id="5" name="created_at" nullable="true" remarks="" size="35" type="timestamptz" typeCode="93"/>
+         <column autoUpdated="false" defaultValue="now()" digits="6" id="6" name="modified_at" nullable="true" remarks="" size="35" type="timestamptz" typeCode="93"/>
+         <column autoUpdated="false" defaultValue="null" digits="6" id="7" name="deleted_at" nullable="true" remarks="" size="35" type="timestamptz" typeCode="93"/>
+         <primaryKey column="id" sequenceNumberInPK="1"/>
+         <index name="users_pkey" unique="true">
+            <column ascending="true" name="id"/>
+         </index>
+         <index name="users_email_key" unique="true">
+            <column ascending="true" name="email"/>
+         </index>
+      </table>
+      <table name="verification_tokens" remarks="" schema="public" type="TABLE">
+         <column autoUpdated="false" defaultValue="null" digits="0" id="0" name="identifier" nullable="false" remarks="" size="2147483647" type="text" typeCode="12"/>
+         <column autoUpdated="false" defaultValue="null" digits="0" id="1" name="token" nullable="false" remarks="" size="2147483647" type="text" typeCode="12"/>
+         <column autoUpdated="false" defaultValue="null" digits="6" id="2" name="expires" nullable="false" remarks="" size="29" type="timestamp" typeCode="93"/>
+         <column autoUpdated="false" defaultValue="now()" digits="6" id="3" name="created_at" nullable="true" remarks="" size="35" type="timestamptz" typeCode="93"/>
+         <column autoUpdated="false" defaultValue="now()" digits="6" id="4" name="modified_at" nullable="true" remarks="" size="35" type="timestamptz" typeCode="93"/>
+         <column autoUpdated="false" defaultValue="null" digits="6" id="5" name="deleted_at" nullable="true" remarks="" size="35" type="timestamptz" typeCode="93"/>
+         <primaryKey column="identifier" sequenceNumberInPK="1"/>
+         <primaryKey column="token" sequenceNumberInPK="2"/>
+         <index name="verification_tokens_pkey" unique="true">
+            <column ascending="true" name="identifier"/>
+            <column ascending="true" name="token"/>
+         </index>
+      </table>
+   </tables>
+</database>
