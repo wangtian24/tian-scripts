@@ -1,6 +1,7 @@
+import logging
 from abc import ABC, abstractmethod
 from collections import Counter, defaultdict
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from functools import cache
 from typing import Any, ClassVar, Literal
 
@@ -19,8 +20,17 @@ ELO_BASE = 10
 # The scale for the Elo rating system.
 ELO_SCALE = 400
 
+# A reference model used to convert arbitrary scores to Elo scale. Will have a fixed rank, that other models
+# will be compared/normalized to.
+ELO_REFERENCE_MODEL = "mixtral-8x7b-instruct-v0.1"
+# The desired rank of the reference model, after conversion to Elo scale. Source: LS.
+ELO_DESIRED_REFERENCE_RANK = 1114
+
 # The default cost for a model.
 DEFAULT_COST = 1.0
+
+# The "category" used for the overall ranking (the ranking across all categories).
+OVERALL_CATEGORY = "overall"
 
 # Algorithms available for Choice Axiom ranking (Bradley Terry-like). See https://choix.lum.li/ for details.
 CHOIX_RANKER_ALGORITHMS = (
@@ -31,10 +41,18 @@ CHOIX_RANKER_ALGORITHMS = (
     "rank_centrality",
 )
 
+
+DEFAULT_RANKER_TYPE = "choix"
+
 # The default algorithm for Choice Axiom ranking.
 CHOIX_DEFAULT_ALGORITHM = "ilsr_pairwise"
 
+# The categories for ranking. TODO(gm): load from the database.
+RANKING_CATEGORIES = ("coding", "math")
+
 ConfInterval = tuple[float, float]
+
+logger = logging.getLogger(__name__)
 
 
 class Ranker:
@@ -69,7 +87,7 @@ class Ranker:
             value=self.predict(model_a, model_b), annotation=self.annotate_prediction(model_a, model_b)
         )
 
-    def update(self, model_a: str, model_b: str, result: float) -> None:
+    def update(self, model_a: str, model_b: str, result_a: float, category: str | None = None) -> None:
         """Update the ranker with a result of a battle."""
         raise NotImplementedError
 
@@ -109,6 +127,16 @@ class ConfidenceIntervalRankerMixin(ABC):
         """Returns the confidence intervals of all models."""
         raise NotImplementedError
 
+    @abstractmethod
+    def rank_conf_intervals(self, model: str) -> tuple[float | None, float | None, float | None]:
+        """Returns the rank of `model`, along with its confidence interval."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def ranks_conf_intervals(self) -> dict[str, tuple[float, ConfInterval]]:
+        """Returns the ranks of all models, along with their confidence intervals."""
+        raise NotImplementedError
+
 
 class DataFrameRanker(Ranker):
     """A Ranker that uses a pd.DataFrame for the underlying data."""
@@ -128,13 +156,14 @@ class DataFrameRanker(Ranker):
         for battle in battles:
             self.update(battle.model_a, battle.model_b, battle.result_a)
 
-    def update(self, model_a: str, model_b: str, result_a: float) -> None:
+    def update(self, model_a: str, model_b: str, result_a: float, category: str | None = None) -> None:
         """Update the ranker with a result of a battle.
 
         Args:
             model_a: The first model in the battle.
             model_b: The second model in the battle.
             result_a: The result of the battle from model_a's perspective -- 0 for loss, 1 for win.
+            category: The category of the battle, or None if no category is specified.
         """
         if not (0 <= result_a <= 1):
             raise ValueError(f"Result must be between 0 and 1, got {result_a}")
@@ -280,7 +309,7 @@ class EloRanker(DataFrameRanker):
         self.adjustments: dict[str, list[float]] = defaultdict(list)
         super().__init__(models, costs, battles)
 
-    def update(self, model_a: str, model_b: str, result: float) -> None:
+    def update(self, model_a: str, model_b: str, result: float, category: str | None = None) -> None:
         """Update the ranker with a result of a battle."""
         super().update(model_a, model_b, result)
 
@@ -349,7 +378,7 @@ class ChoixRanker(Ranker):
         battles: Iterable[Battle] = (),
         tie_policy: Literal["ignore", "add_twice"] = "add_twice",
         choix_ranker_algorithm: str = CHOIX_DEFAULT_ALGORITHM,
-        choix_alpha: float = 0.001,
+        choix_alpha: float = 1e-7,
         choix_kwargs: dict[str, Any] | None = None,
     ):
         """Initialize the ranker.
@@ -393,7 +422,7 @@ class ChoixRanker(Ranker):
         super().add_model(model, cost)
         self.model_ids[model] = len(self.model_ids)
 
-    def update(self, model_a: str, model_b: str, result_a: float) -> None:
+    def update(self, model_a: str, model_b: str, result_a: float, category: str | None = None) -> None:
         """Update the ranker with a result of a battle."""
         self.ratings_are_stale = True
         # Assign new model IDs if needed.
@@ -434,6 +463,24 @@ class ChoixRanker(Ranker):
         """Returns an annotation for `model`."""
         return f"Wins: {self.wins[model]}, Losses: {self.losses[model]}, Ties: {self.ties[model]}"
 
+    def _convert_score_to_elo_scale(
+        self,
+        score: float,
+        scale: float = ELO_SCALE,
+        init_rating: float = ELO_INIT_RATING,
+        reference_rank: float = ELO_DESIRED_REFERENCE_RANK,
+    ) -> float:
+        """Convert a score to the Elo range."""
+        return score * scale + init_rating + ELO_DESIRED_REFERENCE_RANK - reference_rank
+
+    def convert_to_elo_scale(self) -> None:
+        """Convert the ranks to the Elo range."""
+        reference_rank = self.ratings.get(ELO_REFERENCE_MODEL, ELO_DESIRED_REFERENCE_RANK)
+        self.ratings = {
+            model: self._convert_score_to_elo_scale(rank, reference_rank=reference_rank)
+            for model, rank in self.ratings.items()
+        }
+
     def _maybe_update_ranks(self) -> None:
         """Recalculate ranks, if they are stale."""
         if not self.ratings_are_stale:
@@ -444,8 +491,11 @@ class ChoixRanker(Ranker):
                 len(self.model_ids), self.battles, alpha=self.choix_alpha, **self.choix_kwargs
             )
             self.ratings = {ids_to_models[id]: rank for id, rank in enumerate(self.choix_params)}
+            self.convert_to_elo_scale()
+
         except IndexError:
             # Choix can fail when there are too few battles.
+            logger.warning("Choix failed; setting all ranks to 0")
             self.ratings = {model: 0 for model in self.model_ids.keys()}
         self.ratings_are_stale = False
 
@@ -466,7 +516,7 @@ class ChoixRanker(Ranker):
         ranks = self.ranks()
         rank_a = ranks[model_a]
         rank_b = ranks[model_b]
-        return f"{rank_a=:.2f}, {rank_b=:.2f}"
+        return f"{rank_a=:.0f}, {rank_b=:.0f}"
 
 
 class ChoixRankerConfIntervals(ChoixRanker, ConfidenceIntervalRankerMixin):
@@ -505,6 +555,17 @@ class ChoixRankerConfIntervals(ChoixRanker, ConfidenceIntervalRankerMixin):
         self._maybe_update_ranks()
         return self.conf_intervals
 
+    def convert_to_elo_scale(self) -> None:
+        super().convert_to_elo_scale()
+        reference_rank = self.ratings.get(ELO_REFERENCE_MODEL, ELO_DESIRED_REFERENCE_RANK)
+        self.conf_intervals = {
+            model: (
+                self._convert_score_to_elo_scale(lower, reference_rank=reference_rank),
+                self._convert_score_to_elo_scale(upper, reference_rank=reference_rank),
+            )
+            for model, (lower, upper) in self.conf_intervals.items()
+        }
+
     def ranks_conf_intervals(self) -> dict[str, tuple[float, ConfInterval]]:
         """Returns the ranks of all models, along with their confidence intervals."""
         return {model: (rank, self.conf_intervals[model]) for model, rank in self.ranks().items()}
@@ -513,7 +574,7 @@ class ChoixRankerConfIntervals(ChoixRanker, ConfidenceIntervalRankerMixin):
         """Returns an annotation for `model`."""
         return (
             f"{super().annotate_model(model)} "
-            f"({self.conf_intervals[model][0]:.3f} to {self.conf_intervals[model][1]:.3f})"
+            f"({self.conf_intervals[model][0]:.1f} to {self.conf_intervals[model][1]:.1f})"
         )
 
     def _maybe_update_ranks(self) -> None:
@@ -535,21 +596,105 @@ class ChoixRankerConfIntervals(ChoixRanker, ConfidenceIntervalRankerMixin):
                 )
                 bootstrap_ranks.append(choix_params)
 
-            mean_ranks = np.mean(bootstrap_ranks, axis=0)
+            med_ranks = np.median(bootstrap_ranks, axis=0)
             lower_bounds = np.percentile(bootstrap_ranks, 5, axis=0)
             upper_bounds = np.percentile(bootstrap_ranks, 95, axis=0)
 
             # The ranker uses the average as the final rank.
-            self.choix_params = mean_ranks
-            self.ratings = {ids_to_models[id]: rank for id, rank in enumerate(mean_ranks)}
+            self.choix_params = med_ranks
+            self.ratings = {ids_to_models[id]: rank for id, rank in enumerate(med_ranks)}
             self.conf_intervals = {
                 ids_to_models[id]: (lower, upper)
                 for id, (lower, upper) in enumerate(zip(lower_bounds, upper_bounds, strict=True))
             }
+            self.convert_to_elo_scale()
         except IndexError:
             # Choix can fail when there are too few battles.
+            logger.warning("Choix failed; setting all ranks to 0")
             self.ratings = {model: 0 for model in self.model_ids.keys()}
         self.ratings_are_stale = False
+
+
+class PerCategoryRanker(Ranker):
+    """A ranker that stores both overall ranks and per-category ranks.
+
+    Implemented as a map between categories and individual rankers per category.
+    """
+
+    ranker_type = "per_category"
+
+    def __init__(self, categories: tuple[str, ...], ranker_cls: type[Ranker], ranker_kwargs: dict[str, Any]):
+        self.ranker_cls = ranker_cls
+        self.rankers = {category: ranker_cls(**ranker_kwargs) for category in categories}
+        self.overall_ranker = ranker_cls(**ranker_kwargs)
+
+    def get_ranker(self, category: str) -> Ranker | None:
+        if category == OVERALL_CATEGORY:
+            return self.overall_ranker
+        return self.rankers.get(category)
+
+    def _apply_to_all_categories(self, func: Callable[..., Any], **kwargs: Any | None) -> dict[str, Any]:
+        if kwargs is None:
+            kwargs = {}
+        all_categories = [OVERALL_CATEGORY] + list(self.rankers)
+        return {category: func(self.get_ranker(category), **kwargs) for category in all_categories}
+
+    def rank_all_categories(self, model: str) -> dict[str, float | None]:
+        """Return the relative rank of a model, compared to others."""
+        return self._apply_to_all_categories(self.ranker_cls.rank, model=model)
+
+    def rank_annotate_all_categories(self, model: str) -> dict[str, AnnotatedFloat]:
+        """Return the relative rank of a model, compared to others, with an explanation."""
+        return self._apply_to_all_categories(self.ranker_cls.rank_annotate, model=model)
+
+    def ranks_all_categories(self) -> dict[str, dict[str, float]]:
+        """Return the ranks of all models."""
+        return self._apply_to_all_categories(self.ranker_cls.ranks)
+
+    def annotate_model_all_categories(self, model: str) -> dict[str, str]:
+        """Return an annotation for a model."""
+        return self._apply_to_all_categories(self.ranker_cls.annotate_model, model=model)
+
+    def annotate_prediction_all_categories(self, model_a: str, model_b: str) -> dict[str, str]:
+        """Return an annotation for a prediction."""
+        return self._apply_to_all_categories(self.ranker_cls.annotate_prediction, model_a=model_a, model_b=model_b)
+
+    def add_model(self, model: str, cost: float = DEFAULT_COST) -> None:
+        """Add a model to the ranker."""
+        for ranker in self.rankers.values():
+            ranker.add_model(model, cost)
+        self.overall_ranker.add_model(model, cost)
+
+    def update(self, model_a: str, model_b: str, result_a: float, category: str | None = None) -> None:
+        """Update the ranker with a result of a battle."""
+        if category and category != OVERALL_CATEGORY:
+            category_ranker = self.get_ranker(category)
+            if category_ranker:
+                category_ranker.update(model_a, model_b, result_a)
+            else:
+                raise ValueError(f"Category '{category}' not found")
+        self.overall_ranker.update(model_a, model_b, result_a)
+
+    def rank(self, model: str) -> float | None:
+        return self.overall_ranker.rank(model)
+
+    def rank_annotate(self, model: str) -> AnnotatedFloat:
+        return self.overall_ranker.rank_annotate(model)
+
+    def ranks(self) -> dict[str, float]:
+        return self.overall_ranker.ranks()
+
+    def annotate_model(self, model: str) -> str:
+        return self.overall_ranker.annotate_model(model)
+
+    def annotate_prediction(self, model_a: str, model_b: str) -> str:
+        return self.overall_ranker.annotate_prediction(model_a, model_b)
+
+    def leaderboard(self) -> list[RankedModel]:
+        return self._overall_ranker.leaderboard()  # type: ignore
+
+    def leaderboard_all_categories(self) -> dict[str, list[RankedModel]]:
+        return self._apply_to_all_categories(lambda category: self.rankers[category].leaderboard())
 
 
 RANKER_CLASSES: tuple[type[Ranker], ...] = (EloRanker, NaiveRanker, ChoixRanker, ChoixRankerConfIntervals)
@@ -563,3 +708,28 @@ def get_ranker(ranker_type: str, *args: Any, **kwargs: Any) -> Ranker:
         if ranker_type == ranker_cls.ranker_type:
             return ranker_cls(*args, **kwargs)
     raise ValueError(f"Unsupported ranking type: {ranker_type}")
+
+
+@cache
+def get_per_category_rankers(
+    ranker_type: str,
+    categories: tuple[str, ...] = RANKING_CATEGORIES,
+    ranker_kwargs: tuple[tuple[str, Any], ...] | None = None,
+) -> PerCategoryRanker:
+    """Returns a singleton instance of the per-category ranker."""
+    if ranker_kwargs is None:
+        ranker_kwargs = ()
+    for ranker_cls in RANKER_CLASSES:
+        if ranker_type == ranker_cls.ranker_type:
+            return PerCategoryRanker(categories, ranker_cls, dict(ranker_kwargs))
+    raise ValueError(f"Unsupported ranking type: {ranker_type}")
+
+
+def init_ranking() -> None:
+    """Initialize the rankers."""
+    # TODO(gm): load ranking information from the database.
+    get_per_category_rankers(
+        ranker_type=DEFAULT_RANKER_TYPE,
+        categories=RANKING_CATEGORIES,
+        ranker_kwargs=dict(choix_ranker_algorithm="ilsr_pairwise").items(),
+    )
