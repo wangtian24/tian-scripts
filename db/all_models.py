@@ -1,3 +1,3 @@
-from db import chats, ranking, users
+from db import chats, ratings, users
 
-all_models = [chats, ranking, users]
+all_models = [chats, ratings, users]
