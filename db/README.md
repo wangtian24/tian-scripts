@@ -1,3 +1,7 @@
+# General naming convention
+
+The standard for the team is still evolving / being discussed. In the mean time, keep to the existing style, which is based on [sqlstyle.guide](https://www.sqlstyle.guide/#naming-conventions)
+
 # Postgresql migration 
 
 ```
