@@ -18,3 +18,14 @@ class Category(BaseModel):
     parent_category_id = mapped_column(Uuid(as_uuid=True), ForeignKey("categories.category_id"), nullable=True)
     parent_category = relationship("Category", remote_side="Category.category_id", back_populates="child_categories")
     child_categories: Mapped[list["Category"]] = relationship("Category", back_populates="parent_category")
+
+    def __str__(self) -> str:
+        return self.get_hierarchical_name()
+
+    def get_hierarchical_name(self) -> str:
+        name_parts = [self.name]
+        parent = self.parent_category
+        while parent is not None:
+            name_parts.append(parent.name)
+            parent = parent.parent_category
+        return " > ".join(reversed(name_parts))
