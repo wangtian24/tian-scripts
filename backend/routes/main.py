@@ -4,6 +4,7 @@ import nltk
 from dotenv import load_dotenv
 from fastapi import APIRouter
 
+from backend.llm.ranking import init_ranking
 from backend.routes.v1 import health, highlight_similar_content, rank
 from backend.routes.v1 import route as llm_route
 
@@ -13,6 +14,7 @@ def app_init() -> None:
     nltk_data_path = os.getenv("NLTK_DATA")
     if nltk_data_path:
         nltk.data.path.append(nltk_data_path)
+    init_ranking()
 
 
 api_router = APIRouter()

@@ -64,7 +64,7 @@ class MultiArmedBanditRanker(Ranker):
         super().add_model(model, cost)
         self.mab.add_arm(model)
 
-    def update(self, model_a: str, model_b: str, result: float) -> None:
+    def update(self, model_a: str, model_b: str, result: float, category: str | None = None) -> None:
         """Update the ranker with a result of a battle."""
         return self.update_batch([(model_a, model_b)], [result])
 
