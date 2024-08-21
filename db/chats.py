@@ -94,6 +94,13 @@ class EvalType(Enum):
     # Primitive evaluation of two responses where the user distributes 100 points between two responses.
     # The eval result is a dictionary where the key is the model name and the value is the number of points.
     SLIDER_V0 = "slider_v0"
+    # Thumbs up / thumbs down evaluation applied to a
+    # single message. A positive value is thumbs up, and
+    # negative value is thumbs down.
+    THUMBS_UP_DOWN_V0 = "thumbs_up_down_v0"
+    # User-generated alternative to a Quick Take produced
+    # by a model.
+    QUICK_TAKE_SUGGESTION_V0 = "quick_take_suggestion_v0"
 
 
 class Eval(BaseModel):
