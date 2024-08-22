@@ -9,7 +9,7 @@ import choix
 import numpy as np
 import pandas as pd
 
-from backend.llm.utils import AnnotatedFloat, Battle, RatedModel
+from backend.llm.utils import AnnotatedFloat, Battle, RatedModel, ThresholdCounter
 
 # Rating of a new model.
 ELO_INIT_RATING = 1000.0
@@ -310,8 +310,8 @@ class ChoixRanker(Ranker):
         self.wins: dict[str, int] = Counter()
         self.losses: dict[str, int] = Counter()
         self.ties: dict[str, int] = Counter()
-        # True if the data in `self.ratings` needs to be updated.
-        self.ratings_are_stale = True
+        # Controls whether ratings should be updated.
+        self.update_ratings_counter = ThresholdCounter()
         # The parameters for the underlying Choix ranker.
         self.choix_params: list[float] = []
         self.choix_ranker = getattr(choix, choix_ranker_algorithm)
@@ -327,7 +327,7 @@ class ChoixRanker(Ranker):
 
     def update(self, model_a: str, model_b: str, result_a: float, category: str | None = None) -> None:
         """Update the ranker with a result of a battle."""
-        self.ratings_are_stale = True
+        self.update_ratings_counter.increment()
         # Assign new model IDs if needed.
         for model in [model_a, model_b]:
             if model not in self.model_ids:
@@ -376,8 +376,13 @@ class ChoixRanker(Ranker):
 
     def _maybe_update_ratings(self) -> None:
         """Recalculate ratings, if they are stale."""
-        if not self.ratings_are_stale:
+        if not self.update_ratings_counter.is_threshold_reached():
             return
+        self.update_ratings()
+
+    def update_ratings(self) -> None:
+        self.update_ratings_counter.reset()
+
         ids_to_models = {id: model for model, id in self.model_ids.items()}
         try:
             self.choix_params = self.choix_ranker(
@@ -390,7 +395,6 @@ class ChoixRanker(Ranker):
             # Choix can fail when there are too few battles.
             logger.warning("Choix failed; setting all ratings to 0")
             self.ratings = {model: 0 for model in self.model_ids.keys()}
-        self.ratings_are_stale = False
 
     def leaderboard(self) -> list[RatedModel]:
         self._maybe_update_ratings()
@@ -460,15 +464,19 @@ class ChoixRankerConfIntervals(ChoixRanker, ConfidenceIntervalRankerMixin):
 
     def annotate_model(self, model: str) -> str:
         """Returns an annotation for `model`."""
-        return (
-            f"{super().annotate_model(model)} "
-            f"({self.conf_intervals[model][0]:.1f} to {self.conf_intervals[model][1]:.1f})"
-        )
+        annotation = super().annotate_model(model)
+        if model in self.conf_intervals:
+            annotation += f" ({self.conf_intervals[model][0]:.1f} to {self.conf_intervals[model][1]:.1f})"
+        return annotation
 
     def _maybe_update_ratings(self) -> None:
         """Recalculate ratings, if they are stale."""
-        if not self.ratings_are_stale:
+        if not self.update_ratings_counter.is_threshold_reached():
             return
+        self.update_ratings()
+
+    def update_ratings(self) -> None:
+        self.update_ratings_counter.reset()
 
         # Use bootstrap to estimate the confidence intervals.
         ids_to_models = {id: model for model, id in self.model_ids.items()}
@@ -500,7 +508,6 @@ class ChoixRankerConfIntervals(ChoixRanker, ConfidenceIntervalRankerMixin):
             # Choix can fail when there are too few battles.
             logger.warning("Choix failed; setting all ratings to 0")
             self.ratings = {model: 0 for model in self.model_ids.keys()}
-        self.ratings_are_stale = False
 
 
 class PerCategoryRanker(Ranker):

@@ -1,3 +1,4 @@
+import math
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
@@ -89,3 +90,34 @@ def norm_softmax(arr: Iterable[float]) -> np.ndarray:
     exp_sigmoid = np.exp(sigmoid)
 
     return np.array(exp_sigmoid / np.sum(exp_sigmoid))
+
+
+@dataclass
+class ThresholdCounter:
+    """A counter that tracks updates and determines when a threshold is reached."""
+
+    # Number of times the counter was incremented since last reset.
+    count: int = 0
+    # Total number of times the counter was incremented.
+    total_count: int = 0
+    # The threshold at which the count is considered to be reached.
+    threshold: int = 1
+    # The maximum threshold value.
+    max_threshold: int = 25000
+    # The rate at which the threshold grows every time it is reset.
+    growth_rate: float = 1.2345
+    # Number of times the threshold was reset.
+    reset_count: int = 0
+
+    def increment(self) -> None:
+        self.count += 1
+        self.total_count += 1
+
+    def is_threshold_reached(self) -> bool:
+        return self.count >= self.threshold
+
+    def reset(self) -> None:
+        """Resets the counter and increases the threshold."""
+        self.count = 0
+        self.threshold = min(math.ceil(self.threshold * self.growth_rate), self.max_threshold)
+        self.reset_count += 1
