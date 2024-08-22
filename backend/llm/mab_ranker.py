@@ -73,12 +73,12 @@ class MultiArmedBanditRanker(Ranker):
         models, rewards = self._pairs_to_model_rewards(model_pairs, results)
         return self._update(models, rewards)
 
-    def rank(self, model: str) -> float | None:
+    def get_rating(self, model: str) -> float | None:
         """Return the relative rank of a model, compared to others."""
-        return self.ranks().get(model)
+        return self.get_ratings().get(model)
 
-    def ranks(self) -> dict[str, float]:
-        """Return the ranks of the models."""
+    def get_ratings(self) -> dict[str, float]:
+        """Return the ratings of the models."""
         return dict(self.mab.predict_expectations())
 
     def annotate_model(self, model: str) -> str:

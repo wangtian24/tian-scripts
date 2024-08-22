@@ -1,26 +1,39 @@
 from collections import Counter
+from typing import Any
+
+from pytest import approx
 
 from backend.llm.ranking import Battle, ChoixRanker, ChoixRankerConfIntervals, EloRanker
-from backend.llm.routing import RankedRouter, RoutingPolicy
+from backend.llm.routing.policy import RoutingPolicy, SelectionCriteria
+from backend.llm.routing.router import RankedRouter
 from backend.tests.utils import get_battles
 
+CONF_INTERVAL_ROUTING_POLICY = RoutingPolicy(SelectionCriteria.CONF_INTERVAL)
+PROPORTIONAL_ROUTING_POLICY = RoutingPolicy(SelectionCriteria.PROPORTIONAL)
+TOP_ROUTING_POLICY = RoutingPolicy(SelectionCriteria.TOP)
 
-def _get_model_counts_in_battles(battles: list[tuple[str, str]]) -> dict[str, int]:
-    return Counter([model for battle in battles for model in battle])
+
+def _check_list_len_distribution(lst: list[Any], expected: dict[int, Any]) -> None:
+    counter = Counter([len(sublist) for sublist in lst])
+    assert counter == expected
+
+
+def _check_list_item_distribution(lst: list[Any], expected: dict[str, Any]) -> None:
+    counter = Counter([item for sublist in lst for item in sublist])
+    assert counter == expected
 
 
 def test_proportional_routing() -> None:
     models = ["gpt-1", "gpt-2"]
-    ranker = EloRanker(models, k=10)
+    ranker = EloRanker(models=models, k=10)
     for _ in range(20):
         ranker.update("gpt-1", "gpt-2", 0)
 
-    router = RankedRouter(models, ranker, seed=11)
+    router = RankedRouter(models, policy=PROPORTIONAL_ROUTING_POLICY, ranker=ranker, seed=11)
 
-    battles = [router.select_models(2, policy=RoutingPolicy.PROPORTIONAL) for _ in range(10)]
-    counts = _get_model_counts_in_battles(battles)  # type: ignore
-    assert len(counts) == 2
-    assert counts["gpt-1"] == counts["gpt-2"] == 10
+    battles = [router.select_models(2) for _ in range(10)]
+    _check_list_len_distribution(battles, {2: 10})
+    _check_list_item_distribution(battles, {"gpt-1": 10, "gpt-2": 10})
 
     ranker.add_model("gpt-3")
     for _ in range(20):
@@ -28,11 +41,11 @@ def test_proportional_routing() -> None:
     for _ in range(20):
         ranker.update("gpt-3", "gpt-2", 1)
 
-    battles = [router.select_models(2, policy=RoutingPolicy.PROPORTIONAL) for _ in range(200)]
-    counts = _get_model_counts_in_battles(battles)  # type: ignore
-    assert len(counts) == 3
-    assert counts["gpt-1"] < counts["gpt-2"]
-    assert counts["gpt-2"] < counts["gpt-3"]
+    battles = [router.select_models(2) for _ in range(200)]
+    _check_list_len_distribution(battles, {2: 200})
+    _check_list_item_distribution(
+        battles, {"gpt-1": approx(80, abs=10), "gpt-2": approx(150, abs=10), "gpt-3": approx(180, abs=10)}
+    )
 
 
 def test_top_routing() -> None:
@@ -41,12 +54,11 @@ def test_top_routing() -> None:
     battles, results = get_battles(model_rewards, 50)
     battles_objs = [Battle(battle[0], battle[1], result) for battle, result in zip(battles, results, strict=True)]
     ranker = ChoixRanker(models, choix_ranker_algorithm="rank_centrality", battles=battles_objs)
-    router = RankedRouter(models, ranker)
+    router = RankedRouter(models, policy=TOP_ROUTING_POLICY, ranker=ranker, seed=11)
 
-    routed_battles = [router.select_models(2, policy=RoutingPolicy.TOP) for _ in range(10)]
-    counts = _get_model_counts_in_battles(routed_battles)  # type: ignore
-    assert len(counts) == 2
-    assert counts["gpt-3"] == counts["gpt-2"]
+    routed_battles = [router.select_models(2) for _ in range(10)]
+    _check_list_len_distribution(routed_battles, {2: 10})
+    _check_list_item_distribution(routed_battles, {"gpt-3": 10, "gpt-2": 10})
 
 
 def test_decrease_conf_interval_routing() -> None:
@@ -65,8 +77,8 @@ def test_decrease_conf_interval_routing() -> None:
         ranker.update("c", "d", 1.0)
         ranker.update("d", "c", 0.0)
 
-    router = RankedRouter(models, ranker)
-    routed_battles = [router.select_models(2, policy=RoutingPolicy.DECREASE_CONF_INTERVAL) for _ in range(10)]
+    router = RankedRouter(models, policy=CONF_INTERVAL_ROUTING_POLICY, ranker=ranker, seed=11)
+    routed_battles = [router.select_models(2) for _ in range(10)]
 
     assert sorted(routed_battles[0]) == ["a", "b"]
 
@@ -77,5 +89,37 @@ def test_decrease_conf_interval_routing() -> None:
         ranker.update("c", "d", 0.0)
         ranker.update("c", "d", 1.0)
 
-    routed_battles = [router.select_models(2, policy=RoutingPolicy.DECREASE_CONF_INTERVAL) for _ in range(10)]
+    routed_battles = [router.select_models(2) for _ in range(10)]
     assert sorted(routed_battles[0]) == ["c", "d"]
+
+
+def test_traffic_fraction_routing() -> None:
+    models = ["a", "b", "c", "d"]
+    ranker = ChoixRanker(
+        models=models,
+        choix_ranker_algorithm="lsr_pairwise",
+    )
+    policy = RoutingPolicy(SelectionCriteria.RANDOM, model_traffic_fraction={"c": 0.3, "d": 0.4})
+    router = RankedRouter(models, policy=policy, ranker=ranker, seed=11)
+
+    selected_by_fraction = [router._select_models_by_traffic_fraction(3) for _ in range(1000)]
+    # Ensure reasonable distribution of the number of selected models and the models selected.
+    expected_lengths = {2: approx(110, rel=0.1), 1: approx(450, rel=0.1), 0: approx(450, rel=0.1)}
+    _check_list_len_distribution(selected_by_fraction, expected_lengths)
+    _check_list_item_distribution(selected_by_fraction, {"c": approx(300, rel=0.1), "d": approx(400, rel=0.1)})
+
+    battles = [router.select_models(2) for _ in range(1000)]
+
+    # All battles should have 2 different models.
+    _check_list_len_distribution([tuple(set(battle)) for battle in battles], {2: 1000})
+
+    # Model c should be > 30% of the time, and model d > 40%.
+    # Count the occurrences of each model in the battles
+    expected_distribution = {
+        "c": approx(600, rel=0.2),
+        "d": approx(700, rel=0.2),
+        "a": approx(350, rel=0.2),
+        "b": approx(350, rel=0.2),
+    }
+
+    _check_list_item_distribution(battles, expected_distribution)
