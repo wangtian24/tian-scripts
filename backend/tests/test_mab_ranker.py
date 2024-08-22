@@ -7,7 +7,8 @@ from mabwiser.mab import LearningPolicy
 
 from backend.llm.constants import MODELS
 from backend.llm.mab_ranker import MultiArmedBanditRanker
-from backend.llm.routing import RankedRouter
+from backend.llm.routing.policy import DEFAULT_ROUTING_POLICY
+from backend.llm.routing.router import RankedRouter
 from backend.tests.utils import get_battles
 
 random.seed(123)
@@ -47,7 +48,7 @@ def router() -> Generator[RankedRouter, None, None]:
     models = list(set([m for a in battles for m in a]))
 
     ranker.fit(battles, rewards)
-    router = RankedRouter(models=models, ranker=ranker)
+    router = RankedRouter(models=models, ranker=ranker, policy=DEFAULT_ROUTING_POLICY)
     yield router
 
 
@@ -75,6 +76,7 @@ def test_update_model() -> None:
     )
     router = RankedRouter(
         models=models,
+        policy=DEFAULT_ROUTING_POLICY,
         ranker=ranker,
     )
     battles, rewards = get_battles({"chatgpt": 0.9, "llama": 0.1}, 100)

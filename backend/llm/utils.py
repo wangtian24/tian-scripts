@@ -59,14 +59,14 @@ class AnnotatedFloat:
 
 
 @dataclass
-class RankedModel:
-    """A model with a rank."""
+class RatedModel:
+    """A model with a rating."""
 
     model: str
-    rank: AnnotatedFloat
+    rating: AnnotatedFloat
 
     def to_dict(self) -> dict[str, Any]:
-        return {"model": self.model, "rank": self.rank.value, "annotation": self.rank.annotation}
+        return {"model": self.model, "rating": self.rating.value, "annotation": self.rating.annotation}
 
 
 def norm_softmax(arr: Iterable[float]) -> np.ndarray:

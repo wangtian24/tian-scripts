@@ -5,7 +5,8 @@ from mabwiser.mab import LearningPolicy
 
 from backend.llm.constants import MODELS
 from backend.llm.mab_ranker import MultiArmedBanditRanker
-from backend.llm.routing import RankedRouter, RoutingPolicy
+from backend.llm.routing.policy import DEFAULT_ROUTING_POLICY
+from backend.llm.routing.router import RankedRouter
 
 router = APIRouter()
 
@@ -16,7 +17,8 @@ def get_router() -> RankedRouter:
         models=MODELS,
         learning_policy=LearningPolicy.EpsilonGreedy(epsilon=0.2),
     )
-    router = RankedRouter(models=MODELS, ranker=ranker)
+    router = RankedRouter(models=MODELS, policy=DEFAULT_ROUTING_POLICY, ranker=ranker)
+    # TODO(gm) replace this with actual data from the DB.
     battles = [(m, m) for m in MODELS]
     ranker.fit(battles, [1.0] * len(MODELS))
     return router
@@ -28,7 +30,7 @@ def select_models(
     num_models: int = Query(default=2, description="Number of different models to route to"),
     budget: float = Query(default=float("inf"), description="Budget"),
 ) -> list[str]:
-    return get_router().select_models(num_models, budget=budget, policy=RoutingPolicy.TOP)
+    return get_router().select_models(num_models, budget=budget, policy=DEFAULT_ROUTING_POLICY)
 
 
 @router.post("/update_router")

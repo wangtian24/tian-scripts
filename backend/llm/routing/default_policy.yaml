@@ -1,0 +1,3 @@
+name: "default_routing_policy"
+description: "A default routing policy."
+selection_criteria: "top"
