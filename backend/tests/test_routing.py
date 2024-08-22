@@ -1,7 +1,7 @@
 from collections import Counter
 from typing import Any
 
-from pytest import approx
+from pytest import approx, mark
 
 from backend.llm.ranking import Battle, ChoixRanker, ChoixRankerConfIntervals, EloRanker
 from backend.llm.routing.policy import RoutingPolicy, SelectionCriteria
@@ -99,10 +99,10 @@ def test_traffic_fraction_routing() -> None:
         models=models,
         choix_ranker_algorithm="lsr_pairwise",
     )
-    policy = RoutingPolicy(SelectionCriteria.RANDOM, model_traffic_fraction={"c": 0.3, "d": 0.4})
+    policy = RoutingPolicy(SelectionCriteria.RANDOM, minimum_model_traffic_fraction={"c": 0.3, "d": 0.4})
     router = RankedRouter(models, policy=policy, ranker=ranker, seed=11)
 
-    selected_by_fraction = [router._select_models_by_traffic_fraction(3) for _ in range(1000)]
+    selected_by_fraction = [router._select_models_by_minimum_traffic_fraction(3) for _ in range(1000)]
     # Ensure reasonable distribution of the number of selected models and the models selected.
     expected_lengths = {2: approx(110, rel=0.1), 1: approx(450, rel=0.1), 0: approx(450, rel=0.1)}
     _check_list_len_distribution(selected_by_fraction, expected_lengths)
@@ -123,3 +123,56 @@ def test_traffic_fraction_routing() -> None:
     }
 
     _check_list_item_distribution(battles, expected_distribution)
+
+
+@mark.parametrize(
+    "random_fraction, expected_distribution",
+    [
+        (
+            0.0,
+            {
+                # No random fraction:
+                #   a gets a lot of traffic as the highest-ranked model.
+                #   b gets no traffic as the lowest-ranked model.
+                #   c and d get equal amounts of traffic, lower than a.
+                "a": approx(1000, rel=0.1),
+                "c": approx(500, rel=0.1),
+                "d": approx(500, rel=0.1),
+            },
+        ),
+        (
+            0.5,
+            {
+                # 50% random fraction:
+                #   a gets a lot of traffic as the highest-ranked model.
+                #   b gets some traffic.
+                #   c and d get equal amounts of traffic, lower than a, but higher than b.
+                "a": approx(900, rel=0.2),
+                "b": approx(250, rel=0.2),
+                "c": approx(425, rel=0.2),
+                "d": approx(425, rel=0.2),
+            },
+        ),
+        (
+            1.0,
+            {
+                # 100% random fraction: all models get equal amounts of traffic.
+                "a": approx(500, rel=0.1),
+                "b": approx(500, rel=0.1),
+                "c": approx(500, rel=0.1),
+                "d": approx(500, rel=0.1),
+            },
+        ),
+    ],
+)
+def test_random_routing(random_fraction: float, expected_distribution: dict[str, float]) -> None:
+    models = ["a", "b", "c", "d"]
+    policy = RoutingPolicy(SelectionCriteria.TOP, random_fraction=random_fraction)
+    ranker = ChoixRanker(models=models, choix_ranker_algorithm="lsr_pairwise")
+    ranker.update("a", "b", 1.0)
+    ranker.update("a", "b", 1.0)
+    router = RankedRouter(models, policy=policy, ranker=ranker, seed=11)
+
+    selected = [router.select_models(2) for _ in range(1000)]
+    _check_list_len_distribution(selected, {2: 1000})
+    _check_list_item_distribution(selected, expected_distribution)

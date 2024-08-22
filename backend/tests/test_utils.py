@@ -3,7 +3,7 @@ from collections.abc import Iterable
 import numpy as np
 from pytest import approx, raises
 
-from backend.llm.utils import norm_softmax
+from backend.llm.utils import ThresholdCounter, norm_softmax
 
 
 def check_array_approx(ar1: Iterable[float], ar2: Iterable[float]) -> None:
@@ -23,3 +23,37 @@ def test_norm_softmax() -> None:
     for n in [None, np.inf, -np.inf, np.nan]:
         with raises(ValueError):
             norm_softmax([n, 1])  # type: ignore
+
+
+def test_update_ratings_counter() -> None:
+    counter = ThresholdCounter(threshold=3, max_threshold=10, growth_rate=2)
+
+    assert counter.count == 0
+    assert counter.total_count == 0
+    assert counter.threshold == 3
+
+    for _ in range(2):
+        counter.increment()
+        assert not counter.is_threshold_reached()
+
+    counter.increment()
+    assert counter.is_threshold_reached()
+    assert counter.count == 3
+    assert counter.total_count == 3
+
+    counter.reset()
+    assert counter.count == 0
+    assert counter.total_count == 3
+    assert counter.threshold == 6
+    assert not counter.is_threshold_reached()
+
+    # Test multiple cycles
+    for _ in range(25):
+        counter.increment()
+        if counter.is_threshold_reached():
+            counter.reset()
+        assert counter.count < counter.threshold
+
+    assert counter.total_count == 28
+    assert counter.count == 9
+    assert counter.threshold == 10

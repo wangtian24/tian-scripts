@@ -7,11 +7,13 @@ from mabwiser.mab import LearningPolicy
 
 from backend.llm.constants import MODELS
 from backend.llm.mab_ranker import MultiArmedBanditRanker
-from backend.llm.routing.policy import DEFAULT_ROUTING_POLICY
+from backend.llm.routing.policy import RoutingPolicy, SelectionCriteria
 from backend.llm.routing.router import RankedRouter
 from backend.tests.utils import get_battles
 
 random.seed(123)
+
+ROUTING_POLICY = RoutingPolicy(selection_criteria=SelectionCriteria.TOP)
 
 
 def _get_model_counts(router: RankedRouter, num_trials: int) -> dict[str, int]:
@@ -48,13 +50,22 @@ def router() -> Generator[RankedRouter, None, None]:
     models = list(set([m for a in battles for m in a]))
 
     ranker.fit(battles, rewards)
-    router = RankedRouter(models=models, ranker=ranker, policy=DEFAULT_ROUTING_POLICY)
+    router = RankedRouter(models=models, ranker=ranker, policy=ROUTING_POLICY)
     yield router
 
 
 def test_simple_route(router: RankedRouter) -> None:
-    selected = router.select_models(num_models=2)
-    assert sorted(selected) == ["gpt-4o", "gpt-4o-mini"]
+    routes = []
+    for _ in range(200):
+        selected = router.select_models(num_models=2)
+        routes.append(tuple(sorted(selected)))
+    common_routes = [r for r, _ in Counter(routes).most_common(5)]
+    for expected_common_route in [
+        ("gpt-4o", "gpt-4o-mini"),
+        ("gpt-4o-mini", "mistral-large-latest"),
+        ("claude-3-5-sonnet-20240620", "gpt-4o-mini"),
+    ]:
+        assert expected_common_route in common_routes
 
 
 def test_budget_too_low(router: RankedRouter) -> None:
@@ -76,7 +87,7 @@ def test_update_model() -> None:
     )
     router = RankedRouter(
         models=models,
-        policy=DEFAULT_ROUTING_POLICY,
+        policy=ROUTING_POLICY,
         ranker=ranker,
     )
     battles, rewards = get_battles({"chatgpt": 0.9, "llama": 0.1}, 100)
