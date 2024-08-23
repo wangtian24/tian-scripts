@@ -23,6 +23,11 @@ class Chat(BaseModel):
         order_by="Turn.sequence",
     )
 
+    # Whether the chat is public, which makes it visible in the feed.
+    # Starting nullable, but after the feature is implemented, another migration
+    # will make it non-nullable.
+    is_public: Mapped[bool] = mapped_column(nullable=True, default=False)
+
     creator_user_id = mapped_column(Text, ForeignKey("users.id", name="chat_creator_user_id_fkey"), nullable=False)
     creator = relationship("User", back_populates="chats")
 
