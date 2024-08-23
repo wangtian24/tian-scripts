@@ -96,23 +96,23 @@ Github actions in `.github/workflows` are set up to run these linters on push an
 
 ## Deployment
 
-This repo uses `Docker` to build the backend image.
+This repo uses `Docker` to build the backend image. For faster builds, a base image contains most of the expensive dependencies; when these are modified significantly, the base image should be rebuilt.
 
-To manually build version `v1`:
+The `main` branch is auto-deployed nightly to llms-staging.yupp.ai.
+
+### Rebuilding the base image (slow, infrequent, when many dependencies change):
+
+Note: if you get an authentication error on `docker push`, run `gcloud auth login` first.
 
 ```sh
-export YUPP_VERSION=v1
-
 docker build \
   --platform linux/amd64 \
-  -t gcr.io/yupp-llms/backend:$YUPP_VERSION .
+  -t gcr.io/yupp-llms/backend-base:latest \
+  -f Dockerfile.base .
 
-docker push gcr.io/yupp-llms/backend:$YUPP_VERSION
-
-gcloud run deploy backend \
-  --image gcr.io/yupp-llms/backend:$YUPP_VERSION \
-  --platform managed \
-  --region us-east4 \
-  --cpu 2 \
-  --memory 4Gi
+docker push gcr.io/yupp-llms/backend-base:latest
 ```
+
+### Building and deploying the actual backend image, which depends on the base:
+
+Use the [Build and Deploy](https://github.com/yupp-ai/yupp-llms/actions/workflows/deploy.yml) workflow to build and deploy the backend image to staging or production; production will be pushed to llms.yupp.ai.

@@ -1,0 +1,107 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [ staging ]
+  schedule:
+    - cron: '9 0 * * *'  # Runs at 9 AM UTC (2 AM PST) daily
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+
+env:
+  GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  SERVICE_NAME: backend
+  IMAGE_NAME: gcr.io/yupp-llms/backend:v1
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    # Remove unused content on github runners.
+    - name: Free up space
+      run: |
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /opt/ghc
+        sudo rm -rf /usr/local/share/boost
+
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+
+    - name: Cache Docker layers
+      uses: actions/cache@v3
+      with:
+        path: /tmp/.buildx-cache
+        key: ${{ runner.os }}-buildx-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-buildx-
+
+    - name: Set up environment
+      run: |
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.event.inputs.environment }}" == "production" ]]; then
+          echo "ENVIRONMENT=production" >> $GITHUB_ENV
+          echo "SERVICE_NAME=backend" >> $GITHUB_ENV
+          echo "SECRET_NAME_SUFFIX=PRODUCTION" >> $GITHUB_ENV
+          echo "MEMORY=8G" >> $GITHUB_ENV
+        else
+          echo "ENVIRONMENT=staging" >> $GITHUB_ENV
+          echo "SERVICE_NAME=backend-staging" >> $GITHUB_ENV
+          echo "SECRET_NAME_SUFFIX=STAGING" >> $GITHUB_ENV
+          echo "MEMORY=4G" >> $GITHUB_ENV
+        fi
+
+    - name: Create .env file
+      run: |
+        echo "ENVIRONMENT=${{ env.ENVIRONMENT }}" >> .env
+        echo "PROJECT_NAME=\"Yupp-Server\" " >> .env
+        echo "NLTK_DATA=\"data/nltk_data\" " >> .env
+        echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}_${{ env.SECRET_NAME_SUFFIX }}" >> .env
+        echo "POSTGRES_USER=${{ secrets.POSTGRES_USER }}" >> .env
+        echo "POSTGRES_DATABASE=${{ secrets.POSTGRES_DATABASE }}" >> .env
+        echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}_${{ env.SECRET_NAME_SUFFIX }}" >> .env
+        echo "POSTGRES_HOST=${{ secrets.POSTGRES_HOST }}_${{ env.SECRET_NAME_SUFFIX }}" >> .env
+        echo "POSTGRES_HOST_NON_POOLING=${{ secrets.POSTGRES_HOST_NON_POOLING }}_${{ env.SECRET_NAME_SUFFIX }}" >> .env
+
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v1
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v1
+      with:
+        project_id: ${{ env.GCP_PROJECT_ID }}
+
+    - name: Authenticate Docker
+      run: gcloud auth configure-docker --quiet
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        platforms: linux/amd64
+        push: true
+        tags: ${{ env.IMAGE_NAME }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Deploy to Cloud Run
+      run: |
+        gcloud run deploy ${{ env.SERVICE_NAME }} \
+          --image ${{ env.IMAGE_NAME }} \
+          --platform managed \
+          --region us-east4 \
+          --allow-unauthenticated \
+          --cpu 2 \
+          --memory ${{ env.MEMORY }}
