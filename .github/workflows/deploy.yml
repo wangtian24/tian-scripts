@@ -20,6 +20,7 @@ env:
   GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   SERVICE_NAME: backend
   IMAGE_NAME: gcr.io/yupp-llms/backend:v1
+  REGION: us-east4
 
 jobs:
   build-and-deploy:
@@ -101,7 +102,7 @@ jobs:
         gcloud run deploy ${{ env.SERVICE_NAME }} \
           --image ${{ env.IMAGE_NAME }} \
           --platform managed \
-          --region us-east4 \
+          --region ${{ env.REGION }} \
           --allow-unauthenticated \
           --cpu 2 \
           --memory ${{ env.MEMORY }}

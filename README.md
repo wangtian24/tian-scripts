@@ -115,4 +115,35 @@ docker push gcr.io/yupp-llms/backend-base:latest
 
 ### Building and deploying the actual backend image, which depends on the base:
 
-Use the [Build and Deploy](https://github.com/yupp-ai/yupp-llms/actions/workflows/deploy.yml) workflow to build and deploy the backend image to staging or production; production will be pushed to llms.yupp.ai.
+Use the "Run Workflow" button on the [Build and Deploy](https://github.com/yupp-ai/yupp-llms/actions/workflows/deploy.yml) workflow to build and deploy the backend image to staging or production; production will be pushed to llms.yupp.ai:
+
+<img height="400" src="./assets/deploy.png" alt="Build and Deploy">
+
+
+### Rollbacks
+
+If you want to rollback to the previous revision, you can just use the [Rollback to previous revision](https://github.com/yupp-ai/yupp-llms/actions/workflows/rollback.yml) Github workflow.
+
+To roll back to a different version, first list the revisions of the service (use `backend-staging` instead of `backend` to do the same for the staging service):
+
+```sh
+gcloud run revisions list --service=backend --region=us-east4 --platform=managed
+```
+
+This should result in a list of previous deploys:
+
+```sh
+   REVISION                   ACTIVE  SERVICE          DEPLOYED                 DEPLOYED BY
+✔  backend-00004-qpm  yes     backend  2024-08-23 05:34:06 UTC  github-deploy@yupp-llms.iam.gserviceaccount.com
+✔  backend-00003-nz8          backend  2024-08-23 05:24:52 UTC  github-deploy@yupp-llms.iam.gserviceaccount.com
+✔  backend-00002-qjv          backend  2024-08-23 05:03:39 UTC  github-deploy@yupp-llms.iam.gserviceaccount.com
+```
+
+Choose the one to roll back to, and run:
+
+```sh
+gcloud run services update-traffic backend \
+  --to-revisions=backend-00002-qjv=100 \
+  --region=us-east4 \
+  --platform=managed
+```
