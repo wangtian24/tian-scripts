@@ -59,6 +59,7 @@ class Turn(BaseModel):
 class MessageType(enum.Enum):
     USER_MESSAGE = "user_message"
     ASSISTANT_MESSAGE = "assistant_message"
+    QUICK_RESPONSE_MESSAGE = "quick_response_message"
 
 
 class ChatMessage(BaseModel):
@@ -93,6 +94,14 @@ class AssistantMessage(ChatMessage):
     # the model identifier for the language model that generated this message.
     # TODO(minqi): convert to a model relationship when we need it.
     assistant_model_name = mapped_column(String)
+
+
+# A special type of assistant message that contains a (hopefully) short and concise response.
+# It is the tl;dr feature (previously known as quick take)
+class QuickResponseMessage(AssistantMessage):
+    __mapper_args__ = {
+        "polymorphic_identity": MessageType.QUICK_RESPONSE_MESSAGE,
+    }
 
 
 class EvalType(Enum):
