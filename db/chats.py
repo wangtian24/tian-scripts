@@ -25,9 +25,7 @@ class Chat(BaseModel, table=True):
     )
 
     # Whether the chat is public, which makes it visible in the feed.
-    # Starting nullable, but after the feature is implemented, another migration
-    # will make it non-nullable.
-    is_public: bool | None = Field(default=False, nullable=True)
+    is_public: bool = Field(default=False, nullable=False)
 
     creator_user_id: str = Field(foreign_key="users.id", sa_type=Text)
     creator: User = Relationship(back_populates="chats")
