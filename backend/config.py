@@ -56,7 +56,8 @@ class Settings(BaseSettings):
     @computed_field  # type: ignore[misc]
     @property
     def db_url(self) -> str:
-        return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}/{self.POSTGRES_DATABASE}?sslmode=require"
+        ssl_mode = "disable" if self.ENVIRONMENT == "local" else "require"
+        return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}/{self.POSTGRES_DATABASE}?sslmode={ssl_mode}"
 
     def _check_default_secret(self, var_name: str, value: str | None) -> None:
         if value == DEFAULT_UNSAFE_PASSWORD:
