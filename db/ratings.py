@@ -1,23 +1,24 @@
 import uuid
 
-from sqlalchemy import Float, ForeignKey, String, UniqueConstraint, Uuid
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import UniqueConstraint
+from sqlmodel import Field, Relationship
 
 from db.base import BaseModel
+from db.language_models import LanguageModel
 
 
-class Category(BaseModel):
+class Category(BaseModel, table=True):
     __tablename__ = "categories"
 
-    category_id = mapped_column(Uuid(as_uuid=True), primary_key=True, nullable=False, default=uuid.uuid4)
+    category_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    name: str = Field(nullable=False)
+    description: str | None = Field(default=None)
 
-    name = mapped_column(String, nullable=False)
-    description = mapped_column(String, nullable=True)
-
-    # The top level category has no parent.
-    parent_category_id = mapped_column(Uuid(as_uuid=True), ForeignKey("categories.category_id"), nullable=True)
-    parent_category = relationship("Category", remote_side="Category.category_id", back_populates="child_categories")
-    child_categories: Mapped[list["Category"]] = relationship("Category", back_populates="parent_category")
+    parent_category_id: uuid.UUID | None = Field(default=None, foreign_key="categories.category_id")
+    parent_category: "Category" = Relationship(
+        back_populates="child_categories", sa_relationship_kwargs={"remote_side": "Category.category_id"}
+    )
+    child_categories: list["Category"] = Relationship(back_populates="parent_category")
 
     def __str__(self) -> str:
         return self.get_hierarchical_name()
@@ -31,21 +32,16 @@ class Category(BaseModel):
         return " > ".join(reversed(name_parts))
 
 
-# A rating is a score for a model in a category.
-class Rating(BaseModel):
+class Rating(BaseModel, table=True):
     __tablename__ = "ratings"
-
-    rating_id = mapped_column(Uuid(as_uuid=True), primary_key=True, nullable=False, default=uuid.uuid4)
-    model_id = mapped_column(Uuid(as_uuid=True), ForeignKey("language_models.model_id"), nullable=False)
-    category_id = mapped_column(Uuid(as_uuid=True), ForeignKey("categories.category_id"), nullable=False)
-    score = mapped_column(Float, nullable=False, default=0)
-
-    # The lower and upper bounds of the 95% confidence interval for the score.
-    lower_bound_95 = mapped_column(Float, nullable=False, default=0)
-    upper_bound_95 = mapped_column(Float, nullable=False, default=0)
-
-    model = relationship("LanguageModel", back_populates="ratings")
-    category = relationship("Category", back_populates="ratings")
-
-    # A model can have different ratings for different categories.
     __table_args__ = (UniqueConstraint("model_id", "category_id", name="uq_model_category"),)
+
+    rating_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    model_id: uuid.UUID = Field(foreign_key="language_models.model_id")
+    category_id: uuid.UUID = Field(foreign_key="categories.category_id")
+    score: float = Field(default=0)
+    lower_bound_95: float = Field(default=0)
+    upper_bound_95: float = Field(default=0)
+
+    model: LanguageModel = Relationship(back_populates="ratings")
+    category: Category = Relationship(back_populates="ratings")

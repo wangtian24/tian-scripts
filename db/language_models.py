@@ -1,8 +1,7 @@
 import uuid
 from enum import Enum
 
-from sqlalchemy import String, Uuid
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlmodel import Field
 
 from db.base import BaseModel
 
@@ -81,24 +80,24 @@ class LicenseEnum(Enum):
     other = "Other"
 
 
-class LanguageModel(BaseModel):
+class LanguageModel(BaseModel, table=True):
     __tablename__ = "language_models"
 
-    model_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    model_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
 
     # This is the name displayed to the user, e.g. "gpt-4o-2024-05-13".
     # This name can be pseudonymous, e.g. "anonymous-model" with internal_name
     # "gpt-4o-2024-05-13". This is useful when Model Providers want to train
     # their models anonymously.
-    name: Mapped[str] = mapped_column(String, nullable=False, index=True, unique=True)
+    name: str = Field(index=True, unique=True)
 
     # This is the "real" name of the model as given by the Model Provider,
     # e.g. "gpt-4o-2024-05-13".
-    internal_name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    internal_name: str = Field(unique=True)
 
     # This is a human-readable name for the model, e.g. "GPT 4o".
-    label: Mapped[str] = mapped_column(String, nullable=True)
+    label: str | None = Field(default=None)
 
-    license: Mapped[LicenseEnum] = mapped_column(nullable=False, default=LicenseEnum.unknown)
-    family: Mapped[str] = mapped_column(nullable=True)
-    avatar_url: Mapped[str] = mapped_column(nullable=True)
+    license: LicenseEnum = Field(default=LicenseEnum.unknown)
+    family: str | None = Field(default=None)
+    avatar_url: str | None = Field(default=None)

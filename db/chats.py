@@ -2,56 +2,57 @@ import enum
 import uuid
 from enum import Enum
 
-from sqlalchemy import ForeignKey, Integer, String, Text, UniqueConstraint, Uuid
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import Column, Text, UniqueConstraint
+from sqlalchemy import Enum as SQLAlchemyEnum
+from sqlmodel import Field, Relationship
 
 from db.base import BaseModel
 from db.users import User
 
 
 # A chat can contain multiple conversations.
-class Chat(BaseModel):
+class Chat(BaseModel, table=True):
     __tablename__ = "chats"
 
-    chat_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    title: Mapped[str] = mapped_column(Text, nullable=False)
+    chat_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
+    title: str = Field(sa_column=Column(Text, nullable=False))
     # URL segment for the chat.
     # This field is world visible, do not leak information in this field.
-    path = mapped_column(Text, nullable=False, unique=True, index=True)
-    turns: Mapped[list["Turn"]] = relationship(
+    path: str = Field(sa_column=Column(Text, nullable=False, unique=True, index=True))
+    turns: list["Turn"] = Relationship(
         back_populates="chat",
-        order_by="Turn.sequence",
+        sa_relationship_kwargs={"order_by": "Turn.sequence"},
     )
 
     # Whether the chat is public, which makes it visible in the feed.
     # Starting nullable, but after the feature is implemented, another migration
     # will make it non-nullable.
-    is_public: Mapped[bool] = mapped_column(nullable=True, default=False)
+    is_public: bool | None = Field(default=False, nullable=True)
 
-    creator_user_id = mapped_column(Text, ForeignKey("users.id", name="chat_creator_user_id_fkey"), nullable=False)
-    creator = relationship("User", back_populates="chats")
+    creator_user_id: str = Field(foreign_key="users.id", sa_type=Text)
+    creator: User = Relationship(back_populates="chats")
 
 
-class Turn(BaseModel):
+class Turn(BaseModel, table=True):
     __tablename__ = "turns"
 
-    turn_id = mapped_column(Uuid(as_uuid=True), primary_key=True, nullable=False, default=uuid.uuid4)
+    turn_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
 
-    chat_id = mapped_column(Uuid(as_uuid=True), ForeignKey("chats.chat_id"), nullable=False)
-    chat = relationship("Chat", back_populates="turns")
+    chat_id: uuid.UUID = Field(foreign_key="chats.chat_id", nullable=False)
+    chat: "Chat" = Relationship(back_populates="turns")
 
     # Sequence of the turn in the chat. This sequence is not guaranteed to be
     # continuous, as messages may be deleted in the future.
-    sequence_id = mapped_column(Integer, nullable=False)
+    sequence_id: int = Field(nullable=False)
 
-    chat_messages: Mapped[list["ChatMessage"]] = relationship(
+    chat_messages: list["ChatMessage"] = Relationship(
         back_populates="turn",
     )
 
-    creator_user_id = mapped_column(Text, ForeignKey("users.id", name="turn_creator_user_id_fkey"), nullable=False)
-    creator = relationship("User", back_populates="turns")
+    creator_user_id: str = Field(foreign_key="users.id", nullable=False, sa_type=Text)
+    creator: "User" = Relationship(back_populates="turns")
 
-    evals: Mapped[list["Eval"]] = relationship(back_populates="turn")
+    evals: list["Eval"] = Relationship(back_populates="turn")
 
     __table_args__ = (UniqueConstraint("chat_id", "sequence_id", name="uq_chat_sequence"),)
 
@@ -59,49 +60,19 @@ class Turn(BaseModel):
 class MessageType(enum.Enum):
     USER_MESSAGE = "user_message"
     ASSISTANT_MESSAGE = "assistant_message"
+    # The tl;dr feature (previously known as quick take)
     QUICK_RESPONSE_MESSAGE = "quick_response_message"
 
 
-class ChatMessage(BaseModel):
+class ChatMessage(BaseModel, table=True):
     __tablename__ = "chat_messages"
 
-    message_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
-
-    turn_id = mapped_column(Uuid(as_uuid=True), ForeignKey("turns.turn_id"), nullable=False)
-    turn = relationship("Turn", back_populates="messages")
-    message_type: Mapped[MessageType]
-
-    __mapper_args__ = {
-        "polymorphic_on": "message_type",
-        "polymorphic_abstract": True,
-    }
-
-    content = mapped_column(Text, nullable=False)
-
-
-# A user message (usually a prompt) from the user.
-class UserMessage(ChatMessage):
-    __mapper_args__ = {
-        "polymorphic_identity": MessageType.USER_MESSAGE,
-    }
-
-
-# An assistant message from a language model.
-class AssistantMessage(ChatMessage):
-    __mapper_args__ = {
-        "polymorphic_identity": MessageType.ASSISTANT_MESSAGE,
-    }
-    # the model identifier for the language model that generated this message.
-    # TODO(minqi): convert to a model relationship when we need it.
-    assistant_model_name = mapped_column(String)
-
-
-# A special type of assistant message that contains a (hopefully) short and concise response.
-# It is the tl;dr feature (previously known as quick take)
-class QuickResponseMessage(AssistantMessage):
-    __mapper_args__ = {
-        "polymorphic_identity": MessageType.QUICK_RESPONSE_MESSAGE,
-    }
+    message_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    turn_id: uuid.UUID = Field(foreign_key="turns.turn_id", nullable=False)
+    turn: Turn = Relationship(back_populates="chat_messages")
+    message_type: MessageType = Field(sa_column=Column(SQLAlchemyEnum(MessageType), nullable=False))
+    content: str = Field(nullable=False, sa_type=Text)
+    assistant_model_name: str | None = Field()
 
 
 class EvalType(Enum):
@@ -117,22 +88,22 @@ class EvalType(Enum):
     QUICK_TAKE_SUGGESTION_V0 = "quick_take_suggestion_v0"
 
 
-class Eval(BaseModel):
+class Eval(BaseModel, table=True):
     __tablename__ = "evals"
 
-    eval_id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
-    user: Mapped[User] = relationship()
-    turn_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("turns.turn_id"), nullable=False)
-    turn: Mapped[Turn] = relationship()
-    eval_type: Mapped[EvalType] = mapped_column(nullable=False)
-    message_1_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("chat_messages.message_id"), nullable=False)
-    message_1: Mapped[ChatMessage] = relationship()
-    message_2_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("chat_messages.message_id"), nullable=True)
-    message_2: Mapped[ChatMessage] = relationship()
-    score_1: Mapped[float] = mapped_column(nullable=True)
-    score_2: Mapped[float] = mapped_column(nullable=True)
-    user_comment: Mapped[str] = mapped_column(nullable=True)
+    eval_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
+    user_id: uuid.UUID = Field(foreign_key="users.id", nullable=False, sa_type=Text)
+    user: User = Relationship(back_populates="evals")
+    turn_id: uuid.UUID = Field(foreign_key="turns.turn_id", nullable=False)
+    turn: Turn = Relationship(back_populates="evals")
+    eval_type: EvalType = Field(sa_column=Column(SQLAlchemyEnum(EvalType), nullable=False))
+    message_1_id: uuid.UUID = Field(foreign_key="chat_messages.message_id", nullable=False)
+    message_1: ChatMessage = Relationship()
+    message_2_id: uuid.UUID | None = Field(foreign_key="chat_messages.message_id", nullable=True)
+    message_2: ChatMessage = Relationship()
+    score_1: float | None = Field(nullable=True)
+    score_2: float | None = Field(nullable=True)
+    user_comment: str | None = Field(nullable=True)
 
 
 # TODO(minqi): Add comparison result (fka yupptake).

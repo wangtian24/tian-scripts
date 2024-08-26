@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Integer, Text, Uuid
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+import sqlalchemy as sa
+from sqlmodel import Field, Relationship
 
 from db.base import BaseModel
 
@@ -13,61 +13,56 @@ from db.base import BaseModel
 
 
 # Represents a user (human for now).
-class User(BaseModel):
+class User(BaseModel, table=True):
     __tablename__ = "users"
 
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
-    name: Mapped[str | None] = mapped_column(Text)
-    email: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
-    # For magic link authentication, this is the timestamp of verification, or null if not using magic link.
-    email_verified: Mapped[datetime | None] = mapped_column()
-    image: Mapped[str | None] = mapped_column(Text)
+    id: str = Field(primary_key=True, nullable=False, sa_type=sa.Text)
+    name: str | None = Field(default=None, sa_type=sa.Text)
+    email: str = Field(unique=True, nullable=False, sa_type=sa.Text)
+    email_verified: datetime | None = Field(default=None)
+    image: str | None = Field(default=None, sa_type=sa.Text)
 
-    accounts: Mapped[list["Account"]] = relationship(back_populates="user")
-    sessions: Mapped[list["Session"]] = relationship(back_populates="user")
+    accounts: list["Account"] = Relationship(back_populates="user", cascade_delete=True)
+    sessions: list["Session"] = Relationship(back_populates="user", cascade_delete=True)
 
 
-# A user can have one or more accounts (for example, a user
-# will have an account for Google OAuth and an account for Twitter).
-class Account(BaseModel):
+class Account(BaseModel, table=True):
     __tablename__ = "accounts"
 
-    provider: Mapped[str] = mapped_column(Text, primary_key=True)
-    provider_account_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    provider: str = Field(primary_key=True, nullable=False, sa_type=sa.Text)
+    provider_account_id: str = Field(primary_key=True, nullable=False, sa_type=sa.Text)
 
-    user_id: Mapped[str] = mapped_column(
-        Text, ForeignKey("users.id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False
+    user_id: str = Field(
+        sa_column=sa.Column(sa.Text, sa.ForeignKey("users.id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
     )
-    type: Mapped[str] = mapped_column(Text, nullable=False)
-    refresh_token: Mapped[str | None] = mapped_column(Text)
-    access_token: Mapped[str | None] = mapped_column(Text)
-    # Expiry of the access token, as unix timestamp in seconds.
-    expires_at: Mapped[int | None] = mapped_column(Integer)
-    token_type: Mapped[str | None] = mapped_column(Text)
-    scope: Mapped[str | None] = mapped_column(Text)
-    id_token: Mapped[str | None] = mapped_column(Text)
-    session_state: Mapped[str | None] = mapped_column(Text)
+    type: str = Field(nullable=False, sa_type=sa.Text)
+    refresh_token: str | None = Field(default=None, sa_type=sa.Text)
+    access_token: str | None = Field(default=None, sa_type=sa.Text)
+    expires_at: int | None = Field(default=None)
+    token_type: str | None = Field(default=None, sa_type=sa.Text)
+    scope: str | None = Field(default=None, sa_type=sa.Text)
+    id_token: str | None = Field(default=None, sa_type=sa.Text)
+    session_state: str | None = Field(default=None, sa_type=sa.Text)
 
-    user: Mapped["User"] = relationship(back_populates="accounts")
+    user: User = Relationship(back_populates="accounts")
 
 
-class Session(BaseModel):
+class Session(BaseModel, table=True):
     __tablename__ = "sessions"
 
-    session_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    session_token: Mapped[str] = mapped_column(Text, unique=True)
-    user_id: Mapped[str] = mapped_column(
-        Text, ForeignKey("users.id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False
+    session_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
+    session_token: str = Field(unique=True, sa_type=sa.Text)
+    user_id: str = Field(
+        sa_column=sa.Column(sa.Text, sa.ForeignKey("users.id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
     )
-    expires: Mapped[datetime] = mapped_column(nullable=False)
+    expires: datetime = Field(nullable=False)
 
-    user: Mapped["User"] = relationship(back_populates="sessions")
+    user: User = Relationship(back_populates="sessions", cascade_delete=True)
 
 
-# Verification tokens are used for pending magic link authentication.
-class VerificationToken(BaseModel):
+class VerificationToken(BaseModel, table=True):
     __tablename__ = "verification_tokens"
 
-    identifier: Mapped[str] = mapped_column(Text, primary_key=True)
-    token: Mapped[str] = mapped_column(Text, primary_key=True)
-    expires: Mapped[datetime] = mapped_column(nullable=False)
+    identifier: str = Field(primary_key=True, nullable=False, sa_type=sa.Text)
+    token: str = Field(primary_key=True, nullable=False, sa_type=sa.Text)
+    expires: datetime = Field(nullable=False)

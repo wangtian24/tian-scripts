@@ -1,11 +1,40 @@
-from sqlalchemy import DateTime
-from sqlalchemy.orm import DeclarativeBase, mapped_column
-from sqlalchemy.sql import func
+from datetime import UTC, datetime
+
+import sqlalchemy as sa
+from sqlmodel import Field, SQLModel
+
+NAMING_CONVENTION = {
+    "ix": "ix_%(column_0_label)s",
+    "ck": "ck_%(table_name)s_%(constraint_name)s",
+    "pk": "pk_%(table_name)s",
+}
+
+sql_model_metadata = SQLModel.metadata
+sql_model_metadata.naming_convention = NAMING_CONVENTION
 
 
-class BaseModel(DeclarativeBase):
+class BaseModel(SQLModel):
     __abstract__ = True
 
-    created_at = mapped_column(DateTime(timezone=True), server_default=func.now())
-    modified_at = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    deleted_at = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: datetime | None = Field(  # type: ignore
+        nullable=True,
+        sa_type=sa.DateTime(timezone=True),
+        sa_column_kwargs={"server_default": sa.text("(now() AT TIME ZONE 'utc')")},
+    )
+
+    modified_at: datetime | None = Field(  # type: ignore
+        nullable=True,
+        sa_type=sa.DateTime(timezone=True),
+        sa_column_kwargs={"onupdate": sa.text("(now() AT TIME ZONE 'utc')")},
+    )
+
+    deleted_at: datetime | None = Field(  # type: ignore
+        default=None,
+        nullable=True,
+        sa_type=sa.DateTime(timezone=True),
+    )
+
+
+@sa.event.listens_for(BaseModel, "before_update", propagate=True)
+def refresh(_: sa.orm.Mapper, __: sa.engine.Connection, target: BaseModel) -> None:
+    target.modified_at = datetime.now(UTC)
