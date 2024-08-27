@@ -25,7 +25,10 @@ class BaseModel(SQLModel):
     modified_at: datetime | None = Field(  # type: ignore
         nullable=True,
         sa_type=sa.DateTime(timezone=True),
-        sa_column_kwargs={"onupdate": sa.text("(now() AT TIME ZONE 'utc')")},
+        sa_column_kwargs={
+            "server_default": sa.text("(now() AT TIME ZONE 'utc')"),
+            "onupdate": sa.text("(now() AT TIME ZONE 'utc')"),
+        },
     )
 
     deleted_at: datetime | None = Field(  # type: ignore
