@@ -1,9 +1,13 @@
 import uuid
 from enum import Enum
+from typing import TYPE_CHECKING
 
-from sqlmodel import Field
+from sqlmodel import Field, Relationship
 
 from db.base import BaseModel
+
+if TYPE_CHECKING:
+    from db.ratings import Rating
 
 
 class LicenseEnum(Enum):
@@ -101,3 +105,5 @@ class LanguageModel(BaseModel, table=True):
     license: LicenseEnum = Field(default=LicenseEnum.unknown)
     family: str | None = Field(default=None)
     avatar_url: str | None = Field(default=None)
+
+    ratings: list["Rating"] = Relationship(back_populates="model")

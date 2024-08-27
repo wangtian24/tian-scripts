@@ -19,6 +19,7 @@ class Category(BaseModel, table=True):
         back_populates="child_categories", sa_relationship_kwargs={"remote_side": "Category.category_id"}
     )
     child_categories: list["Category"] = Relationship(back_populates="parent_category")
+    ratings: list["Rating"] = Relationship(back_populates="category")
 
     def __str__(self) -> str:
         return self.get_hierarchical_name()
