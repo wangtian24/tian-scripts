@@ -9,6 +9,7 @@ from db.language_models import LanguageModel
 
 class Category(BaseModel, table=True):
     __tablename__ = "categories"
+    __table_args__ = (UniqueConstraint("name", "parent_category_id", name="uq_name_parent"),)
 
     category_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     name: str = Field(nullable=False)
@@ -20,6 +21,7 @@ class Category(BaseModel, table=True):
     )
     child_categories: list["Category"] = Relationship(back_populates="parent_category")
     ratings: list["Rating"] = Relationship(back_populates="category")
+    ratings_history: list["RatingHistory"] = Relationship(back_populates="category")
 
     def __str__(self) -> str:
         return self.get_hierarchical_name()
@@ -50,6 +52,8 @@ class RatingHistory(BaseModel, table=True):
     model: LanguageModel = Relationship(back_populates="ratings_history")
     category: Category = Relationship(back_populates="ratings_history")
 
+    ratings: list["Rating"] = Relationship(back_populates="history")
+
 
 # The latest rating for a model in a category. This serves a pointer to a row
 # in the ratings_history table for fast access of the latest rating. When eval
@@ -69,7 +73,4 @@ class Rating(BaseModel, table=True):
     model: LanguageModel = Relationship(back_populates="ratings")
     category: Category = Relationship(back_populates="ratings")
 
-    # RatingHistory is quoted because it's a forward reference.
-    # The back_populates arguments in both classes ensure that SQLAlchemy sets
-    # up the circular relationship correctly in both directions.
     history: list[RatingHistory] = Relationship(back_populates="ratings")

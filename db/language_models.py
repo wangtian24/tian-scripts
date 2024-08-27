@@ -7,7 +7,7 @@ from sqlmodel import Field, Relationship
 from db.base import BaseModel
 
 if TYPE_CHECKING:
-    from db.ratings import Rating
+    from db.ratings import Rating, RatingHistory
 
 
 class LicenseEnum(Enum):
@@ -107,3 +107,4 @@ class LanguageModel(BaseModel, table=True):
     avatar_url: str | None = Field(default=None)
 
     ratings: list["Rating"] = Relationship(back_populates="model")
+    ratings_history: list["RatingHistory"] = Relationship(back_populates="model")
