@@ -29,7 +29,7 @@ alembic revision --autogenerate -m "description for the migration"
 ## Step 2: Review cycle
 1. Send the model change and the generated migration script for review.
 2. Address any review feedback. After you've made some changes to the model, run `alembic downgrade -1` to downgrade one migration step. 
-3. Delete the previous migration script, then repeat `alembic revision --autogenerate` step to crete a new migration; apply it with `alembic upgrade head`. 
+3. Delete the previous migration script, then repeat `alembic revision --autogenerate` step to create a new migration; apply it with `alembic upgrade head`. 
 4. Repeat steps 2 and 3 as necessary.
 
 ## Step 3: Submit and update the `sarai-chat` project

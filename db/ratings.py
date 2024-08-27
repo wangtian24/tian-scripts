@@ -33,6 +33,28 @@ class Category(BaseModel, table=True):
         return " > ".join(reversed(name_parts))
 
 
+# Ratings for a model in a category at a given created_at timestamp. When eval
+# batch processing is run, new rows are created in this table for each
+# model-category pair.
+class RatingHistory(BaseModel, table=True):
+    __tablename__ = "ratings_history"
+    __table_args__ = (UniqueConstraint("model_id", "category_id", "created_at", name="uq_model_category_created_at"),)
+
+    rating_history_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, index=True)
+    model_id: uuid.UUID = Field(foreign_key="language_models.model_id")
+    category_id: uuid.UUID = Field(foreign_key="categories.category_id")
+    score: float = Field(default=0)
+    score_lower_bound_95: float = Field(default=0)
+    score_upper_bound_95: float = Field(default=0)
+
+    model: LanguageModel = Relationship(back_populates="ratings_history")
+    category: Category = Relationship(back_populates="ratings_history")
+
+
+# The latest rating for a model in a category. This serves a pointer to a row
+# in the ratings_history table for fast access of the latest rating. When eval
+# batch processing is run, rating_history_id is set to the latest
+# rating_history_id.
 class Rating(BaseModel, table=True):
     __tablename__ = "ratings"
     __table_args__ = (UniqueConstraint("model_id", "category_id", name="uq_model_category"),)
@@ -40,9 +62,14 @@ class Rating(BaseModel, table=True):
     rating_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     model_id: uuid.UUID = Field(foreign_key="language_models.model_id")
     category_id: uuid.UUID = Field(foreign_key="categories.category_id")
-    score: float = Field(default=0)
-    lower_bound_95: float = Field(default=0)
-    upper_bound_95: float = Field(default=0)
+
+    # Points to the latest row in the ratings_history table.
+    rating_history_id: uuid.UUID = Field(foreign_key="ratings_history.rating_history_id")
 
     model: LanguageModel = Relationship(back_populates="ratings")
     category: Category = Relationship(back_populates="ratings")
+
+    # RatingHistory is quoted because it's a forward reference.
+    # The back_populates arguments in both classes ensure that SQLAlchemy sets
+    # up the circular relationship correctly in both directions.
+    history: list[RatingHistory] = Relationship(back_populates="ratings")
