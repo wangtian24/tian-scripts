@@ -1,7 +1,7 @@
 """Add points to user table and create point_transactions table.
 
 Revision ID: af6f557f2601
-Revises: bbb0c0af1ace
+Revises: c46f020ab21c
 Create Date: 2024-08-26 22:28:25.066848+00:00
 
 """
@@ -14,7 +14,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = 'af6f557f2601'
-down_revision: str | None = 'bbb0c0af1ace'
+down_revision: str | None = 'c46f020ab21c'
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -34,7 +34,7 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ),
     sa.PrimaryKeyConstraint('transaction_id', name=op.f('pk_point_transactions'))
     )
-    op.add_column('users', sa.Column('points', sa.Integer(), nullable=False))
+    op.add_column('users', sa.Column('points', sa.Integer(), nullable=False, server_default='0'))
     # ### end Alembic commands ###
 
 
