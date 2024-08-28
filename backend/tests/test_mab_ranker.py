@@ -5,7 +5,6 @@ from collections.abc import Generator
 import pytest
 from mabwiser.mab import LearningPolicy
 
-from backend.llm.constants import MODELS
 from backend.llm.mab_ranker import MultiArmedBanditRanker
 from backend.llm.routing.policy import RoutingPolicy, SelectionCriteria
 from backend.llm.routing.router import RankedRouter
@@ -27,8 +26,9 @@ def _get_model_counts(router: RankedRouter, num_trials: int) -> dict[str, int]:
 @pytest.fixture()
 def router() -> Generator[RankedRouter, None, None]:
     costs = [10.0, 20.0, 15.0, 25.0, 10.0]
+    models = ["gpt-4o", "gpt-4o-mini", "mistral-large-latest", "gemini-1.5-pro", "claude-3-5-sonnet-20240620"]
     ranker = MultiArmedBanditRanker(
-        models=MODELS,
+        models=models,
         learning_policy=LearningPolicy.EpsilonGreedy(epsilon=0.2),
         costs=costs,
     )
@@ -47,7 +47,6 @@ def router() -> Generator[RankedRouter, None, None]:
     ]
     battles = [a for a, _ in past_actions]
     rewards = [r for _, r in past_actions]
-    models = list(set([m for a in battles for m in a]))
 
     ranker.fit(battles, rewards)
     router = RankedRouter(models=models, ranker=ranker, policy=ROUTING_POLICY)

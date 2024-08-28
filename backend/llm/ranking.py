@@ -299,13 +299,14 @@ class ChoixRanker(Ranker):
         super().__init__(models, costs)
         # Choix represents models as running ints starting from 0; we map models to these ints here.
         self.model_ids: dict[str, int] = {}
+        self.ratings: dict[str, float] = {}
         if models:
             self.model_ids = {model: i for i, model in enumerate(models)}
+            self.ratings = {model: 1.0 / float(len(models)) for model in models}
         # A list of battles, where each battle is a pair of model IDs.
         self.battles: list[tuple[int, int]] = []
         self.tie_policy = tie_policy
         # Maps a model to its most recently calculated rank.
-        self.ratings: dict[str, float] = {}
         # Maps a model to the number of wins, losses, and ties it has; used for rank annotations.
         self.wins: dict[str, int] = Counter()
         self.losses: dict[str, int] = Counter()

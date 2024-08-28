@@ -125,6 +125,7 @@ celerybeat.pid
 .env
 .env.prod
 .env.local
+.env.staging
 .venv
 env/
 venv/
