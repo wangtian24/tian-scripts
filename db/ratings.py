@@ -1,10 +1,16 @@
 import uuid
+from datetime import datetime
 
+import sqlalchemy as sa
 from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, Relationship
 
 from db.base import BaseModel
 from db.language_models import LanguageModel
+
+# The "category" used for the overall ranking (the ranking across all categories).
+OVERALL_CATEGORY_NAME = "Overall"
+OVERALL_CATEGORY_DESCRIPTION = "Overall ranking across all categories"
 
 
 class Category(BaseModel, table=True):
@@ -51,6 +57,12 @@ class RatingHistory(BaseModel, table=True):
 
     model: LanguageModel = Relationship(back_populates="ratings_history")
     category: Category = Relationship(back_populates="ratings_history")
+
+    snapshot_timestamp: datetime = Field(sa_type=sa.DateTime(timezone=True))  # type: ignore
+
+    wins: int = Field(default=0)
+    losses: int = Field(default=0)
+    ties: int = Field(default=0)
 
     ratings: list["Rating"] = Relationship(back_populates="history")
 
