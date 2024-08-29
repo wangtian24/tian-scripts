@@ -12,6 +12,7 @@ from backend.llm.ranking import (
     _score_to_elo,
 )
 from backend.llm.utils import AnnotatedFloat
+from db.ratings import OVERALL_CATEGORY_NAME
 
 
 def _assert_approx(annotated_float: AnnotatedFloat, value: float | None, annotation: str) -> None:
@@ -165,7 +166,7 @@ def test_per_category_ranker() -> None:
         "coding": {"a": approx(2381.751), "b": approx(-381.751)},
         # In math, b is much better than a.
         "math": {"b": approx(2381.751), "a": approx(-381.751)},
-        "overall": expected_overall_ratings,
+        OVERALL_CATEGORY_NAME: expected_overall_ratings,
     }
 
     with raises(ValueError):
@@ -176,12 +177,14 @@ def test_per_category_ranker() -> None:
     assert len(rating_all_categories) == 3
     _assert_approx(rating_all_categories["coding"], 2381.751, "Wins: 2, Losses: 0, Ties: 0 (2381.8 to 2381.8)")
     _assert_approx(rating_all_categories["math"], -381.751, "Wins: 0, Losses: 2, Ties: 0 (-381.8 to -381.8)")
-    _assert_approx(rating_all_categories["overall"], 1081.026, "Wins: 3, Losses: 2, Ties: 0 (811.2 to 2564.9)")
+    _assert_approx(
+        rating_all_categories[OVERALL_CATEGORY_NAME], 1081.026, "Wins: 3, Losses: 2, Ties: 0 (811.2 to 2564.9)"
+    )
 
     assert ranker.annotate_prediction_all_categories("a", "b") == {
         "coding": "rating_a=2382, rating_b=-382",
         "math": "rating_a=-382, rating_b=2382",
-        "overall": "rating_a=1081, rating_b=919",
+        OVERALL_CATEGORY_NAME: "rating_a=1081, rating_b=919",
     }
 
 

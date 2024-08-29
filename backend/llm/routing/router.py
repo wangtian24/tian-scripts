@@ -28,9 +28,9 @@ class RankedRouter(Router):
         self.ranker = ranker
         self.rng = np.random.RandomState(seed)
 
-    def update_ranker(self, model_a: str, model_b: str, result: float) -> None:
-        self.ranker.update(model_a, model_b, result)
-        self.models = set(self.ranker.models)
+    def update_ranker(self, model_a: str, model_b: str, result: float, category: str | None = None) -> None:
+        self.ranker.update(model_a, model_b, result, category)
+        self.models = set(self.ranker.get_models())
 
     def _select_models_by_minimum_traffic_fraction(self, num_models: int) -> list[Any]:
         if not num_models or not self.policy.minimum_model_traffic_fraction:

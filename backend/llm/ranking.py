@@ -2,14 +2,19 @@ import logging
 from abc import ABC, abstractmethod
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable
+from datetime import datetime
 from functools import cache
 from typing import Any, ClassVar, Literal
 
 import choix
 import numpy as np
 import pandas as pd
+from sqlmodel import Session, select
 
+from backend.db import get_engine
 from backend.llm.utils import AnnotatedFloat, Battle, RatedModel, ThresholdCounter
+from db.language_models import LanguageModel
+from db.ratings import OVERALL_CATEGORY_NAME, Category, Rating, RatingHistory
 
 # Rating of a new model.
 ELO_INIT_RATING = 1000.0
@@ -22,9 +27,6 @@ ELO_SCALE = 400
 
 # The default cost for a model.
 DEFAULT_COST = 1.0
-
-# The "category" used for the overall ranking (the ranking across all categories).
-OVERALL_CATEGORY = "overall"
 
 # Algorithms available for Choice Axiom ranking (Bradley Terry-like). See https://choix.lum.li/ for details.
 CHOIX_RANKER_ALGORITHMS = (
@@ -82,14 +84,18 @@ class Ranker:
             models: The models to use.
             costs: The costs of the models, should match the number and order of `models`.
         """
-        if not models:
+        if models is None:
             models = []
         if not costs:
             self.costs = {m: DEFAULT_COST for m in models}
         else:
             assert len(models) == len(costs), f"Number of models ({len(models)}) and costs ({len(costs)}) differ"
             self.costs = dict(zip(models, costs, strict=True))
-        self.models = models
+        self.models = set(models)
+
+    def get_models(self) -> set[str]:
+        """Return the models."""
+        return self.models
 
     def predict(self, model_a: str, model_b: str) -> float | None:
         """Predict the likely outcome of a battle between `model_a` and `model_b`."""
@@ -131,12 +137,20 @@ class Ranker:
 
     def leaderboard(self) -> list[RatedModel]:
         """Return the leaderboard."""
-        return [RatedModel(model=model, rating=self.get_annotated_rating(model)) for model in self.models]
+        return sorted(
+            [RatedModel(model=model, rating=self.get_annotated_rating(model)) for model in self.models],
+            key=lambda x: x.rating.value if x.rating.value is not None else float("-inf"),
+            reverse=True,
+        )
 
     def add_model(self, model: str, cost: float = DEFAULT_COST) -> None:
         """Add a model to the ranker."""
-        self.models.append(model)
+        self.models.add(model)
         self.costs[model] = cost
+
+    def to_db(self, category_name: str | None = None, snapshot_timestamp: datetime | None = None) -> None:
+        """Add the ratings to the database."""
+        raise NotImplementedError
 
 
 class ConfidenceIntervalRankerMixin(ABC):
@@ -476,6 +490,57 @@ class ChoixRankerConfIntervals(ChoixRanker, ConfidenceIntervalRankerMixin):
             return
         self.update_ratings()
 
+    def to_db(self, category_name: str | None = None, snapshot_timestamp: datetime | None = None) -> None:
+        """Save the ratings to the database."""
+        if not category_name:
+            category_name = OVERALL_CATEGORY_NAME
+        if not snapshot_timestamp:
+            snapshot_timestamp = datetime.now()
+        with Session(get_engine()) as session:
+            category = session.exec(select(Category).where(Category.name == category_name)).first()
+            if not category:
+                raise ValueError(f"Category '{category}' not found")
+            # Make sure the ratings are up to date.
+            self.update_ratings()
+            category_id = category.category_id
+            llms = session.exec(select(LanguageModel)).all()
+            llm_name_to_id = {llm.internal_name: llm.model_id for llm in llms}
+            # This stores the new RatingHistory objects we create, so that we can link them to the Rating objects later.
+            llm_ids_to_ranking_history = {}
+            for model_name, (score, conf_interval) in self.get_ratings_conf_intervals().items():
+                model_id = llm_name_to_id.get(model_name)
+                if not model_id:
+                    raise ValueError(f"Model '{model_name}' not found")
+                rating_history = RatingHistory(
+                    model_id=model_id,
+                    category_id=category_id,
+                    score=score,
+                    score_lower_bound_95=conf_interval[0],
+                    score_upper_bound_95=conf_interval[1],
+                    snapshot_timestamp=snapshot_timestamp,
+                    wins=self.wins[model_name],
+                    losses=self.losses[model_name],
+                    ties=self.ties[model_name],
+                )
+                llm_ids_to_ranking_history[model_id] = rating_history
+                session.add(rating_history)
+
+                # Query for existing Rating, to change its rating_history_id if needed.
+                existing_rating = session.exec(
+                    select(Rating).where(Rating.model_id == model_id, Rating.category_id == category_id)
+                ).first()
+
+                if existing_rating:
+                    existing_rating.rating_history_id = rating_history.rating_history_id
+                else:
+                    new_rating = Rating(
+                        model_id=model_id,
+                        category_id=category_id,
+                        rating_history_id=rating_history.rating_history_id,
+                    )
+                    session.add(new_rating)
+            session.commit()
+
     def update_ratings(self) -> None:
         self.update_ratings_counter.reset()
 
@@ -525,14 +590,14 @@ class PerCategoryRanker(Ranker):
         self.overall_ranker = ranker_cls(**ranker_kwargs)
 
     def get_ranker(self, category: str) -> Ranker | None:
-        if category == OVERALL_CATEGORY:
+        if category == OVERALL_CATEGORY_NAME:
             return self.overall_ranker
         return self.rankers.get(category)
 
     def _apply_to_all_categories(self, func: Callable[..., Any], **kwargs: Any | None) -> dict[str, Any]:
         if kwargs is None:
             kwargs = {}
-        all_categories = [OVERALL_CATEGORY] + list(self.rankers)
+        all_categories = [OVERALL_CATEGORY_NAME] + list(self.rankers)
         return {category: func(self.get_ranker(category), **kwargs) for category in all_categories}
 
     def get_rating_all_categories(self, model: str) -> dict[str, float | None]:
@@ -563,7 +628,7 @@ class PerCategoryRanker(Ranker):
 
     def update(self, model_a: str, model_b: str, result_a: float, category: str | None = None) -> None:
         """Update the ranker with a result of a battle."""
-        if category and category != OVERALL_CATEGORY:
+        if category and category != OVERALL_CATEGORY_NAME:
             category_ranker = self.get_ranker(category)
             if category_ranker:
                 category_ranker.update(model_a, model_b, result_a)
@@ -580,6 +645,12 @@ class PerCategoryRanker(Ranker):
     def get_ratings(self) -> dict[str, float]:
         return self.overall_ranker.get_ratings()
 
+    def get_probabilities(self) -> dict[str, float]:
+        return self.overall_ranker.get_probabilities()
+
+    def get_models(self) -> set[str]:
+        return self.overall_ranker.get_models()
+
     def annotate_model(self, model: str) -> str:
         return self.overall_ranker.annotate_model(model)
 
@@ -587,10 +658,26 @@ class PerCategoryRanker(Ranker):
         return self.overall_ranker.annotate_prediction(model_a, model_b)
 
     def leaderboard(self) -> list[RatedModel]:
-        return self._overall_ranker.leaderboard()  # type: ignore
+        return self.overall_ranker.leaderboard()
 
     def leaderboard_all_categories(self) -> dict[str, list[RatedModel]]:
-        return self._apply_to_all_categories(lambda category: self.rankers[category].leaderboard())
+        return self._apply_to_all_categories(self.ranker_cls.leaderboard)
+
+    def update_ratings(self) -> None:
+        for ranker in list(self.rankers.values()) + [self.overall_ranker]:
+            if hasattr(ranker, "update_ratings"):
+                ranker.update_ratings()
+
+    def to_db(self, category_name: str | None = None, snapshot_timestamp: datetime | None = None) -> None:
+        """Save the ratings to the database."""
+        if category_name:
+            ranker = self.get_ranker(category_name)
+            if not ranker:
+                raise ValueError(f"Category '{category_name}' not found")
+            ranker.to_db(category_name, snapshot_timestamp)
+        else:
+            for category, ranker in self.rankers.items():
+                ranker.to_db(category, snapshot_timestamp)
 
 
 RANKER_CLASSES: tuple[type[Ranker], ...] = (EloRanker, ChoixRanker, ChoixRankerConfIntervals)

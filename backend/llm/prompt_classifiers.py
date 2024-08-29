@@ -12,14 +12,8 @@ from tenacity import (
 )
 
 from backend import prompts
-from backend.db import (
-    Session,
-    get_engine,
-)
-from db.ratings import (
-    OVERALL_CATEGORY_NAME,
-    Category,
-)
+from backend.db import Session, get_engine
+from db.ratings import OVERALL_CATEGORY_NAME, Category
 
 client: OpenAI | None = None
 

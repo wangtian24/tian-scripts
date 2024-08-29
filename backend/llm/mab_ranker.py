@@ -31,7 +31,7 @@ class MultiArmedBanditRanker(Ranker):
         """
         super().__init__(models, costs)
         self.mab = MAB(
-            arms=self.models,
+            arms=list(self.models),
             learning_policy=learning_policy,
             neighborhood_policy=neighborhood_policy,
             seed=seed,
