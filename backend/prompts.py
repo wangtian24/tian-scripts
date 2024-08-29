@@ -65,6 +65,14 @@ Your response should be just the float, with no other text.
 
 PROMPT_DIFFICULTY_USER_PROMPT = "prompt: {prompt}"
 
+PROMPT_CATEGORY_SYSTEM_TEMPLATE = """You are a specialized language model designed to analyze prompts sent by users to LLMs. Your task is to take in a prompt, and assign a category based on the prompt's content and intent, choosing from one of the following categories:
+
+<REPLACE_WITH_CATEGORIES_FROM_DB>
+
+Rules:
+- Categorize based on the prompt's central topic and objective
+- If the prompt could belong to more than one category, choose the one that best matches the primary objective of the prompt
+"""
 
 COMPARE_RESPONSES_PROMPT = ChatPromptTemplate.from_messages(
     [
