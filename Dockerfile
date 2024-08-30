@@ -12,6 +12,7 @@ RUN pip install poetry==1.8.2 && \
 COPY ./pyproject.toml ./poetry.lock* /app/
 COPY ./backend /app/backend
 COPY ./data/nltk_data /home/nltk_data
+COPY ./db /app/db
 COPY ./.env /app/.env
 
 RUN bash -c "poetry install --no-root"
