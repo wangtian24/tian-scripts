@@ -1,9 +1,14 @@
 import math
 from collections.abc import Iterable
 from dataclasses import dataclass
+from functools import cache
 from typing import Any
 
 import numpy as np
+from sqlmodel import select
+
+from backend.db import Session, get_engine
+from db.ratings import OVERALL_CATEGORY_NAME, Category
 
 EPSILON = 1e-9
 
@@ -121,3 +126,13 @@ class ThresholdCounter:
         self.count = 0
         self.threshold = min(math.ceil(self.threshold * self.growth_rate), self.max_threshold)
         self.reset_count += 1
+
+
+@cache
+def fetch_categories_with_descriptions_from_db() -> dict[str, str | None]:
+    """Returns a mapping between category names and their descriptions, fetched from the database."""
+    with Session(get_engine()) as session:
+        categories = session.exec(
+            select(Category.name, Category.description).where(Category.name != OVERALL_CATEGORY_NAME)
+        ).all()
+        return {name: description for name, description in categories}

@@ -4,16 +4,10 @@ from typing import Any, cast
 
 from openai import OpenAI
 from pydantic import BaseModel
-from sqlmodel import select
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_random_exponential,
-)
+from tenacity import retry, stop_after_attempt, wait_random_exponential
 
 from backend import prompts
-from backend.db import Session, get_engine
-from db.ratings import OVERALL_CATEGORY_NAME, Category
+from backend.llm.utils import fetch_categories_with_descriptions_from_db
 
 client: OpenAI | None = None
 
@@ -23,14 +17,6 @@ def initialize_client(**kwargs: Any) -> OpenAI:
     if client is None:
         client = OpenAI(**kwargs)
     return client
-
-
-def fetch_categories_with_descriptions_from_db() -> dict[str, str]:
-    with Session(get_engine()) as session:
-        categories = session.exec(
-            select(Category.name, Category.description).where(Category.name != OVERALL_CATEGORY_NAME)
-        ).all()
-        return {name: description for name, description in categories if description is not None}
 
 
 def construct_system_prompt(system_prompt: str, category_descriptions_dict: dict[str, str]) -> str:
@@ -44,7 +30,12 @@ class PromptCategoryResponse(BaseModel):
 
 @cache
 def llm_setup() -> tuple[str, type[PromptCategoryResponse]]:
-    category_descriptions_dict = fetch_categories_with_descriptions_from_db()
+    category_descriptions_dict = {
+        category: description
+        for category, description in fetch_categories_with_descriptions_from_db().items()
+        if description is not None
+    }
+
     system_prompt = construct_system_prompt(prompts.PROMPT_CATEGORY_SYSTEM_TEMPLATE, category_descriptions_dict)
     PromptCategory = Enum(  # type: ignore
         "PromptCategory",
