@@ -4,7 +4,7 @@ from enum import Enum
 
 from sqlalchemy import Column, Text, UniqueConstraint
 from sqlalchemy import Enum as SQLAlchemyEnum
-from sqlmodel import Field, Relationship
+from sqlmodel import Field, ForeignKey, Relationship
 
 from db.base import BaseModel
 from db.users import User
@@ -21,7 +21,7 @@ class Chat(BaseModel, table=True):
     path: str = Field(sa_column=Column(Text, nullable=False, unique=True, index=True))
     turns: list["Turn"] = Relationship(
         back_populates="chat",
-        sa_relationship_kwargs={"order_by": "Turn.sequence"},
+        sa_relationship_kwargs={"order_by": "Turn.sequence_id"},
     )
 
     # Whether the chat is public, which makes it visible in the feed.
@@ -71,6 +71,20 @@ class ChatMessage(BaseModel, table=True):
     message_type: MessageType = Field(sa_column=Column(SQLAlchemyEnum(MessageType), nullable=False))
     content: str = Field(nullable=False, sa_type=Text)
     assistant_model_name: str | None = Field()
+    evals_as_message_1: list["Eval"] = Relationship(
+        sa_relationship_kwargs={
+            "foreign_keys": "[Eval.message_1_id]",
+            "primaryjoin": "ChatMessage.message_id == Eval.message_1_id",
+        },
+        back_populates="message_1",
+    )
+    evals_as_message_2: list["Eval"] = Relationship(
+        sa_relationship_kwargs={
+            "foreign_keys": "[Eval.message_2_id]",
+            "primaryjoin": "ChatMessage.message_id == Eval.message_2_id",
+        },
+        back_populates="message_2",
+    )
 
 
 class EvalType(Enum):
@@ -95,10 +109,23 @@ class Eval(BaseModel, table=True):
     turn_id: uuid.UUID = Field(foreign_key="turns.turn_id", nullable=False)
     turn: Turn = Relationship(back_populates="evals")
     eval_type: EvalType = Field(sa_column=Column(SQLAlchemyEnum(EvalType), nullable=False))
-    message_1_id: uuid.UUID = Field(foreign_key="chat_messages.message_id", nullable=False)
-    message_1: ChatMessage = Relationship()
-    message_2_id: uuid.UUID | None = Field(foreign_key="chat_messages.message_id", nullable=True)
-    message_2: ChatMessage = Relationship()
+    message_1_id: uuid.UUID = Field(sa_column=Column(ForeignKey("chat_messages.message_id"), nullable=False))
+    message_1: "ChatMessage" = Relationship(
+        sa_relationship_kwargs={
+            "foreign_keys": "[Eval.message_1_id]",
+            "primaryjoin": "Eval.message_1_id == ChatMessage.message_id",
+        },
+        back_populates="evals_as_message_1",
+    )
+
+    message_2_id: uuid.UUID | None = Field(sa_column=Column(ForeignKey("chat_messages.message_id"), nullable=True))
+    message_2: "ChatMessage" = Relationship(
+        sa_relationship_kwargs={
+            "foreign_keys": "[Eval.message_2_id]",
+            "primaryjoin": "Eval.message_2_id == ChatMessage.message_id",
+        },
+        back_populates="evals_as_message_2",
+    )
     score_1: float | None = Field(nullable=True)
     score_2: float | None = Field(nullable=True)
     user_comment: str | None = Field(nullable=True)

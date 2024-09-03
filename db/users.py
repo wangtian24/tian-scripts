@@ -1,10 +1,15 @@
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
 from sqlmodel import Field, Relationship
 
 from db.base import BaseModel
+
+if TYPE_CHECKING:
+    from db.chats import Chat, Eval, Turn
+
 
 # The schema is based on the required authjs.dev prisma schema to minimize the custom logic required in
 # the next js app.
@@ -25,6 +30,10 @@ class User(BaseModel, table=True):
 
     accounts: list["Account"] = Relationship(back_populates="user", cascade_delete=True)
     sessions: list["Session"] = Relationship(back_populates="user", cascade_delete=True)
+
+    chats: list["Chat"] = Relationship(back_populates="creator")
+    turns: list["Turn"] = Relationship(back_populates="creator")
+    evals: list["Eval"] = Relationship(back_populates="user")
 
 
 class Account(BaseModel, table=True):
