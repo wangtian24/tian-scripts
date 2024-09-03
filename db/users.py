@@ -62,12 +62,10 @@ class Session(BaseModel, table=True):
 
     session_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
     session_token: str = Field(unique=True, sa_type=sa.Text)
-    user_id: str = Field(
-        sa_column=sa.Column(sa.Text, sa.ForeignKey("users.id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
-    )
+    user_id: str = Field(sa_column=sa.Column(sa.Text, sa.ForeignKey("users.id"), nullable=False))
     expires: datetime = Field(nullable=False)
 
-    user: User = Relationship(back_populates="sessions", cascade_delete=True)
+    user: User = Relationship(back_populates="sessions")
 
 
 class VerificationToken(BaseModel, table=True):
