@@ -1,10 +1,12 @@
 from abc import ABC, abstractmethod
+from functools import cache
 from typing import Any
 
 import numpy as np
 
-from backend.llm.ranking import Ranker
-from backend.llm.routing.policy import RoutingPolicy, SelectionCriteria
+from backend.llm.constants import MODELS
+from backend.llm.ranking import Ranker, get_ranker
+from backend.llm.routing.policy import DEFAULT_ROUTING_POLICY, RoutingPolicy, SelectionCriteria
 
 
 class Router(ABC):
@@ -155,3 +157,8 @@ class RankedRouter(Router):
         if exclude is not None:
             models -= set(exclude)
         return list(self.rng.choice(list(models), size=num_models, replace=False))
+
+
+@cache
+def get_router() -> RankedRouter:
+    return RankedRouter(models=MODELS, policy=DEFAULT_ROUTING_POLICY, ranker=get_ranker())

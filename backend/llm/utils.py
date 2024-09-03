@@ -2,7 +2,6 @@ import math
 from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import cache
-from typing import Any
 
 import numpy as np
 from sqlmodel import select
@@ -69,10 +68,13 @@ class RatedModel:
     """A model with a rating."""
 
     model: str
-    rating: AnnotatedFloat
-
-    def to_dict(self) -> dict[str, Any]:
-        return {"model": self.model, "rating": self.rating.value, "annotation": self.rating.annotation}
+    rating: float
+    rating_lower: float | None = None
+    rating_upper: float | None = None
+    wins: int = 0
+    losses: int = 0
+    ties: int = 0
+    annotation: str | None = None
 
 
 def norm_softmax(arr: Iterable[float]) -> np.ndarray:

@@ -9,12 +9,22 @@ from typing import Any, ClassVar, Literal
 import choix
 import numpy as np
 import pandas as pd
+from sqlalchemy.orm import joinedload
 from sqlmodel import Session, select
 
 from backend.db import get_engine
-from backend.llm.utils import AnnotatedFloat, Battle, RatedModel, ThresholdCounter
+from backend.llm.utils import (
+    AnnotatedFloat,
+    Battle,
+    RatedModel,
+    ThresholdCounter,
+    fetch_categories_with_descriptions_from_db,
+)
+from db.chats import Eval, EvalType
 from db.language_models import LanguageModel
 from db.ratings import OVERALL_CATEGORY_NAME, Category, Rating, RatingHistory
+
+logging.basicConfig(level=logging.INFO)
 
 # Rating of a new model.
 ELO_INIT_RATING = 1000.0
@@ -38,13 +48,11 @@ CHOIX_RANKER_ALGORITHMS = (
 )
 
 
-DEFAULT_RANKER_TYPE = "choix"
+DEFAULT_RANKER_TYPE = "choix_conf_intervals"
+DEFAULT_RANKER_KWARGS = dict(choix_ranker_algorithm="lsr_pairwise")
 
 # The default algorithm for Choice Axiom ranking.
 CHOIX_DEFAULT_ALGORITHM = "ilsr_pairwise"
-
-# The categories for ranking. TODO(gm): load from the database.
-RANKING_CATEGORIES = ("coding", "math")
 
 ConfInterval = tuple[float, float]
 
@@ -92,6 +100,10 @@ class Ranker:
             assert len(models) == len(costs), f"Number of models ({len(models)}) and costs ({len(costs)}) differ"
             self.costs = dict(zip(models, costs, strict=True))
         self.models = set(models)
+        # Maps a model to the number of its wins, losses, and ties.
+        self.wins: dict[str, int] = Counter()
+        self.losses: dict[str, int] = Counter()
+        self.ties: dict[str, int] = Counter()
 
     def get_models(self) -> set[str]:
         """Return the models."""
@@ -109,7 +121,15 @@ class Ranker:
 
     def update(self, model_a: str, model_b: str, result_a: float, category: str | None = None) -> None:
         """Update the ranker with a result of a battle."""
-        raise NotImplementedError
+        if result_a > 0.5:
+            self.wins[model_a] += 1
+            self.losses[model_b] += 1
+        elif result_a < 0.5:
+            self.wins[model_b] += 1
+            self.losses[model_a] += 1
+        else:
+            self.ties[model_a] += 1
+            self.ties[model_b] += 1
 
     def get_rating(self, model: str) -> float | None:
         """Return the rating of a model."""
@@ -135,11 +155,28 @@ class Ranker:
         """Return an annotation for a prediction."""
         raise NotImplementedError
 
+    def get_rated_models(self) -> list[RatedModel]:
+        """Return the rated models."""
+        return [self.get_rated_model(model) for model in self.models]
+
+    def get_rated_model(self, model: str) -> RatedModel:
+        rating = self.get_rating(model)
+        if rating is None:
+            rating = 0
+        return RatedModel(
+            model=model,
+            rating=rating,
+            wins=self.wins[model],
+            losses=self.losses[model],
+            ties=self.ties[model],
+            annotation=self.annotate_model(model),
+        )
+
     def leaderboard(self) -> list[RatedModel]:
         """Return the leaderboard."""
         return sorted(
-            [RatedModel(model=model, rating=self.get_annotated_rating(model)) for model in self.models],
-            key=lambda x: x.rating.value if x.rating.value is not None else float("-inf"),
+            self.get_rated_models(),
+            key=lambda x: x.rating if x.rating is not None else float("-inf"),
             reverse=True,
         )
 
@@ -218,6 +255,8 @@ class EloRanker(Ranker):
             raise ValueError(f"Model {model_a} not found; please add it first")
         if model_b not in self.costs:
             raise ValueError(f"Model {model_b} not found; please add it first")
+
+        super().update(model_a, model_b, result_a, category)
 
         battle = pd.DataFrame([[model_a, model_b, result_a]], columns=self.battles.columns)
         if self.battles.empty:
@@ -320,11 +359,6 @@ class ChoixRanker(Ranker):
         # A list of battles, where each battle is a pair of model IDs.
         self.battles: list[tuple[int, int]] = []
         self.tie_policy = tie_policy
-        # Maps a model to its most recently calculated rank.
-        # Maps a model to the number of wins, losses, and ties it has; used for rank annotations.
-        self.wins: dict[str, int] = Counter()
-        self.losses: dict[str, int] = Counter()
-        self.ties: dict[str, int] = Counter()
         # Controls whether ratings should be updated.
         self.update_ratings_counter = ThresholdCounter()
         # The parameters for the underlying Choix ranker.
@@ -342,6 +376,7 @@ class ChoixRanker(Ranker):
 
     def update(self, model_a: str, model_b: str, result_a: float, category: str | None = None) -> None:
         """Update the ranker with a result of a battle."""
+        super().update(model_a, model_b, result_a, category)
         self.update_ratings_counter.increment()
         # Assign new model IDs if needed.
         for model in [model_a, model_b]:
@@ -352,18 +387,10 @@ class ChoixRanker(Ranker):
         model_b_id = self.model_ids[model_b]
         if result_a > 0.5:
             self.battles.append((model_a_id, model_b_id))
-            self.wins[model_a] += 1
-            self.losses[model_b] += 1
         elif result_a < 0.5:
             self.battles.append((model_b_id, model_a_id))
-            self.wins[model_b] += 1
-            self.losses[model_a] += 1
         else:
-            self.ties[model_a] += 1
-            self.ties[model_b] += 1
-            if self.tie_policy == "ignore":
-                return
-            elif self.tie_policy == "add_twice":
+            if self.tie_policy == "add_twice":
                 self.battles.append((model_a_id, model_b_id))
                 self.battles.append((model_b_id, model_a_id))
 
@@ -489,6 +516,14 @@ class ChoixRankerConfIntervals(ChoixRanker, ConfidenceIntervalRankerMixin):
         if not self.update_ratings_counter.is_threshold_reached():
             return
         self.update_ratings()
+
+    def get_rated_model(self, model: str) -> RatedModel:
+        rated_model = super().get_rated_model(model)
+        conf_interval = self.get_confidence_intervals().get(model)
+        if conf_interval is not None:
+            rated_model.rating_lower = conf_interval[0]
+            rated_model.rating_upper = conf_interval[1]
+        return rated_model
 
     def to_db(self, category_name: str | None = None, snapshot_timestamp: datetime | None = None) -> None:
         """Save the ratings to the database."""
@@ -660,6 +695,12 @@ class PerCategoryRanker(Ranker):
     def leaderboard(self) -> list[RatedModel]:
         return self.overall_ranker.leaderboard()
 
+    def leaderboard_category(self, category_name: str) -> list[RatedModel]:
+        ranker = self.get_ranker(category_name)
+        if ranker is None:
+            raise ValueError(f"Category '{category_name}' not found")
+        return ranker.leaderboard()
+
     def leaderboard_all_categories(self) -> dict[str, list[RatedModel]]:
         return self._apply_to_all_categories(self.ranker_cls.leaderboard)
 
@@ -685,34 +726,44 @@ RANKER_TYPES: list[str] = [cls.ranker_type for cls in RANKER_CLASSES]
 
 
 @cache
-def get_ranker(ranker_type: str, *args: Any, **kwargs: Any) -> Ranker:
-    """Returns a singleton instance of the ranker of type `ranker_type`."""
-    for ranker_cls in RANKER_CLASSES:
-        if ranker_type == ranker_cls.ranker_type:
-            return ranker_cls(*args, **kwargs)
-    raise ValueError(f"Unsupported ranking type: {ranker_type}")
-
-
-@cache
-def get_per_category_rankers(
-    ranker_type: str,
-    categories: tuple[str, ...] = RANKING_CATEGORIES,
-    ranker_kwargs: tuple[tuple[str, Any], ...] | None = None,
-) -> PerCategoryRanker:
-    """Returns a singleton instance of the per-category ranker."""
-    if ranker_kwargs is None:
-        ranker_kwargs = ()
-    for ranker_cls in RANKER_CLASSES:
-        if ranker_type == ranker_cls.ranker_type:
-            return PerCategoryRanker(categories, ranker_cls, dict(ranker_kwargs))
-    raise ValueError(f"Unsupported ranking type: {ranker_type}")
+def get_ranker() -> PerCategoryRanker:
+    """Returns a singleton instance of the main ranker."""
+    categories = tuple(fetch_categories_with_descriptions_from_db().keys())
+    return PerCategoryRanker(categories, ChoixRankerConfIntervals, DEFAULT_RANKER_KWARGS)
 
 
 def init_ranking() -> None:
     """Initialize the rankers."""
-    # TODO(gm): load ranking information from the database.
-    get_per_category_rankers(
-        ranker_type=DEFAULT_RANKER_TYPE,
-        categories=RANKING_CATEGORIES,
-        ranker_kwargs=dict(choix_ranker_algorithm="ilsr_pairwise").items(),
-    )
+    ranker = get_ranker()
+
+    # Replay existing evals.
+    with Session(get_engine()) as session:
+        evals = session.exec(
+            select(Eval)
+            .where(Eval.deleted_at.is_(None), Eval.eval_type == EvalType.SLIDER_V0, Eval.score_1.is_not(None))  # type: ignore
+            .options(
+                joinedload(Eval.message_1),  # type: ignore
+                joinedload(Eval.message_2),  # type: ignore
+                joinedload(Eval.user),  # type: ignore
+            )
+        ).all()
+        added = 0
+        counts_by_user: dict[str, int] = defaultdict(int)
+        for eval in evals:
+            result_a = eval.score_1
+            if eval.eval_type == EvalType.SLIDER_V0:
+                result_a /= 100.0  # type: ignore
+            ranker.update(
+                model_a=eval.message_1.assistant_model_name,  # type: ignore
+                model_b=eval.message_2.assistant_model_name,  # type: ignore
+                result_a=result_a,  # type: ignore
+            )
+            added += 1
+            counts_by_user[eval.user.email] += 1
+        logging.info(f"Added {added} evals to the ranker. Counts per user:")
+        for user, count in counts_by_user.items():
+            logging.info(f"- {user}: {count}")
+        leaderboard = ranker.leaderboard()
+        logging.info("Leaderboard:")
+        for ranked_model in leaderboard:
+            logging.info(f"- {ranked_model}")

@@ -93,8 +93,8 @@ def test_choix_ranker(algo: str) -> None:
     assert len(leaderboard) == 2
     assert leaderboard[0].model == "a"
     assert leaderboard[1].model == "b"
-    assert leaderboard[0].rating.value == approx(1036.464, abs=0.01)
-    assert leaderboard[1].rating.value == approx(963.535, abs=0.01)
+    assert leaderboard[0].rating == approx(1036.464, abs=0.01)
+    assert leaderboard[1].rating == approx(963.535, abs=0.01)
 
 
 def test_mab_ranker() -> None:
