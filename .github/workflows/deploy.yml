@@ -53,12 +53,10 @@ jobs:
         if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.event.inputs.environment }}" == "production" ]]; then
           echo "ENVIRONMENT=production" >> $GITHUB_ENV
           echo "SERVICE_NAME=backend" >> $GITHUB_ENV
-          echo "SECRET_NAME_SUFFIX=PRODUCTION" >> $GITHUB_ENV
           echo "MEMORY=8G" >> $GITHUB_ENV
         else
           echo "ENVIRONMENT=staging" >> $GITHUB_ENV
           echo "SERVICE_NAME=backend-staging" >> $GITHUB_ENV
-          echo "SECRET_NAME_SUFFIX=STAGING" >> $GITHUB_ENV
           echo "MEMORY=4G" >> $GITHUB_ENV
         fi
 
@@ -70,9 +68,15 @@ jobs:
         echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}_${{ env.SECRET_NAME_SUFFIX }}" >> .env
         echo "POSTGRES_USER=${{ secrets.POSTGRES_USER }}" >> .env
         echo "POSTGRES_DATABASE=${{ secrets.POSTGRES_DATABASE }}" >> .env
-        echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}_${{ env.SECRET_NAME_SUFFIX }}" >> .env
-        echo "POSTGRES_HOST=${{ secrets.POSTGRES_HOST }}_${{ env.SECRET_NAME_SUFFIX }}" >> .env
-        echo "POSTGRES_HOST_NON_POOLING=${{ secrets.POSTGRES_HOST_NON_POOLING }}_${{ env.SECRET_NAME_SUFFIX }}" >> .env
+        if [[ "${{ env.ENVIRONMENT }}" == "production" ]]; then
+          echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_PRODUCTION }}" >> .env
+          echo "POSTGRES_HOST=${{ secrets.POSTGRES_HOST_PRODUCTION }}" >> .env
+          echo "POSTGRES_HOST_NON_POOLING=${{ secrets.POSTGRES_HOST_NON_POOLING_PRODUCTION }}" >> .env
+        elif [[ "${{ env.ENVIRONMENT }}" == "staging" ]]; then
+          echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_STAGING }}" >> .env
+          echo "POSTGRES_HOST=${{ secrets.POSTGRES_HOST_STAGING }}" >> .env
+          echo "POSTGRES_HOST_NON_POOLING=${{ secrets.POSTGRES_HOST_NON_POOLING_STAGING }}" >> .env
+        fi
 
     - name: Authenticate to Google Cloud
       uses: google-github-actions/auth@v1
