@@ -63,7 +63,7 @@ def test_elo_ranker() -> None:
 @mark.filterwarnings("ignore:invalid value encountered in scalar divide")
 @mark.parametrize("algo", CHOIX_RANKER_ALGORITHMS)
 def test_choix_ranker(algo: str) -> None:
-    ranker = ChoixRanker(choix_ranker_algorithm=algo)
+    ranker = ChoixRanker(choix_ranker_algorithm=algo, tie_policy="add_twice")
 
     assert ranker.get_annotated_rating("a") == AnnotatedFloat(None, "Wins: 0, Losses: 0, Ties: 0")
     with raises(ValueError):

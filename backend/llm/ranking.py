@@ -1,3 +1,4 @@
+import concurrent
 import logging
 from abc import ABC, abstractmethod
 from collections import Counter, defaultdict
@@ -48,11 +49,11 @@ CHOIX_RANKER_ALGORITHMS = (
 )
 
 
-DEFAULT_RANKER_TYPE = "choix_conf_intervals"
-DEFAULT_RANKER_KWARGS = dict(choix_ranker_algorithm="lsr_pairwise")
-
 # The default algorithm for Choice Axiom ranking.
-CHOIX_DEFAULT_ALGORITHM = "ilsr_pairwise"
+CHOIX_DEFAULT_ALGORITHM = "lsr_pairwise"
+
+DEFAULT_RANKER_TYPE = "choix_conf_intervals"
+DEFAULT_RANKER_KWARGS = dict(choix_ranker_algorithm=CHOIX_DEFAULT_ALGORITHM)
 
 ConfInterval = tuple[float, float]
 
@@ -332,7 +333,7 @@ class ChoixRanker(Ranker):
         models: list[Any] | None = None,
         costs: list[float] | None = None,
         battles: Iterable[Battle] = (),
-        tie_policy: Literal["ignore", "add_twice"] = "add_twice",
+        tie_policy: Literal["ignore", "add_twice"] = "ignore",
         choix_ranker_algorithm: str = CHOIX_DEFAULT_ALGORITHM,
         choix_alpha: float = 1e-7,
         choix_kwargs: dict[str, Any] | None = None,
@@ -468,8 +469,8 @@ class ChoixRankerConfIntervals(ChoixRanker, ConfidenceIntervalRankerMixin):
         models: list[Any] | None = None,
         costs: list[float] | None = None,
         battles: Iterable[Battle] = (),
-        tie_policy: Literal["ignore", "add_twice"] = "add_twice",
-        choix_ranker_algorithm: str = "ilsr_pairwise",
+        tie_policy: Literal["ignore", "add_twice"] = "ignore",
+        choix_ranker_algorithm: str = CHOIX_DEFAULT_ALGORITHM,
         choix_alpha: float = 0.001,
         choix_kwargs: dict[str, Any] | None = None,
         num_bootstrap_iterations: int = 20,
@@ -586,18 +587,23 @@ class ChoixRankerConfIntervals(ChoixRanker, ConfidenceIntervalRankerMixin):
         num_bootstrap_samples = int(len(self.battles) * self.bootstrap_sample_fraction)
         rng = np.random.default_rng(self.seed)
         try:
-            for _ in range(self.num_bootstrap_iterations):
-                sampled_battles = rng.choice(battles, size=num_bootstrap_samples, replace=True)
-                choix_params = self.choix_ranker(
-                    len(self.model_ids), sampled_battles, alpha=self.choix_alpha, **self.choix_kwargs
-                )
-                bootstrap_ratings.append(choix_params)
-
+            with concurrent.futures.ProcessPoolExecutor() as executor:
+                futures = [
+                    executor.submit(
+                        self.choix_ranker,
+                        len(self.model_ids),
+                        rng.choice(battles, size=num_bootstrap_samples, replace=True),
+                        alpha=self.choix_alpha,
+                        **self.choix_kwargs,
+                    )
+                    for _ in range(self.num_bootstrap_iterations)
+                ]
+                bootstrap_ratings = [future.result() for future in concurrent.futures.as_completed(futures)]
             med_ratings = np.median(bootstrap_ratings, axis=0)
             lower_bounds = np.percentile(bootstrap_ratings, 5, axis=0)
             upper_bounds = np.percentile(bootstrap_ratings, 95, axis=0)
 
-            # The ranker uses the average as the final rank.
+            # The ranker uses the median as the final rank.
             self.choix_params = med_ratings
             self.ratings = {ids_to_models[id]: rating for id, rating in enumerate(med_ratings)}
             self.conf_intervals = {
