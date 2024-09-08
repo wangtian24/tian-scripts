@@ -87,7 +87,7 @@ class LicenseEnum(Enum):
 class LanguageModel(BaseModel, table=True):
     __tablename__ = "language_models"
 
-    model_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    language_model_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
 
     # This is the name displayed to the user, e.g. "gpt-4o-2024-05-13".
     # This name can be pseudonymous, e.g. "anonymous-model" with internal_name

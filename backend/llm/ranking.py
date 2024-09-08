@@ -540,7 +540,7 @@ class ChoixRankerConfIntervals(ChoixRanker, ConfidenceIntervalRankerMixin):
             self.update_ratings()
             category_id = category.category_id
             llms = session.exec(select(LanguageModel)).all()
-            llm_name_to_id = {llm.internal_name: llm.model_id for llm in llms}
+            llm_name_to_id = {llm.internal_name: llm.language_model_id for llm in llms}
             # This stores the new RatingHistory objects we create, so that we can link them to the Rating objects later.
             llm_ids_to_ranking_history = {}
             for model_name, (score, conf_interval) in self.get_ratings_conf_intervals().items():
@@ -563,7 +563,7 @@ class ChoixRankerConfIntervals(ChoixRanker, ConfidenceIntervalRankerMixin):
 
                 # Query for existing Rating, to change its rating_history_id if needed.
                 existing_rating = session.exec(
-                    select(Rating).where(Rating.model_id == model_id, Rating.category_id == category_id)
+                    select(Rating).where(Rating.language_model_id == model_id, Rating.category_id == category_id)
                 ).first()
 
                 if existing_rating:
@@ -723,7 +723,7 @@ class PerCategoryRanker(Ranker):
                 raise ValueError(f"Category '{category_name}' not found")
             ranker.to_db(category_name, snapshot_timestamp)
         else:
-            for category, ranker in self.rankers.items():
+            for category, ranker in list(self.rankers.items()) + [(OVERALL_CATEGORY_NAME, self.overall_ranker)]:
                 ranker.to_db(category, snapshot_timestamp)
 
 

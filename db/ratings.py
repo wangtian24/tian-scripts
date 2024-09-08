@@ -46,10 +46,12 @@ class Category(BaseModel, table=True):
 # model-category pair.
 class RatingHistory(BaseModel, table=True):
     __tablename__ = "ratings_history"
-    __table_args__ = (UniqueConstraint("model_id", "category_id", "created_at", name="uq_model_category_created_at"),)
+    __table_args__ = (
+        UniqueConstraint("language_model_id", "category_id", "created_at", name="uq_model_category_created_at"),
+    )
 
     rating_history_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, index=True)
-    model_id: uuid.UUID = Field(foreign_key="language_models.model_id")
+    language_model_id: uuid.UUID = Field(foreign_key="language_models.language_model_id")
     category_id: uuid.UUID = Field(foreign_key="categories.category_id")
     score: float = Field(default=0)
     score_lower_bound_95: float = Field(default=0)
@@ -73,10 +75,10 @@ class RatingHistory(BaseModel, table=True):
 # rating_history_id.
 class Rating(BaseModel, table=True):
     __tablename__ = "ratings"
-    __table_args__ = (UniqueConstraint("model_id", "category_id", name="uq_model_category"),)
+    __table_args__ = (UniqueConstraint("language_model_id", "category_id", name="uq_model_category"),)
 
     rating_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    model_id: uuid.UUID = Field(foreign_key="language_models.model_id")
+    language_model_id: uuid.UUID = Field(foreign_key="language_models.language_model_id")
     category_id: uuid.UUID = Field(foreign_key="categories.category_id")
 
     # Points to the latest row in the ratings_history table.
