@@ -1,13 +1,18 @@
 import enum
 import uuid
 from enum import Enum
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Column, Text, UniqueConstraint
 from sqlalchemy import Enum as SQLAlchemyEnum
 from sqlmodel import Field, ForeignKey, Relationship
 
 from db.base import BaseModel
+from db.ratings import Category
 from db.users import User
+
+if TYPE_CHECKING:
+    from db.chats import Category
 
 
 # A chat can contain multiple conversations.
@@ -85,6 +90,8 @@ class ChatMessage(BaseModel, table=True):
         },
         back_populates="message_2",
     )
+    category_id: uuid.UUID | None = Field(foreign_key="categories.category_id", nullable=True)
+    category: "Category" = Relationship(back_populates="chat_messages")
 
 
 class EvalType(Enum):

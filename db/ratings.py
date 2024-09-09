@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
 from sqlalchemy import UniqueConstraint
@@ -7,6 +8,9 @@ from sqlmodel import Field, Relationship
 
 from db.base import BaseModel
 from db.language_models import LanguageModel
+
+if TYPE_CHECKING:
+    from db.chats import ChatMessage
 
 # The "category" used for the overall ranking (the ranking across all categories).
 OVERALL_CATEGORY_NAME = "Overall"
@@ -28,6 +32,7 @@ class Category(BaseModel, table=True):
     child_categories: list["Category"] = Relationship(back_populates="parent_category")
     ratings: list["Rating"] = Relationship(back_populates="category")
     ratings_history: list["RatingHistory"] = Relationship(back_populates="category")
+    chat_messages: list["ChatMessage"] = Relationship(back_populates="category")
 
     def __str__(self) -> str:
         return self.get_hierarchical_name()
