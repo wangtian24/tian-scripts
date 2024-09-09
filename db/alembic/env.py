@@ -70,6 +70,13 @@ def run_migrations_online() -> None:
             context.run_migrations()
 
 
+if settings.ENVIRONMENT.lower() != "local":
+    print(f"WARNING: You are about to upgrade the {settings.ENVIRONMENT.upper()} database!")
+    approval = input("Type 'yupp' to continue: ").strip().lower()
+    if approval != "yupp":
+        print("Migration aborted!")
+        exit(1)
+
 if context.is_offline_mode():
     run_migrations_offline()
 else:
