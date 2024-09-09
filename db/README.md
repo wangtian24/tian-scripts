@@ -38,15 +38,8 @@ alembic revision --autogenerate -m "description for the migration"
 3. Review the auto-generated schema change for prisma. In particular, pay attention to the generated relationships to see if they are correct.
 4. Submit the prisma schema file change as another pull request. 
 
-# Generating schema spy ER diagrams and schema viewer HTML
+# Schema viewer
 ## Setup
-1. Install docker engine. The easiest way to do it is to [install Docker Desktop](https://docs.docker.com/desktop/install/mac-install/) which comes with a graphical interface as well as Docker Engine (CLI + Daemon). Launch the desktop app to complete the setup.
-2. Make a copy of `scheamspy.properties.sample` and rename it to `schemaspy.properties`. Update the database password under `schemaspy.p`. It should already be in your top level `.env` file, or find it in 1password if you never set that up.
-
-### Generating new assets
-1. Here we are assuming that you are running the commands at the root directory of the `yupp-llms` repo. Adjust the paths below where `$PWD` was referenced accordingly if you are running the command from elsewhere.
-2. Run the following command. Docker will pull the image when you run it for the first time. 
-   ```
-   docker run  -v "$PWD/db/schemaspy:/output" -v "$PWD/db/schemaspy/schemaspy.properties:/schemaspy.properties" schemaspy/schemaspy:snapshot
-   ```
-3. You can view the output by opening the [index.html](schemaspy/index.html) file in your browser.
+1. Install DBeaver Community edition. The easiest way to do it is to [install DBeaver](https://dbeaver.io/) Launch the desktop app.
+2. Create new connection to the database by using environment variables. For DEV, you can find it in 1Password and for PROD, you can find it in the vercel project.
+3. Once connected to the database, you can view the schema by right clicking on the public database or against specific tables and opening the ER Diagram view.
