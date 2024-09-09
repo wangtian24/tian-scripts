@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
+from sqlalchemy import Column
 from sqlmodel import Field, Relationship
 
 from db.base import BaseModel
@@ -17,7 +18,7 @@ if TYPE_CHECKING:
 # We will add our own adapter to handle login some day.
 
 
-# Represents a user (human for now).
+# Represents a user (both human and synthetic).
 class User(BaseModel, table=True):
     __tablename__ = "users"
 
@@ -28,12 +29,58 @@ class User(BaseModel, table=True):
     image: str | None = Field(default=None, sa_type=sa.Text)
     points: int = Field(default=0)
 
+    backfill_job_id: uuid.UUID | None = Field(
+        foreign_key="synthetic_backfill_attributes.id",
+        default=None,
+        nullable=True,
+    )
+
     accounts: list["Account"] = Relationship(back_populates="user", cascade_delete=True)
     sessions: list["Session"] = Relationship(back_populates="user", cascade_delete=True)
 
     chats: list["Chat"] = Relationship(back_populates="creator")
     turns: list["Turn"] = Relationship(back_populates="creator")
     evals: list["Eval"] = Relationship(back_populates="user")
+
+    synthetic_attributes: "SyntheticUserAttributes" = Relationship(back_populates="user", cascade_delete=True)
+    backfill_attributes: "SyntheticBackfillAttributes" = Relationship(back_populates="generated_users")
+
+
+class SyntheticUserAttributes(BaseModel, table=True):
+    """
+    Represents attributes for synthetic users, such as the generating LLM, system prompt, temperature, etc. The presence
+    of a user in this table indicates that the user is synthetic. For future optimization, it may make sense to
+    denormalize this table and move the attributes to the User table to reduce the number of joins.
+    """
+
+    __tablename__ = "synthetic_user_attributes"
+
+    user_id: str = Field(foreign_key="users.id", primary_key=True, nullable=False)
+    persona: str = Field(nullable=False, sa_type=sa.Text, default="")
+    interests: list[str] = Field(sa_column=Column(sa.ARRAY(sa.Text), nullable=False, default=[]))
+    style: str = Field(nullable=False, sa_type=sa.Text, default="")
+
+    user: "User" = Relationship(back_populates="synthetic_attributes")
+
+
+class SyntheticBackfillAttributes(BaseModel, table=True):
+    """Represents the attributes of a backfill job."""
+
+    __tablename__ = "synthetic_backfill_attributes"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
+
+    num_users: int = Field(nullable=False, sa_type=sa.Integer)
+    num_attempted_chats_per_user: int = Field(nullable=False, sa_type=sa.Integer)
+
+    user_llm_model: str = Field(sa_type=sa.Text, nullable=False)
+    user_llm_temperature: float = Field(nullable=False, sa_type=sa.Float)
+
+    judge_models: list[str] = Field(sa_column=Column(sa.ARRAY(sa.Text), nullable=False, default=[]))
+    judge_model_temperatures: list[float] = Field(sa_column=Column(sa.ARRAY(sa.Float), nullable=False, default=[]))
+    git_commit_sha: str = Field(sa_type=sa.Text, nullable=False, default="")
+
+    generated_users: list["User"] = Relationship(back_populates="backfill_attributes", cascade_delete=True)
 
 
 class Account(BaseModel, table=True):

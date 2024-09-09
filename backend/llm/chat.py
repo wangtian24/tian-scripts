@@ -12,7 +12,7 @@ from pydantic.v1 import SecretStr
 from sentence_transformers import SentenceTransformer
 
 from backend import prompts
-from backend.llm.constants import MODELS_BY_PROVIDER, ChatProvider
+from backend.llm.constants import FRONTEND_MODELS_BY_PROVIDER, ChatProvider
 from backend.llm.utils import combine_short_sentences
 
 DEFAULT_HIGH_SIM_THRESHOLD = 0.825
@@ -34,7 +34,7 @@ def get_chat_model(provider: ChatProvider | str, model: str, api_key: str) -> Ba
     if not chat_llm_cls:
         raise ValueError(f"Unsupported provider: {provider}")
 
-    if model not in MODELS_BY_PROVIDER.get(provider, []):
+    if model not in FRONTEND_MODELS_BY_PROVIDER.get(provider, []):
         raise ValueError(f"Unsupported model: {model} for provider: {provider}")
 
     return chat_llm_cls(api_key=SecretStr(api_key), model=model)  # type: ignore

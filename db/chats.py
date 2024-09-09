@@ -136,6 +136,7 @@ class Eval(BaseModel, table=True):
     score_1: float | None = Field(nullable=True)
     score_2: float | None = Field(nullable=True)
     user_comment: str | None = Field(nullable=True)
+    judge_model_name: str | None = Field(nullable=True)
 
 
 # TODO(minqi): Add comparison result (fka yupptake).

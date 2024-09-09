@@ -4,7 +4,7 @@ from typing import Any
 
 import numpy as np
 
-from backend.llm.constants import MODELS
+from backend.llm.constants import FRONTEND_MODELS
 from backend.llm.ranking import Ranker, get_ranker
 from backend.llm.routing.policy import DEFAULT_ROUTING_POLICY, RoutingPolicy, SelectionCriteria
 
@@ -161,4 +161,4 @@ class RankedRouter(Router):
 
 @cache
 def get_router() -> RankedRouter:
-    return RankedRouter(models=MODELS, policy=DEFAULT_ROUTING_POLICY, ranker=get_ranker())
+    return RankedRouter(models=FRONTEND_MODELS, policy=DEFAULT_ROUTING_POLICY, ranker=get_ranker())
