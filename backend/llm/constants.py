@@ -22,6 +22,8 @@ class ChatProvider(Enum):
             raise ValueError(f"Unsupported provider string: {provider}") from e
 
 
+# Remember to keep the list of models in sync with
+# https://github.com/yupp-ai/sarai-chat/blob/main/lib/llms.tsx#L38
 MODELS_BY_PROVIDER = {
     ChatProvider.OPENAI: [
         "gpt-4o",
@@ -39,7 +41,6 @@ MODELS_BY_PROVIDER = {
     ],
     ChatProvider.MICROSOFT: [
         "phi-3-mini-4k-instruct",
-        "phi-3-medium-4k-instruct",
     ],
     ChatProvider.ZERO_ONE: [
         "yi-large",
@@ -54,9 +55,8 @@ MODELS_BY_PROVIDER = {
         "qwen1.5-7b-chat",
         "qwen-max",
     ],
-    ChatProvider.HERMES: [
-        "hermes-3-llama-3.1-405b-fp8",
-    ],
 }
+# Remember to keep the list of models in sync with
+# https://github.com/yupp-ai/sarai-chat/blob/main/lib/llms.tsx#L38
 
 MODELS = [model for models in MODELS_BY_PROVIDER.values() for model in models]
