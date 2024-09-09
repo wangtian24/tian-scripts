@@ -1,3 +1,4 @@
+import sys
 from logging.config import fileConfig
 
 import alembic_postgresql_enum  # noqa: F401 for side-effect to handle enum definition in alembic.
@@ -70,7 +71,7 @@ def run_migrations_online() -> None:
             context.run_migrations()
 
 
-if settings.ENVIRONMENT.lower() != "local":
+if "upgrade" in sys.argv and settings.ENVIRONMENT.lower() != "local":
     print(f"WARNING: You are about to upgrade the {settings.ENVIRONMENT.upper()} database!")
     approval = input("Type 'yupp' to continue: ").strip().lower()
     if approval != "yupp":
