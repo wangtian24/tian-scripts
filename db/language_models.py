@@ -1,7 +1,10 @@
 import uuid
+from datetime import date
+from decimal import Decimal
 from enum import Enum
 from typing import TYPE_CHECKING
 
+from sqlalchemy import Column, Numeric
 from sqlmodel import Field, Relationship
 
 from db.base import BaseModel
@@ -118,6 +121,16 @@ class LanguageModel(BaseModel, table=True):
     license: LicenseEnum = Field(default=LicenseEnum.unknown)
     family: str | None = Field(default=None)
     avatar_url: str | None = Field(default=None)
+
+    # This is the number of parameters in the model in millions.
+    parameter_count: Decimal | None = Field(sa_column=Column(Numeric(precision=15, scale=0), nullable=True))
+
+    # This is the context window of the model
+    context_window_tokens: Decimal | None = Field(sa_column=Column(Numeric(precision=15, scale=0), nullable=True))
+
+    # This is the knowledge cutoff of the model in yyyy mm dd format.
+    # For example, a knowledge cutoff of 2024 06 15 means the model was trained on data up to June 15, 2024.
+    knowledge_cutoff_date: date | None = Field(default=None, nullable=True)
 
     ratings: list["Rating"] = Relationship(back_populates="model")
     ratings_history: list["RatingHistory"] = Relationship(back_populates="model")
