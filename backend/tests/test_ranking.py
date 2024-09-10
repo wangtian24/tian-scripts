@@ -1,3 +1,5 @@
+import os
+
 from mabwiser.mab import LearningPolicy
 from pytest import approx, mark, raises
 
@@ -13,6 +15,8 @@ from backend.llm.ranking import (
 )
 from backend.llm.utils import AnnotatedFloat
 from db.ratings import OVERALL_CATEGORY_NAME
+
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 
 def _assert_approx(annotated_float: AnnotatedFloat, value: float | None, annotation: str) -> None:
@@ -126,18 +130,18 @@ def test_choix_confidence_ranker() -> None:
         ci_ranker.update("a", "b", 0.0)
         non_ci_ranker.update("a", "b", 0.0)
     rating, lower, upper = ci_ranker.get_rating_conf_intervals("a")
-    assert lower == approx(1077.0497, abs=0.001)
-    assert rating == approx(1202.256, abs=0.001)
-    assert upper == approx(1374.191, abs=0.001)
+    assert lower == approx(911.761, abs=0.001)
+    assert rating == approx(1109.830, abs=0.001)
+    assert upper == approx(1202.256, abs=0.001)
 
     # ... and narrower as data is more consistent.
     for _ in range(50):
         ci_ranker.update("a", "b", 0.0)
         non_ci_ranker.update("a", "b", 0.0)
     rating, lower, upper = ci_ranker.get_rating_conf_intervals("a")
-    assert lower == approx(602.914, abs=0.001)
-    assert rating == approx(659.083, abs=0.001)
-    assert upper == approx(713.847, abs=0.001)
+    assert lower == approx(558.312, abs=0.001)
+    assert rating == approx(646.747, abs=0.001)
+    assert upper == approx(714.622, abs=0.001)
 
     # Mean rank should be similar to the rank from a non-confidence-intervals ranker.
     assert ci_ranker.get_rating("a") == approx(non_ci_ranker.get_rating("a"), rel=0.03)
@@ -178,7 +182,7 @@ def test_per_category_ranker() -> None:
     _assert_approx(rating_all_categories["coding"], 2381.751, "Wins: 2, Losses: 0, Ties: 0 (2381.8 to 2381.8)")
     _assert_approx(rating_all_categories["math"], -381.751, "Wins: 0, Losses: 2, Ties: 0 (-381.8 to -381.8)")
     _assert_approx(
-        rating_all_categories[OVERALL_CATEGORY_NAME], 1081.026, "Wins: 3, Losses: 2, Ties: 0 (811.2 to 2564.9)"
+        rating_all_categories[OVERALL_CATEGORY_NAME], 1081.026, "Wins: 3, Losses: 2, Ties: 0 (14.7 to 1277.0)"
     )
 
     assert ranker.annotate_prediction_all_categories("a", "b") == {

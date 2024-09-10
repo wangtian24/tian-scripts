@@ -370,6 +370,14 @@ class ChoixRanker(Ranker):
         for battle in battles:
             self.update(battle.model_a, battle.model_b, battle.result_a)
 
+    def get_num_samples_no_ties(self, model: str) -> int:
+        """Return the number of samples for `model`."""
+        return self.wins.get(model, 0) + self.losses.get(model, 0)
+
+    def get_num_samples(self, model: str) -> int:
+        """Return the number of samples for `model`."""
+        return self.get_num_samples_no_ties(model) + self.ties.get(model, 0)
+
     def add_model(self, model: str, cost: float = DEFAULT_COST) -> None:
         """Add a model to the ranker."""
         super().add_model(model, cost)
@@ -585,18 +593,20 @@ class ChoixRankerConfIntervals(ChoixRanker, ConfidenceIntervalRankerMixin):
         bootstrap_ratings = []  # The ratings of the models after each bootstrap iteration.
         battles = np.array(self.battles)  # Convert battles to a numpy array for efficient sampling.
         num_bootstrap_samples = int(len(self.battles) * self.bootstrap_sample_fraction)
-        rng = np.random.default_rng(self.seed)
         try:
             with concurrent.futures.ProcessPoolExecutor() as executor:
                 futures = [
                     executor.submit(
-                        self.choix_ranker,
+                        _bootstrap_iteration,
+                        self.seed + i,
                         len(self.model_ids),
-                        rng.choice(battles, size=num_bootstrap_samples, replace=True),
-                        alpha=self.choix_alpha,
-                        **self.choix_kwargs,
+                        battles,
+                        self.choix_alpha,
+                        self.choix_ranker,
+                        self.choix_kwargs,
+                        num_bootstrap_samples,
                     )
-                    for _ in range(self.num_bootstrap_iterations)
+                    for i in range(self.num_bootstrap_iterations)
                 ]
                 bootstrap_ratings = [future.result() for future in concurrent.futures.as_completed(futures)]
             med_ratings = np.median(bootstrap_ratings, axis=0)
@@ -729,6 +739,24 @@ class PerCategoryRanker(Ranker):
 
 RANKER_CLASSES: tuple[type[Ranker], ...] = (EloRanker, ChoixRanker, ChoixRankerConfIntervals)
 RANKER_TYPES: list[str] = [cls.ranker_type for cls in RANKER_CLASSES]
+
+
+def _bootstrap_iteration(
+    seed: int,
+    num_models: int,
+    battles: np.ndarray,
+    alpha: float,
+    choix_ranker: Callable[..., Any],
+    choix_kwargs: dict[str, Any],
+    num_bootstrap_samples: int,
+) -> Any:
+    rng = np.random.default_rng(seed)
+    return choix_ranker(
+        num_models,
+        rng.choice(battles, size=num_bootstrap_samples, replace=True),
+        alpha=alpha,
+        **choix_kwargs,
+    )
 
 
 @cache
