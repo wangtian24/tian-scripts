@@ -535,6 +535,9 @@ class ChoixRankerConfIntervals(ChoixRanker, ConfidenceIntervalRankerMixin):
         return rated_model
 
     def to_db(self, category_name: str | None = None, snapshot_timestamp: datetime | None = None) -> None:
+        if not self.battles:
+            logging.warning(f"No battles to rank for category '{category_name}'")
+            return
         """Save the ratings to the database."""
         if not category_name:
             category_name = OVERALL_CATEGORY_NAME
@@ -554,9 +557,10 @@ class ChoixRankerConfIntervals(ChoixRanker, ConfidenceIntervalRankerMixin):
             for model_name, (score, conf_interval) in self.get_ratings_conf_intervals().items():
                 model_id = llm_name_to_id.get(model_name)
                 if not model_id:
-                    raise ValueError(f"Model '{model_name}' not found")
+                    logging.warning(f"Model '{model_name}' not found")
+                    continue
                 rating_history = RatingHistory(
-                    model_id=model_id,
+                    language_model_id=model_id,
                     category_id=category_id,
                     score=score,
                     score_lower_bound_95=conf_interval[0],
@@ -578,12 +582,13 @@ class ChoixRankerConfIntervals(ChoixRanker, ConfidenceIntervalRankerMixin):
                     existing_rating.rating_history_id = rating_history.rating_history_id
                 else:
                     new_rating = Rating(
-                        model_id=model_id,
+                        language_model_id=model_id,
                         category_id=category_id,
                         rating_history_id=rating_history.rating_history_id,
                     )
                     session.add(new_rating)
             session.commit()
+            logging.info(f"Saved {len(llm_ids_to_ranking_history)} rating histories to the database.")
 
     def update_ratings(self) -> None:
         self.update_ratings_counter.reset()
