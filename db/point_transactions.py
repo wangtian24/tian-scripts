@@ -1,11 +1,14 @@
 import uuid
 from enum import Enum
+from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
 from sqlmodel import Field, Relationship
 
 from db.base import BaseModel
-from db.users import User
+
+if TYPE_CHECKING:
+    from db.users import User
 
 
 class PointsActionEnum(Enum):
@@ -20,7 +23,7 @@ class PointTransaction(BaseModel, table=True):
 
     transaction_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
     user_id: uuid.UUID = Field(foreign_key="users.id", nullable=False, sa_type=sa.Text)
-    user: User = Relationship(back_populates="point_transactions")
+    user: "User" = Relationship(back_populates="point_transactions")
 
     # Can be negative or postiive depending on the action.
     point_delta: int = Field(nullable=False, default=0)

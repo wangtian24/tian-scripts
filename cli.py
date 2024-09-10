@@ -20,7 +20,7 @@ from backend.llm.chat import (
 from backend.llm.constants import COSTS_BY_MODEL
 from backend.llm.embedding import get_embedding_model
 from backend.llm.judge import WildChatRealismJudge
-from backend.llm.ranking import get_ranker, init_ranking
+from backend.llm.ranking import get_default_ranker
 from backend.llm.synthesize import SynthesizerConfig, SyntheticUserGenerator, asynthesize_chats
 
 
@@ -163,10 +163,25 @@ def synthesize_backfill_data(
 
 
 @cli.command()
-def update_ranking() -> None:
-    init_ranking()
-    ranker = get_ranker()
-    print(ranker.leaderboard())
+@click.option("--category", multiple=True, help="Category to include (can be specified multiple times)")
+@click.option("--exclude-ties", is_flag=True, help="Exclude ties")
+@click.option("--language", help="Language")
+@click.option("--model-names", multiple=True, help="Model name (can be specified multiple times)")
+def update_ranking(
+    category: list[str] | None = None,
+    exclude_ties: bool = False,
+    language: str | None = None,
+    model_names: list[str] | None = None,
+) -> None:
+    ranker = get_default_ranker()
+    ranker.add_evals_from_db(
+        category_names=category,
+        exclude_ties=exclude_ties,
+        language=language,
+        model_names=model_names,
+    )
+    for ranked_model in ranker.leaderboard():
+        print(ranked_model)
     ranker.to_db()
 
 

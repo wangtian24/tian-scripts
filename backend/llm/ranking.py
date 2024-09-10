@@ -21,7 +21,7 @@ from backend.llm.utils import (
     ThresholdCounter,
     fetch_categories_with_descriptions_from_db,
 )
-from db.chats import Eval, EvalType
+from db.chats import Chat, ChatMessage, Eval, EvalType, Turn
 from db.language_models import LanguageModel
 from db.ratings import OVERALL_CATEGORY_NAME, Category, Rating, RatingHistory
 
@@ -189,6 +189,81 @@ class Ranker:
     def to_db(self, category_name: str | None = None, snapshot_timestamp: datetime | None = None) -> None:
         """Add the ratings to the database."""
         raise NotImplementedError
+
+    def add_evals_from_db(
+        self,
+        category_names: list[str] | None = None,
+        exclude_ties: bool = False,
+        language: str | None = None,
+        model_names: list[str] | None = None,
+    ) -> int:
+        """Initialize the ranker with evals from the database, returning the number of evals added.
+
+        Args:
+            category_names: The categories to filter by.
+            exclude_ties: Whether to exclude ties.
+            language: The language to filter by.
+            model_names: The models to filter by.
+
+        Returns:
+            The number of evals added.
+        """
+
+        if language is not None:
+            raise NotImplementedError("Language filtering is not supported yet")
+
+        if model_names:
+            raise NotImplementedError("Model filtering is not supported yet")
+
+        query = (
+            select(Eval)
+            .join(Eval.turn)  # type: ignore
+            .join(Turn.chat)  # type: ignore
+            .join(ChatMessage, ChatMessage.turn_id == Turn.turn_id)  # type: ignore
+            .join(Category, Category.category_id == ChatMessage.category_id)  # type: ignore
+        ).where(
+            Eval.deleted_at.is_(None),  # type: ignore
+            Eval.eval_type == EvalType.SLIDER_V0,
+            Eval.score_1.is_not(None),  # type: ignore
+            Chat.deleted_at.is_(None),  # type: ignore
+        )
+
+        if category_names:
+            query = query.where(Category.name.in_(category_names))  # type: ignore
+
+        if exclude_ties:
+            query = query.where(Eval.score_1 != Eval.score_2)
+
+        query = query.options(
+            joinedload(Eval.message_1),  # type: ignore
+            joinedload(Eval.message_2),  # type: ignore
+            joinedload(Eval.turn),  # type: ignore
+            joinedload(Eval.turn).joinedload(Turn.chat),  # type: ignore
+            joinedload(Eval.turn).joinedload(Turn.chat_messages),  # type: ignore
+            joinedload(Eval.turn).joinedload(Turn.chat).joinedload(Chat.turns),  # type: ignore
+        )
+
+        # Replay evals from the database.
+        added = 0
+        with Session(get_engine()) as session:
+            evals = session.exec(query).unique().all()
+            counts_by_user: dict[str, int] = defaultdict(int)
+            for eval in evals:
+                result_a = eval.score_1
+                if eval.eval_type == EvalType.SLIDER_V0:
+                    result_a /= 100.0  # type: ignore
+                self.update(
+                    model_a=eval.message_1.assistant_model_name,  # type: ignore
+                    model_b=eval.message_2.assistant_model_name,  # type: ignore
+                    result_a=result_a,  # type: ignore
+                )
+                added += 1
+                counts_by_user[eval.user.email] += 1
+            logging.info(f"Added {added} evals to the ranker. Counts per user:")
+            for user, count in counts_by_user.items():
+                logging.info(f"- {user}: {count}")
+
+        return added
 
 
 class ConfidenceIntervalRankerMixin(ABC):
@@ -546,7 +621,7 @@ class ChoixRankerConfIntervals(ChoixRanker, ConfidenceIntervalRankerMixin):
         with Session(get_engine()) as session:
             category = session.exec(select(Category).where(Category.name == category_name)).first()
             if not category:
-                raise ValueError(f"Category '{category}' not found")
+                raise ValueError(f"Category '{category_name}' not found")
             # Make sure the ratings are up to date.
             self.update_ratings()
             category_id = category.category_id
@@ -771,38 +846,21 @@ def get_ranker() -> PerCategoryRanker:
     return PerCategoryRanker(categories, ChoixRankerConfIntervals, DEFAULT_RANKER_KWARGS)
 
 
-def init_ranking() -> None:
-    """Initialize the rankers."""
-    ranker = get_ranker()
+def get_default_ranker() -> ChoixRankerConfIntervals:
+    """Returns the current default ranker withe the default params."""
+    return ChoixRankerConfIntervals()
 
-    # Replay existing evals.
-    with Session(get_engine()) as session:
-        evals = session.exec(
-            select(Eval)
-            .where(Eval.deleted_at.is_(None), Eval.eval_type == EvalType.SLIDER_V0, Eval.score_1.is_not(None))  # type: ignore
-            .options(
-                joinedload(Eval.message_1),  # type: ignore
-                joinedload(Eval.message_2),  # type: ignore
-                joinedload(Eval.user),  # type: ignore
-            )
-        ).all()
-        added = 0
-        counts_by_user: dict[str, int] = defaultdict(int)
-        for eval in evals:
-            result_a = eval.score_1
-            if eval.eval_type == EvalType.SLIDER_V0:
-                result_a /= 100.0  # type: ignore
-            ranker.update(
-                model_a=eval.message_1.assistant_model_name,  # type: ignore
-                model_b=eval.message_2.assistant_model_name,  # type: ignore
-                result_a=result_a,  # type: ignore
-            )
-            added += 1
-            counts_by_user[eval.user.email] += 1
-        logging.info(f"Added {added} evals to the ranker. Counts per user:")
-        for user, count in counts_by_user.items():
-            logging.info(f"- {user}: {count}")
-        leaderboard = ranker.leaderboard()
-        logging.info("Leaderboard:")
-        for ranked_model in leaderboard:
-            logging.info(f"- {ranked_model}")
+
+def can_use_global_rankers(
+    category_names: list[str] | None,
+    exclude_ties: bool,
+    language: str | None,
+    model_names: list[str] | None,
+) -> bool:
+    """Returns whether the global rankers can be used for the given filters."""
+    return (
+        (not category_names or category_names == [OVERALL_CATEGORY_NAME])
+        and not exclude_ties
+        and not language
+        and not model_names
+    )

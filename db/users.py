@@ -7,6 +7,7 @@ from sqlalchemy import Column
 from sqlmodel import Field, Relationship
 
 from db.base import BaseModel
+from db.point_transactions import PointTransaction
 
 if TYPE_CHECKING:
     from db.chats import Chat, Eval, Turn
@@ -44,6 +45,7 @@ class User(BaseModel, table=True):
 
     synthetic_attributes: "SyntheticUserAttributes" = Relationship(back_populates="user", cascade_delete=True)
     backfill_attributes: "SyntheticBackfillAttributes" = Relationship(back_populates="generated_users")
+    point_transactions: list[PointTransaction] = Relationship(back_populates="user", cascade_delete=True)
 
 
 class SyntheticUserAttributes(BaseModel, table=True):
