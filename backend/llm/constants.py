@@ -1,5 +1,7 @@
 from enum import Enum
 
+from backend.llm.cost import ModelCost
+
 
 class ChatProvider(Enum):
     OPENAI = 1
@@ -107,3 +109,79 @@ LAST_NAMES = [
     "Carter", "Mitchell", "Perez", "Roberts", "Turner", "Phillips", "Campbell", "Parker", "Evans", "Edwards"
 ]
 # fmt: on
+
+COSTS_BY_MODEL = {
+    "gpt-4o": ModelCost(
+        dollars_per_million_input_tokens=5, dollars_per_million_output_tokens=15, tokenizer_name="gpt-4o"
+    ),
+    "gpt-4o-mini": ModelCost(
+        dollars_per_million_input_tokens=0.15, dollars_per_million_output_tokens=0.6, tokenizer_name="gpt-4o-mini"
+    ),
+    "gpt-4o-mini-2024-07-18": ModelCost(
+        dollars_per_million_input_tokens=0.15, dollars_per_million_output_tokens=0.6, tokenizer_name="gpt-4o-mini"
+    ),
+    "gpt-4-turbo": ModelCost(
+        dollars_per_million_input_tokens=10, dollars_per_million_output_tokens=30, tokenizer_name="gpt-4-turbo"
+    ),
+    "mistral-large-latest": ModelCost(
+        dollars_per_million_input_tokens=3,
+        dollars_per_million_output_tokens=9,
+        tokenizer_name="gpt-4o",  # approximation
+    ),
+    "gemini-1.5-pro": ModelCost(
+        dollars_per_million_input_tokens=3.5,
+        dollars_per_million_output_tokens=10.5,
+        tokenizer_type="google",
+        tokenizer_name="gemini-1.5-pro",
+    ),
+    "gemma-2-9b-it": ModelCost(
+        dollars_per_million_input_tokens=0.2,  # based on fireworks
+        dollars_per_million_output_tokens=0.2,
+        tokenizer_name="gpt-4o",  # approximation
+    ),
+    "claude-3-5-sonnet-20240620": ModelCost(
+        dollars_per_million_input_tokens=3,
+        dollars_per_million_output_tokens=15,
+        tokenizer_name="gpt-4o",  # approximation
+    ),
+    "meta-llama/Meta-Llama-3.1-70B-Instruct": ModelCost(
+        dollars_per_million_input_tokens=0.9,  # based on fireworks
+        dollars_per_million_output_tokens=0.9,
+        tokenizer_name="gpt-4o",  # approximation
+    ),
+    "phi-3-mini-4k-instruct": ModelCost(
+        dollars_per_million_input_tokens=0.2,  # based on fireworks
+        dollars_per_million_output_tokens=0.2,
+        tokenizer_name="gpt-4o",  # approximation
+    ),
+    "phi-3-medium-4k-instruct": ModelCost(
+        dollars_per_million_input_tokens=0.2,  # based on fireworks
+        dollars_per_million_output_tokens=0.2,
+        tokenizer_name="gpt-4o",  # approximation
+    ),
+    "yi-large": ModelCost(
+        dollars_per_million_input_tokens=3,  # based on fireworks
+        dollars_per_million_output_tokens=3,
+        tokenizer_name="gpt-4o",  # approximation
+    ),
+    "deepseek-coder-v2": ModelCost(
+        dollars_per_million_input_tokens=0.9,  # based on fireworks
+        dollars_per_million_output_tokens=0.9,
+        tokenizer_name="gpt-4o",  # approximation
+    ),
+    "nemotron-4-340b-instruct": ModelCost(
+        dollars_per_million_input_tokens=10,  # rough approximation
+        dollars_per_million_output_tokens=10,
+        tokenizer_name="gpt-4o",  # approximation
+    ),
+    "qwen1.5-7b-chat": ModelCost(
+        dollars_per_million_input_tokens=3,  # based on Alibaba
+        dollars_per_million_output_tokens=3,
+        tokenizer_name="gpt-4o",  # approximation
+    ),
+    "qwen-max": ModelCost(
+        dollars_per_million_input_tokens=10,  # based on Alibaba
+        dollars_per_million_output_tokens=10,
+        tokenizer_name="gpt-4o",  # approximation
+    ),
+}

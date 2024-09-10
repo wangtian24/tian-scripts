@@ -3,6 +3,7 @@ import json
 from typing import Any
 
 import click
+import numpy as np
 
 from backend.config import settings
 from backend.llm.chat import (
@@ -13,6 +14,7 @@ from backend.llm.chat import (
     highlight_llm_similarities,
     highlight_llm_similarities_with_embeddings,
 )
+from backend.llm.constants import COSTS_BY_MODEL
 from backend.llm.ranking import get_ranker, init_ranking
 from backend.llm.synthesize import SynthesizerConfig, SyntheticUserGenerator, asynthesize_chats
 
@@ -90,6 +92,36 @@ def highlight_similarities_embeddings() -> None:
         response_b=SAMPLE["responses"]["response_b"],
     )
     print(json.dumps(response, indent=2))
+
+
+@cli.command(
+    help="Estimate the cost of a given model from a list of JSON objects passed through stdin. Each JSON \
+          object should contain input and output strings with the keys `--input` and `--output`, respectively."
+)
+@click.option("--model", help="The model to use for cost estimation.", default=None)
+@click.option("--input", help="The key to use for extracting input strings.", default="input")
+@click.option("--output", help="The key to use for extracting output strings.", default="output")
+def estimate_cost(model: str | None, input: str, output: str) -> None:
+    """
+    Estimate the cost of a given model from a list of JSON objects composed of input and output strings with the keys
+    `--input` and `--output`, respectively. The JSON objects are read from stdin. If no `--model` is provided, the
+    model is taken from the `model` key in the JSON objects.
+    """
+    costs = []
+
+    for line in click.get_text_stream("stdin"):
+        data = json.loads(line)
+        model = model or data.get("model")
+
+        if not model:
+            raise ValueError("No model provided.")
+
+        cost = COSTS_BY_MODEL[model].compute_cost(input_string=data.get(input, ""), output_string=data.get(output, ""))
+        costs.append(cost)
+
+    costs_arr = np.array(costs)
+    print(f"Average cost per example: ${np.mean(costs_arr):.2f}")
+    print(f"Total cost: ${np.sum(costs_arr):.2f}")
 
 
 @cli.command()
