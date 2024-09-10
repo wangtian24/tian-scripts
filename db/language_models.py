@@ -84,6 +84,19 @@ class LicenseEnum(Enum):
     other = "Other"
 
 
+# Associates a language model with a provider. A language model can be accessed through multiple providers.
+class LanguageModelProviderAssociation(BaseModel, table=True):
+    __tablename__ = "language_model_provider_associations"
+
+    language_model_id: uuid.UUID = Field(primary_key=True, foreign_key="language_models.language_model_id")
+    provider_id: uuid.UUID = Field(primary_key=True, foreign_key="providers.provider_id")
+
+    # Whether the model should be accessed via the provider.
+    # Using this instead of deleting, as it is more semantic while temporarily disabling a model on a provider.
+    # For permanent removal of the model on a provider, set deleted_at.
+    is_active: bool = Field(default=True)
+
+
 class LanguageModel(BaseModel, table=True):
     __tablename__ = "language_models"
 
@@ -108,3 +121,34 @@ class LanguageModel(BaseModel, table=True):
 
     ratings: list["Rating"] = Relationship(back_populates="model")
     ratings_history: list["RatingHistory"] = Relationship(back_populates="model")
+
+    providers: list["Provider"] = Relationship(
+        back_populates="language_models", link_model=LanguageModelProviderAssociation
+    )
+
+
+# Provider is a service that can be used to access a model, e.g. OpenAI, Anthropic, Together AI, etc.
+class Provider(BaseModel, table=True):
+    __tablename__ = "providers"
+
+    provider_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+
+    # Provider's human-readable name, e.g. "OpenAI", "Together AI".
+    name: str = Field(default=None, index=True, unique=True)
+
+    # Provider's base URL for their API, e.g. "https://api.openai.com/v1".
+    base_api_url: str = Field(default=None)
+
+    # Environment variable name that contains the API key for the provider.
+    # This is used to retrieve the API key at runtime.
+    # TODO(arawind): Think of a better way to store secrets.
+    api_key_env_name: str = Field(default=None)
+
+    # Whether the provider is active and should be used for new evaluations.
+    # Using this instead of deleting, as it is more semantic while temporarily disabling a provider.
+    # For permanent removal of the provider, set deleted_at.
+    is_active: bool = Field(default=True)
+
+    language_models: list[LanguageModel] = Relationship(
+        back_populates="providers", link_model=LanguageModelProviderAssociation
+    )
