@@ -1,9 +1,15 @@
-from typing import Any
+import re
+from collections.abc import Generator
+from pathlib import Path
+from typing import Any, Generic, TypeVar
 
 import torch
 from langchain_anthropic import ChatAnthropic
+from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.pydantic_v1 import BaseModel as BaseModelV1
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_mistralai import ChatMistralAI
 from langchain_openai import ChatOpenAI
@@ -17,9 +23,29 @@ from backend.llm.utils import combine_short_sentences
 
 DEFAULT_HIGH_SIM_THRESHOLD = 0.825
 DEFAULT_UNIQUENESS_THRESHOLD = 0.75
+OPENAI_FT_ID_PATTERN = re.compile(r"^ft:(?P<model>.+?):(?P<organization>.+?)::(?P<id>.+?)$")
 
 
-def get_chat_model(provider: ChatProvider | str, model: str, api_key: str) -> BaseChatModel:
+class ChatModelInfo(BaseModelV1):
+    provider: ChatProvider | str
+    model: str
+    api_key: str
+
+
+def get_base_model(chat_llm_cls: type[Any], model: str) -> str:
+    if chat_llm_cls == ChatOpenAI and (match := OPENAI_FT_ID_PATTERN.match(model)):
+        model = match.group("model")
+
+    return model
+
+
+def get_chat_model(
+    info: ChatModelInfo,
+    chat_model_pool: dict[ChatProvider, list[str]] = FRONTEND_MODELS_BY_PROVIDER,
+    **chat_kwargs: Any | None,
+) -> BaseChatModel:
+    provider, model, api_key = info.provider, info.model, info.api_key
+
     if isinstance(provider, str):
         provider = ChatProvider.from_string(provider)
 
@@ -31,19 +57,39 @@ def get_chat_model(provider: ChatProvider | str, model: str, api_key: str) -> Ba
     }
 
     chat_llm_cls = chat_llms.get(provider)
+
     if not chat_llm_cls:
         raise ValueError(f"Unsupported provider: {provider}")
 
-    if model not in FRONTEND_MODELS_BY_PROVIDER.get(provider, []):
+    full_model_name = model
+    base_model_name = get_base_model(chat_llm_cls, model)
+
+    if base_model_name not in chat_model_pool.get(provider, []):
         raise ValueError(f"Unsupported model: {model} for provider: {provider}")
 
-    return chat_llm_cls(api_key=SecretStr(api_key), model=model)  # type: ignore
+    return chat_llm_cls(api_key=SecretStr(api_key), model=full_model_name, **chat_kwargs)  # type: ignore
+
+
+def get_chat_history_model(
+    info: ChatModelInfo,
+    chat_model_pool: dict[ChatProvider, list[str]] = FRONTEND_MODELS_BY_PROVIDER,
+    **chat_kwargs: Any | None,
+) -> BaseChatModel:
+    llm = get_chat_model(info, chat_model_pool=chat_model_pool, **chat_kwargs)
+    conv_template = ChatPromptTemplate.from_messages(
+        [
+            MessagesPlaceholder("chat_history"),
+            ("human", "{input}"),
+        ]
+    )
+
+    return conv_template | llm  # type: ignore
 
 
 def compare_llm_responses(
     provider: ChatProvider | str, model: str, api_key: str, prompt: str, responses: dict[str, str]
 ) -> BaseMessage:
-    llm = get_chat_model(provider=provider, model=model, api_key=api_key)
+    llm = get_chat_model(ChatModelInfo(provider=provider, model=model, api_key=api_key))
     chain = prompts.COMPARE_RESPONSES_PROMPT | llm
     return chain.invoke(input={"prompt": prompt, "responses": responses})
 
@@ -51,7 +97,7 @@ def compare_llm_responses(
 def highlight_llm_similarities(
     provider: ChatProvider | str, model: str, api_key: str, responses: dict[str, str]
 ) -> BaseMessage:
-    llm = get_chat_model(provider=provider, model=model, api_key=api_key)
+    llm = get_chat_model(ChatModelInfo(provider=provider, model=model, api_key=api_key))
     chain = prompts.HIGHLIGHT_SIMILARITIES_PROMPT | llm
     return chain.invoke(input={"prompt": "None", "responses": responses})
 
@@ -149,7 +195,7 @@ def prompt_difficulty(
 
 
 def prompt_difficulty_by_llm(provider: ChatProvider | str, model: str, api_key: str, prompt: str) -> BaseMessage:
-    llm = get_chat_model(provider=provider, model=model, api_key=api_key)
+    llm = get_chat_model(ChatModelInfo(provider=provider, model=model, api_key=api_key))
     chain = prompts.PROMPT_DIFFICULTY_PROMPT | llm
     return chain.invoke(input={"prompt": prompt})
 
@@ -157,6 +203,204 @@ def prompt_difficulty_by_llm(provider: ChatProvider | str, model: str, api_key: 
 def prompt_difficulty_by_llm_with_responses(
     provider: ChatProvider | str, model: str, api_key: str, prompt: str, responses: dict[str, str]
 ) -> BaseMessage:
-    llm = get_chat_model(provider=provider, model=model, api_key=api_key)
+    llm = get_chat_model(ChatModelInfo(provider=provider, model=model, api_key=api_key))
     chain = prompts.PROMPT_DIFFICULTY_WITH_RESPONSES_PROMPT | llm
     return chain.invoke(input={"prompt": prompt, "responses": responses})
+
+
+# langchain uses Pydantic v1 in BaseMessage; using for compatibility
+class Persona(BaseModelV1):
+    persona: str = ""
+    interests: list[str] = []
+    style: str = ""
+
+    def __hash__(self) -> int:
+        return hash((self.persona, tuple(self.interests), self.style))
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, Persona):
+            return False
+
+        return (
+            self.persona == other.persona
+            and tuple(self.interests) == tuple(other.interests)
+            and self.style == other.style
+        )
+
+
+YuppMessages = list[BaseMessage]
+
+
+# langchain uses Pydantic v1 in BaseMessage; using for compatibility
+class YuppChatMessageHistory(BaseModelV1):
+    """
+    Holds the chat history for a Yupp chat user. Each turn can be composed of multiple chat messages (e.g., from two
+    LLMs in parallel), so we use a list of messages to represent a turn.
+    """
+
+    messages: list[YuppMessages] = []
+    eval_llms: list[str] = []
+    user_persona: Persona | None = None
+
+
+class MultiChatUser:
+    """
+    Represents a conversational agent capable of responding to one or more messages simultaneously. Keeps track of the
+    chat history and various attributes. Each context is associated with a unique chat history.
+    """
+
+    def __init__(self) -> None:
+        self.chat_history: ChatMessageHistory | None = None
+
+    def copy(self) -> "MultiChatUser":
+        """Creates a copy of the chat user."""
+        raise NotImplementedError
+
+    @property
+    def last_message(self) -> BaseMessage:
+        """Returns the last generated message from the synthetic user."""
+        assert self.chat_history is not None, "Must be called within the context"
+        return self.chat_history.messages[-1]
+
+    def reset(self) -> None:
+        self.chat_history = ChatMessageHistory()
+
+    async def areset(self) -> None:
+        self.chat_history = ChatMessageHistory()
+
+    async def __aenter__(self) -> "MultiChatUser":
+        await self.areset()
+        return self
+
+    def __enter__(self) -> "MultiChatUser":
+        self.reset()
+        return self
+
+    def __exit__(self, exc_type: None, exc_val: None, exc_tb: None) -> None:
+        self.reset()
+
+    async def __aexit__(self, exc_type: None, exc_val: None, exc_tb: None) -> None:
+        await self.areset()
+
+    def respond(self, *messages: BaseMessage) -> BaseMessage:
+        """Responds to messages from one or more LLMs."""
+        assert self.chat_history is not None, "Chat history not set. Did you forget to enter the context?"
+        return self._respond(*messages)
+
+    def _respond(self, *messages: BaseMessage) -> BaseMessage:
+        raise NotImplementedError
+
+    async def arespond(self, *messages: BaseMessage) -> BaseMessage:
+        """Responds to a message asynchronously."""
+        assert self.chat_history is not None, "Chat history not set. Did you forget to enter the context?"
+        return await self._arespond(*messages)
+
+    async def _arespond(self, *messages: BaseMessage) -> BaseMessage:
+        raise NotImplementedError
+
+
+class LLMChatAssistant(MultiChatUser):
+    def __init__(self, llm: BaseChatModel):
+        super().__init__()
+        self.llm = llm
+
+    def _respond(self, *messages: BaseMessage) -> BaseMessage:
+        """Responds to the first message only"""
+        assert len(messages) == 1, "Only one message is supported"
+        assert self.chat_history is not None
+
+        message = messages[0]
+        response = self.llm.invoke(
+            dict(input=message.content, chat_history=self.chat_history.messages)  # type: ignore
+        )
+        self.chat_history.messages.append(message)
+        self.chat_history.messages.append(response)
+
+        return response
+
+    async def _arespond(self, *messages: BaseMessage) -> BaseMessage:
+        """Responds to the first message only"""
+        assert len(messages) == 1, "Only one message is supported"
+        assert self.chat_history is not None
+
+        message = messages[0]
+        response = await self.llm.ainvoke(
+            dict(input=message.content, chat_history=self.chat_history.messages)  # type: ignore
+        )
+        self.chat_history.messages.append(message)
+        self.chat_history.messages.append(response)
+
+        return response
+
+
+ChatUserType = TypeVar("ChatUserType", bound=MultiChatUser)
+
+
+class YuppChatUserGenerator(Generic[ChatUserType]):
+    """Generates chat users."""
+
+    async def agenerate_users(self) -> Generator[ChatUserType, None, None]:
+        """Generates chat users asynchronously. Defaults to synchronous implementation if not overriden."""
+        return self.generate_users()
+
+    def generate_users(self) -> Generator[ChatUserType, None, None]:
+        """Generates chat users."""
+        raise NotImplementedError
+
+
+class YuppChatIO:
+    def append_chat(self, chat: YuppChatMessageHistory) -> "YuppChatIO":
+        """Appends a chat to the writer."""
+        raise NotImplementedError
+
+    def read_chats(self) -> list[YuppChatMessageHistory]:
+        """Reads chats from the writer."""
+        raise NotImplementedError
+
+    def delete(self) -> None:
+        """Deletes the object underlying the writer."""
+        raise NotImplementedError
+
+    def flush(self) -> None:
+        """Flushes the writer."""
+        pass
+
+
+class JsonChatIO(YuppChatIO):
+    def __init__(self, filename: str) -> None:
+        self.path = Path(filename)
+        self.chats: list[YuppChatMessageHistory] = []
+
+    def append_chat(self, chat: YuppChatMessageHistory) -> "JsonChatIO":
+        self.chats.append(chat)
+        return self
+
+    def read_chats(self) -> list[YuppChatMessageHistory]:
+        chats = []
+
+        with self.path.open() as f:
+            for line in f:
+                chats.append(YuppChatMessageHistory.parse_raw(line))
+
+        self.chats = chats
+        return self.chats
+
+    def delete(self) -> None:
+        self.path.unlink()
+
+    def flush(self) -> None:
+        with self.path.open("a") as f:
+            for chat in self.chats:
+                f.write(chat.json())
+                f.write("\n")
+
+        self.chats = []
+
+
+ChatMessageType1 = TypeVar("ChatMessageType1", bound=BaseMessage)
+ChatMessageType2 = TypeVar("ChatMessageType2", bound=BaseMessage)
+
+
+def chat_message_cast_to(message: ChatMessageType1, target_type: type[ChatMessageType2]) -> ChatMessageType2:
+    message.type = target_type.schema()["properties"]["type"]["default"]
+    return target_type(**message.dict())

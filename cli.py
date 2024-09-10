@@ -1,15 +1,30 @@
+import asyncio
 import json
+from typing import Any
 
 import click
 
 from backend.config import settings
 from backend.llm.chat import (
     ChatProvider,
+    JsonChatIO,
+    YuppChatIO,
     compare_llm_responses,
     highlight_llm_similarities,
     highlight_llm_similarities_with_embeddings,
 )
 from backend.llm.ranking import get_ranker, init_ranking
+from backend.llm.synthesize import SynthesizerConfig, SyntheticUserGenerator, asynthesize_chats
+
+
+def click_provider_option(*args: str, **kwargs: Any | None) -> Any:
+    return click.option(
+        *args,
+        type=click.Choice([provider.name.lower() for provider in ChatProvider], case_sensitive=False),
+        default="openai",
+        **kwargs,
+    )
+
 
 SAMPLE: dict = {
     "prompt": "What is the difference between marriage license and marriage certificate?",
@@ -37,12 +52,7 @@ def _set_api_key(api_key: str) -> str:
 @cli.command()
 @click.option("--prompt", required=True, help="The prompt to send to OpenAI")
 @click.option("--api-key", help="API key")
-@click.option(
-    "--provider",
-    type=click.Choice([provider.name.lower() for provider in ChatProvider], case_sensitive=False),
-    default="openai",
-    help="LLM provider",
-)
+@click_provider_option("--provider", help="LLM provider")
 @click.option("--model", default="gpt-4o-mini", help="The provider model to use")
 def compare_responses(prompt: str, api_key: str, provider: str, model: str) -> None:
     api_key = _set_api_key(api_key)
@@ -59,12 +69,7 @@ def compare_responses(prompt: str, api_key: str, provider: str, model: str) -> N
 
 @cli.command()
 @click.option("--api-key", help="API key")
-@click.option(
-    "--provider",
-    type=click.Choice([provider.name.lower() for provider in ChatProvider], case_sensitive=False),
-    default="openai",
-    help="LLM provider",
-)
+@click_provider_option("--provider", help="LLM provider", default="openai")
 @click.option("--model", default="gpt-4o-mini", help="The provider model to use")
 def highlight_similarities(api_key: str, provider: str, model: str) -> None:
     api_key = _set_api_key(api_key)
@@ -85,6 +90,39 @@ def highlight_similarities_embeddings() -> None:
         response_b=SAMPLE["responses"]["response_b"],
     )
     print(json.dumps(response, indent=2))
+
+
+@cli.command()
+@click.option("-c", "--config", required=True, help="The configuration used for Yuppfill")
+@click.option("-t", "--output-type", default="json", type=click.Choice(["json", "db"], case_sensitive=False))
+@click.option("-o", "--output-path", help="The output path of the file")
+@click.option("-j", "--num-parallel", default=16, help="The number of jobs to run in parallel")
+@click.option("-n", "--num-chats-per-user", default=10, help="The number of chats to generate per user")
+def synthesize_backfill_data(
+    config: str, output_type: str, output_path: str, num_parallel: int, num_chats_per_user: int
+) -> None:
+    async def asynthesize_backfill_data() -> None:
+        synth_config = SynthesizerConfig.parse_file(config)
+        user_generator = SyntheticUserGenerator(synth_config)
+        writer: YuppChatIO | None = None
+
+        match output_type:
+            case "json":
+                writer = JsonChatIO(output_path)
+            case "db":
+                raise NotImplementedError("Database output is not implemented yet")
+            case _:
+                raise ValueError(f"Invalid output type: {output_type}")
+
+        for user in user_generator.generate_users():
+            chats = await asynthesize_chats(synth_config, user, num_chats_per_user, num_parallel=num_parallel)
+
+            for chat in chats:
+                writer.append_chat(chat)
+
+            writer.flush()
+
+    asyncio.run(asynthesize_backfill_data())
 
 
 @cli.command()
