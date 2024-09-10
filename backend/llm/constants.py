@@ -54,7 +54,7 @@ FRONTEND_MODELS_BY_PROVIDER = {
         "nemotron-4-340b-instruct",
     ],
     ChatProvider.QWEN: [
-        "qwen1.5-7b-chat",
+        "qwen1.5-72b-chat",
         "qwen-max",
     ],
 }
@@ -85,6 +85,7 @@ ALL_MODELS_BY_PROVIDER = {
     ],
     ChatProvider.QWEN: [
         "qwen1.5-7b-chat",
+        "qwen1.5-72b-chat",
         "qwen-max",
     ],
     ChatProvider.HERMES: [
@@ -178,6 +179,11 @@ COSTS_BY_MODEL = {
     "qwen1.5-7b-chat": ModelCost(
         dollars_per_million_input_tokens=3,  # based on Alibaba
         dollars_per_million_output_tokens=3,
+        tokenizer_name="gpt-4o",  # approximation
+    ),
+    "qwen1.5-72b-chat": ModelCost(
+        dollars_per_million_input_tokens=3,  # based on Alibaba
+        dollars_per_million_output_tokens=9,
         tokenizer_name="gpt-4o",  # approximation
     ),
     "qwen-max": ModelCost(
