@@ -14,6 +14,7 @@ COPY ./backend /app/backend
 COPY ./data/nltk_data /home/nltk_data
 COPY ./db /app/db
 COPY ./.env /app/.env
+COPY ./cli.py /app/cli.py
 
 RUN bash -c "poetry install --no-root"
 

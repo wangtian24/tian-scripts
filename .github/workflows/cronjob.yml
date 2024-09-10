@@ -43,6 +43,8 @@ env:
   GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   IMAGE_NAME: "gcr.io/yupp-llms/backend-${{ inputs.environment }}:v1"
   REGION: us-east4
+  CPU: ${{ inputs.environment == 'production' && '4' || '2' }}
+  MEMORY: ${{ inputs.environment == 'production' && '8G' || '4G' }}
 
 jobs:
   run-cronjob:
@@ -74,6 +76,8 @@ jobs:
           gcloud run jobs create $JOB_NAME \
             --image ${{ env.IMAGE_NAME }} \
             --region ${{ env.REGION }} \
+            --cpu=${{ env.CPU }} \
+            --memory=${{ env.MEMORY }} \
             --command="/app/backend/entrypoint.sh" \
             --args="$COMMAND,$ARGS"
         fi
