@@ -4,7 +4,7 @@ on:
   push:
     branches: [ staging ]
   schedule:
-    - cron: '9 0 * * *'  # Runs at 9 AM UTC (2 AM PST) daily
+    - cron: '0 9 * * *'  # Runs at 9 AM UTC (2 AM PST) daily
   workflow_dispatch:
     inputs:
       environment:
@@ -19,7 +19,7 @@ on:
 env:
   GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   SERVICE_NAME: backend
-  IMAGE_NAME: gcr.io/yupp-llms/backend:v1
+  IMAGE_NAME: "gcr.io/yupp-llms/backend-${{ github.event.inputs.environment }}:v1"
   REGION: us-east4
 
 jobs:
@@ -54,10 +54,12 @@ jobs:
           echo "ENVIRONMENT=production" >> $GITHUB_ENV
           echo "SERVICE_NAME=backend" >> $GITHUB_ENV
           echo "MEMORY=8G" >> $GITHUB_ENV
+          echo "CPU=4" >> $GITHUB_ENV
         else
           echo "ENVIRONMENT=staging" >> $GITHUB_ENV
           echo "SERVICE_NAME=backend-staging" >> $GITHUB_ENV
           echo "MEMORY=4G" >> $GITHUB_ENV
+          echo "CPU=2" >> $GITHUB_ENV
         fi
 
     - name: Create .env file
@@ -108,5 +110,7 @@ jobs:
           --platform managed \
           --region ${{ env.REGION }} \
           --allow-unauthenticated \
-          --cpu 2 \
-          --memory ${{ env.MEMORY }}
+          --cpu ${{ env.CPU }} \
+          --memory ${{ env.MEMORY }} \
+          --command="/app/backend/entrypoint.sh" \
+          --args="service"

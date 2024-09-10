@@ -1,0 +1,22 @@
+name: Update ranking
+
+on:
+  schedule:
+    # TODO(gm): Change to be more frequent once we have more data.
+    - cron: '15 */6 * * *'  # Every 6 hours, at 15 minutes past the hour.
+  workflow_dispatch:
+
+jobs:
+  update_rankings_staging:
+    uses: ./.github/workflows/cronjob.yml
+    with:
+      command: update-ranking
+      environment: staging
+    secrets: inherit
+
+  update_rankings_production:
+    uses: ./.github/workflows/cronjob.yml
+    with:
+      command: update-ranking
+      environment: production
+    secrets: inherit

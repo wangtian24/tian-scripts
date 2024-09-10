@@ -147,3 +147,13 @@ gcloud run services update-traffic backend \
   --region=us-east4 \
   --platform=managed
 ```
+
+## Periodic tasks
+
+Periodic tasks are run using GitHub actions, based on [`.github/workflows/cronjob.yml`](.github/workflows/cronjob.yml)); any command and arguments to [./cli.py](./cli.py) can be run as a periodic task.
+
+To add a new periodic task:
+1. Add a command to [./cli.py](./cli.py) (ex: `update_ranking()`).
+1. Create a GitHub action for that command with the desired schedule and any arguments to supply (ex: [`.github/workflows/update_ranking.yml`](.github/workflows/update_ranking.yml)).
+
+Periodic tasks will run automatically from the `main` branch, but can also be manually triggered for any branch from [the action page](https://github.com/yupp-ai/yupp-llms/actions/workflows/cronjob.yml).

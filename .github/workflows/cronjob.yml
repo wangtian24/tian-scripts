@@ -1,0 +1,82 @@
+name: Cronjob
+
+on:
+  workflow_call:
+    inputs:
+      command:
+        description: 'CLI command to run'
+        required: true
+        type: string
+      args:
+        description: 'Arguments for the CLI command'
+        required: false
+        type: string
+        default: ''
+      environment:
+        description: 'Environment to run in'
+        required: true
+        default: 'staging'
+        type: string
+  workflow_dispatch:
+    inputs:
+      command:
+        description: 'CLI command to run'
+        required: true
+        type: choice
+        options:
+        - update-ranking
+      args:
+        description: 'Arguments for the CLI command'
+        required: false
+        type: string
+        default: ''
+      environment:
+        description: 'Environment to run in'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  IMAGE_NAME: "gcr.io/yupp-llms/backend-${{ inputs.environment }}:v1"
+  REGION: us-east4
+
+jobs:
+  run-cronjob:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v1
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v1
+      with:
+        project_id: ${{ env.GCP_PROJECT_ID }}
+
+    - name: Run Cronjob
+      run: |
+        COMMAND=${{ inputs.command }}
+        # Cloud run jobs require arguments to be comma-separated, not space-separated.
+        ARGS=$(echo "${{ inputs.args }}" | tr ' ' ',')
+        JOB_NAME="cron-job-${COMMAND}-${{ inputs.environment }}"
+
+        # Create the job if it doesn't exist
+        if ! gcloud run jobs describe $JOB_NAME --region ${{ env.REGION }} &> /dev/null; then
+          gcloud run jobs create $JOB_NAME \
+            --image ${{ env.IMAGE_NAME }} \
+            --region ${{ env.REGION }} \
+            --command="/app/backend/entrypoint.sh" \
+            --args="$COMMAND,$ARGS"
+        fi
+
+        gcloud run jobs execute $JOB_NAME \
+          --region ${{ env.REGION }}

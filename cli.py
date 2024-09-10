@@ -9,6 +9,7 @@ from backend.llm.chat import (
     highlight_llm_similarities,
     highlight_llm_similarities_with_embeddings,
 )
+from backend.llm.ranking import get_ranker, init_ranking
 
 SAMPLE: dict = {
     "prompt": "What is the difference between marriage license and marriage certificate?",
@@ -84,6 +85,14 @@ def highlight_similarities_embeddings() -> None:
         response_b=SAMPLE["responses"]["response_b"],
     )
     print(json.dumps(response, indent=2))
+
+
+@cli.command()
+def update_ranking() -> None:
+    init_ranking()
+    ranker = get_ranker()
+    print(ranker.leaderboard())
+    ranker.to_db()
 
 
 if __name__ == "__main__":

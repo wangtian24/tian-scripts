@@ -19,4 +19,6 @@ RUN bash -c "poetry install --no-root"
 
 EXPOSE 8080
 
-CMD ["uvicorn", "backend.server:app", "--host", "0.0.0.0", "--port", "8080"]
+RUN chmod +x /app/backend/entrypoint.sh
+
+ENTRYPOINT ["/app/backend/entrypoint.sh"]
