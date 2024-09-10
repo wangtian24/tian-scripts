@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     POSTGRES_HOST_NON_POOLING: str = ""
     POSTGRES_DATABASE: str = ""
 
+    CACHE_DIR: str = ".cache"
+
     @computed_field  # type: ignore[misc]
     @property
     def server_host(self) -> str:

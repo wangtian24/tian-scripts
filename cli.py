@@ -1,5 +1,6 @@
 import asyncio
 import json
+from collections import Counter
 from typing import Any
 
 import click
@@ -9,12 +10,16 @@ from backend.config import settings
 from backend.llm.chat import (
     ChatProvider,
     JsonChatIO,
+    ModelInfo,
     YuppChatIO,
     compare_llm_responses,
+    get_chat_model,
     highlight_llm_similarities,
     highlight_llm_similarities_with_embeddings,
 )
 from backend.llm.constants import COSTS_BY_MODEL
+from backend.llm.embedding import get_embedding_model
+from backend.llm.judge import WildChatRealismJudge
 from backend.llm.ranking import get_ranker, init_ranking
 from backend.llm.synthesize import SynthesizerConfig, SyntheticUserGenerator, asynthesize_chats
 
@@ -71,7 +76,7 @@ def compare_responses(prompt: str, api_key: str, provider: str, model: str) -> N
 
 @cli.command()
 @click.option("--api-key", help="API key")
-@click_provider_option("--provider", help="LLM provider", default="openai")
+@click_provider_option("--provider", help="LLM provider")
 @click.option("--model", default="gpt-4o-mini", help="The provider model to use")
 def highlight_similarities(api_key: str, provider: str, model: str) -> None:
     api_key = _set_api_key(api_key)
@@ -163,6 +168,37 @@ def update_ranking() -> None:
     ranker = get_ranker()
     print(ranker.leaderboard())
     ranker.to_db()
+
+
+@cli.command(help="Judge the realism of user prompts read in from a JSON file, relative to WildChat")
+@click.option("-i", "--json-file", required=True, help="The JSON file to read prompts from")
+@click_provider_option("--provider", help="LLM and embeddings provider")
+@click.option("--api-key", help="API key", required=True)
+@click.option("--language-model", default="gpt-4o-mini", help="The LLM to use for judging realism")
+@click.option("--embeddings-model", default="text-embedding-ada-002", help="The embeddings model to use")
+@click.option("--limit", default=200, help="The number of prompts to judge")
+def judge_wildchat_realism(
+    json_file: str, provider: str, api_key: str, language_model: str, embeddings_model: str, limit: int
+) -> None:
+    llm = get_chat_model(ModelInfo(provider=provider, model=language_model, api_key=api_key), temperature=0.0)
+    embedding_model = get_embedding_model(ModelInfo(provider=provider, model=embeddings_model, api_key=api_key))
+    judge = WildChatRealismJudge(llm, embedding_model)
+    prompts = []
+
+    for idx, line in enumerate(open(json_file)):
+        if idx >= limit:
+            break
+
+        try:
+            prompts.append(json.loads(line)["messages"][0][0]["content"])
+        except KeyError:
+            continue
+
+    realistic_flags = asyncio.run(judge.abatch_judge(prompts))
+    counter = Counter(realistic_flags)
+
+    print("Proportion realistic:", counter[True] / (counter[True] + counter[False]))
+    print("Sample size:", counter[True] + counter[False])
 
 
 if __name__ == "__main__":

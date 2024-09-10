@@ -93,6 +93,7 @@ ALL_MODELS_BY_PROVIDER = {
 }
 
 FRONTEND_MODELS = [model for models in FRONTEND_MODELS_BY_PROVIDER.values() for model in models]
+ALL_EMBEDDING_MODELS_BY_PROVIDER = {ChatProvider.OPENAI: ["text-embedding-ada-002"]}
 
 # fmt: off
 FIRST_NAMES = [

@@ -141,6 +141,8 @@ Response 2: {response2}
 
 Which of the above responses is better given the user's prompt? Say 1 if the first is much better, 2 if the first is slightly better, 3 if they are about the same, 4 if the second is slightly better, and 5 if the second is much better. Do not explain or add markup; only return the integer."""
 
+JUDGE_YUPP_CHAT_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([("human", JUDGE_YUPP_CHAT_PROMPT)])
+
 WILDCHAT_REALISM_PROMPT = """Below are some WildChat prompts, followed by two of our prompts:
 
 WildChat prompts:
@@ -152,3 +154,5 @@ Prompt 1: {prompt1}
 Prompt 2: {prompt2}
 
 Which of the two prompts is more similar to the WildChat prompts? Say 1 if the first is more similar and 2 if the second is more similar. Do not explain or add markup; only return the integer."""
+
+WILDCHAT_REALISM_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([("human", WILDCHAT_REALISM_PROMPT)])

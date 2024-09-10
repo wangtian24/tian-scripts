@@ -1,15 +1,21 @@
 import asyncio
 import logging
+import random
 from contextvars import ContextVar
 from typing import Any, Generic, TypeVar
 
+from datasets import Dataset, load_dataset
+from langchain_community.vectorstores import FAISS
+from langchain_core.documents import Document
+from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 from tqdm.asyncio import tqdm_asyncio
 
-from backend.prompts import JUDGE_YUPP_CHAT_PROMPT
+from backend.llm.embedding import cached_get_database
+from backend.prompts import JUDGE_YUPP_CHAT_PROMPT, WILDCHAT_REALISM_PROMPT_TEMPLATE
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 InputType = TypeVar("InputType")
 JudgementType = TypeVar("JudgementType")
 
@@ -87,3 +93,71 @@ class YuppEvaluationJudge(LLMJudge[tuple[str, str, str], int]):
         except (ValueError, IndexError) as e:
             logging.exception(f"Error parsing output {output}: {e}")
             return -1  # return -1 if we can't parse the output
+
+
+class WildChatRealismJudge(LLMJudge[str, bool]):
+    """
+    Represents an LLM judge for determining whether a string is similar to user prompts in the WildChat dataset. The
+    algorithm works as follows:
+    - Fetch the top-21 most similar embeddings from n (default of 5000) examples from WildChat
+    - Ask the LLM if the top-1 most similar prompt is more similar to the top-2->21 (20 total) than the given prompt
+    - Return true if it is; false otherwise
+    """
+
+    def __init__(
+        self,
+        llm: BaseChatModel,
+        embedding_model: Embeddings,
+        num_dataset_examples: int = 5000,
+        num_discard_initial_examples: int = 50000,
+        country_filter: str | None = "United States",
+    ) -> None:
+        super().__init__(llm)
+        self.dataset: Dataset = load_dataset("allenai/WildChat-1M")
+        self.wildchat_prompts: list[str] = []
+
+        # Sample prompts from the dataset
+        ds_split = self.dataset["train"]
+        row_idx = 0
+
+        while len(self.wildchat_prompts) < num_dataset_examples and row_idx < len(ds_split):
+            if row_idx < num_discard_initial_examples:
+                row_idx += 1
+                continue
+
+            row = ds_split[row_idx]
+            row_idx += 1
+
+            if country_filter is None or row["country"] == country_filter:
+                prompt = row["conversation"][0]["content"]
+                self.wildchat_prompts.append(prompt)
+
+        # Prepare the vector database
+        self.wildchat_documents: list[Document] = [Document(x) for x in self.wildchat_prompts]
+        self.db: FAISS = cached_get_database(self.wildchat_documents, embedding_model)
+
+    def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
+        return WILDCHAT_REALISM_PROMPT_TEMPLATE | llm  # type: ignore
+
+    def _prepare_input(self, input: str) -> dict[str, Any]:
+        wildchat_prompts = [d.page_content for d in self.db.similarity_search(input, k=21)]
+        nearest_prompt = wildchat_prompts[0]
+        all_prompts = [f"{x[:100]}..." for x in wildchat_prompts[1:]]
+        wildchat_prompt_str = "\n - ".join(all_prompts)
+
+        if random.random() < 0.5:
+            prompt1 = nearest_prompt
+            prompt2 = input
+            self.asyncio_context.set(dict(reversed=True))
+        else:
+            prompt1 = input
+            prompt2 = nearest_prompt
+            self.asyncio_context.set(dict(reversed=False))
+
+        return dict(prompt1=prompt1, prompt2=prompt2, wildchat_prompt_str=wildchat_prompt_str)
+
+    def _parse_output(self, output: BaseMessage) -> bool:
+        assert output.content is not None and isinstance(output.content, str)
+        content = output.content.strip()
+
+        return content.strip() == "2" if self.asyncio_context.get().get("reversed") else content.strip() == "1"

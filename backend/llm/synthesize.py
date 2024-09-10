@@ -14,8 +14,8 @@ from langchain_core.pydantic_v1 import BaseModel as BaseModelV1
 from tqdm.asyncio import tqdm_asyncio
 
 from backend.llm.chat import (
-    ChatModelInfo,
     LLMChatAssistant,
+    ModelInfo,
     MultiChatUser,
     Persona,
     YuppChatMessageHistory,
@@ -32,7 +32,7 @@ from db.all_models import users
 class SampleLLMEntry(BaseModelV1):
     """Represents an LLM to be sampled during synthetic conversation generation"""
 
-    info: ChatModelInfo
+    info: ModelInfo
     sample_weight: float = 1  # this LLM will be drawn with probability `sample_weight / sum(all)`
 
 
@@ -120,7 +120,7 @@ class SyntheticUserGenerator(YuppChatUserGenerator[SyntheticYuppChatUser]):
         """Instantiates the LLMs"""
 
         user_llm = get_chat_model(
-            ChatModelInfo(
+            ModelInfo(
                 provider=self.config.user_llm_provider,
                 model=self.config.user_llm_name,
                 api_key=self.config.user_llm_api_key,
@@ -133,7 +133,7 @@ class SyntheticUserGenerator(YuppChatUserGenerator[SyntheticYuppChatUser]):
             persona_llm = None
         else:
             persona_llm = get_chat_model(
-                ChatModelInfo(
+                ModelInfo(
                     provider=self.config.user_llm_provider,
                     model=self.config.user_llm_name,
                     api_key=self.config.user_llm_api_key,

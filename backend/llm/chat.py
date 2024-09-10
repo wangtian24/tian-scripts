@@ -26,7 +26,7 @@ DEFAULT_UNIQUENESS_THRESHOLD = 0.75
 OPENAI_FT_ID_PATTERN = re.compile(r"^ft:(?P<model>.+?):(?P<organization>.+?)::(?P<id>.+?)$")
 
 
-class ChatModelInfo(BaseModelV1):
+class ModelInfo(BaseModelV1):
     provider: ChatProvider | str
     model: str
     api_key: str
@@ -40,7 +40,7 @@ def get_base_model(chat_llm_cls: type[Any], model: str) -> str:
 
 
 def get_chat_model(
-    info: ChatModelInfo,
+    info: ModelInfo,
     chat_model_pool: dict[ChatProvider, list[str]] = FRONTEND_MODELS_BY_PROVIDER,
     **chat_kwargs: Any | None,
 ) -> BaseChatModel:
@@ -61,17 +61,14 @@ def get_chat_model(
     if not chat_llm_cls:
         raise ValueError(f"Unsupported provider: {provider}")
 
-    full_model_name = model
-    base_model_name = get_base_model(chat_llm_cls, model)
-
-    if base_model_name not in chat_model_pool.get(provider, []):
+    if model not in chat_model_pool.get(provider, []):
         raise ValueError(f"Unsupported model: {model} for provider: {provider}")
 
-    return chat_llm_cls(api_key=SecretStr(api_key), model=full_model_name, **chat_kwargs)  # type: ignore
+    return chat_llm_cls(api_key=SecretStr(api_key), model=model, **chat_kwargs)  # type: ignore
 
 
 def get_chat_history_model(
-    info: ChatModelInfo,
+    info: ModelInfo,
     chat_model_pool: dict[ChatProvider, list[str]] = FRONTEND_MODELS_BY_PROVIDER,
     **chat_kwargs: Any | None,
 ) -> BaseChatModel:
@@ -89,7 +86,7 @@ def get_chat_history_model(
 def compare_llm_responses(
     provider: ChatProvider | str, model: str, api_key: str, prompt: str, responses: dict[str, str]
 ) -> BaseMessage:
-    llm = get_chat_model(ChatModelInfo(provider=provider, model=model, api_key=api_key))
+    llm = get_chat_model(ModelInfo(provider=provider, model=model, api_key=api_key))
     chain = prompts.COMPARE_RESPONSES_PROMPT | llm
     return chain.invoke(input={"prompt": prompt, "responses": responses})
 
@@ -97,7 +94,7 @@ def compare_llm_responses(
 def highlight_llm_similarities(
     provider: ChatProvider | str, model: str, api_key: str, responses: dict[str, str]
 ) -> BaseMessage:
-    llm = get_chat_model(ChatModelInfo(provider=provider, model=model, api_key=api_key))
+    llm = get_chat_model(ModelInfo(provider=provider, model=model, api_key=api_key))
     chain = prompts.HIGHLIGHT_SIMILARITIES_PROMPT | llm
     return chain.invoke(input={"prompt": "None", "responses": responses})
 
@@ -195,7 +192,7 @@ def prompt_difficulty(
 
 
 def prompt_difficulty_by_llm(provider: ChatProvider | str, model: str, api_key: str, prompt: str) -> BaseMessage:
-    llm = get_chat_model(ChatModelInfo(provider=provider, model=model, api_key=api_key))
+    llm = get_chat_model(ModelInfo(provider=provider, model=model, api_key=api_key))
     chain = prompts.PROMPT_DIFFICULTY_PROMPT | llm
     return chain.invoke(input={"prompt": prompt})
 
@@ -203,7 +200,7 @@ def prompt_difficulty_by_llm(provider: ChatProvider | str, model: str, api_key: 
 def prompt_difficulty_by_llm_with_responses(
     provider: ChatProvider | str, model: str, api_key: str, prompt: str, responses: dict[str, str]
 ) -> BaseMessage:
-    llm = get_chat_model(ChatModelInfo(provider=provider, model=model, api_key=api_key))
+    llm = get_chat_model(ModelInfo(provider=provider, model=model, api_key=api_key))
     chain = prompts.PROMPT_DIFFICULTY_WITH_RESPONSES_PROMPT | llm
     return chain.invoke(input={"prompt": prompt, "responses": responses})
 
