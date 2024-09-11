@@ -1,10 +1,9 @@
 import uuid
 from datetime import date
-from decimal import Decimal
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Column, Numeric
+from sqlalchemy import BigInteger, Column
 from sqlmodel import Field, Relationship
 
 from db.base import BaseModel
@@ -122,11 +121,11 @@ class LanguageModel(BaseModel, table=True):
     family: str | None = Field(default=None)
     avatar_url: str | None = Field(default=None)
 
-    # This is the number of parameters in the model in millions.
-    parameter_count: Decimal | None = Field(sa_column=Column(Numeric(precision=15, scale=0), nullable=True))
+    # This is the number of parameters in the model.
+    parameter_count: int | None = Field(sa_column=Column(BigInteger(), nullable=True), default=None)
 
-    # This is the context window of the model
-    context_window_tokens: Decimal | None = Field(sa_column=Column(Numeric(precision=15, scale=0), nullable=True))
+    # This is the context window of the model.
+    context_window_tokens: int | None = Field(sa_column=Column(BigInteger(), nullable=True), default=None)
 
     # This is the knowledge cutoff of the model in yyyy mm dd format.
     # For example, a knowledge cutoff of 2024 06 15 means the model was trained on data up to June 15, 2024.
