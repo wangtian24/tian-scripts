@@ -4,6 +4,7 @@ from collections import Counter
 from typing import Any
 
 import click
+import git
 import numpy as np
 
 from backend.config import settings
@@ -21,7 +22,7 @@ from backend.llm.constants import COSTS_BY_MODEL
 from backend.llm.embedding import get_embedding_model
 from backend.llm.judge import WildChatRealismJudge
 from backend.llm.ranking import get_default_ranker
-from backend.llm.synthesize import SynthesizerConfig, SyntheticUserGenerator, asynthesize_chats
+from backend.llm.synthesize import SQLChatIO, SynthesizerConfig, SyntheticUserGenerator, asynthesize_chats
 
 
 def click_provider_option(*args: str, **kwargs: Any | None) -> Any:
@@ -147,7 +148,12 @@ def synthesize_backfill_data(
             case "json":
                 writer = JsonChatIO(output_path)
             case "db":
-                raise NotImplementedError("Database output is not implemented yet")
+                writer = sql_chat_io = SQLChatIO()
+                repo = git.Repo(search_parent_directories=True)
+                git_commit_sha = repo.head.object.hexsha
+                sql_chat_io.populate_backfill_attributes(synth_config, num_chats_per_user, git_commit_sha)
+
+                writer.flush()
             case _:
                 raise ValueError(f"Invalid output type: {output_type}")
 

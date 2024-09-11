@@ -7,7 +7,7 @@ import torch
 from langchain_anthropic import ChatAnthropic
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.pydantic_v1 import BaseModel as BaseModelV1
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -20,6 +20,7 @@ from sentence_transformers import SentenceTransformer
 from backend import prompts
 from backend.llm.constants import FRONTEND_MODELS_BY_PROVIDER, ChatProvider
 from backend.llm.utils import combine_short_sentences
+from db.chats import MessageType
 
 DEFAULT_HIGH_SIM_THRESHOLD = 0.825
 DEFAULT_UNIQUENESS_THRESHOLD = 0.75
@@ -64,7 +65,7 @@ def get_chat_model(
         raise ValueError(f"Unsupported provider: {provider}")
 
     if base_model not in chat_model_pool.get(provider, []):
-        raise ValueError(f"Unsupported model: {model} for provider: {provider}")
+        raise ValueError(f"Unsupported model: {base_model} for provider: {provider}")
 
     return chat_llm_cls(api_key=SecretStr(api_key), model=full_model, **chat_kwargs)  # type: ignore
 
@@ -403,3 +404,13 @@ ChatMessageType2 = TypeVar("ChatMessageType2", bound=BaseMessage)
 def chat_message_cast_to(message: ChatMessageType1, target_type: type[ChatMessageType2]) -> ChatMessageType2:
     message.type = target_type.schema()["properties"]["type"]["default"]
     return target_type(**message.dict())
+
+
+def get_db_message_type(message: ChatMessageType1) -> MessageType:
+    match message:
+        case HumanMessage():
+            return MessageType.USER_MESSAGE
+        case AIMessage():
+            return MessageType.ASSISTANT_MESSAGE
+        case _:
+            raise ValueError(f"Unsupported message type: {type(message)}")

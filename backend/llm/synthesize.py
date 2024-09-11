@@ -5,6 +5,7 @@ import random
 import uuid
 from collections.abc import Generator
 from datetime import datetime
+from typing import Any
 
 import numpy as np
 from langchain_core.language_models import BaseChatModel
@@ -13,22 +14,28 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.pydantic_v1 import BaseModel as BaseModelV1
 from pydantic.v1.error_wrappers import ValidationError
+from sqlmodel import Session
 from tqdm.asyncio import tqdm_asyncio
 
+from backend.db import get_engine
 from backend.llm.chat import (
     LLMChatAssistant,
     ModelInfo,
     MultiChatUser,
     Persona,
+    YuppChatIO,
     YuppChatMessageHistory,
     YuppChatUserGenerator,
     chat_message_cast_to,
     get_chat_history_model,
     get_chat_model,
+    get_db_message_type,
 )
 from backend.llm.constants import ALL_MODELS_BY_PROVIDER, FIRST_NAMES, LAST_NAMES
 from backend.prompts import SYNTHESIZER_FIRST_ASSISTANT_PROMPT, SYNTHESIZER_GENERATE_PERSONA_PROMPT
 from db.all_models import users
+from db.chats import Chat, ChatMessage, EvalType, MessageType, Turn
+from db.users import SyntheticBackfillAttributes
 
 
 class SampleLLMEntry(BaseModelV1):
@@ -289,10 +296,120 @@ async def asynthesize_chats(
     return list(await tqdm_asyncio.gather(*tasks))
 
 
-def generate_random_user() -> users.User:
+def generate_random_user(**kwargs: Any | None) -> users.User:
     return users.User(
         id=str(uuid.uuid4()),
         name=f"YF {random.choice(FIRST_NAMES)} {random.choice(LAST_NAMES)}",
         email=f"{uuid.uuid4()}@example.com",
         email_verified=datetime.now(),
+        **kwargs,
     )
+
+
+class SQLChatIO(YuppChatIO):
+    def __init__(self) -> None:
+        self.personas_to_db_users: dict[Persona | None, users.User] = {}
+        self.backfill_attributes_data: dict[str, Any] = {}
+        self.user_kwargs: dict[str, Any] = {}
+        self.session = Session(get_engine())
+
+    def populate_backfill_attributes(
+        self,
+        synth_config: SynthesizerConfig,
+        num_attempted_chats_per_user: int,
+        git_commit_sha: str,
+    ) -> None:
+        num_users = synth_config.generate_num_personas or len(synth_config.personas)
+
+        self.backfill_attributes_data = {
+            "num_users": num_users,
+            "num_attempted_chats_per_user": num_attempted_chats_per_user,
+            "user_llm_model": synth_config.user_llm_name,
+            "user_llm_temperature": synth_config.user_llm_temperature,
+            "judge_models": [],  # TODO; no judges for now
+            "judge_model_temperatures": [],  # TODO; no judges for now
+            "git_commit_sha": git_commit_sha,
+        }
+
+        backfill = SyntheticBackfillAttributes(**self.backfill_attributes_data)
+        self.user_kwargs["backfill_job_id"] = backfill.id
+        self.session.add(backfill)
+        self.session.commit()
+
+    def append_chat(self, chat: YuppChatMessageHistory) -> "SQLChatIO":
+        # A bulk insert would be faster, but this will work for now at O(100K) chats
+        if chat.user_persona not in self.personas_to_db_users:
+            db_user = generate_random_user(**self.user_kwargs)
+            db_user.synthetic_attributes = users.SyntheticUserAttributes(
+                user_id=db_user.id,
+                persona=chat.user_persona.persona if chat.user_persona else "",
+                interests=chat.user_persona.interests if chat.user_persona else [],
+                style=chat.user_persona.style if chat.user_persona else "",
+            )
+            self.personas_to_db_users[chat.user_persona] = db_user
+            self.session.add(db_user)
+
+        if not chat.messages:
+            self.session.commit()
+            return self
+
+        db_user = self.personas_to_db_users[chat.user_persona]
+        chat_id = str(uuid.uuid4())
+        db_chat = Chat(
+            chat_id=chat_id,
+            title=chat.messages[0][0].content[:100],
+            path=f"/chat/{chat_id}",
+            creator_user_id=db_user.id,
+            is_public=True,
+        )
+        self.session.add(db_chat)
+        db_turn: Turn | None = None
+        turn_no = 0
+
+        for messages in chat.messages:
+            if db_turn is None:
+                db_turn = Turn(
+                    chat_id=db_chat.chat_id,
+                    sequence_id=turn_no,
+                    creator_user_id=db_user.id,
+                )
+
+                turn_no += 1
+                self.session.add(db_turn)
+
+            assert db_turn is not None
+            eval_data: dict[str, Any] = {}
+
+            for message_idx, message in enumerate(messages):
+                chat_message_data: dict[str, Any] = dict(
+                    turn_id=db_turn.turn_id,
+                    message_type=get_db_message_type(message),
+                    content=message.content,
+                )
+
+                if chat_message_data["message_type"] == MessageType.ASSISTANT_MESSAGE:
+                    chat_message_data["assistant_model_name"] = chat.eval_llms[message_idx]
+
+                db_chat_message = ChatMessage(**chat_message_data)
+                self.session.add(db_chat_message)
+
+                if chat_message_data["message_type"] == MessageType.ASSISTANT_MESSAGE:
+                    eval_data["user_id"] = db_user.id
+                    eval_data["turn_id"] = db_turn.turn_id
+                    eval_data["eval_type"] = EvalType.SLIDER_V0
+                    eval_data["score_1"] = 50.0  # default score for now
+                    eval_data["score_2"] = 50.0  # default score for now
+
+                    if message_idx == 0:  # LLM1
+                        eval_data["message_1_id"] = db_chat_message.message_id
+                    elif message_idx == 1:  # LLM2
+                        eval_data["message_2_id"] = db_chat_message.message_id
+                    else:
+                        raise ValueError("More than two assistant messages not supported for now")
+
+            if eval_data:
+                db_turn = None  # new turn
+
+            self.session.commit()
+
+        return self

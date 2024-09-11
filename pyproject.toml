@@ -80,6 +80,7 @@ click = "8.1.7"
 datasets = "2.21.0"
 faiss-cpu = "1.8.0"
 fastapi = "0.110.0"
+gitpython = "3.1.43"
 google-cloud-aiplatform = {version = "1.65.0", extras = ["tokenization"]}
 langchain = "0.2.16"
 langchain-anthropic = "0.1.20"
