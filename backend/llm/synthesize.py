@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import logging
 import random
 import uuid
@@ -11,6 +12,7 @@ from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.pydantic_v1 import BaseModel as BaseModelV1
+from pydantic.v1.error_wrappers import ValidationError
 from tqdm.asyncio import tqdm_asyncio
 
 from backend.llm.chat import (
@@ -55,6 +57,8 @@ class SynthesizerConfig(BaseModelV1):
 
     num_turns_min: int = 2
     num_turns_max: int = 2
+    num_min_initial_characters: int = 15
+    num_min_initial_words: int = 2
     timeout_ms: int = 30000
 
 
@@ -64,11 +68,15 @@ class SyntheticYuppChatUser(MultiChatUser):
         llm: BaseChatModel,
         persona: Persona | None = None,
         initial_message: str = SYNTHESIZER_FIRST_ASSISTANT_PROMPT,
-    ):
+        num_min_initial_characters: int = 15,
+        num_min_initial_words: int = 2,
+    ) -> None:
         super().__init__()
         self.llm = llm
         self.persona = persona
         self.initial_message = HumanMessage(initial_message)
+        self.num_min_initial_characters = num_min_initial_characters
+        self.num_min_initial_words = num_min_initial_words
 
     def copy(self) -> "SyntheticYuppChatUser":
         """Performs a shallow copy for concurrent generation of chats."""
@@ -78,12 +86,23 @@ class SyntheticYuppChatUser(MultiChatUser):
         super().reset()
         self.respond(self.initial_message, self.initial_message)
 
+    @property
+    def is_initial(self) -> bool:
+        assert self.chat_history is not None
+        return len(self.chat_history.messages) == 0
+
     async def areset(self) -> None:
         await super().areset()
         await self.arespond(self.initial_message, self.initial_message)
 
     def _format_llm_messages(self, *messages: BaseMessage) -> BaseMessage:
         return random.choice(messages)
+
+    def _satisfies_min_length_response(self, response: str) -> bool:
+        if not self.is_initial:
+            return True
+
+        return len(response.split()) >= self.num_min_initial_words and len(response) >= self.num_min_initial_characters
 
     def _respond(self, *messages: BaseMessage) -> BaseMessage:
         """Responds to messages from one or more LLMs."""
@@ -93,6 +112,12 @@ class SyntheticYuppChatUser(MultiChatUser):
         response = self.llm.invoke(
             dict(input=message.content, chat_history=self.chat_history.messages)  # type: ignore
         )
+
+        while not self._satisfies_min_length_response(str(response.content)):
+            response = self.llm.invoke(
+                dict(input=message.content, chat_history=self.chat_history.messages)  # type: ignore
+            )
+
         self.chat_history.messages.append(message)
         self.chat_history.messages.append(chat_message_cast_to(response, HumanMessage))
 
@@ -106,6 +131,12 @@ class SyntheticYuppChatUser(MultiChatUser):
         response = await self.llm.ainvoke(
             dict(input=message.content, chat_history=self.chat_history.messages)  # type: ignore
         )
+
+        while not self._satisfies_min_length_response(str(response.content)):
+            response = await self.llm.ainvoke(
+                dict(input=message.content, chat_history=self.chat_history.messages)  # type: ignore
+            )
+
         self.chat_history.messages.append(message)
         self.chat_history.messages.append(chat_message_cast_to(response, HumanMessage))
 
@@ -140,6 +171,7 @@ class SyntheticUserGenerator(YuppChatUserGenerator[SyntheticYuppChatUser]):
                 ),
                 timeout=self.config.timeout_ms,
                 chat_model_pool=ALL_MODELS_BY_PROVIDER,
+                temperature=0.8,
             )
 
         return persona_llm, user_llm
@@ -151,13 +183,18 @@ class SyntheticUserGenerator(YuppChatUserGenerator[SyntheticYuppChatUser]):
 
         if self.config.use_personas:
             if generate_num_personas and persona_llm is not None:
-                if generate_num_personas > 50:
-                    logging.warning("Number of personas to generate should be less than 50.")
-
-                template = ChatPromptTemplate.from_messages([("system", SYNTHESIZER_GENERATE_PERSONA_PROMPT)])
+                template = ChatPromptTemplate.from_messages([("user", SYNTHESIZER_GENERATE_PERSONA_PROMPT)])
                 run_llm = template | persona_llm | StrOutputParser()
-                lines = run_llm.invoke(dict(num_personas=generate_num_personas)).splitlines()
-                personas = [Persona.parse_raw(line) for line in lines]
+                seed = hashlib.md5(str(random.random()).encode()).hexdigest()[: random.randint(8, 16)]
+                lines = [run_llm.invoke(dict(seed=seed)) for _ in range(generate_num_personas)]
+                personas = []
+
+                for line in lines:
+                    try:
+                        personas.append(Persona.parse_raw(line))
+                    except ValidationError:
+                        logging.warning(f"Failed to parse persona: {line}")
+                        continue
 
             for persona in personas:
                 persona_json_str = persona.json().replace(":", ": ").replace(",", ", ")
@@ -182,7 +219,12 @@ class SyntheticUserGenerator(YuppChatUserGenerator[SyntheticYuppChatUser]):
     def generate_users(self) -> Generator[SyntheticYuppChatUser, None, None]:
         """Generates synthetic users."""
         for persona, user_llm_ in self._iterate_personas_and_llms():
-            yield SyntheticYuppChatUser(user_llm_, persona=persona)
+            yield SyntheticYuppChatUser(
+                user_llm_,
+                persona=persona,
+                num_min_initial_words=self.config.num_min_initial_words,
+                num_min_initial_characters=self.config.num_min_initial_characters,
+            )
 
 
 async def asynthesize_chat(

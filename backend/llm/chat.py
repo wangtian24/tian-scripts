@@ -32,7 +32,7 @@ class ModelInfo(BaseModelV1):
     api_key: str
 
 
-def get_base_model(chat_llm_cls: type[Any], model: str) -> str:
+def get_base_model(chat_llm_cls: type[Any] | None, model: str) -> str:
     if chat_llm_cls == ChatOpenAI and (match := OPENAI_FT_ID_PATTERN.match(model)):
         model = match.group("model")
 
@@ -57,14 +57,16 @@ def get_chat_model(
     }
 
     chat_llm_cls = chat_llms.get(provider)
+    full_model = model
+    base_model = get_base_model(chat_llm_cls, model)
 
     if not chat_llm_cls:
         raise ValueError(f"Unsupported provider: {provider}")
 
-    if model not in chat_model_pool.get(provider, []):
+    if base_model not in chat_model_pool.get(provider, []):
         raise ValueError(f"Unsupported model: {model} for provider: {provider}")
 
-    return chat_llm_cls(api_key=SecretStr(api_key), model=model, **chat_kwargs)  # type: ignore
+    return chat_llm_cls(api_key=SecretStr(api_key), model=full_model, **chat_kwargs)  # type: ignore
 
 
 def get_chat_history_model(
