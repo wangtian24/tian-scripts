@@ -1,10 +1,11 @@
 from collections import Counter
+from functools import partial
 from typing import Any
 
 from pytest import approx, mark
 
 from backend.llm.ranking import Battle, ChoixRanker, ChoixRankerConfIntervals, EloRanker
-from backend.llm.routing.policy import RoutingPolicy, SelectionCriteria
+from backend.llm.routing.policy import RoutingPolicy, SelectionCriteria, decayed_random_fraction, exponential_decay
 from backend.llm.routing.router import RankedRouter
 from backend.tests.utils import get_battles
 
@@ -176,3 +177,45 @@ def test_random_routing(random_fraction: float, expected_distribution: dict[str,
     selected = [router.select_models(2) for _ in range(1000)]
     _check_list_len_distribution(selected, {2: 1000})
     _check_list_item_distribution(selected, expected_distribution)
+
+
+def test_exponential_decay() -> None:
+    decays = [
+        exponential_decay(initial_value=1, final_value=0.1, total_steps=100, current_step=i) for i in range(0, 100, 10)
+    ]
+    assert [round(d, 3) for d in decays] == [1.0, 0.794, 0.631, 0.501, 0.398, 0.316, 0.251, 0.2, 0.158, 0.126]
+
+    decays = [
+        exponential_decay(initial_value=1, final_value=0.1, total_steps=10, current_step=i) for i in range(0, 25, 5)
+    ]
+    assert [round(d, 3) for d in decays] == [1.0, 0.316, 0.1, 0.1, 0.1]
+
+
+def test_decayed_random_routing() -> None:
+    models = ["a", "b", "c", "d"]
+    random_fraction_fn = partial(decayed_random_fraction, initial_value=0.95, final_value=0.1, steps=1000)
+    policy = RoutingPolicy(SelectionCriteria.TOP, random_fraction=random_fraction_fn)
+    ranker = ChoixRanker(models=models, choix_ranker_algorithm="lsr_pairwise")
+    router = RankedRouter(models, policy=policy, ranker=ranker, seed=11)
+    # Before decay kicks in, all models should get equal traffic.
+    expected_initial_distribution = {
+        "a": approx(100, rel=0.1),
+        "b": approx(100, rel=0.1),
+        "c": approx(100, rel=0.1),
+        "d": approx(100, rel=0.1),
+    }
+    selected = [router.select_models(2) for _ in range(200)]
+    _check_list_item_distribution(selected, expected_initial_distribution)
+
+    # Model "a" always wins over "b", so it should get most of the traffic once decay kicks in.
+    for _ in range(2000):
+        ranker.update("a", "b", 1.0)
+
+    selected = [router.select_models(2) for _ in range(200)]
+    expected_final_distribution = {
+        "a": approx(200, rel=0.1),
+        "b": approx(2, rel=4.0),  # large relative error due to small number of samples
+        "c": approx(100, rel=0.2),
+        "d": approx(100, rel=0.2),
+    }
+    _check_list_item_distribution(selected, expected_final_distribution)

@@ -73,7 +73,7 @@ class RankedRouter(Router):
 
         if self.policy.random_fraction:
             for _ in range(num_models_to_select):
-                if self.rng.random() < self.policy.random_fraction:
+                if self.rng.random() < self.policy.random_fraction(self.ranker):
                     selected_models.extend(self._select_random_models(1, exclude=selected_models))
 
         num_models_to_select = num_models - len(selected_models)

@@ -105,6 +105,7 @@ class Ranker:
         self.wins: dict[str, int] = Counter()
         self.losses: dict[str, int] = Counter()
         self.ties: dict[str, int] = Counter()
+        self.total_battles = 0
 
     def get_models(self) -> set[str]:
         """Return the models."""
@@ -131,6 +132,7 @@ class Ranker:
         else:
             self.ties[model_a] += 1
             self.ties[model_b] += 1
+        self.total_battles += 1
 
     def get_rating(self, model: str) -> float | None:
         """Return the rating of a model."""
