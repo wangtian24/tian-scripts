@@ -131,6 +131,10 @@ class LanguageModel(BaseModel, table=True):
     # For example, a knowledge cutoff of 2024 06 15 means the model was trained on data up to June 15, 2024.
     knowledge_cutoff_date: date | None = Field(default=None, nullable=True)
 
+    # This is the organization that owns the language model.
+    organization_id: uuid.UUID | None = Field(foreign_key="organizations.organization_id", nullable=True, default=None)
+    organization: "Organization" = Relationship(back_populates="language_models")
+
     ratings: list["Rating"] = Relationship(back_populates="model")
     ratings_history: list["RatingHistory"] = Relationship(back_populates="model")
 
@@ -164,3 +168,14 @@ class Provider(BaseModel, table=True):
     language_models: list[LanguageModel] = Relationship(
         back_populates="providers", link_model=LanguageModelProviderAssociation
     )
+
+
+# Organization is a group of entities that own the rights to a language model.
+class Organization(BaseModel, table=True):
+    __tablename__ = "organizations"
+
+    organization_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+
+    organization_name: str = Field(default=None, index=True, unique=True)
+
+    language_models: list[LanguageModel] = Relationship(back_populates="organization")
