@@ -17,12 +17,12 @@ from backend.prompts import JUDGE_YUPP_CHAT_PROMPT, WILDCHAT_REALISM_PROMPT_TEMP
 
 logging.basicConfig(level=logging.WARNING)
 InputType = TypeVar("InputType")
-JudgementType = TypeVar("JudgementType")
+OutputType = TypeVar("OutputType")
 
 
-class LLMJudge(Generic[InputType, JudgementType]):
+class LLMLabeler(Generic[InputType, OutputType]):
     """
-    Represents an LLM that takes in objects of type `InputType` and outputs a judgement of type `JudgementType`.
+    Represents an LLM that takes in objects of type `InputType` and outputs a label of type `OutputType`.
     """
 
     def __init__(self, llm: BaseChatModel) -> None:
@@ -30,56 +30,56 @@ class LLMJudge(Generic[InputType, JudgementType]):
         self.asyncio_context: ContextVar = ContextVar("Coroutine local")
 
     def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
-        """Prepares the LLM for judging. The default implementation is a no-op."""
+        """Prepares the LLM for labeling. The default implementation is a no-op."""
         return llm
 
     def _prepare_input(self, input: InputType) -> dict[str, Any]:
         """Prepares the input to pass into the LLM's `.invoke` method."""
         raise NotImplementedError
 
-    def _parse_output(self, output: BaseMessage) -> JudgementType:
+    def _parse_output(self, output: BaseMessage) -> OutputType:
         """Parses the output of the LLM's `.invoke` method."""
         raise NotImplementedError
 
-    async def _aparse_output(self, output: BaseMessage) -> JudgementType:
+    async def _aparse_output(self, output: BaseMessage) -> OutputType:
         """Parses the output of the LLM's `.ainvoke` method. Defaults to calling `_parse_output`."""
         return self._parse_output(output)
 
-    def judge(self, input: InputType) -> JudgementType:
-        """Judges the input."""
+    def label(self, input: InputType) -> OutputType:
+        """Labels the input."""
         prepared_input = self._prepare_input(input)
         output = self.llm.invoke(prepared_input)  # type: ignore
 
         return self._parse_output(output)
 
-    async def ajudge(self, input: InputType) -> JudgementType:
-        """Judges the input asynchronously."""
+    async def alabel(self, input: InputType) -> OutputType:
+        """Labels the input asynchronously."""
         prepared_input = self._prepare_input(input)
         output = await self.llm.ainvoke(prepared_input)  # type: ignore
 
         return await self._aparse_output(output)
 
-    def batch_judge(self, inputs: list[InputType]) -> list[JudgementType | None]:
-        """Judges a batch of inputs."""
-        return [self.judge(input) for input in inputs]
+    def batch_label(self, inputs: list[InputType]) -> list[OutputType | None]:
+        """Labels a batch of inputs."""
+        return [self.label(input) for input in inputs]
 
-    async def abatch_judge(self, inputs: list[InputType], num_parallel: int = 16) -> list[JudgementType | None]:
-        """Judges a batch of inputs asynchronously."""
+    async def abatch_label(self, inputs: list[InputType], num_parallel: int = 16) -> list[OutputType | None]:
+        """Labels a batch of inputs asynchronously."""
 
-        async def _do_judge(input: InputType, sem: asyncio.Semaphore) -> JudgementType | None:
+        async def _do_label(input: InputType, sem: asyncio.Semaphore) -> OutputType | None:
             async with sem:
                 try:
-                    return await self.ajudge(input)
+                    return await self.alabel(input)
                 except Exception as e:  # noqa catch-all errors for now
-                    logging.exception(f"Error judging input {input}: {e}")
+                    logging.exception(f"Error labeling input {input}: {e}")
                     return None
 
         sem = asyncio.Semaphore(num_parallel)
 
-        return await tqdm_asyncio.gather(*[_do_judge(input, sem) for input in inputs])  # type: ignore
+        return await tqdm_asyncio.gather(*[_do_label(input, sem) for input in inputs])  # type: ignore
 
 
-class YuppEvaluationJudge(LLMJudge[tuple[str, str, str], int]):
+class YuppEvaluationLabeler(LLMLabeler[tuple[str, str, str], int]):
     def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
         return JUDGE_YUPP_CHAT_PROMPT | llm  # type: ignore
 
@@ -95,9 +95,9 @@ class YuppEvaluationJudge(LLMJudge[tuple[str, str, str], int]):
             return -1  # return -1 if we can't parse the output
 
 
-class WildChatRealismJudge(LLMJudge[str, bool]):
+class WildChatRealismLabeler(LLMLabeler[str, bool]):
     """
-    Represents an LLM judge for determining whether a string is similar to user prompts in the WildChat dataset. The
+    Represents an LLM annotator for determining whether a string is similar to user prompts in the WildChat dataset. The
     algorithm works as follows:
     - Fetch the top-21 most similar embeddings from n (default of 5000) examples from WildChat
     - Ask the LLM if the top-1 most similar prompt is more similar to the top-2->21 (20 total) than the given prompt

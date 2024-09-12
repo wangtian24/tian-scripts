@@ -20,7 +20,7 @@ from backend.llm.chat import (
 )
 from backend.llm.constants import COSTS_BY_MODEL
 from backend.llm.embedding import get_embedding_model
-from backend.llm.judge import WildChatRealismJudge
+from backend.llm.labeler import WildChatRealismLabeler
 from backend.llm.ranking import get_default_ranker
 from backend.llm.synthesize import SQLChatIO, SynthesizerConfig, SyntheticUserGenerator, asynthesize_chats
 
@@ -191,19 +191,19 @@ def update_ranking(
     ranker.to_db()
 
 
-@cli.command(help="Judge the realism of user prompts read in from a JSON file, relative to WildChat")
+@cli.command(help="Label the realism of user prompts read in from a JSON file, relative to WildChat")
 @click.option("-i", "--json-file", required=True, help="The JSON file to read prompts from")
 @click_provider_option("--provider", help="LLM and embeddings provider")
 @click.option("--api-key", help="API key", required=True)
 @click.option("--language-model", default="gpt-4o-mini", help="The LLM to use for judging realism")
 @click.option("--embeddings-model", default="text-embedding-ada-002", help="The embeddings model to use")
 @click.option("--limit", default=200, help="The number of prompts to judge")
-def judge_wildchat_realism(
+def label_wildchat_realism(
     json_file: str, provider: str, api_key: str, language_model: str, embeddings_model: str, limit: int
 ) -> None:
     llm = get_chat_model(ModelInfo(provider=provider, model=language_model, api_key=api_key), temperature=0.0)
     embedding_model = get_embedding_model(ModelInfo(provider=provider, model=embeddings_model, api_key=api_key))
-    judge = WildChatRealismJudge(llm, embedding_model)
+    judge = WildChatRealismLabeler(llm, embedding_model)
     prompts = []
 
     for idx, line in enumerate(open(json_file)):
@@ -215,7 +215,7 @@ def judge_wildchat_realism(
         except KeyError:
             continue
 
-    realistic_flags = asyncio.run(judge.abatch_judge(prompts))
+    realistic_flags = asyncio.run(judge.abatch_label(prompts))
     counter = Counter(realistic_flags)
 
     print("Proportion realistic:", counter[True] / (counter[True] + counter[False]))
