@@ -1,10 +1,11 @@
 import uuid
 from datetime import date
+from decimal import Decimal
 from enum import Enum
 from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
-from sqlalchemy import BigInteger, Column, UniqueConstraint
+from sqlalchemy import BigInteger, Column, Numeric, UniqueConstraint
 from sqlmodel import Field, Relationship
 
 from db.base import BaseModel
@@ -98,6 +99,15 @@ class LanguageModelProviderAssociation(BaseModel, table=True):
     # Using this instead of deleting, as it is more semantic while temporarily disabling a model on a provider.
     # For permanent removal of the model on a provider, set deleted_at.
     is_active: bool = Field(default=True)
+
+    # Input cost in USD per million tokens, stored with 2 decimal places.
+    input_cost_usd_per_million_tokens: Decimal | None = Field(
+        sa_column=Column(Numeric(precision=10, scale=2), nullable=True), default=None
+    )
+    # Output cost in USD per million tokens, stored with 2 decimal places.
+    output_cost_usd_per_million_tokens: Decimal | None = Field(
+        sa_column=Column(Numeric(precision=10, scale=2), nullable=True), default=None
+    )
 
 
 class LanguageModel(BaseModel, table=True):
