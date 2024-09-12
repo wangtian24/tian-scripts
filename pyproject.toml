@@ -115,7 +115,8 @@ pandas-stubs = "2.2.0.240218"
 pre-commit = "3.5.0"
 pytest = "8.1.1"
 ruff = "0.2.1"
-pytest-alembic = "^0.11.1"
+pytest-alembic = "0.11.1"
+pytest-mock-resources = {extras = ["postgres-binary"], version = "2.12.0"}
 
 [tool.mypy]
 python_version = "3.11"

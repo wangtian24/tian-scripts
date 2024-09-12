@@ -10,6 +10,12 @@ jobs:
   lint-and-test-backend:
     runs-on: ubuntu-latest
 
+    # Required permissions for dorny/path-filter
+    permissions:
+      contents: read
+      packages: read
+      pull-requests: read
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -56,3 +62,15 @@ jobs:
 
       - name: Run tests
         run: poetry run pytest
+
+      - uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            db:
+              - 'db/**'
+
+      # only run tests with alembic if the PR touches the db folder
+      - name: Run tests with alembic
+        if: steps.changes.outputs.db == 'true'
+        run: poetry run pytest --test-alembic tests
