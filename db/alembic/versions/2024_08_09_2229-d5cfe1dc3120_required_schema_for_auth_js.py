@@ -29,8 +29,8 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.Column('modified_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
-    sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('email')
+    sa.PrimaryKeyConstraint('id', name=op.f('users_pkey')),
+    sa.UniqueConstraint('email', name=op.f('users_email_key'))
     )
     op.create_table('verification_tokens',
     sa.Column('identifier', sa.Text(), nullable=False),
@@ -39,7 +39,7 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.Column('modified_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
-    sa.PrimaryKeyConstraint('identifier', 'token')
+    sa.PrimaryKeyConstraint('identifier', 'token', name=op.f('verification_tokens_pkey'))
     )
     op.create_table('accounts',
     sa.Column('provider', sa.Text(), nullable=False),
@@ -56,8 +56,8 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.Column('modified_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
-    sa.ForeignKeyConstraint(['user_id'], ['users.id'], onupdate='CASCADE', ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('provider', 'provider_account_id')
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], onupdate='CASCADE', ondelete='CASCADE', name=op.f('accounts_user_id_fkey')),
+    sa.PrimaryKeyConstraint('provider', 'provider_account_id', name=op.f('accounts_pkey'))
     )
     op.create_table('sessions',
     sa.Column('session_id', sa.Uuid(), nullable=False),
@@ -67,9 +67,9 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.Column('modified_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
-    sa.ForeignKeyConstraint(['user_id'], ['users.id'], onupdate='CASCADE', ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('session_id'),
-    sa.UniqueConstraint('session_token')
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], onupdate='CASCADE', ondelete='CASCADE', name=op.f('sessions_user_id_fkey')),
+    sa.PrimaryKeyConstraint('session_id', name=op.f('sessions_pkey')),
+    sa.UniqueConstraint('session_token', name=op.f('sessions_session_token_key'))
     )
     # ### end Alembic commands ###
 

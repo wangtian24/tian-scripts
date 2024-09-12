@@ -28,8 +28,8 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.Column('modified_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
-    sa.ForeignKeyConstraint(['parent_category_id'], ['categories.category_id'], ),
-    sa.PrimaryKeyConstraint('category_id')
+    sa.ForeignKeyConstraint(['parent_category_id'], ['categories.category_id'], name=op.f('categories_parent_category_id_fkey')),
+    sa.PrimaryKeyConstraint('category_id', name=op.f('categories_pkey'))
     )
     # ### end Alembic commands ###
 

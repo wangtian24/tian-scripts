@@ -31,15 +31,15 @@ def upgrade() -> None:
     sa.Column('score', sa.Float(), nullable=False),
     sa.Column('score_lower_bound_95', sa.Float(), nullable=False),
     sa.Column('score_upper_bound_95', sa.Float(), nullable=False),
-    sa.ForeignKeyConstraint(['category_id'], ['categories.category_id'], ),
-    sa.ForeignKeyConstraint(['model_id'], ['language_models.model_id'], ),
+    sa.ForeignKeyConstraint(['category_id'], ['categories.category_id'], name=op.f('ratings_history_category_id_fkey')),
+    sa.ForeignKeyConstraint(['model_id'], ['language_models.model_id'], name=op.f('ratings_history_model_id_fkey')),
     sa.PrimaryKeyConstraint('rating_history_id', name=op.f('pk_ratings_history')),
-    sa.UniqueConstraint('model_id', 'category_id', 'created_at', name='uq_model_category_created_at')
+    sa.UniqueConstraint('model_id', 'category_id', 'created_at', name=op.f('uq_model_category_created_at'))
     )
     op.create_index(op.f('ix_ratings_history_rating_history_id'), 'ratings_history', ['rating_history_id'], unique=False)
-    op.create_unique_constraint('uq_name_parent', 'categories', ['name', 'parent_category_id'])
+    op.create_unique_constraint(op.f('uq_name_parent'), 'categories', ['name', 'parent_category_id'])
     op.add_column('ratings', sa.Column('rating_history_id', sa.Uuid(), nullable=False))
-    op.create_foreign_key(None, 'ratings', 'ratings_history', ['rating_history_id'], ['rating_history_id'])
+    op.create_foreign_key(op.f('ratings_rating_history_id_fkey'), 'ratings', 'ratings_history', ['rating_history_id'], ['rating_history_id'])
     op.drop_column('ratings', 'score')
     op.drop_column('ratings', 'upper_bound_95')
     op.drop_column('ratings', 'lower_bound_95')
@@ -51,9 +51,9 @@ def downgrade() -> None:
     op.add_column('ratings', sa.Column('lower_bound_95', sa.DOUBLE_PRECISION(precision=53), autoincrement=False, nullable=False))
     op.add_column('ratings', sa.Column('upper_bound_95', sa.DOUBLE_PRECISION(precision=53), autoincrement=False, nullable=False))
     op.add_column('ratings', sa.Column('score', sa.DOUBLE_PRECISION(precision=53), autoincrement=False, nullable=False))
-    op.drop_constraint(None, 'ratings', type_='foreignkey')
+    op.drop_constraint(op.f('ratings_rating_history_id_fkey'), 'ratings', type_='foreignkey')
     op.drop_column('ratings', 'rating_history_id')
-    op.drop_constraint('uq_name_parent', 'categories', type_='unique')
+    op.drop_constraint(op.f('uq_name_parent'), 'categories', type_='unique')
     op.drop_index(op.f('ix_ratings_history_rating_history_id'), table_name='ratings_history')
     op.drop_table('ratings_history')
     # ### end Alembic commands ###

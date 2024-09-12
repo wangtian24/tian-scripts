@@ -32,8 +32,8 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.Column('modified_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
-    sa.PrimaryKeyConstraint('model_id'),
-    sa.UniqueConstraint('internal_name')
+    sa.PrimaryKeyConstraint('model_id', name=op.f('language_models_pkey')),
+    sa.UniqueConstraint('internal_name', name=op.f('language_models_internal_name_key'))
     )
     op.create_index(op.f('ix_language_models_name'), 'language_models', ['name'], unique=True)
     # ### end Alembic commands ###

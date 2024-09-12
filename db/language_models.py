@@ -3,7 +3,8 @@ from datetime import date
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, Column
+import sqlalchemy as sa
+from sqlalchemy import BigInteger, Column, UniqueConstraint
 from sqlmodel import Field, Relationship
 
 from db.base import BaseModel
@@ -112,7 +113,9 @@ class LanguageModel(BaseModel, table=True):
 
     # This is the "real" name of the model as given by the Model Provider,
     # e.g. "gpt-4o-2024-05-13".
-    internal_name: str = Field(unique=True)
+    internal_name: str = Field(sa_column=Column("internal_name", sa.VARCHAR(), nullable=False))
+    # Forcing the pre-convention constraint name for backwards compatibility.
+    __table_args__ = (UniqueConstraint("internal_name", name="language_models_internal_name_key"),)
 
     # This is a human-readable name for the model, e.g. "GPT 4o".
     label: str | None = Field(default=None)

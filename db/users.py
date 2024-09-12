@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
-from sqlalchemy import Column
+from sqlalchemy import Column, UniqueConstraint
 from sqlmodel import Field, Relationship
 
 from db.base import BaseModel
@@ -25,7 +25,11 @@ class User(BaseModel, table=True):
 
     id: str = Field(primary_key=True, nullable=False, sa_type=sa.Text)
     name: str | None = Field(default=None, sa_type=sa.Text)
-    email: str = Field(unique=True, nullable=False, sa_type=sa.Text)
+
+    # Forcing the pre-convention constraint name for backwards compatibility.
+    email: str = Field(sa_column=Column("email", sa.Text, nullable=False))
+    __table_args__ = (UniqueConstraint("email", name="users_email_key"),)
+
     email_verified: datetime | None = Field(default=None)
     image: str | None = Field(default=None, sa_type=sa.Text)
     points: int = Field(default=10000)
@@ -110,7 +114,11 @@ class Session(BaseModel, table=True):
     __tablename__ = "sessions"
 
     session_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
-    session_token: str = Field(unique=True, sa_type=sa.Text)
+
+    # Forcing the pre-convention constraint name for backwards compatibility.
+    session_token: str = Field(sa_column=Column("session_token", sa.Text, nullable=False))
+    __table_args__ = (UniqueConstraint("session_token", name="sessions_session_token_key"),)
+
     user_id: str = Field(sa_column=sa.Column(sa.Text, sa.ForeignKey("users.id"), nullable=False))
     expires: datetime = Field(nullable=False)
 

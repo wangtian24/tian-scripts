@@ -115,6 +115,7 @@ pandas-stubs = "2.2.0.240218"
 pre-commit = "3.5.0"
 pytest = "8.1.1"
 ruff = "0.2.1"
+pytest-alembic = "^0.11.1"
 
 [tool.mypy]
 python_version = "3.11"
@@ -135,6 +136,7 @@ exclude = ["db/alembic/", "tmp/"]
 filterwarnings = [
     "ignore::DeprecationWarning:httpx.*:",
     "ignore::FutureWarning:transformers.*",
+    "ignore:Support for class-based `config` is deprecated:DeprecationWarning",
 ]
 
 [build-system]

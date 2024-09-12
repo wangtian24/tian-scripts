@@ -30,10 +30,10 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.Column('modified_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
-    sa.ForeignKeyConstraint(['category_id'], ['categories.category_id'], ),
-    sa.ForeignKeyConstraint(['model_id'], ['language_models.model_id'], ),
-    sa.PrimaryKeyConstraint('rating_id'),
-    sa.UniqueConstraint('model_id', 'category_id', name='uq_model_category')
+    sa.ForeignKeyConstraint(['category_id'], ['categories.category_id'], name=op.f('ratings_category_id_fkey')),
+    sa.ForeignKeyConstraint(['model_id'], ['language_models.model_id'], name=op.f('ratings_model_id_fkey')),
+    sa.PrimaryKeyConstraint('rating_id', name=op.f('ratings_pkey')),
+    sa.UniqueConstraint('model_id', 'category_id', name=op.f('uq_model_category'))
     )
     # ### end Alembic commands ###
 

@@ -28,7 +28,7 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.Column('modified_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
-    sa.PrimaryKeyConstraint('chat_id')
+    sa.PrimaryKeyConstraint('chat_id', name=op.f('chats_pkey'))
     )
     op.create_index(op.f('ix_chats_path'), 'chats', ['path'], unique=True)
     op.create_table('turns',
@@ -38,9 +38,9 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.Column('modified_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
-    sa.ForeignKeyConstraint(['chat_id'], ['chats.chat_id'], ),
-    sa.PrimaryKeyConstraint('turn_id'),
-    sa.UniqueConstraint('chat_id', 'sequence_id', name='uq_chat_sequence')
+    sa.ForeignKeyConstraint(['chat_id'], ['chats.chat_id'], name=op.f('turns_chat_id_fkey')),
+    sa.PrimaryKeyConstraint('turn_id', name=op.f('turns_pkey')),
+    sa.UniqueConstraint('chat_id', 'sequence_id', name=op.f('uq_chat_sequence'))
     )
     op.create_table('chat_messages',
     sa.Column('message_id', sa.Uuid(), nullable=False),
@@ -51,8 +51,8 @@ def upgrade() -> None:
     sa.Column('modified_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('assistant_model_name', sa.String(), nullable=True),
-    sa.ForeignKeyConstraint(['turn_id'], ['turns.turn_id'], ),
-    sa.PrimaryKeyConstraint('message_id')
+    sa.ForeignKeyConstraint(['turn_id'], ['turns.turn_id'], name=op.f('chat_messages_turn_id_fkey')),
+    sa.PrimaryKeyConstraint('message_id', name=op.f('chat_messages_pkey'))
     )
     # ### end Alembic commands ###
 

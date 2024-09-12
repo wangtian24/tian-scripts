@@ -40,8 +40,8 @@ def upgrade() -> None:
     sa.Column('language_model_id', sa.Uuid(), nullable=False),
     sa.Column('provider_id', sa.Uuid(), nullable=False),
     sa.Column('is_active', sa.Boolean(), nullable=False),
-    sa.ForeignKeyConstraint(['language_model_id'], ['language_models.language_model_id'], ),
-    sa.ForeignKeyConstraint(['provider_id'], ['providers.provider_id'], ),
+    sa.ForeignKeyConstraint(['language_model_id'], ['language_models.language_model_id'], name=op.f('language_model_provider_associations_language_model_id_fkey')),
+    sa.ForeignKeyConstraint(['provider_id'], ['providers.provider_id'], name=op.f('language_model_provider_associations_provider_id_fkey')),
     sa.PrimaryKeyConstraint('language_model_id', 'provider_id', name=op.f('pk_language_model_provider_associations'))
     )
     # ### end Alembic commands ###

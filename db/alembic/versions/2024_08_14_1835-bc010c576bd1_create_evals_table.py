@@ -34,11 +34,11 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.Column('modified_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
-    sa.ForeignKeyConstraint(['message_1_id'], ['chat_messages.message_id'], ),
-    sa.ForeignKeyConstraint(['message_2_id'], ['chat_messages.message_id'], ),
-    sa.ForeignKeyConstraint(['turn_id'], ['turns.turn_id'], ),
-    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ),
-    sa.PrimaryKeyConstraint('eval_id')
+    sa.ForeignKeyConstraint(['message_1_id'], ['chat_messages.message_id'], name=op.f('evals_message_1_id_fkey')),
+    sa.ForeignKeyConstraint(['message_2_id'], ['chat_messages.message_id'], name=op.f('evals_message_2_id_fkey')),
+    sa.ForeignKeyConstraint(['turn_id'], ['turns.turn_id'], name=op.f('evals_turn_id_fkey')),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], name=op.f('evals_user_id_fkey')),
+    sa.PrimaryKeyConstraint('eval_id', name=op.f('evals_pkey'))
     )
     # ### end Alembic commands ###
 

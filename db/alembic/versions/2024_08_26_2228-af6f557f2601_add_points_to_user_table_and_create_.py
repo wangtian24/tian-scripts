@@ -31,7 +31,7 @@ def upgrade() -> None:
     sa.Column('point_delta', sa.Integer(), nullable=False),
     sa.Column('action_type', postgresql.ENUM('UNKNOWN', 'SIGN_UP', 'PROMPT', 'EVALUATION', name='pointsactionenum', create_type=False), nullable=False),
     sa.Column('action_details', sa.JSON(), nullable=False),
-    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], name=op.f('point_transactions_user_id_fkey')),
     sa.PrimaryKeyConstraint('transaction_id', name=op.f('pk_point_transactions'))
     )
     op.add_column('users', sa.Column('points', sa.Integer(), nullable=False, server_default='0'))
