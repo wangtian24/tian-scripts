@@ -173,6 +173,38 @@ def synthesize_backfill_data(
     asyncio.run(asynthesize_backfill_data())
 
 
+@cli.command(help="Converts backfill data from one format to another (e.g., JSON to SQL).")
+@click.option("-c", "--config", required=True, help="The configuration used for Yuppfill")
+@click.option("-it", "--input-type", required=True, type=click.Choice(["json", "db"], case_sensitive=False))
+@click.option("-i", "--input-path", help="The path to the input file, if the type is `json`")
+@click.option("-ot", "--output-type", required=True, type=click.Choice(["json", "db"], case_sensitive=False))
+@click.option("-o", "--output-path", help="The path to the output file, if the type is `json`")
+@click.option("-n", "--num-attempted-chats-per-user", default=10, help="The number of attempted chats per user")
+def convert_backfill_data(
+    config: str, input_type: str, input_path: str, output_type: str, output_path: str, num_attempted_chats_per_user: int
+) -> None:
+    synth_config = SynthesizerConfig.parse_file(config)
+
+    if input_type == "json" and output_type == "db":
+        input_io = JsonChatIO(input_path)
+        output_io = sql_io = SQLChatIO()
+        git_commit_sha = git.Repo(search_parent_directories=True).head.object.hexsha
+        sql_io.populate_backfill_attributes(
+            synth_config, num_attempted_chats_per_user=num_attempted_chats_per_user, git_commit_sha=git_commit_sha
+        )
+
+        output_io.flush()
+    elif input_type == "db" and output_type == "json":
+        raise NotImplementedError("Conversion from SQL to JSON is not yet supported.")
+    else:
+        raise ValueError(f"Unsupported conversion from {input_type} to {output_type}")
+
+    for chat in input_io.read_chats():
+        output_io.append_chat(chat)
+
+    output_io.flush()
+
+
 @cli.command()
 @click.option("--category", multiple=True, help="Category to include (can be specified multiple times)")
 @click.option("--exclude-ties", is_flag=True, help="Exclude ties")

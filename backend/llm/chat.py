@@ -7,7 +7,7 @@ import torch
 from langchain_anthropic import ChatAnthropic
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.pydantic_v1 import BaseModel as BaseModelV1
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -25,6 +25,9 @@ from db.chats import MessageType
 DEFAULT_HIGH_SIM_THRESHOLD = 0.825
 DEFAULT_UNIQUENESS_THRESHOLD = 0.75
 OPENAI_FT_ID_PATTERN = re.compile(r"^ft:(?P<model>.+?):(?P<organization>.+?)::(?P<id>.+?)$")
+
+YuppMessage = HumanMessage | AIMessage | SystemMessage  # this is needed for proper Pydantic typecasting
+YuppMessageRow = list[YuppMessage]
 
 
 class ModelInfo(BaseModelV1):
@@ -208,7 +211,7 @@ def prompt_difficulty_by_llm_with_responses(
     return chain.invoke(input={"prompt": prompt, "responses": responses})
 
 
-# langchain uses Pydantic v1 in BaseMessage; using for compatibility
+# langchain uses Pydantic v1 in YuppMessage; using for compatibility
 class Persona(BaseModelV1):
     persona: str = ""
     interests: list[str] = []
@@ -228,23 +231,20 @@ class Persona(BaseModelV1):
         )
 
 
-YuppMessages = list[BaseMessage]
-
-
-# langchain uses Pydantic v1 in BaseMessage; using for compatibility
+# langchain uses Pydantic v1 in YuppMessage; using for compatibility
 class YuppChatMessageHistory(BaseModelV1):
     """
     Holds the chat history for a Yupp chat user. Each turn can be composed of multiple chat messages (e.g., from two
     LLMs in parallel), so we use a list of messages to represent a turn.
     """
 
-    messages: list[YuppMessages] = []
+    messages: list[YuppMessageRow] = []
     judgements: list[int | None] = []  # for v1, it is assumed that all judgements are between 1 and 100 inclusive
     eval_llms: list[str] = []
     judge_llm: str | None = None
     user_persona: Persona | None = None
 
-    def triplet_blocks(self) -> Generator[tuple[BaseMessage, BaseMessage, BaseMessage], None, None]:
+    def triplet_blocks(self) -> Generator[tuple[YuppMessage, YuppMessage, YuppMessage], None, None]:
         """Generates triplet blocks of user-llm1-llm2 messages, similar to the front-end's behavior."""
         for idx in range(0, (len(self.messages) // 2) * 2, 2):
             if len(self.messages[idx]) != 1 or len(self.messages[idx + 1]) != 2:
@@ -267,10 +267,10 @@ class MultiChatUser:
         raise NotImplementedError
 
     @property
-    def last_message(self) -> BaseMessage:
+    def last_message(self) -> YuppMessage:
         """Returns the last generated message from the synthetic user."""
         assert self.chat_history is not None, "Must be called within the context"
-        return self.chat_history.messages[-1]
+        return self.chat_history.messages[-1]  # type: ignore
 
     def reset(self) -> None:
         self.chat_history = ChatMessageHistory()
@@ -292,20 +292,20 @@ class MultiChatUser:
     async def __aexit__(self, exc_type: None, exc_val: None, exc_tb: None) -> None:
         await self.areset()
 
-    def respond(self, *messages: BaseMessage) -> BaseMessage:
+    def respond(self, *messages: YuppMessage) -> YuppMessage:
         """Responds to messages from one or more LLMs."""
         assert self.chat_history is not None, "Chat history not set. Did you forget to enter the context?"
         return self._respond(*messages)
 
-    def _respond(self, *messages: BaseMessage) -> BaseMessage:
+    def _respond(self, *messages: YuppMessage) -> YuppMessage:
         raise NotImplementedError
 
-    async def arespond(self, *messages: BaseMessage) -> BaseMessage:
+    async def arespond(self, *messages: YuppMessage) -> YuppMessage:
         """Responds to a message asynchronously."""
         assert self.chat_history is not None, "Chat history not set. Did you forget to enter the context?"
         return await self._arespond(*messages)
 
-    async def _arespond(self, *messages: BaseMessage) -> BaseMessage:
+    async def _arespond(self, *messages: YuppMessage) -> YuppMessage:
         raise NotImplementedError
 
 
@@ -314,7 +314,7 @@ class LLMChatAssistant(MultiChatUser):
         super().__init__()
         self.llm = llm
 
-    def _respond(self, *messages: BaseMessage) -> BaseMessage:
+    def _respond(self, *messages: YuppMessage) -> YuppMessage:
         """Responds to the first message only"""
         assert len(messages) == 1, "Only one message is supported"
         assert self.chat_history is not None
@@ -326,9 +326,9 @@ class LLMChatAssistant(MultiChatUser):
         self.chat_history.messages.append(message)
         self.chat_history.messages.append(response)
 
-        return response
+        return response  # type: ignore
 
-    async def _arespond(self, *messages: BaseMessage) -> BaseMessage:
+    async def _arespond(self, *messages: YuppMessage) -> YuppMessage:
         """Responds to the first message only"""
         assert len(messages) == 1, "Only one message is supported"
         assert self.chat_history is not None
@@ -340,7 +340,7 @@ class LLMChatAssistant(MultiChatUser):
         self.chat_history.messages.append(message)
         self.chat_history.messages.append(response)
 
-        return response
+        return response  # type: ignore
 
 
 ChatUserType = TypeVar("ChatUserType", bound=MultiChatUser)

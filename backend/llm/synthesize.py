@@ -9,7 +9,7 @@ from typing import Any
 
 import numpy as np
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core.messages import HumanMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.pydantic_v1 import BaseModel as BaseModelV1
@@ -26,6 +26,7 @@ from backend.llm.chat import (
     YuppChatIO,
     YuppChatMessageHistory,
     YuppChatUserGenerator,
+    YuppMessage,
     chat_message_cast_to,
     get_chat_history_model,
     get_chat_model,
@@ -34,7 +35,7 @@ from backend.llm.chat import (
 from backend.llm.constants import ALL_MODELS_BY_PROVIDER, FIRST_NAMES, LAST_NAMES
 from backend.prompts import SYNTHESIZER_FIRST_ASSISTANT_PROMPT, SYNTHESIZER_GENERATE_PERSONA_PROMPT
 from db.all_models import users
-from db.chats import Chat, ChatMessage, EvalType, MessageType, Turn
+from db.chats import Chat, ChatMessage, Eval, EvalType, MessageType, Turn
 from db.users import SyntheticBackfillAttributes
 
 
@@ -102,7 +103,7 @@ class SyntheticYuppChatUser(MultiChatUser):
         await super().areset()
         await self.arespond(self.initial_message, self.initial_message)
 
-    def _format_llm_messages(self, *messages: BaseMessage) -> BaseMessage:
+    def _format_llm_messages(self, *messages: YuppMessage) -> YuppMessage:
         return random.choice(messages)
 
     def _satisfies_min_length_response(self, response: str) -> bool:
@@ -111,7 +112,7 @@ class SyntheticYuppChatUser(MultiChatUser):
 
         return len(response.split()) >= self.num_min_initial_words and len(response) >= self.num_min_initial_characters
 
-    def _respond(self, *messages: BaseMessage) -> BaseMessage:
+    def _respond(self, *messages: YuppMessage) -> YuppMessage:
         """Responds to messages from one or more LLMs."""
         assert self.chat_history is not None
 
@@ -130,7 +131,7 @@ class SyntheticYuppChatUser(MultiChatUser):
 
         return chat_message_cast_to(response, HumanMessage)
 
-    async def _arespond(self, *messages: BaseMessage) -> BaseMessage:
+    async def _arespond(self, *messages: YuppMessage) -> YuppMessage:
         """Responds to messages from one or more LLMs."""
         assert self.chat_history is not None
 
@@ -259,12 +260,12 @@ async def asynthesize_chat(
     num_turns = random.randint(config.num_turns_min, config.num_turns_max)
 
     messages = []
-    llm1_message: BaseMessage | None = None
-    llm2_message: BaseMessage | None = None
+    llm1_message: YuppMessage | None = None
+    llm2_message: YuppMessage | None = None
 
     try:
         async with sem, user, eval_llm1, eval_llm2:
-            response: BaseMessage = user.last_message  # the initial message the user sent
+            response: YuppMessage = user.last_message  # the initial message the user sent
             messages.append([response])
 
             for turn_idx in range(num_turns - 1):  # minus 1 because we already have the initial prompt
@@ -366,7 +367,7 @@ class SQLChatIO(YuppChatIO):
         db_turn: Turn | None = None
         turn_no = 0
 
-        for messages in chat.messages:
+        for row_idx, messages in enumerate(chat.messages):
             if db_turn is None:
                 db_turn = Turn(
                     chat_id=db_chat.chat_id,
@@ -380,6 +381,20 @@ class SQLChatIO(YuppChatIO):
             assert db_turn is not None
             eval_data: dict[str, Any] = {}
 
+            # Add judgement data if available.
+            has_judgement = chat.judge_llm is not None and (
+                len(chat.judgements) > row_idx
+                and chat.judgements[row_idx] is not None
+                and messages
+                and get_db_message_type(messages[0]) == MessageType.ASSISTANT_MESSAGE
+            )
+
+            if has_judgement:
+                eval_data["judge_model_name"] = chat.judge_llm
+                eval_data["score_1"] = float(chat.judgements[row_idx])  # type: ignore # mypy thinks this is unsafe
+                eval_data["score_2"] = 100 - chat.judgements[row_idx]  # type:ignore # mypy thinks this is unsafe
+
+            # Populate the messages
             for message_idx, message in enumerate(messages):
                 chat_message_data: dict[str, Any] = dict(
                     turn_id=db_turn.turn_id,
@@ -397,18 +412,17 @@ class SQLChatIO(YuppChatIO):
                     eval_data["user_id"] = db_user.id
                     eval_data["turn_id"] = db_turn.turn_id
                     eval_data["eval_type"] = EvalType.SLIDER_V0
-                    eval_data["score_1"] = 50.0  # default score for now
-                    eval_data["score_2"] = 50.0  # default score for now
 
-                    if message_idx == 0:  # LLM1
-                        eval_data["message_1_id"] = db_chat_message.message_id
-                    elif message_idx == 1:  # LLM2
-                        eval_data["message_2_id"] = db_chat_message.message_id
+                    if message_idx <= 1:  # two LLMs
+                        eval_data[f"message_{message_idx + 1}_id"] = db_chat_message.message_id
                     else:
                         raise ValueError("More than two assistant messages not supported for now")
 
             if eval_data:
                 db_turn = None  # new turn
+
+                if has_judgement:
+                    self.session.add(Eval(**eval_data))
 
             self.session.commit()
 
