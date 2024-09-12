@@ -100,13 +100,13 @@ class LanguageModelProviderAssociation(BaseModel, table=True):
     # For permanent removal of the model on a provider, set deleted_at.
     is_active: bool = Field(default=True)
 
-    # Input cost in USD per million tokens, stored with 2 decimal places.
+    # Input cost in USD per million tokens, stored with 6 decimal places.
     input_cost_usd_per_million_tokens: Decimal | None = Field(
-        sa_column=Column(Numeric(precision=10, scale=2), nullable=True), default=None
+        sa_column=Column(Numeric(precision=10, scale=6), nullable=True), default=None
     )
-    # Output cost in USD per million tokens, stored with 2 decimal places.
+    # Output cost in USD per million tokens, stored with 6 decimal places.
     output_cost_usd_per_million_tokens: Decimal | None = Field(
-        sa_column=Column(Numeric(precision=10, scale=2), nullable=True), default=None
+        sa_column=Column(Numeric(precision=10, scale=6), nullable=True), default=None
     )
 
 
