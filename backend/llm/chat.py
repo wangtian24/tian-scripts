@@ -239,8 +239,18 @@ class YuppChatMessageHistory(BaseModelV1):
     """
 
     messages: list[YuppMessages] = []
+    judgements: list[int | None] = []  # for v1, it is assumed that all judgements are between 1 and 100 inclusive
     eval_llms: list[str] = []
+    judge_llm: str | None = None
     user_persona: Persona | None = None
+
+    def triplet_blocks(self) -> Generator[tuple[BaseMessage, BaseMessage, BaseMessage], None, None]:
+        """Generates triplet blocks of user-llm1-llm2 messages, similar to the front-end's behavior."""
+        for idx in range(0, (len(self.messages) // 2) * 2, 2):
+            if len(self.messages[idx]) != 1 or len(self.messages[idx + 1]) != 2:
+                raise ValueError("Each block must have one user message and two LLM messages")
+
+            yield self.messages[idx][0], self.messages[idx + 1][0], self.messages[idx + 1][1]
 
 
 class MultiChatUser:
@@ -352,6 +362,12 @@ class YuppChatIO:
     def append_chat(self, chat: YuppChatMessageHistory) -> "YuppChatIO":
         """Appends a chat to the writer."""
         raise NotImplementedError
+
+    def write_all_chats(self, chats: list[YuppChatMessageHistory]) -> "YuppChatIO":
+        for chat in chats:
+            self.append_chat(chat)
+
+        return self
 
     def read_chats(self) -> list[YuppChatMessageHistory]:
         """Reads chats from the writer."""

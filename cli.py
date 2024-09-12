@@ -1,11 +1,13 @@
 import asyncio
 import json
+import logging
 from collections import Counter
 from typing import Any
 
 import click
 import git
 import numpy as np
+from tqdm.asyncio import tqdm_asyncio
 
 from backend.config import settings
 from backend.llm.chat import (
@@ -20,9 +22,12 @@ from backend.llm.chat import (
 )
 from backend.llm.constants import COSTS_BY_MODEL
 from backend.llm.embedding import get_embedding_model
+from backend.llm.judge import JudgeConfig, YuppEvaluationLabeler, choose_llm
 from backend.llm.labeler import WildChatRealismLabeler
 from backend.llm.ranking import get_default_ranker
 from backend.llm.synthesize import SQLChatIO, SynthesizerConfig, SyntheticUserGenerator, asynthesize_chats
+
+logging.basicConfig(level=logging.WARNING)
 
 
 def click_provider_option(*args: str, **kwargs: Any | None) -> Any:
@@ -220,6 +225,81 @@ def label_wildchat_realism(
 
     print("Proportion realistic:", counter[True] / (counter[True] + counter[False]))
     print("Sample size:", counter[True] + counter[False])
+
+
+@cli.command(help="Evaluate pairs of LLM generations read in from a JSON file, acting like a real Yupp user")
+@click.option("-c", "--config", required=True, help="The judge config to use")
+@click.option("--limit", default=200, help="The number of examples to judge")
+@click.option("-i", "--input-file", type=str, required=True, help="The JSON file containing conversations")
+@click.option(
+    "-o",
+    "--output-file",
+    type=str,
+    default=None,
+    help="The JSON file to write the results to." " Defaults to the input file.",
+)
+@click.option(
+    "-j",
+    "--num-parallel",
+    default=4,
+    help="The number of jobs to run in parallel. Optimal " "value depends on the rate limit and CPU cores.",
+)
+def judge_yupp_llm_outputs(input_file: str, output_file: str, limit: int, config: str, num_parallel: int) -> None:
+    async def arun_batch(inputs: list[tuple[int, str, str, str, str, str]]) -> list[tuple[str, int]]:
+        async def ajudge_yupp_output(
+            row_idx: int, user_msg: str, llm1_msg: str, llm2_msg: str, llm1: str, llm2: str
+        ) -> tuple[str, int]:
+            async with sem:
+                llm_info = choose_llm(cfg.llms, exclude_models={llm1, llm2}, seed=row_idx)
+                llm = get_chat_model(llm_info, temperature=0.0)
+                judge = YuppEvaluationLabeler(llm)
+
+                return llm_info.model, await judge.alabel((user_msg, llm1_msg, llm2_msg))
+
+        sem = asyncio.Semaphore(num_parallel)
+
+        return await tqdm_asyncio.gather(*[ajudge_yupp_output(*x) for x in inputs])  # type: ignore
+
+    cfg = JudgeConfig.parse_file(config)
+    output_file = output_file or input_file
+
+    chats = JsonChatIO(input_file).read_chats()
+    coro_inputs: list[tuple[int, str, str, str, str, str]] = []
+
+    for row_idx, chat in enumerate(chats[:limit]):
+        try:
+            for user_message, llm1_response, llm2_response in chat.triplet_blocks():
+                llm1 = chat.eval_llms[0]
+                llm2 = chat.eval_llms[1]
+
+                coro_inputs.append(
+                    (
+                        row_idx,
+                        str(user_message.content),
+                        str(llm1_response.content),
+                        str(llm2_response.content),
+                        llm1,
+                        llm2,
+                    )
+                )
+        except ValueError:
+            logging.exception(f"Error processing chat row {row_idx}")
+            raise
+
+    results = asyncio.run(arun_batch(coro_inputs))
+
+    for (chosen_llm, result), (idx, _, _, _, _, _) in zip(results, coro_inputs, strict=False):
+        if result is None or result < 0:
+            new_result = None
+        else:
+            new_result = int(20 * ((result - 1) * 5 / 4))
+
+        chats[idx].judgements += [None, new_result]  # no judgements associated with user messages
+        chats[idx].judge_llm = chosen_llm
+
+    chat_io = JsonChatIO(output_file)
+    chat_io.write_all_chats(chats)
+    chat_io.flush()
 
 
 if __name__ == "__main__":

@@ -66,7 +66,7 @@ class SynthesizerConfig(BaseModelV1):
     num_turns_max: int = 2
     num_min_initial_characters: int = 15
     num_min_initial_words: int = 2
-    timeout_ms: int = 30000
+    timeout: int = 30  # seconds
 
 
 class SyntheticYuppChatUser(MultiChatUser):
@@ -163,7 +163,7 @@ class SyntheticUserGenerator(YuppChatUserGenerator[SyntheticYuppChatUser]):
                 model=self.config.user_llm_name,
                 api_key=self.config.user_llm_api_key,
             ),
-            timeout=self.config.timeout_ms,
+            timeout=self.config.timeout,
             chat_model_pool=ALL_MODELS_BY_PROVIDER,
             temperature=self.config.user_llm_temperature,
         )
@@ -176,7 +176,7 @@ class SyntheticUserGenerator(YuppChatUserGenerator[SyntheticYuppChatUser]):
                     model=self.config.user_llm_name,
                     api_key=self.config.user_llm_api_key,
                 ),
-                timeout=self.config.timeout_ms,
+                timeout=self.config.timeout,
                 chat_model_pool=ALL_MODELS_BY_PROVIDER,
                 temperature=0.8,
             )
@@ -249,11 +249,11 @@ async def asynthesize_chat(
     )
 
     eval_llm1 = LLMChatAssistant(
-        get_chat_history_model(eval_llm1_info, chat_model_pool=ALL_MODELS_BY_PROVIDER, timeout=config.timeout_ms)
+        get_chat_history_model(eval_llm1_info, chat_model_pool=ALL_MODELS_BY_PROVIDER, timeout=config.timeout)
     )
 
     eval_llm2 = LLMChatAssistant(
-        get_chat_history_model(eval_llm2_info, chat_model_pool=ALL_MODELS_BY_PROVIDER, timeout=config.timeout_ms)
+        get_chat_history_model(eval_llm2_info, chat_model_pool=ALL_MODELS_BY_PROVIDER, timeout=config.timeout)
     )
 
     num_turns = random.randint(config.num_turns_min, config.num_turns_max)

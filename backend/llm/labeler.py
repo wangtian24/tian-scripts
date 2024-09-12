@@ -13,7 +13,7 @@ from langchain_core.messages import BaseMessage
 from tqdm.asyncio import tqdm_asyncio
 
 from backend.llm.embedding import cached_get_database
-from backend.prompts import JUDGE_YUPP_CHAT_PROMPT, WILDCHAT_REALISM_PROMPT_TEMPLATE
+from backend.prompts import WILDCHAT_REALISM_PROMPT_TEMPLATE
 
 logging.basicConfig(level=logging.WARNING)
 InputType = TypeVar("InputType")
@@ -28,6 +28,11 @@ class LLMLabeler(Generic[InputType, OutputType]):
     def __init__(self, llm: BaseChatModel) -> None:
         self.llm = self._prepare_llm(llm)
         self.asyncio_context: ContextVar = ContextVar("Coroutine local")
+
+    @property
+    def error_value(self) -> OutputType:
+        """The value to return when an error occurs."""
+        raise NotImplementedError
 
     def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
         """Prepares the LLM for labeling. The default implementation is a no-op."""
@@ -47,17 +52,25 @@ class LLMLabeler(Generic[InputType, OutputType]):
 
     def label(self, input: InputType) -> OutputType:
         """Labels the input."""
-        prepared_input = self._prepare_input(input)
-        output = self.llm.invoke(prepared_input)  # type: ignore
+        try:
+            prepared_input = self._prepare_input(input)
+            output = self.llm.invoke(prepared_input)  # type: ignore
 
-        return self._parse_output(output)
+            return self._parse_output(output)
+        except Exception as e:
+            logging.exception(f"Error labeling input {input}: {e}")
+            return self.error_value
 
     async def alabel(self, input: InputType) -> OutputType:
         """Labels the input asynchronously."""
-        prepared_input = self._prepare_input(input)
-        output = await self.llm.ainvoke(prepared_input)  # type: ignore
+        try:
+            prepared_input = self._prepare_input(input)
+            output = await self.llm.ainvoke(prepared_input)  # type: ignore
 
-        return await self._aparse_output(output)
+            return await self._aparse_output(output)
+        except Exception as e:
+            logging.exception(f"Error labeling input {input}: {e}")
+            return self.error_value
 
     def batch_label(self, inputs: list[InputType]) -> list[OutputType | None]:
         """Labels a batch of inputs."""
@@ -77,22 +90,6 @@ class LLMLabeler(Generic[InputType, OutputType]):
         sem = asyncio.Semaphore(num_parallel)
 
         return await tqdm_asyncio.gather(*[_do_label(input, sem) for input in inputs])  # type: ignore
-
-
-class YuppEvaluationLabeler(LLMLabeler[tuple[str, str, str], int]):
-    def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
-        return JUDGE_YUPP_CHAT_PROMPT | llm  # type: ignore
-
-    def _prepare_input(self, input: tuple[str, str, str]) -> dict[str, Any]:
-        return dict(response1=input[1], response2=input[2], user_prompt=input[0])
-
-    def _parse_output(self, output: BaseMessage) -> int:
-        try:
-            # mypy doesn't like this, even though content is type-annotated as a string union
-            return int(output.content.strip()[0])  # type: ignore
-        except (ValueError, IndexError) as e:
-            logging.exception(f"Error parsing output {output}: {e}")
-            return -1  # return -1 if we can't parse the output
 
 
 class WildChatRealismLabeler(LLMLabeler[str, bool]):
@@ -135,6 +132,10 @@ class WildChatRealismLabeler(LLMLabeler[str, bool]):
         # Prepare the vector database
         self.wildchat_documents: list[Document] = [Document(x) for x in self.wildchat_prompts]
         self.db: FAISS = cached_get_database(self.wildchat_documents, embedding_model)
+
+    @property
+    def error_value(self) -> bool:
+        return False
 
     def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
         return WILDCHAT_REALISM_PROMPT_TEMPLATE | llm  # type: ignore
