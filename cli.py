@@ -324,7 +324,7 @@ def judge_yupp_llm_outputs(input_file: str, output_file: str, limit: int, config
         if result is None or result < 0:
             new_result = None
         else:
-            new_result = int(20 * ((result - 1) * 5 / 4))
+            new_result = 100 - int(20 * ((result - 1) * 5 / 4))  # inverted to match FE semantics
 
         chats[idx].judgements += [None, new_result]  # no judgements associated with user messages
         chats[idx].judge_llm = chosen_llm
