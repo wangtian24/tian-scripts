@@ -174,23 +174,35 @@ def synthesize_backfill_data(
 
 
 @cli.command(help="Converts backfill data from one format to another (e.g., JSON to SQL).")
-@click.option("-c", "--config", required=True, help="The configuration used for Yuppfill")
+@click.option("-sc", "--synthesizer-config", required=True, help="The config used for synthesizing YF")
+@click.option("-jc", "--judge-config", required=True, help="The config used for judging YF")
 @click.option("-it", "--input-type", required=True, type=click.Choice(["json", "db"], case_sensitive=False))
 @click.option("-i", "--input-path", help="The path to the input file, if the type is `json`")
 @click.option("-ot", "--output-type", required=True, type=click.Choice(["json", "db"], case_sensitive=False))
 @click.option("-o", "--output-path", help="The path to the output file, if the type is `json`")
 @click.option("-n", "--num-attempted-chats-per-user", default=10, help="The number of attempted chats per user")
 def convert_backfill_data(
-    config: str, input_type: str, input_path: str, output_type: str, output_path: str, num_attempted_chats_per_user: int
+    synthesizer_config: str,
+    judge_config: str,
+    input_type: str,
+    input_path: str,
+    output_type: str,
+    output_path: str,
+    num_attempted_chats_per_user: int,
 ) -> None:
-    synth_config = SynthesizerConfig.parse_file(config)
+    synth_config = SynthesizerConfig.parse_file(synthesizer_config)
+    judge_config_ = JudgeConfig.parse_file(judge_config)
 
     if input_type == "json" and output_type == "db":
         input_io = JsonChatIO(input_path)
         output_io = sql_io = SQLChatIO()
         git_commit_sha = git.Repo(search_parent_directories=True).head.object.hexsha
         sql_io.populate_backfill_attributes(
-            synth_config, num_attempted_chats_per_user=num_attempted_chats_per_user, git_commit_sha=git_commit_sha
+            synth_config,
+            num_attempted_chats_per_user=num_attempted_chats_per_user,
+            git_commit_sha=git_commit_sha,
+            judge_models=[x.model for x in judge_config_.llms],
+            judge_model_temperatures=judge_config_.llm_temperatures,
         )
 
         output_io.flush()

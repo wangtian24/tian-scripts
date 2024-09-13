@@ -13,6 +13,7 @@ from backend.prompts import JUDGE_YUPP_CHAT_PROMPT_TEMPLATE
 
 class JudgeConfig(BaseModelV1):
     llms: list[ModelInfo] = []
+    llm_temperatures: list[float] = []
     choice_strategy: Literal["random", "min_cost"] = "min_cost"
     timeout: int = 5  # seconds
 

@@ -300,7 +300,7 @@ async def asynthesize_chats(
 def generate_random_user(**kwargs: Any | None) -> users.User:
     return users.User(
         id=str(uuid.uuid4()),
-        name=f"YF {random.choice(FIRST_NAMES)} {random.choice(LAST_NAMES)}",
+        name=f"YF-{random.choice(FIRST_NAMES)} {random.choice(LAST_NAMES)}",
         email=f"{uuid.uuid4()}@example.com",
         email_verified=datetime.now(),
         **kwargs,
@@ -319,16 +319,20 @@ class SQLChatIO(YuppChatIO):
         synth_config: SynthesizerConfig,
         num_attempted_chats_per_user: int,
         git_commit_sha: str,
+        judge_models: list[str] | None = None,
+        judge_model_temperatures: list[float] | None = None,
     ) -> None:
         num_users = synth_config.generate_num_personas or len(synth_config.personas)
+        judge_models_: list[str] = judge_models or []
+        judge_model_temperatures_: list[float] = judge_model_temperatures or []
 
         self.backfill_attributes_data = {
             "num_users": num_users,
             "num_attempted_chats_per_user": num_attempted_chats_per_user,
             "user_llm_model": synth_config.user_llm_name,
             "user_llm_temperature": synth_config.user_llm_temperature,
-            "judge_models": [],  # TODO; no judges for now
-            "judge_model_temperatures": [],  # TODO; no judges for now
+            "judge_models": judge_models_,
+            "judge_model_temperatures": judge_model_temperatures_,
             "git_commit_sha": git_commit_sha,
         }
 
