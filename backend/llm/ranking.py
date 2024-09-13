@@ -10,6 +10,7 @@ from typing import Any, ClassVar, Literal
 import choix
 import numpy as np
 import pandas as pd
+from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 from sqlmodel import Session, select
 
@@ -231,7 +232,7 @@ class Ranker:
         )
 
         if category_names:
-            query = query.where(Category.name.in_(category_names))  # type: ignore
+            query = query.where(func.lower(Category.name).in_([name.lower() for name in category_names]))
 
         if exclude_ties:
             query = query.where(Eval.score_1 != Eval.score_2)
