@@ -11,9 +11,10 @@ import choix
 import numpy as np
 import pandas as pd
 from sqlalchemy import func
+from sqlalchemy.exc import DatabaseError, OperationalError
 from sqlalchemy.orm import joinedload
 from sqlmodel import Session, select
-from tenacity import after_log, retry, stop_after_attempt, wait_fixed
+from tenacity import after_log, retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 from backend.db import get_engine
 from backend.llm.utils import (
@@ -194,7 +195,12 @@ class Ranker:
         """Add the ratings to the database."""
         raise NotImplementedError
 
-    @retry(stop=stop_after_attempt(3), wait=wait_fixed(0.1), after=after_log(logger, logging.WARNING))
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_fixed(0.1),
+        after=after_log(logger, logging.WARNING),
+        retry=retry_if_exception_type((OperationalError, DatabaseError)),
+    )
     def add_evals_from_db(
         self,
         category_names: list[str] | None = None,
@@ -614,6 +620,12 @@ class ChoixRankerConfIntervals(ChoixRanker, ConfidenceIntervalRankerMixin):
             rated_model.rating_upper = conf_interval[1]
         return rated_model
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_fixed(0.1),
+        after=after_log(logger, logging.WARNING),
+        retry=retry_if_exception_type((OperationalError, DatabaseError)),
+    )
     def to_db(self, category_name: str | None = None, snapshot_timestamp: datetime | None = None) -> None:
         if not self.battles:
             logging.warning(f"No battles to rank for category '{category_name}'")
