@@ -13,6 +13,7 @@ import pandas as pd
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 from sqlmodel import Session, select
+from tenacity import retry, stop_after_attempt, wait_fixed
 
 from backend.db import get_engine
 from backend.llm.utils import (
@@ -193,6 +194,7 @@ class Ranker:
         """Add the ratings to the database."""
         raise NotImplementedError
 
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(0.1))
     def add_evals_from_db(
         self,
         category_names: list[str] | None = None,
