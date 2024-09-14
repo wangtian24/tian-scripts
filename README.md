@@ -91,7 +91,7 @@ Important credentials (ie LLM API keys) can be found in 1Password.
 
 ### Linting and type checking
 
-This repo uses `ruff` for Python linting and `mypy` to make sure Python code is typed.
+This repo uses `ruff` for Python linting and `mypy` to make sure Python code is typed. Please download the IDE extensions from [here](https://code.visualstudio.com/docs/python/linting) to help with linting and type checking.
 Github actions in `.github/workflows` are set up to run these linters on push and pull requests.
 
 ## Deployment
