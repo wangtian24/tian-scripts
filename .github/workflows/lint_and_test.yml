@@ -54,6 +54,13 @@ jobs:
       - name: Run Ruff formatter
         run: poetry run ruff format --check .
 
+      # Mypy is slow, so utilize a cache.
+      - name: Cache mypy
+        uses: actions/cache@v4
+        with:
+          path: .mypy_cache
+          key: mypy-${{ hashFiles('pyproject.toml') }}
+
       - name: Run Mypy
         run: poetry run mypy --config-file=pyproject.toml .
 
