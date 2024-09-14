@@ -7,7 +7,7 @@ from sqlmodel import Session, create_engine
 
 from backend.config import settings
 
-engine = None
+engine: Engine | None = None
 
 
 def get_engine() -> Engine:
