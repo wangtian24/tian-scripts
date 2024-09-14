@@ -102,7 +102,7 @@ The `main` branch is auto-deployed nightly to llms-staging.yupp.ai.
 
 ### Rebuilding the base image (slow, infrequent, when many dependencies change):
 
-Note: if you get an authentication error on `docker push`, run `gcloud auth login` first.
+Note: if you get an authentication error on `docker push`, run `gcloud auth login` followed by `gcloud auth configure-docker` first.
 
 ```sh
 docker build \
