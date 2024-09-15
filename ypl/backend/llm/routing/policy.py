@@ -21,7 +21,7 @@ def fixed_random_fraction(ranker: "Ranker", value: float) -> float:
 
 def decayed_random_fraction(ranker: "Ranker", initial_value: float, final_value: float, steps: int) -> float:
     """Returns the exponentially decayed value from `exponential_decay` after `ranker.total_battles` steps."""
-    val = exponential_decay(initial_value, final_value, steps, ranker.total_battles)
+    val = exponential_decay(initial_value, final_value, steps, ranker.get_total_battles())
     return val
 
 

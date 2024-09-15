@@ -110,6 +110,10 @@ class Ranker:
         self.ties: dict[str, int] = Counter()
         self.total_battles = 0
 
+    def get_total_battles(self) -> int:
+        """Return the total number of battles."""
+        return self.total_battles
+
     def get_models(self) -> set[str]:
         """Return the models."""
         return self.models
@@ -239,7 +243,7 @@ class Ranker:
             Chat.deleted_at.is_(None),  # type: ignore
         )
 
-        if category_names:
+        if category_names and OVERALL_CATEGORY_NAME not in category_names:
             query = query.where(func.lower(Category.name).in_([name.lower() for name in category_names]))
 
         if exclude_ties:
@@ -252,6 +256,7 @@ class Ranker:
             joinedload(Eval.turn).joinedload(Turn.chat),  # type: ignore
             joinedload(Eval.turn).joinedload(Turn.chat_messages),  # type: ignore
             joinedload(Eval.turn).joinedload(Turn.chat).joinedload(Chat.turns),  # type: ignore
+            joinedload(Eval.user),  # type: ignore
         )
 
         # Replay evals from the database.
@@ -832,6 +837,10 @@ class PerCategoryRanker(Ranker):
         else:
             for category, ranker in list(self.rankers.items()) + [(OVERALL_CATEGORY_NAME, self.overall_ranker)]:
                 ranker.to_db(category, snapshot_timestamp)
+
+    def get_total_battles(self) -> int:
+        """Return the total number of battles."""
+        return self.overall_ranker.get_total_battles()
 
 
 RANKER_CLASSES: tuple[type[Ranker], ...] = (EloRanker, ChoixRanker, ChoixRankerConfIntervals)
