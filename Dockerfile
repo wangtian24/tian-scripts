@@ -10,16 +10,19 @@ RUN pip install poetry==1.8.2 && \
     poetry config virtualenvs.create false
 
 COPY ./pyproject.toml ./poetry.lock* /app/
-COPY ./backend /app/backend
+COPY ./ypl/backend /app/ypl/backend
 COPY ./data/nltk_data /home/nltk_data
-COPY ./db /app/db
+COPY ./ypl/db /app/ypl/db
 COPY ./.env /app/.env
-COPY ./cli.py /app/cli.py
+COPY ./ypl/cli.py /app/ypl/cli.py
+COPY ./README.md /app/README.md
 
 RUN bash -c "poetry install --no-root"
+RUN bash -c "poetry build"
+RUN bash -c "pip install ."
 
 EXPOSE 8080
 
-RUN chmod +x /app/backend/entrypoint.sh
+RUN chmod +x /app/ypl/backend/entrypoint.sh
 
-ENTRYPOINT ["/app/backend/entrypoint.sh"]
+ENTRYPOINT ["/app/ypl/backend/entrypoint.sh"]

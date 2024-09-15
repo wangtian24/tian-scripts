@@ -62,12 +62,19 @@ cp .env.copy .env
 
 To add new dependencies or update the versions of existings ones, modify the `[poetry]` section in [pyproject.toml] and run `poetry update`. This will modify the locked package versions in [poetry.lock]. Do not modify that file directly.
 
-## Running the service
-
-From the root of the repo, start the backend service with:
+Finally, install `ypl` as a package in the `ys-dev` environment:
 
 ```sh
-uvicorn backend.server:app --reload
+poetry build
+pip install -e .  # editable mode for dev
+```
+
+## Running the service
+
+Start the backend service in any folder containing the `.env` file with:
+
+```sh
+uvicorn ypl.backend.server:app --reload
 ```
 
 See [localhost:8000/api/docs](http://localhost:8000/api/docs) for the available API routes. This only works if your `ENVIRONMENT` variable in the `.env` file is set to `local`.
@@ -150,10 +157,10 @@ gcloud run services update-traffic backend \
 
 ## Periodic tasks
 
-Periodic tasks are run using GitHub actions, based on [`.github/workflows/cronjob.yml`](.github/workflows/cronjob.yml)); any command and arguments to [./cli.py](./cli.py) can be run as a periodic task.
+Periodic tasks are run using GitHub actions, based on [`.github/workflows/cronjob.yml`](.github/workflows/cronjob.yml)); any command and arguments to [cli.py](ypl/cli.py) can be run as a periodic task.
 
 To add a new periodic task:
-1. Add a command to [./cli.py](./cli.py) (ex: `update_ranking()`).
+1. Add a command to [cli.py](ypl/cli.py) (ex: `update_ranking()`).
 1. Create a GitHub action for that command with the desired schedule and any arguments to supply (ex: [`.github/workflows/update_ranking.yml`](.github/workflows/update_ranking.yml)).
 
 Periodic tasks will run automatically from the `main` branch, but can also be manually triggered for any branch from [the action page](https://github.com/yupp-ai/yupp-llms/actions/workflows/cronjob.yml).

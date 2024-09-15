@@ -112,5 +112,5 @@ jobs:
           --allow-unauthenticated \
           --cpu ${{ env.CPU }} \
           --memory ${{ env.MEMORY }} \
-          --command="/app/backend/entrypoint.sh" \
+          --command="/app/ypl/backend/entrypoint.sh" \
           --args="service"

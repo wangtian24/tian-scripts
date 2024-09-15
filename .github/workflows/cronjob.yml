@@ -78,7 +78,7 @@ jobs:
             --region ${{ env.REGION }} \
             --cpu=${{ env.CPU }} \
             --memory=${{ env.MEMORY }} \
-            --command="/app/backend/entrypoint.sh" \
+            --command="/app/ypl/backend/entrypoint.sh" \
             --args="$COMMAND,$ARGS"
         fi
 

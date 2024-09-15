@@ -1,5 +1,5 @@
 [project]
-name = "yupp-server"
+name = "ypl"
 description = "Backend service for Yupp"
 version = "0.0.1"
 readme = "README.md"
@@ -8,10 +8,10 @@ requires-python = ">=3.11"
 
 [tool.ruff]
 # The directories to consider when resolving first- vs. third-party imports
-src = ["."]
+src = ["ypl"]
 
 exclude = [
-    "db/alembic/versions/*",
+    "ypl/db/alembic/versions/*",
     "tmp/",
 ]
 
@@ -62,7 +62,7 @@ order-by-type = true
 no-lines-before = ["future", "standard-library"]
 
 [tool.poetry]
-name = "yupp-server"
+name = "ypl"
 version = "0.0.1"
 description = "Backend service for Yupp"
 license = "Proprietary"
@@ -131,7 +131,7 @@ warn_redundant_casts = true  # Warn about redundant casts
 warn_unused_ignores = true  # Warn about unneeded '# type: ignore' comments
 warn_return_any = true  # Warn about returning values of type 'Any' from functions
 ignore_missing_imports = true  # Ignore errors for missing imports
-exclude = ["db/alembic/", "tmp/", "notebooks/"]
+exclude = ["ypl/db/alembic/", "tmp/", "notebooks/"]
 cache_dir = ".mypy_cache"
 
 [tool.pytest.ini_options]

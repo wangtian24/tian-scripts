@@ -75,7 +75,7 @@ jobs:
         with:
           filters: |
             db:
-              - 'db/**'
+              - 'ypl/db/**'
 
       # only run tests with alembic if the PR touches the db folder
       - name: Run tests with alembic
