@@ -1,12 +1,15 @@
 import asyncio
+import functools
 import json
 import logging
 from collections import Counter
+from collections.abc import Callable
 from typing import Any
 
 import click
 import git
 import numpy as np
+from dotenv import load_dotenv
 from tqdm.asyncio import tqdm_asyncio
 
 from ypl.backend.config import settings
@@ -24,10 +27,31 @@ from ypl.backend.llm.constants import COSTS_BY_MODEL
 from ypl.backend.llm.embedding import get_embedding_model
 from ypl.backend.llm.judge import JudgeConfig, YuppEvaluationLabeler, choose_llm
 from ypl.backend.llm.labeler import WildChatRealismLabeler
+from ypl.backend.llm.prompt_classifiers import categorize_user_messages
 from ypl.backend.llm.ranking import get_default_ranker
 from ypl.backend.llm.synthesize import SQLChatIO, SynthesizerConfig, SyntheticUserGenerator, asynthesize_chats
 
 logging.basicConfig(level=logging.WARNING)
+
+
+def db_cmd(f: Callable[..., Any]) -> Callable[..., Any]:
+    @functools.wraps(f)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        load_dotenv()
+        get_approval_on_environment()
+        return f(*args, **kwargs)
+
+    return wrapper
+
+
+def get_approval_on_environment() -> bool:
+    if settings.ENVIRONMENT.lower() != "local":
+        print(f"WARNING: Command will be run on the {settings.ENVIRONMENT.upper()} database!")
+        approval = input("Type 'yupp' to continue: ").strip().lower()
+        if approval != "yupp":
+            print("Aborted!")
+            exit(1)
+    return True
 
 
 def click_provider_option(*args: str, **kwargs: Any | None) -> Any:
@@ -344,6 +368,19 @@ def judge_yupp_llm_outputs(input_file: str, output_file: str, limit: int, config
     chat_io = JsonChatIO(output_file)
     chat_io.write_all_chats(chats)
     chat_io.flush()
+
+
+@cli.command()
+@click.option(
+    "--update-all-messages",
+    is_flag=True,
+    default=False,
+    help="Categorize all messages, not just those without a category",
+)
+@db_cmd
+def categorize_messages(update_all_messages: bool) -> None:
+    """Categorize user chat messages."""
+    categorize_user_messages(update_all_messages)
 
 
 if __name__ == "__main__":

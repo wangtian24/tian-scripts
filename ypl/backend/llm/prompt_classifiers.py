@@ -1,13 +1,24 @@
-from enum import Enum
+from enum import Enum  # noqa: I001
 from functools import cache
 from typing import Any, cast
 
+import logging
+
 from openai import OpenAI
 from pydantic import BaseModel
+from sqlmodel import select
 from tenacity import retry, stop_after_attempt, wait_random_exponential
 
 from ypl.backend import prompts
+from ypl.backend.db import Session, get_engine
 from ypl.backend.llm.utils import fetch_categories_with_descriptions_from_db
+from ypl.db.chats import ChatMessage, MessageType
+from ypl.db.ratings import Category, OVERALL_CATEGORY_NAME
+
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 
 client: OpenAI | None = None
 
@@ -68,3 +79,48 @@ def prompt_category_by_llm(user_prompt: str) -> str:
     if isinstance(result, PromptCategoryResponse):
         return cast(str, result.category.value)
     raise ValueError("Unexpected response format")
+
+
+def categorize_user_messages(update_all_messages: bool) -> None:
+    """Categorize user chat messages (prompts) using a zero-shot LLM.
+
+    Args:
+        update_all_messages (bool): If True, re-categorize all messages.
+            Otherwise, only categorize messages without a Category.
+    """
+    with Session(get_engine()) as session:
+        query = select(ChatMessage).where(ChatMessage.message_type == MessageType.USER_MESSAGE)
+        if not update_all_messages:
+            query = query.where(ChatMessage.category_id.is_(None))  # type: ignore
+
+        categories = session.exec(select(Category).where(Category.name != OVERALL_CATEGORY_NAME)).all()
+        category_dict = {category.name: category for category in categories}
+
+        total_categorized = 0
+        total_uncategorized = 0  # New counter for uncategorized messages
+
+        for i, message in enumerate(session.exec(query).all()):
+            category_name = prompt_category_by_llm(message.content)
+            category = category_dict.get(category_name)
+
+            if category:
+                message.category = category
+                total_categorized += 1
+            else:
+                logger.warning(f"Category '{category_name}' not found for message {message.message_id}")
+                total_uncategorized += 1  # Increment uncategorized counter
+
+            # Chunk to prevent commits from failing
+            chunk_size = 100
+            if (i + 1) % chunk_size == 0:
+                session.commit()
+                logger.info(f"Committed chunk of {chunk_size} messages")
+
+        session.commit()
+        logger.info("Committed final chunk of messages")
+
+    logger.info(
+        f"Prompt categorization complete. "
+        f"Total messages categorized: {total_categorized}. "
+        f"Total messages uncategorized: {total_uncategorized}."
+    )

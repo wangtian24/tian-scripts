@@ -1,0 +1,21 @@
+name: Categorize messages
+
+on:
+  schedule:
+    - cron: '15 */6 * * *'  # Every 6 hours (4 times a day), at 15 minutes past the hour.
+  workflow_dispatch:
+
+jobs:
+  categorize_messages_staging:
+    uses: ./.github/workflows/cronjob.yml
+    with:
+      command: categorize-messages
+      environment: staging
+    secrets: inherit
+
+  categorize_messages_production:
+    uses: ./.github/workflows/cronjob.yml
+    with:
+      command: categorize-messages
+      environment: production
+    secrets: inherit

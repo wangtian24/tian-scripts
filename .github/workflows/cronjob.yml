@@ -25,6 +25,7 @@ on:
         type: choice
         options:
         - update-ranking
+        - categorize-messages
       args:
         description: 'Arguments for the CLI command'
         required: false
