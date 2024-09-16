@@ -58,6 +58,10 @@ CHOIX_DEFAULT_ALGORITHM = "lsr_pairwise"
 DEFAULT_RANKER_TYPE = "choix_conf_intervals"
 DEFAULT_RANKER_KWARGS = dict(choix_ranker_algorithm=CHOIX_DEFAULT_ALGORITHM)
 
+MAX_NUM_WORKERS = 8
+MIN_NUM_WORKERS = 1
+BATTLES_PER_WORKER = 100000
+
 ConfInterval = tuple[float, float]
 
 logger = logging.getLogger(__name__)
@@ -687,6 +691,34 @@ class ChoixRankerConfIntervals(ChoixRanker, ConfidenceIntervalRankerMixin):
             session.commit()
             logging.info(f"Saved {len(llm_ids_to_ranking_history)} rating histories to the database.")
 
+    def _get_bootstrap_ratings(self, battles: np.ndarray, num_bootstrap_samples: int) -> list[np.ndarray]:
+        # There's some overhead to spinning up workers (these are processes, not threads), so vary the number of workers
+        # based on the number of battles.
+        num_workers = min(MAX_NUM_WORKERS, MIN_NUM_WORKERS + len(battles) // BATTLES_PER_WORKER)
+        # The parameters for each bootstrap iteration.
+        params = [
+            (
+                self.seed + i,
+                len(self.model_ids),
+                battles,
+                self.choix_alpha,
+                self.choix_ranker,
+                self.choix_kwargs,
+                num_bootstrap_samples,
+            )
+            for i in range(self.num_bootstrap_iterations)
+        ]
+        if num_workers == 1:
+            # Just run the iterations sequentially.
+            return [_bootstrap_iteration(*params[i]) for i in range(self.num_bootstrap_iterations)]
+        else:
+            # Run the iterations in parallel.
+            with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
+                futures = [
+                    executor.submit(_bootstrap_iteration, *params[i]) for i in range(self.num_bootstrap_iterations)
+                ]
+                return [future.result() for future in concurrent.futures.as_completed(futures)]
+
     def update_ratings(self) -> None:
         self.update_ratings_counter.reset()
 
@@ -696,21 +728,7 @@ class ChoixRankerConfIntervals(ChoixRanker, ConfidenceIntervalRankerMixin):
         battles = np.array(self.battles)  # Convert battles to a numpy array for efficient sampling.
         num_bootstrap_samples = int(len(self.battles) * self.bootstrap_sample_fraction)
         try:
-            with concurrent.futures.ProcessPoolExecutor() as executor:
-                futures = [
-                    executor.submit(
-                        _bootstrap_iteration,
-                        self.seed + i,
-                        len(self.model_ids),
-                        battles,
-                        self.choix_alpha,
-                        self.choix_ranker,
-                        self.choix_kwargs,
-                        num_bootstrap_samples,
-                    )
-                    for i in range(self.num_bootstrap_iterations)
-                ]
-                bootstrap_ratings = [future.result() for future in concurrent.futures.as_completed(futures)]
+            bootstrap_ratings = self._get_bootstrap_ratings(battles, num_bootstrap_samples)
             med_ratings = np.median(bootstrap_ratings, axis=0)
             lower_bounds = np.percentile(bootstrap_ratings, 5, axis=0)
             upper_bounds = np.percentile(bootstrap_ratings, 95, axis=0)
