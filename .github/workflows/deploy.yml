@@ -4,7 +4,7 @@ on:
   push:
     branches: [ staging ]
   schedule:
-    - cron: '0 9 * * *'  # Runs at 9 AM UTC (2 AM PST) daily
+    - cron: '0 9,21 * * *'  # Runs at 9 AM/PM UTC (2 AM/PM PST) daily
   workflow_dispatch:
     inputs:
       environment:
