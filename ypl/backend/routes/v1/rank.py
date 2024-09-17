@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -15,6 +16,10 @@ class LeaderboardRequest(BaseModel):
     exclude_ties: bool = False
     language: str | None = None
     model_names: list[str] | None = None
+    from_date: datetime | None = None
+    to_date: datetime | None = None
+    user_from_date: datetime | None = None
+    user_to_date: datetime | None = None
 
 
 @router.post("/leaderboard")
@@ -23,7 +28,16 @@ async def leaderboard(request: LeaderboardRequest) -> dict[str, list[RatedModel]
         if can_use_global_rankers(request.category_names, request.exclude_ties, request.language, request.model_names):
             return get_ranker().leaderboard_all_categories()
         ranker = get_default_ranker()
-        ranker.add_evals_from_db(request.category_names, request.exclude_ties, request.language, request.model_names)
+        ranker.add_evals_from_db(
+            request.category_names,
+            request.exclude_ties,
+            request.language,
+            request.model_names,
+            request.from_date,
+            request.to_date,
+            request.user_from_date,
+            request.user_to_date,
+        )
         return ranker.leaderboard()
     except Exception as e:
         logger.error(f"Error updating rankings: {e}")

@@ -215,6 +215,10 @@ class Ranker:
         exclude_ties: bool = False,
         language: str | None = None,
         model_names: list[str] | None = None,
+        from_date: datetime | None = None,
+        to_date: datetime | None = None,
+        user_from_date: datetime | None = None,
+        user_to_date: datetime | None = None,
     ) -> int:
         """Initialize the ranker with evals from the database, returning the number of evals added.
 
@@ -252,6 +256,17 @@ class Ranker:
 
         if exclude_ties:
             query = query.where(Eval.score_1 != Eval.score_2)
+
+        if from_date is not None:
+            query = query.where(Eval.created_at >= from_date)  # type: ignore
+        if to_date is not None:
+            query = query.where(Eval.created_at <= to_date)  # type: ignore
+
+        if user_from_date is not None:
+            query = query.where(Eval.user.created_at >= user_from_date)  # type: ignore
+
+        if user_to_date is not None:
+            query = query.where(Eval.user.created_at <= user_to_date)  # type: ignore
 
         query = query.options(
             joinedload(Eval.message_1),  # type: ignore
