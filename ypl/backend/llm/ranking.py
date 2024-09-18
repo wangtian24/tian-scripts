@@ -24,7 +24,7 @@ from ypl.backend.llm.utils import (
     ThresholdCounter,
     fetch_categories_with_descriptions_from_db,
 )
-from ypl.db.chats import Chat, ChatMessage, Eval, EvalType, Turn
+from ypl.db.chats import Chat, ChatMessage, Eval, EvalType, Turn, User
 from ypl.db.language_models import LanguageModel
 from ypl.db.ratings import OVERALL_CATEGORY_NAME, Category, Rating, RatingHistory
 
@@ -263,10 +263,10 @@ class Ranker:
             query = query.where(Eval.created_at <= to_date)  # type: ignore
 
         if user_from_date is not None:
-            query = query.where(Eval.user.created_at >= user_from_date)  # type: ignore
+            query = query.where(User.created_at >= user_from_date)  # type: ignore
 
         if user_to_date is not None:
-            query = query.where(Eval.user.created_at <= user_to_date)  # type: ignore
+            query = query.where(User.created_at <= user_to_date)  # type: ignore
 
         query = query.options(
             joinedload(Eval.message_1),  # type: ignore
@@ -908,18 +908,3 @@ def get_ranker() -> PerCategoryRanker:
 def get_default_ranker() -> ChoixRankerConfIntervals:
     """Returns the current default ranker withe the default params."""
     return ChoixRankerConfIntervals()
-
-
-def can_use_global_rankers(
-    category_names: list[str] | None,
-    exclude_ties: bool,
-    language: str | None,
-    model_names: list[str] | None,
-) -> bool:
-    """Returns whether the global rankers can be used for the given filters."""
-    return (
-        (not category_names or category_names == [OVERALL_CATEGORY_NAME])
-        and not exclude_ties
-        and not language
-        and not model_names
-    )
