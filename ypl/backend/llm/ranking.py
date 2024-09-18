@@ -213,8 +213,6 @@ class Ranker:
         self,
         category_names: list[str] | None = None,
         exclude_ties: bool = False,
-        language: str | None = None,
-        model_names: list[str] | None = None,
         from_date: datetime | None = None,
         to_date: datetime | None = None,
         user_from_date: datetime | None = None,
@@ -225,18 +223,14 @@ class Ranker:
         Args:
             category_names: The categories to filter by.
             exclude_ties: Whether to exclude ties.
-            language: The language to filter by.
-            model_names: The models to filter by.
+            from_date: Prompt created at or after this date.
+            to_date: Prompt created at or before this date.
+            user_from_date: User created at or after this date.
+            user_to_date: User created at or before this date.
 
         Returns:
             The number of evals added.
         """
-
-        if language is not None:
-            raise NotImplementedError("Language filtering is not supported yet")
-
-        if model_names:
-            raise NotImplementedError("Model filtering is not supported yet")
 
         query = (
             select(Eval)

@@ -4,6 +4,7 @@ import json
 import logging
 from collections import Counter
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any
 
 import click
@@ -244,20 +245,26 @@ def convert_backfill_data(
 @cli.command()
 @click.option("--category", multiple=True, help="Category to include (can be specified multiple times)")
 @click.option("--exclude-ties", is_flag=True, help="Exclude ties")
-@click.option("--language", help="Language")
-@click.option("--model-names", multiple=True, help="Model name (can be specified multiple times)")
+@click.option("--from-date", help="The prompt start date to filter by")
+@click.option("--to-date", help="The prompt end date to filter by")
+@click.option("--user-from-date", help="The user start date to filter by")
+@click.option("--user-to-date", help="The user end date to filter by")
 def update_ranking(
     category: list[str] | None = None,
     exclude_ties: bool = False,
-    language: str | None = None,
-    model_names: list[str] | None = None,
+    from_date: datetime | None = None,
+    to_date: datetime | None = None,
+    user_from_date: datetime | None = None,
+    user_to_date: datetime | None = None,
 ) -> None:
     ranker = get_default_ranker()
     ranker.add_evals_from_db(
         category_names=category,
         exclude_ties=exclude_ties,
-        language=language,
-        model_names=model_names,
+        from_date=from_date,
+        to_date=to_date,
+        user_from_date=user_from_date,
+        user_to_date=user_to_date,
     )
     for ranked_model in ranker.leaderboard():
         print(ranked_model)
