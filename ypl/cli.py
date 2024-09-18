@@ -2,6 +2,7 @@ import asyncio
 import functools
 import json
 import logging
+import sys
 from collections import Counter
 from collections.abc import Callable
 from datetime import datetime
@@ -47,6 +48,10 @@ def db_cmd(f: Callable[..., Any]) -> Callable[..., Any]:
 
 def get_approval_on_environment() -> bool:
     if settings.ENVIRONMENT.lower() != "local":
+        # If running in a non-interactive environment (cloud run job)
+        if not sys.stdin.isatty():
+            return True
+
         print(f"WARNING: Command will be run on the {settings.ENVIRONMENT.upper()} database!")
         approval = input("Type 'yupp' to continue: ").strip().lower()
         if approval != "yupp":

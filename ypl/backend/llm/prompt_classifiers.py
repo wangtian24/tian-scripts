@@ -97,7 +97,7 @@ def categorize_user_messages(update_all_messages: bool) -> None:
         category_dict = {category.name: category for category in categories}
 
         total_categorized = 0
-        total_uncategorized = 0  # New counter for uncategorized messages
+        total_uncategorized = 0
 
         for i, message in enumerate(session.exec(query).all()):
             category_name = prompt_category_by_llm(message.content)
@@ -108,7 +108,7 @@ def categorize_user_messages(update_all_messages: bool) -> None:
                 total_categorized += 1
             else:
                 logger.warning(f"Category '{category_name}' not found for message {message.message_id}")
-                total_uncategorized += 1  # Increment uncategorized counter
+                total_uncategorized += 1
 
             # Chunk to prevent commits from failing
             chunk_size = 100
