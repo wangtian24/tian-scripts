@@ -1,7 +1,9 @@
+import heapq
 from abc import ABC, abstractmethod
 from functools import cache
 from typing import Any
 
+import numba
 import numpy as np
 
 from ypl.backend.llm.constants import FRONTEND_MODELS
@@ -83,10 +85,18 @@ class RankedRouter(Router):
             additional_models = self._select_best_models(num_models_to_select, budget, exclude=selected_models)
         elif self.policy.selection_criteria == SelectionCriteria.PROPORTIONAL:
             additional_models = self._select_probability_weighted_models(num_models_to_select, exclude=selected_models)
-        elif self.policy.selection_criteria == SelectionCriteria.CONF_INTERVAL:
+        elif self.policy.selection_criteria == SelectionCriteria.CONF_INTERVAL_WIDTH:
             additional_models = self._select_high_conf_interval_models(num_models_to_select, exclude=selected_models)
         elif self.policy.selection_criteria == SelectionCriteria.RANDOM:
             additional_models = self._select_random_models(num_models_to_select, exclude=selected_models)
+        elif self.policy.selection_criteria == SelectionCriteria.CONF_INTERVAL_NUM_OVERLAP:
+            additional_models = self._select_high_overlap_conf_interval_models(
+                num_models_to_select, exclude=selected_models
+            )
+        elif self.policy.selection_criteria == SelectionCriteria.CONF_INTERVAL_PAIR_OVERLAP:
+            additional_models = self._select_high_overlap_conf_interval_pair_models(
+                num_models_to_select, exclude=selected_models
+            )
         else:
             raise ValueError(f"Unsupported selection criteria: {self.policy.selection_criteria}")
 
@@ -152,11 +162,138 @@ class RankedRouter(Router):
         sorted_models = sorted(conf_interval_widths.items(), key=lambda x: x[1], reverse=True)
         return [model for model, _ in sorted_models[:num_models]]
 
+    def _select_high_overlap_conf_interval_pair_models(
+        self, num_models: int, exclude: list[Any] | None = None
+    ) -> list[Any]:
+        if not hasattr(self.ranker, "get_confidence_intervals"):
+            raise ValueError("Ranker must implement `get_confidence_intervals`")
+
+        conf_intervals = []
+        models = []
+        exclude = exclude or []
+        exclude_set = set(exclude)
+
+        for model, ci in self.ranker.get_confidence_intervals().items():
+            if model in exclude_set:
+                continue
+
+            conf_intervals.append(ci)
+            models.append(model)
+
+        if not conf_intervals or not num_models:
+            return []
+
+        highest_overlapping_pairs, _ = _fast_compute_all_conf_overlap_diffs(np.array(conf_intervals), num_models)
+        sorted_ind = list(dict.fromkeys(highest_overlapping_pairs.flatten()))[:num_models]
+
+        return [models[i] for i in sorted_ind]
+
     def _select_random_models(self, num_models: int, exclude: list[Any] | None = None) -> list[Any]:
         models = set(self.models)
         if exclude is not None:
             models -= set(exclude)
         return list(self.rng.choice(list(models), size=num_models, replace=False))
+
+    def _select_high_overlap_conf_interval_models(self, num_models: int, exclude: list[Any] | None = None) -> list[Any]:
+        if not hasattr(self.ranker, "get_confidence_intervals"):
+            raise ValueError("Ranker must implement `get_confidence_intervals`")
+
+        conf_intervals = []
+        models = []
+        exclude = exclude or []
+        exclude_set = set(exclude)
+
+        for model, ci in self.ranker.get_confidence_intervals().items():
+            if model in exclude_set:
+                continue
+
+            conf_intervals.append(ci)
+            models.append(model)
+
+        if not conf_intervals:
+            return []
+
+        num_overlaps, perm_map = _fast_compute_all_num_intersections(np.array(conf_intervals))
+        sorted_ind = np.argpartition(num_overlaps, -num_models)[-num_models:]
+        sorted_models = [(num_overlaps[i], models[perm_map[i]]) for i in sorted_ind]
+        sorted_models = sorted(sorted_models, key=lambda x: x[0], reverse=True)
+
+        return [model for _, model in sorted_models][:num_models]
+
+
+@numba.njit
+def _fast_compute_all_conf_overlap_diffs(intervals: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Quickly computes the difference between the confidence intervals of all pairs of intervals. Returns
+    the top k interval pairs with the largest overlap. This isn't the most efficient way to do this, but practically
+    it should be good enough.
+
+    Args:
+        intervals: A 2D numpy array of shape (n, 2) where each row is an interval [start, end].
+        k: The number of intervals to return.
+
+    Returns:
+        A tuple of an array of length (n, 2) containing the top-k pairs and an array of the diffs
+    """
+    interval_heap = [(-1.0, 0, 1)]  # for Numba to successfully infer the type
+    k = min((len(intervals) * (len(intervals) - 1)) // 2, k)  # number of unique pairs
+    ret_inds = np.empty((k, 2), dtype=np.int32)
+    ret_vals = np.empty(k, dtype=np.float64)
+
+    for idx1 in range(len(intervals)):  # SIMD should take care of this
+        for idx2 in range(idx1 + 1, len(intervals)):  # this as well
+            start1, end1 = intervals[idx1]
+            start2, end2 = intervals[idx2]
+            overlap = max(0, min(end1, end2) - max(start1, start2))
+            heapq.heappush(interval_heap, (overlap, idx1, idx2))
+
+            if len(interval_heap) > k:
+                heapq.heappop(interval_heap)
+
+    idx = 0
+
+    while interval_heap:
+        overlap, idx1, idx2 = heapq.heappop(interval_heap)
+        ret_inds[len(ret_inds) - idx - 1][0] = idx1  # better than list/tuple assignment because of Numba
+        ret_inds[len(ret_inds) - idx - 1][1] = idx2
+        ret_vals[len(ret_vals) - idx - 1] = overlap
+        idx += 1
+
+    return ret_inds, ret_vals
+
+
+@numba.njit
+def _fast_compute_all_num_intersections(intervals: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Quickly computes the number of intersections between all pairs of intervals.
+
+    Args:
+        intervals: A 2D numpy array of shape (n, 2) where each row is an interval [start, end].
+
+    Returns:
+        A tuple of an array of length n containing the number of intersections per interval and a permutation
+        to sort the array by start.
+    """
+    counts = np.zeros(len(intervals), dtype=np.int32)
+    sort_idxs = intervals[:, 0].argsort()
+    permutation_map = np.empty_like(sort_idxs)
+    permutation_map[sort_idxs] = np.arange(len(sort_idxs))
+    intervals = intervals[sort_idxs]
+    interval_heap = [(-1000000.0, 0)]  # for Numba to successfully infer the type
+
+    for idx, interval in enumerate(intervals):
+        start, end = interval
+
+        while interval_heap and interval_heap[0][0] < start:
+            heapq.heappop(interval_heap)
+
+        for x in interval_heap:
+            counts[x[1]] += 1  # SIMD should take care of (parts of) this
+
+        counts[idx] += len(interval_heap)
+        heapq.heappush(interval_heap, (end, idx))
+
+    return counts, permutation_map
 
 
 @cache

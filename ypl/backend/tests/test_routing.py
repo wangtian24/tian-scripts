@@ -2,6 +2,7 @@ from collections import Counter
 from functools import partial
 from typing import Any
 
+import numpy as np
 from pytest import approx, mark
 
 from ypl.backend.llm.ranking import Battle, ChoixRanker, ChoixRankerConfIntervals, EloRanker
@@ -11,10 +12,14 @@ from ypl.backend.llm.routing.policy import (
     decayed_random_fraction,
     exponential_decay,
 )
-from ypl.backend.llm.routing.router import RankedRouter
+from ypl.backend.llm.routing.router import (
+    RankedRouter,
+    _fast_compute_all_conf_overlap_diffs,
+    _fast_compute_all_num_intersections,
+)
 from ypl.backend.tests.utils import get_battles
 
-CONF_INTERVAL_ROUTING_POLICY = RoutingPolicy(SelectionCriteria.CONF_INTERVAL)
+CONF_INTERVAL_ROUTING_POLICY = RoutingPolicy(SelectionCriteria.CONF_INTERVAL_WIDTH)
 PROPORTIONAL_ROUTING_POLICY = RoutingPolicy(SelectionCriteria.PROPORTIONAL)
 TOP_ROUTING_POLICY = RoutingPolicy(SelectionCriteria.TOP)
 
@@ -224,3 +229,27 @@ def test_decayed_random_routing() -> None:
         "d": approx(100, rel=0.2),
     }
     _check_list_item_distribution(selected, expected_final_distribution)
+
+
+def test_fast_compute_all_num_intersections() -> None:
+    intervals = np.array([[0, 1.0], [5.0, 10.0], [2.0, 8.0], [9.0, 15.0], [12.0, 20.0]])
+    counts, permutation_map = _fast_compute_all_num_intersections(intervals)
+    assert counts.tolist() == [0, 1, 2, 2, 1]
+    assert permutation_map.tolist() == [0, 2, 1, 3, 4]
+
+    intervals = np.array([[5.0, 10.0], [0, 6.0]])
+    counts, permutation_map = _fast_compute_all_num_intersections(intervals)
+    assert counts.tolist() == [1, 1]
+    assert permutation_map.tolist() == [1, 0]
+
+
+def test_fast_compute_all_conf_overlap_diffs() -> None:
+    intervals = np.array([[0, 1.0], [3.0, 10.0], [2.0, 8.0], [9.0, 15.0], [12.0, 20.0]])
+    inds, vals = _fast_compute_all_conf_overlap_diffs(intervals, k=1)
+    assert inds.tolist() == [[1, 2]]
+    assert vals.tolist() == approx([5.0])
+
+    intervals = np.array([[3.0, 4.0], [9.0, 15.0]])
+    inds, vals = _fast_compute_all_conf_overlap_diffs(intervals, k=100)
+    assert inds.tolist() == [[0, 1]]
+    assert vals.tolist() == approx([0.0])

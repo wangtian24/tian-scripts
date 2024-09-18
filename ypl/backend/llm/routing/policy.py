@@ -33,7 +33,13 @@ class SelectionCriteria(Enum):
     PROPORTIONAL = "proportional"
 
     # Select the models with the largest confidence intervals.
-    CONF_INTERVAL = "conf_interval"
+    CONF_INTERVAL_WIDTH = "conf_interval"
+
+    # Select the models with the largest overlap of their confidence intervals.
+    CONF_INTERVAL_NUM_OVERLAP = "conf_interval_num_overlap"
+
+    # Select the models with the greatest pair overlap of their CIs.
+    CONF_INTERVAL_PAIR_OVERLAP = "conf_interval_pair_overlap"
 
     RANDOM = "random"
 
