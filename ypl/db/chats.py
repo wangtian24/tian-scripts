@@ -151,7 +151,9 @@ class ChatMessage(BaseModel, table=True):
     category_id: uuid.UUID | None = Field(foreign_key="categories.category_id", nullable=True)
     category: "Category" = Relationship(back_populates="chat_messages")
     language_code: LanguageCode = Field(
-        sa_column=Column(SQLAlchemyEnum(LanguageCode), nullable=False, default=LanguageCode.EN)
+        sa_column=Column(
+            SQLAlchemyEnum(LanguageCode), nullable=False, default=LanguageCode.EN, server_default=LanguageCode.EN.value
+        )
     )
 
 
