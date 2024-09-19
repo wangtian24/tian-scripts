@@ -1,3 +1,4 @@
+import random
 from collections.abc import Callable
 from enum import Enum
 from functools import partial
@@ -61,25 +62,38 @@ class RoutingPolicy:
 
     def __init__(
         self,
-        selection_criteria: SelectionCriteria,
+        selection_criteria: SelectionCriteria | dict[SelectionCriteria, float],
         minimum_model_traffic_fraction: dict[str, float] | None = None,
         random_fraction: Callable[["Ranker"], float] | float | None = None,
+        seed: int | None = None,
     ):
         """Initialize the routing policy.
 
         Args:
-            selection_criteria: The selection criteria.
+            selection_criteria: The selection criteria. If a dict, it is treated as a mapping from selection criteria to
+                their weights for random sampling. Otherwise, it is treated as the selection criteria.
             minimum_model_traffic_fraction: Optional minimum traffic fraction for each model.
             random_fraction: A fraction of the traffic that is randomly selected, or a function that takes a `Ranker`
                 and returns the fraction of the traffic that is randomly selected.
         """
-        self.selection_criteria = selection_criteria
+        self.seed = seed or random.randint(0, 2**32)
+        self._rng = random.Random(self.seed)
+        self._selection_criteria = selection_criteria
         self.minimum_model_traffic_fraction = minimum_model_traffic_fraction or {}
         if random_fraction is not None:
             if isinstance(random_fraction, float):
                 # Convert a float to a function that always returns it.
                 random_fraction = partial(fixed_random_fraction, value=random_fraction)
         self.random_fraction = random_fraction
+
+    @property
+    def selection_criteria(self) -> SelectionCriteria:
+        if isinstance(self._selection_criteria, dict):
+            return self._rng.choices(
+                list(self._selection_criteria.keys()), weights=list(self._selection_criteria.values())
+            )[0]
+        else:
+            return self._selection_criteria
 
 
 DEFAULT_ROUTING_POLICY = RoutingPolicy(
