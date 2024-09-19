@@ -1,6 +1,5 @@
 import enum
 import uuid
-from enum import Enum
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Column, Text, UniqueConstraint
@@ -67,6 +66,65 @@ class MessageType(enum.Enum):
     QUICK_RESPONSE_MESSAGE = "quick_response_message"
 
 
+class LanguageCode(enum.Enum):
+    # langdetect supports 55 languages https://pypi.org/project/langdetect/
+    AF = "af"
+    AR = "ar"
+    BG = "bg"
+    BN = "bn"
+    CA = "ca"
+    CS = "cs"
+    CY = "cy"
+    DA = "da"
+    DE = "de"
+    EL = "el"
+    EN = "en"
+    ES = "es"
+    ET = "et"
+    FA = "fa"
+    FI = "fi"
+    FR = "fr"
+    GU = "gu"
+    HE = "he"
+    HI = "hi"
+    HR = "hr"
+    HU = "hu"
+    ID = "id"
+    IT = "it"
+    JA = "ja"
+    KN = "kn"
+    KO = "ko"
+    LT = "lt"
+    LV = "lv"
+    MK = "mk"
+    ML = "ml"
+    MR = "mr"
+    NE = "ne"
+    NL = "nl"
+    NO = "no"
+    PA = "pa"
+    PL = "pl"
+    PT = "pt"
+    RO = "ro"
+    RU = "ru"
+    SK = "sk"
+    SL = "sl"
+    SO = "so"
+    SQ = "sq"
+    SV = "sv"
+    SW = "sw"
+    TA = "ta"
+    TE = "te"
+    TH = "th"
+    TL = "tl"
+    TR = "tr"
+    UK = "uk"
+    UR = "ur"
+    VI = "vi"
+    ZH_CN = "zh-cn"
+    ZH_TW = "zh-tw"
+
+
 class ChatMessage(BaseModel, table=True):
     __tablename__ = "chat_messages"
 
@@ -92,9 +150,12 @@ class ChatMessage(BaseModel, table=True):
     )
     category_id: uuid.UUID | None = Field(foreign_key="categories.category_id", nullable=True)
     category: "Category" = Relationship(back_populates="chat_messages")
+    language_code: LanguageCode = Field(
+        sa_column=Column(SQLAlchemyEnum(LanguageCode), nullable=False, default=LanguageCode.EN)
+    )
 
 
-class EvalType(Enum):
+class EvalType(enum.Enum):
     # Primitive evaluation of two responses where the user distributes 100 points between two responses.
     # The eval result is a dictionary where the key is the model name and the value is the number of points.
     SLIDER_V0 = "slider_v0"
