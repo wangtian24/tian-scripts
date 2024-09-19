@@ -1,12 +1,13 @@
 import heapq
 from abc import ABC, abstractmethod
+from collections import Counter
 from functools import cache
-from typing import Any
+from typing import Any, Literal
 
 import numba
 import numpy as np
 
-from ypl.backend.llm.constants import FRONTEND_MODELS
+from ypl.backend.llm.constants import COSTS_BY_MODEL, FRONTEND_MODELS
 from ypl.backend.llm.ranking import Ranker, get_ranker
 from ypl.backend.llm.routing.policy import DEFAULT_ROUTING_POLICY, RoutingPolicy, SelectionCriteria
 
@@ -31,6 +32,10 @@ class RankedRouter(Router):
         super().__init__(models, policy)
         self.ranker = ranker
         self.rng = np.random.RandomState(seed)
+
+        self._running_costs: Counter = Counter()
+        self._running_cost_alpha = 0.95  # EMA alpha
+        self._total_costs: Counter = Counter()
 
     def update_ranker(self, model_a: str, model_b: str, result: float, category: str | None = None) -> None:
         self.ranker.update(model_a, model_b, result, category)
@@ -79,30 +84,130 @@ class RankedRouter(Router):
                     selected_models.extend(self._select_random_models(1, exclude=selected_models))
 
         num_models_to_select = num_models - len(selected_models)
-
         additional_models = []
-        if self.policy.selection_criteria == SelectionCriteria.TOP:
-            additional_models = self._select_best_models(num_models_to_select, budget, exclude=selected_models)
-        elif self.policy.selection_criteria == SelectionCriteria.PROPORTIONAL:
-            additional_models = self._select_probability_weighted_models(num_models_to_select, exclude=selected_models)
-        elif self.policy.selection_criteria == SelectionCriteria.CONF_INTERVAL_WIDTH:
-            additional_models = self._select_high_conf_interval_models(num_models_to_select, exclude=selected_models)
-        elif self.policy.selection_criteria == SelectionCriteria.RANDOM:
-            additional_models = self._select_random_models(num_models_to_select, exclude=selected_models)
-        elif self.policy.selection_criteria == SelectionCriteria.CONF_INTERVAL_NUM_OVERLAP:
-            additional_models = self._select_high_overlap_conf_interval_models(
-                num_models_to_select, exclude=selected_models
-            )
-        elif self.policy.selection_criteria == SelectionCriteria.CONF_INTERVAL_PAIR_OVERLAP:
-            additional_models = self._select_high_overlap_conf_interval_pair_models(
-                num_models_to_select, exclude=selected_models
-            )
-        else:
-            raise ValueError(f"Unsupported selection criteria: {self.policy.selection_criteria}")
+
+        match self.policy.selection_criteria:
+            case SelectionCriteria.TOP:
+                additional_models = self._select_best_models(num_models_to_select, budget, exclude=selected_models)
+            case SelectionCriteria.PROPORTIONAL:
+                additional_models = self._select_probability_weighted_models(
+                    num_models_to_select, exclude=selected_models
+                )
+            case SelectionCriteria.CONF_INTERVAL_WIDTH:
+                additional_models = self._select_high_conf_interval_models(
+                    num_models_to_select, exclude=selected_models
+                )
+            case SelectionCriteria.RANDOM:
+                additional_models = self._select_random_models(num_models_to_select, exclude=selected_models)
+            case SelectionCriteria.MIN_RUNNING_COST:
+                additional_models = self._select_running_cost_models(
+                    num_models_to_select, mode="min", exclude=selected_models
+                )
+            case SelectionCriteria.MAX_RUNNING_COST:
+                additional_models = self._select_running_cost_models(
+                    num_models_to_select, mode="max", exclude=selected_models
+                )
+            case SelectionCriteria.CONF_INTERVAL_NUM_OVERLAP:
+                additional_models = self._select_high_overlap_conf_interval_models(
+                    num_models_to_select, exclude=selected_models
+                )
+            case SelectionCriteria.CONF_INTERVAL_PAIR_OVERLAP:
+                additional_models = self._select_high_overlap_conf_interval_pair_models(
+                    num_models_to_select, exclude=selected_models
+                )
+            case SelectionCriteria.MIN_SIMPLE_COST:
+                additional_models = self._select_simple_cost_models(
+                    num_models_to_select, mode="min", exclude=selected_models
+                )
+            case SelectionCriteria.MAX_SIMPLE_COST:
+                additional_models = self._select_simple_cost_models(
+                    num_models_to_select, mode="max", exclude=selected_models
+                )
+            case _:
+                raise ValueError(f"Unsupported selection criteria: {self.policy.selection_criteria}")
 
         selected_models.extend(additional_models)
         self.rng.shuffle(selected_models)
         return selected_models
+
+    def update_running_cost(
+        self,
+        model: Any,
+        input_str: str = "",
+        output_str: str = "",
+        num_input_tokens: int = 0,
+        num_output_tokens: int = 0,
+    ) -> None:
+        """Update the running cost of a model."""
+
+        try:
+            cost_model = COSTS_BY_MODEL[model]
+        except KeyError:
+            # Assume the cost model is gpt4o-mini if the model is not found, which is roughly in line
+            cost_model = COSTS_BY_MODEL["gpt-4o-mini"]
+
+        c = cost_model.compute_cost(
+            input_string=input_str,
+            output_string=output_str,
+            num_input_tokens=num_input_tokens,
+            num_output_tokens=num_output_tokens,
+        )
+
+        # we store the negative cost to make computing the min cost more efficient (Counter's most_common routine)
+        c = -c
+
+        old_val = float(self._running_costs[model] if model in self._running_costs else c)
+
+        # mypy hates this, but it's 100% safe (float vs. int for sorting)
+        self._running_costs[model] = (
+            self._running_cost_alpha * old_val + (1 - self._running_cost_alpha) * c  # type: ignore
+        )
+
+        # and this as well
+        self._total_costs[model] += -c  # type: ignore
+
+    def get_total_cost(self) -> float:
+        return sum(self._total_costs.values())
+
+    def _select_running_cost_models(
+        self, num_models: int, mode: Literal["min", "max"], exclude: list[Any] | None = None
+    ) -> list[Any]:
+        if not num_models:
+            return []
+
+        running_costs = self._running_costs.copy()
+        exclude = exclude or []
+
+        for model in exclude:
+            if model in running_costs:
+                del running_costs[model]
+
+        selected_models = (
+            running_costs.most_common(num_models) if mode == "min" else self._running_costs.most_common()[-num_models:]
+        )
+
+        return [model for model, _ in selected_models]
+
+    def _select_simple_cost_models(
+        self, num_models: int, mode: Literal["min", "max"], exclude: list[Any] | None = None
+    ) -> list[Any]:
+        if not num_models:
+            return []
+
+        exclude_set = set(exclude) if exclude else set()
+        model_costs = sorted(
+            (
+                (cost.dollars_per_million_output_tokens + cost.dollars_per_million_input_tokens, name)
+                for name, cost in COSTS_BY_MODEL.items()
+                if name not in exclude_set
+            ),
+            key=lambda x: x[0],
+        )
+
+        if mode == "min":
+            return [model for _, model in model_costs[:num_models]]
+        else:
+            return [model for _, model in model_costs[-num_models:]]
 
     def _select_probability_weighted_models(self, num_models: int, exclude: list[Any] | None = None) -> list[Any]:
         if not num_models:

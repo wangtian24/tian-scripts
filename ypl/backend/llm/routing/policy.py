@@ -41,6 +41,18 @@ class SelectionCriteria(Enum):
     # Select the models with the greatest pair overlap of their CIs.
     CONF_INTERVAL_PAIR_OVERLAP = "conf_interval_pair_overlap"
 
+    # Select the models with the lowest running cost.
+    MIN_RUNNING_COST = "min_running_cost"
+
+    # Select the models with the highest running cost.
+    MAX_RUNNING_COST = "max_running_cost"
+
+    # Select the models with the lowest cost per million tokens.
+    MIN_SIMPLE_COST = "min_simple_cost"
+
+    # Select the models with the highest cost per million tokens.
+    MAX_SIMPLE_COST = "max_simple_cost"
+
     RANDOM = "random"
 
 
