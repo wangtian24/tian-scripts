@@ -55,11 +55,13 @@ jobs:
           echo "SERVICE_NAME=backend" >> $GITHUB_ENV
           echo "MEMORY=8G" >> $GITHUB_ENV
           echo "CPU=4" >> $GITHUB_ENV
+          echo "BACKEND_CORS_ORIGINS=https://chaos.yupp.ai" >> $GITHUB_ENV
         else
           echo "ENVIRONMENT=staging" >> $GITHUB_ENV
           echo "SERVICE_NAME=backend-staging" >> $GITHUB_ENV
           echo "MEMORY=4G" >> $GITHUB_ENV
           echo "CPU=2" >> $GITHUB_ENV
+          echo "BACKEND_CORS_ORIGINS=https://gg.yupp.ai" >> $GITHUB_ENV
         fi
 
     - name: Create .env file
@@ -70,6 +72,7 @@ jobs:
         echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}_${{ env.SECRET_NAME_SUFFIX }}" >> .env
         echo "POSTGRES_USER=${{ secrets.POSTGRES_USER }}" >> .env
         echo "POSTGRES_DATABASE=${{ secrets.POSTGRES_DATABASE }}" >> .env
+        echo "BACKEND_CORS_ORIGINS=${{ env.BACKEND_CORS_ORIGINS }}" >> .env
         if [[ "${{ env.ENVIRONMENT }}" == "production" ]]; then
           echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_PRODUCTION }}" >> .env
           echo "POSTGRES_HOST=${{ secrets.POSTGRES_HOST_PRODUCTION }}" >> .env
