@@ -1,6 +1,8 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
-router = APIRouter()
+from ..api_auth import validate_api_key
+
+router = APIRouter(dependencies=[Depends(validate_api_key)])
 
 
 @router.get("/health")
