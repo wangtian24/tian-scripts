@@ -124,6 +124,13 @@ class LanguageCode(enum.Enum):
     ZH_CN = "zh-cn"
     ZH_TW = "zh-tw"
 
+    @classmethod
+    def from_string(cls, code: str) -> "LanguageCode | None":
+        try:
+            return cls[code.upper().strip()]
+        except KeyError:
+            return None
+
 
 class ChatMessage(BaseModel, table=True):
     __tablename__ = "chat_messages"

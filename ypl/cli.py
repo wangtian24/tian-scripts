@@ -248,29 +248,25 @@ def convert_backfill_data(
 
 
 @cli.command()
-@click.option("--category", multiple=True, help="Category to include (can be specified multiple times)")
+@click.option("--category-names", multiple=True, help="Categories to include (can be specified multiple times)")
 @click.option("--exclude-ties", is_flag=True, help="Exclude ties")
 @click.option("--from-date", help="The prompt start date to filter by")
 @click.option("--to-date", help="The prompt end date to filter by")
 @click.option("--user-from-date", help="The user start date to filter by")
 @click.option("--user-to-date", help="The user end date to filter by")
+@click.option("--language-codes", multiple=True, help="The language codes to filter by")
 def update_ranking(
-    category: list[str] | None = None,
+    category_names: list[str] | None = None,
     exclude_ties: bool = False,
     from_date: datetime | None = None,
     to_date: datetime | None = None,
     user_from_date: datetime | None = None,
     user_to_date: datetime | None = None,
+    language_codes: list[str] | None = None,
 ) -> None:
+    params = locals()
     ranker = get_default_ranker()
-    ranker.add_evals_from_db(
-        category_names=category,
-        exclude_ties=exclude_ties,
-        from_date=from_date,
-        to_date=to_date,
-        user_from_date=user_from_date,
-        user_to_date=user_to_date,
-    )
+    ranker.add_evals_from_db(**params)
     for ranked_model in ranker.leaderboard():
         print(ranked_model)
     ranker.to_db()

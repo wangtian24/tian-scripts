@@ -24,7 +24,7 @@ from ypl.backend.llm.utils import (
     ThresholdCounter,
     fetch_categories_with_descriptions_from_db,
 )
-from ypl.db.chats import Chat, ChatMessage, Eval, EvalType, Turn, User
+from ypl.db.chats import Chat, ChatMessage, Eval, EvalType, LanguageCode, Turn, User
 from ypl.db.language_models import LanguageModel
 from ypl.db.ratings import OVERALL_CATEGORY_NAME, Category, Rating, RatingHistory
 
@@ -217,6 +217,7 @@ class Ranker:
         to_date: datetime | None = None,
         user_from_date: datetime | None = None,
         user_to_date: datetime | None = None,
+        language_codes: list[str] | None = None,
     ) -> int:
         """Initialize the ranker with evals from the database, returning the number of evals added.
 
@@ -227,6 +228,7 @@ class Ranker:
             to_date: Prompt created at or before this date.
             user_from_date: User created at or after this date.
             user_to_date: User created at or before this date.
+            language_codes: The language codes to filter by.
 
         Returns:
             The number of evals added.
@@ -237,15 +239,16 @@ class Ranker:
             .join(Eval.turn)  # type: ignore
             .join(Turn.chat)  # type: ignore
             .join(ChatMessage, ChatMessage.turn_id == Turn.turn_id)  # type: ignore
-            .join(Category, Category.category_id == ChatMessage.category_id)  # type: ignore
         ).where(
             Eval.deleted_at.is_(None),  # type: ignore
             Eval.eval_type == EvalType.SLIDER_V0,
             Eval.score_1.is_not(None),  # type: ignore
             Chat.deleted_at.is_(None),  # type: ignore
         )
+        query = query.order_by(Eval.created_at)  # type: ignore
 
         if category_names and OVERALL_CATEGORY_NAME not in category_names:
+            query = query.join(Category, Category.category_id == ChatMessage.category_id)  # type: ignore
             query = query.where(func.lower(Category.name).in_([name.lower() for name in category_names]))
 
         if exclude_ties:
@@ -262,13 +265,18 @@ class Ranker:
         if user_to_date is not None:
             query = query.where(User.created_at <= user_to_date)  # type: ignore
 
+        if language_codes:
+            enum_codes = []
+            for code in language_codes:
+                if enum_code := LanguageCode.from_string(code):
+                    enum_codes.append(enum_code)
+                else:
+                    raise ValueError(f"Invalid language code: {code}")
+            query = query.where(ChatMessage.language_code.in_(enum_codes))  # type: ignore
+
         query = query.options(
-            joinedload(Eval.message_1),  # type: ignore
-            joinedload(Eval.message_2),  # type: ignore
             joinedload(Eval.turn),  # type: ignore
-            joinedload(Eval.turn).joinedload(Turn.chat),  # type: ignore
             joinedload(Eval.turn).joinedload(Turn.chat_messages),  # type: ignore
-            joinedload(Eval.turn).joinedload(Turn.chat).joinedload(Chat.turns),  # type: ignore
             joinedload(Eval.user),  # type: ignore
         )
 

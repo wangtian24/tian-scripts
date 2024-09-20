@@ -20,6 +20,7 @@ async def leaderboard(
     to_date: datetime | None = Query(default=None, description="The prompt end date to filter by"),  # noqa: B008
     user_from_date: datetime | None = Query(default=None, description="The user start date to filter by"),  # noqa: B008
     user_to_date: datetime | None = Query(default=None, description="The user end date to filter by"),  # noqa: B008
+    language_codes: list[str] | None = Query(default=None, description="The language codes to filter by"),  # noqa: B008
 ) -> dict[str, list[RatedModel]] | list[RatedModel]:
     try:
         params = locals()
