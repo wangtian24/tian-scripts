@@ -1,5 +1,3 @@
-import logging
-
 from fastapi import FastAPI
 from fastapi.responses import ORJSONResponse
 from fastapi.routing import APIRoute
@@ -21,9 +19,6 @@ app = FastAPI(
     default_response_class=ORJSONResponse,
 )
 
-logging.info(f"settings.BACKEND_CORS_ORIGINS = {settings.BACKEND_CORS_ORIGINS}")
-allowed_origins = [str(origin).strip("/") for origin in settings.BACKEND_CORS_ORIGINS]
-logging.info(f"allowed_origins = {allowed_origins}")
 # Set all CORS enabled origins
 if settings.BACKEND_CORS_ORIGINS:
     app.add_middleware(
