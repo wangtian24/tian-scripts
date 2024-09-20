@@ -32,7 +32,7 @@ class User(BaseModel, table=True):
 
     email_verified: datetime | None = Field(default=None)
     image: str | None = Field(default=None, sa_type=sa.Text)
-    points: int = Field(default=10000)
+    points: int = Field(default=10000, sa_column=Column(sa.Integer, server_default="10000", nullable=False))
 
     backfill_job_id: uuid.UUID | None = Field(
         foreign_key="synthetic_backfill_attributes.id",
