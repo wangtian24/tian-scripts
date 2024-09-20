@@ -79,6 +79,15 @@ uvicorn ypl.backend.server:app --reload
 
 See [localhost:8000/api/docs](http://localhost:8000/api/docs) for the available API routes. This only works if your `ENVIRONMENT` variable in the `.env` file is set to `local`.
 
+## Accessing the APIs
+
+The APIs are protected by API key. The key is stored in the Github Secrets (and Vercel Environment Variables), which will be injected as part of Github Actions Workflow. If you want to access the API, you need to set the `X-API-KEY` header with the right key value.
+At the moment, `local` environment is exempt from authentication and is enabled only for other (`staging` and `production`) environments.
+
+If you need to access the APIs from FastAPI Docs, you can add the API key by clicking on `Authorize` button (top right). 
+
+<img height="400" src="./assets/auth_api_key.png" alt="Authorize API Key">
+
 ## Testing
 
 ```sh
