@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 class User(BaseModel, table=True):
     __tablename__ = "users"
 
-    id: str = Field(primary_key=True, nullable=False, sa_type=sa.Text)
+    user_id: str = Field(primary_key=True, nullable=False, sa_type=sa.Text)
     name: str | None = Field(default=None, sa_type=sa.Text)
 
     # Forcing the pre-convention constraint name for backwards compatibility.
@@ -61,7 +61,7 @@ class SyntheticUserAttributes(BaseModel, table=True):
 
     __tablename__ = "synthetic_user_attributes"
 
-    user_id: str = Field(foreign_key="users.id", primary_key=True, nullable=False)
+    user_id: str = Field(foreign_key="users.user_id", primary_key=True, nullable=False)
     persona: str = Field(nullable=False, sa_type=sa.Text, default="")
     interests: list[str] = Field(sa_column=Column(sa.ARRAY(sa.Text), nullable=False, default=[]))
     style: str = Field(nullable=False, sa_type=sa.Text, default="")
@@ -96,7 +96,9 @@ class Account(BaseModel, table=True):
     provider_account_id: str = Field(primary_key=True, nullable=False, sa_type=sa.Text)
 
     user_id: str = Field(
-        sa_column=sa.Column(sa.Text, sa.ForeignKey("users.id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
+        sa_column=sa.Column(
+            sa.Text, sa.ForeignKey("users.user_id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False
+        )
     )
     type: str = Field(nullable=False, sa_type=sa.Text)
     refresh_token: str | None = Field(default=None, sa_type=sa.Text)
@@ -119,7 +121,7 @@ class Session(BaseModel, table=True):
     session_token: str = Field(sa_column=Column("session_token", sa.Text, nullable=False))
     __table_args__ = (UniqueConstraint("session_token", name="sessions_session_token_key"),)
 
-    user_id: str = Field(sa_column=sa.Column(sa.Text, sa.ForeignKey("users.id"), nullable=False))
+    user_id: str = Field(sa_column=sa.Column(sa.Text, sa.ForeignKey("users.user_id"), nullable=False))
     expires: datetime = Field(nullable=False)
 
     user: User = Relationship(back_populates="sessions")

@@ -31,7 +31,7 @@ class Chat(BaseModel, table=True):
     # Whether the chat is public, which makes it visible in the feed.
     is_public: bool = Field(default=False, nullable=False)
 
-    creator_user_id: str = Field(foreign_key="users.id", sa_type=Text)
+    creator_user_id: str = Field(foreign_key="users.user_id", sa_type=Text)
     creator: User = Relationship(back_populates="chats")
 
 
@@ -51,7 +51,7 @@ class Turn(BaseModel, table=True):
         back_populates="turn",
     )
 
-    creator_user_id: str = Field(foreign_key="users.id", nullable=False, sa_type=Text)
+    creator_user_id: str = Field(foreign_key="users.user_id", nullable=False, sa_type=Text)
     creator: "User" = Relationship(back_populates="turns")
 
     evals: list["Eval"] = Relationship(back_populates="turn")
@@ -181,7 +181,7 @@ class Eval(BaseModel, table=True):
     __tablename__ = "evals"
 
     eval_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
-    user_id: uuid.UUID = Field(foreign_key="users.id", nullable=False, sa_type=Text)
+    user_id: uuid.UUID = Field(foreign_key="users.user_id", nullable=False, sa_type=Text)
     user: User = Relationship(back_populates="evals")
     turn_id: uuid.UUID = Field(foreign_key="turns.turn_id", nullable=False)
     turn: Turn = Relationship(back_populates="evals")

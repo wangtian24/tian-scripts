@@ -22,7 +22,7 @@ class PointTransaction(BaseModel, table=True):
     __tablename__ = "point_transactions"
 
     transaction_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
-    user_id: uuid.UUID = Field(foreign_key="users.id", nullable=False, sa_type=sa.Text)
+    user_id: uuid.UUID = Field(foreign_key="users.user_id", nullable=False, sa_type=sa.Text)
     user: "User" = Relationship(back_populates="point_transactions")
 
     # Can be negative or postiive depending on the action.

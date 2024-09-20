@@ -346,7 +346,7 @@ class SQLChatIO(YuppChatIO):
         if chat.user_persona not in self.personas_to_db_users:
             db_user = generate_random_user(**self.user_kwargs)
             db_user.synthetic_attributes = users.SyntheticUserAttributes(
-                user_id=db_user.id,
+                user_id=db_user.user_id,
                 persona=chat.user_persona.persona if chat.user_persona else "",
                 interests=chat.user_persona.interests if chat.user_persona else [],
                 style=chat.user_persona.style if chat.user_persona else "",
@@ -364,7 +364,7 @@ class SQLChatIO(YuppChatIO):
             chat_id=chat_id,
             title=chat.messages[0][0].content[:100],
             path=f"/chat/{chat_id}",
-            creator_user_id=db_user.id,
+            creator_user_id=db_user.user_id,
             is_public=True,
         )
         self.session.add(db_chat)
@@ -376,7 +376,7 @@ class SQLChatIO(YuppChatIO):
                 db_turn = Turn(
                     chat_id=db_chat.chat_id,
                     sequence_id=turn_no,
-                    creator_user_id=db_user.id,
+                    creator_user_id=db_user.user_id,
                 )
 
                 turn_no += 1
@@ -413,7 +413,7 @@ class SQLChatIO(YuppChatIO):
                 self.session.add(db_chat_message)
 
                 if chat_message_data["message_type"] == MessageType.ASSISTANT_MESSAGE:
-                    eval_data["user_id"] = db_user.id
+                    eval_data["user_id"] = db_user.user_id
                     eval_data["turn_id"] = db_turn.turn_id
                     eval_data["eval_type"] = EvalType.SLIDER_V0
 
