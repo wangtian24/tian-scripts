@@ -15,10 +15,10 @@ DEFAULT_UNSAFE_PASSWORD = "changethis"
 CorsOrigins = list[AnyUrl] | str | Literal["*"]
 
 
-def parse_cors(v: Any) -> list[str] | str:
+def parse_cors(v: Any) -> list[str]:
     if isinstance(v, str):
         urls = [i.strip() for i in v.split(",") if i]
-        return urls[0] if len(urls) == 1 else urls
+        return urls
     elif isinstance(v, list):
         return v
     raise ValueError(v)
