@@ -55,13 +55,11 @@ jobs:
           echo "SERVICE_NAME=backend" >> $GITHUB_ENV
           echo "MEMORY=8G" >> $GITHUB_ENV
           echo "CPU=4" >> $GITHUB_ENV
-          echo "BACKEND_CORS_ORIGINS=https://gg.yupp.ai" >> $GITHUB_ENV
         else
           echo "ENVIRONMENT=staging" >> $GITHUB_ENV
           echo "SERVICE_NAME=backend-staging" >> $GITHUB_ENV
           echo "MEMORY=4G" >> $GITHUB_ENV
           echo "CPU=2" >> $GITHUB_ENV
-          echo "BACKEND_CORS_ORIGINS=https://chaos.yupp.ai" >> $GITHUB_ENV
         fi
 
     - name: Create .env file
