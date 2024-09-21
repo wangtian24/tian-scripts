@@ -69,7 +69,6 @@ jobs:
         echo "ENVIRONMENT=${{ env.ENVIRONMENT }}" >> .env
         echo "PROJECT_NAME=\"Yupp-Server\" " >> .env
         echo "NLTK_DATA=\"data/nltk_data\" " >> .env
-        echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}_${{ env.SECRET_NAME_SUFFIX }}" >> .env
         echo "POSTGRES_USER=${{ secrets.POSTGRES_USER }}" >> .env
         echo "POSTGRES_DATABASE=${{ secrets.POSTGRES_DATABASE }}" >> .env
         echo "BACKEND_CORS_ORIGINS=${{ env.BACKEND_CORS_ORIGINS }}" >> .env
@@ -78,10 +77,12 @@ jobs:
           echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_PRODUCTION }}" >> .env
           echo "POSTGRES_HOST=${{ secrets.POSTGRES_HOST_PRODUCTION }}" >> .env
           echo "POSTGRES_HOST_NON_POOLING=${{ secrets.POSTGRES_HOST_NON_POOLING_PRODUCTION }}" >> .env
+          echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY_PRODUCTION }}" >> .env
         elif [[ "${{ env.ENVIRONMENT }}" == "staging" ]]; then
           echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_STAGING }}" >> .env
           echo "POSTGRES_HOST=${{ secrets.POSTGRES_HOST_STAGING }}" >> .env
           echo "POSTGRES_HOST_NON_POOLING=${{ secrets.POSTGRES_HOST_NON_POOLING_STAGING }}" >> .env
+          echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY_STAGING }}" >> .env
         fi
 
     - name: Authenticate to Google Cloud
