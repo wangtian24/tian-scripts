@@ -37,12 +37,14 @@ The backend for providing services over multiple LLMs.
     Warning: copied instructions can get outdated. Please update if you find there is a new or better way.
     </details>
 
-1. In the yupp-llms project directory, run the following command to create the run environment. This will create a minimal virtual environment.
+1. In the yupp-llms project directory, run the following command to create the run environment `ys-dev`. This will create a minimal virtual environment.
 
 ```sh
 mamba env create -n ys-dev --file envs/dev.yml
+mamba init # needed the first time
 mamba activate ys-dev
 ```
+Confirm the `ys-dev` environment is activated by running `mamba info --envs` and seeing `ys-dev` in the list with a `*` next to it.
 
 ### Poetry
 
@@ -54,7 +56,7 @@ poetry install --no-root
 
 If you get an error about `psycopg2`, installing postgresql fixes it. `brew install postgresql` and then rerun poetry.
 
-Once all the dependencies are installed, make a copy of the sample `.env.copy` environment and fill in the values:
+Once all the dependencies are installed, make a copy of the sample `.env.copy` environment and fill in the values. You can get the values from 1Password (yupp-llms .env file):
 
 ```sh
 cp .env.copy .env
