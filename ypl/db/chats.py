@@ -2,7 +2,7 @@ import enum
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Column, Text, UniqueConstraint
+from sqlalchemy import JSON, Column, Text, UniqueConstraint
 from sqlalchemy import Enum as SQLAlchemyEnum
 from sqlmodel import Field, ForeignKey, Relationship
 
@@ -162,6 +162,13 @@ class ChatMessage(BaseModel, table=True):
             SQLAlchemyEnum(LanguageCode), nullable=False, default=LanguageCode.EN, server_default=LanguageCode.EN.value
         )
     )
+
+    # Streaming metrics for display purposes in the UI, such as average streaming speed.
+    streaming_metrics: dict[str, str] = Field(default_factory=dict, sa_type=JSON, nullable=True)
+
+    # Needed for sa_type=JSON
+    class Config:
+        arbitrary_types_allowed = True
 
 
 class EvalType(enum.Enum):
