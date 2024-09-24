@@ -8,7 +8,7 @@ from fastapi import APIRouter
 
 from ypl.backend.config import settings
 from ypl.backend.llm.ranking import get_ranker
-from ypl.backend.routes.v1 import health, highlight_similar_content, rank
+from ypl.backend.routes.v1 import health, highlight_similar_content, model, rank
 from ypl.backend.routes.v1 import route as llm_route
 
 logger = logging.getLogger(__name__)
@@ -35,5 +35,6 @@ api_router.include_router(health.router, prefix="/v1", tags=["health"])
 api_router.include_router(highlight_similar_content.router, prefix="/v1", tags=["highlight"])
 api_router.include_router(llm_route.router, prefix="/v1", tags=["route"])
 api_router.include_router(rank.router, prefix="/v1", tags=["leaderboard"])
+api_router.include_router(model.router, prefix="/v1", tags=["models"])
 
 app_init()
