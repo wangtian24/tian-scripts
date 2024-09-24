@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends
 
 from ypl.backend.config import settings
 from ypl.backend.llm.ranking import get_ranker
-from ypl.backend.routes.api_authq import validate_api_key
+from ypl.backend.routes.api_auth import validate_api_key
 from ypl.backend.routes.v1 import health, highlight_similar_content, model, rank
 from ypl.backend.routes.v1 import route as llm_route
 
