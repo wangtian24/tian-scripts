@@ -2,16 +2,14 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query
 
 from ypl.backend.llm.ranking import RatedModel, get_default_ranker, get_ranker
 from ypl.db.ratings import OVERALL_CATEGORY_NAME
 
-from ..api_auth import validate_api_key
-
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-router = APIRouter(dependencies=[Depends(validate_api_key)])
+router = APIRouter()
 
 
 @router.get("/instarank")

@@ -8,7 +8,7 @@ from starlette.status import HTTP_403_FORBIDDEN
 load_dotenv()
 
 api_key_header = APIKeyHeader(name="X-API-KEY", auto_error=False)
-api_key = os.getenv("X-API-KEY")
+api_key = os.getenv("X_API_KEY")
 
 
 async def validate_api_key(api_key_header: str = Security(api_key_header)) -> bool:

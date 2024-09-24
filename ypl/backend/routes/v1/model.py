@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 
 from ypl.backend.llm.model.model import (
     LanguageModelResponseBody,
@@ -12,11 +12,9 @@ from ypl.backend.llm.model.model import (
 )
 from ypl.db.language_models import LanguageModel
 
-from ..api_auth import validate_api_key
-
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-router = APIRouter(dependencies=[Depends(validate_api_key)])
+router = APIRouter()
 
 
 @router.post("/models", response_model=str)

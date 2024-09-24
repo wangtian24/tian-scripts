@@ -70,7 +70,7 @@ jobs:
         echo "POSTGRES_USER=${{ secrets.POSTGRES_USER }}" >> .env
         echo "POSTGRES_DATABASE=${{ secrets.POSTGRES_DATABASE }}" >> .env
         echo "BACKEND_CORS_ORIGINS=${{ env.BACKEND_CORS_ORIGINS }}" >> .env
-        echo "X-API-KEY=${{ secrets.X_API_KEY }}" >> .env
+        echo "X_API_KEY=${{ secrets.X_API_KEY }}" >> .env
         if [[ "${{ env.ENVIRONMENT }}" == "production" ]]; then
           echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_PRODUCTION }}" >> .env
           echo "POSTGRES_HOST=${{ secrets.POSTGRES_HOST_PRODUCTION }}" >> .env

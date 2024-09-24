@@ -1,6 +1,6 @@
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 
 from ypl.backend.llm.chat import (
     DEFAULT_HIGH_SIM_THRESHOLD,
@@ -8,9 +8,7 @@ from ypl.backend.llm.chat import (
     highlight_llm_similarities_with_embeddings,
 )
 
-from ..api_auth import validate_api_key
-
-router = APIRouter(dependencies=[Depends(validate_api_key)])
+router = APIRouter()
 
 
 @router.post("/highlight_similar_content")

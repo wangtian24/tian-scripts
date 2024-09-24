@@ -1,13 +1,11 @@
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, Query
+from fastapi import APIRouter, Body, Query
 from tqdm import tqdm
 
 from ypl.backend.llm.routing.router import get_router
 
-from ..api_auth import validate_api_key
-
-router = APIRouter(dependencies=[Depends(validate_api_key)])
+router = APIRouter()
 
 
 @router.post("/select_models")

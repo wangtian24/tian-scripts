@@ -4,10 +4,11 @@ import os
 import nltk
 import sqlalchemy as sa
 from dotenv import load_dotenv
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from ypl.backend.config import settings
 from ypl.backend.llm.ranking import get_ranker
+from ypl.backend.routes.api_authq import validate_api_key
 from ypl.backend.routes.v1 import health, highlight_similar_content, model, rank
 from ypl.backend.routes.v1 import route as llm_route
 
@@ -30,7 +31,7 @@ def app_init() -> None:
     get_ranker().add_evals_from_db()
 
 
-api_router = APIRouter()
+api_router = APIRouter(dependencies=[Depends(validate_api_key)])
 api_router.include_router(health.router, prefix="/v1", tags=["health"])
 api_router.include_router(highlight_similar_content.router, prefix="/v1", tags=["highlight"])
 api_router.include_router(llm_route.router, prefix="/v1", tags=["route"])
