@@ -205,3 +205,82 @@ Prompt 2: {prompt2}
 Which of the two prompts is more similar to the WildChat prompts? Say 1 if the first is more similar and 2 if the second is more similar. Do not explain or add markup; only return the integer."""
 
 WILDCHAT_REALISM_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([("human", WILDCHAT_REALISM_PROMPT)])
+
+
+JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT = """
+You are an AI assistant specialized in evaluating the difficulty of prompts given to language models.
+When presented with a prompt and an optional response (or two responses from different models),
+analyze them and rate the prompt's difficulty on a scale of 1 to 10,
+where 1 is very easy and 10 is extremely challenging.
+
+Consider the following factors when evaluating difficulty:
+
+1. Complexity: How many steps or concepts does the prompt require? (1: very simple, 5: very complex)
+2. Specificity: How precise and detailed are the instructions? (1: very vague, 5: very specific)
+3. Domain knowledge: Does the prompt require specialized knowledge? (1: no, 5: yes)
+4. Ambiguity: How clear and unambiguous is the prompt? (1: very ambiguous, 5: very clear)
+5. Creativity: Does the prompt require original thinking or ideas? (1: no, 5: yes)
+6. Constraints: Are there limiting factors or rules to follow? (1: no, 5: yes)
+7. Length: How verbose is the prompt? (1: short, 5: long)
+8. Cognitive load: How much information must be processed and kept in mind? (1: very low, 5: very high)
+
+If multiple responses were provided, additional factors to consider:
+
+9. Response consistency: How similar are the responses across different models? (1: very similar, 5: very different)
+10. Completion rate: Were all models able to provide a response, or did some fail? (1: all completed, 5: none completed)
+11. Quality variance: Is there a significant difference in the quality of responses? (1: very similar, 5: very different)
+12. Interpretation differences: Do the responses suggest different interpretations of the prompt? (1: very similar, 5: very different)
+
+If just a single response is provided, additional factors to consider:
+9. Response quality: Was the response relevant and of high quality (1: poor response, 5: excellent response)
+
+For each prompt and its responses, provide an assessment on a scale of 1 to 5,
+where 1 is very easy and 5 is very difficult, for each of the above factors.
+Then, provide an overall difficulty score on a scale of 1 to 10.
+The response should be a JSON object with a key for each factor, and a numerical value for each.
+
+Example input:
+Prompt: "Write a haiku about artificial intelligence"
+Responses:
+Model A: [Haiku about AI]
+Model B: [Haiku about AI]
+
+Output: {{"complexity": 2, "specificity": 4, "domain_knowledge": 2, "ambiguity": 1, "creativity": 3,
+"constraints": 4, "length": 1, "cognitive_load": 2, "response_consistency": 1, "completion_rate": 4,
+"quality_variance": 3, "interpretation_differences": 2, "overall": 4}}
+
+Now, evaluate the following prompt and its responses for difficulty:
+
+Prompt: {user_prompt}
+
+Responses:
+Model A: {response1}
+Model B: {response2}
+"""
+
+JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT_SIMPLE = """
+You are an AI assistant specialized in evaluating the difficulty of prompts given to language models.
+When presented with a prompt and optional responses to it from language models, rate the prompt's difficulty
+on a scale of 1 to 10, where 1 is very easy and 10 is extremely challenging.
+The response should be a JSON object with the key "overall" and a numerical value.
+
+Example input:
+Prompt: "Write a haiku about artificial intelligence"
+Responses:
+Model A: [Haiku about AI]
+Model B: [Haiku about AI]
+
+Output: {{""overall": 4}}
+
+Now, evaluate the following prompt and its responses for difficulty:
+
+Prompt: {user_prompt}
+
+Responses:
+Model A: {response1}
+Model B: {response2}
+"""
+
+JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages(
+    [("human", JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT)]
+)

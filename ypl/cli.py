@@ -2,6 +2,7 @@ import asyncio
 import functools
 import json
 import logging
+import re
 import sys
 from collections import Counter
 from collections.abc import Callable
@@ -12,14 +13,20 @@ import click
 import git
 import numpy as np
 from dotenv import load_dotenv
+from sqlmodel import Session, select, text
 from tqdm.asyncio import tqdm_asyncio
 
 from ypl.backend.config import settings
+from ypl.backend.db import get_engine
 from ypl.backend.llm.chat import (
+    AIMessage,
     ChatProvider,
+    HumanMessage,
     JsonChatIO,
     ModelInfo,
     YuppChatIO,
+    YuppChatMessageHistory,
+    YuppMessageRow,
     compare_llm_responses,
     get_chat_model,
     highlight_llm_similarities,
@@ -27,11 +34,12 @@ from ypl.backend.llm.chat import (
 )
 from ypl.backend.llm.constants import COSTS_BY_MODEL
 from ypl.backend.llm.embedding import get_embedding_model
-from ypl.backend.llm.judge import JudgeConfig, YuppEvaluationLabeler, choose_llm
+from ypl.backend.llm.judge import JudgeConfig, YuppEvaluationLabeler, YuppPromptDifficultyLabeler, choose_llm
 from ypl.backend.llm.labeler import WildChatRealismLabeler
 from ypl.backend.llm.prompt_classifiers import categorize_user_messages
 from ypl.backend.llm.ranking import get_default_ranker
 from ypl.backend.llm.synthesize import SQLChatIO, SynthesizerConfig, SyntheticUserGenerator, asynthesize_chats
+from ypl.db.chats import Chat
 
 logging.basicConfig(level=logging.WARNING)
 
@@ -163,6 +171,123 @@ def estimate_cost(model: str | None, input: str, output: str) -> None:
     costs_arr = np.array(costs)
     print(f"Average cost per example: ${np.mean(costs_arr):.2f}")
     print(f"Total cost: ${np.sum(costs_arr):.2f}")
+
+
+@cli.command()
+@click.option(
+    "-s",
+    "--sql",
+    required=True,
+    help="a SQL query to fetch the ids of the chats to dump; "
+    "example: 'SELECT chat_id from chats ORDER BY created_at DESC limit 5'",
+)
+@click.option("-o", "--output-path", required=True, help="The output path of the file")
+def chats_to_json(sql: str, output_path: str) -> None:
+    messages: list[YuppMessageRow] = []
+    writer = JsonChatIO(output_path)
+    with Session(get_engine()) as session:
+        ids = [str(row[0]) for row in session.exec(text(sql)).all()]  # type: ignore
+        chats = session.exec(select(Chat).where(Chat.chat_id.in_(ids))).all()  # type: ignore
+        for chat in chats:
+            for turn in chat.turns:
+                if len(turn.chat_messages) < 3:
+                    continue
+                prompt, response1, response2 = turn.chat_messages[:3]
+                messages.append([HumanMessage(content=prompt.content)])
+                messages.append(
+                    [
+                        AIMessage(content=response1.content),
+                        AIMessage(content=response2.content),
+                    ]
+                )
+            writer.append_chat(YuppChatMessageHistory(messages=messages))
+    writer.flush()
+
+
+@cli.command(help="Evaluate the difficulty of the initial prompt of a chat.")
+@click.option("-c", "--config", required=True, help="The judge config to use")
+@click_provider_option("--provider", help="LLM and embeddings provider")
+@click.option("--api-key", help="API key", required=True)
+@click.option("--language-model", default="gpt-4o-mini", help="The LLM to use for judging realism")
+@click.option("-i", "--input-file", type=str, required=True, help="The JSON file containing conversations")
+@click.option("-t", "--truncate-inputs", type=int, default=500, help="Truncate prompts/responses after N chars")
+@click.option(
+    "-o",
+    "--output-file",
+    type=str,
+    default=None,
+    help="The JSON file to write the results to." " Defaults to the input file.",
+)
+@click.option(
+    "-j",
+    "--num-parallel",
+    default=1,
+    help="The number of jobs to run in parallel. Optimal " "value depends on the rate limit and CPU cores.",
+)
+def judge_yupp_prompt_difficulty(
+    input_file: str,
+    output_file: str,
+    num_parallel: int,
+    provider: str,
+    api_key: str,
+    language_model: str,
+    truncate_inputs: int,
+) -> None:
+    llm = get_chat_model(ModelInfo(provider=provider, model=language_model, api_key=api_key), temperature=0.0)
+
+    async def arun_batch(inputs: list[tuple[str, str, str, str]]) -> list[tuple[str, str]]:
+        async def ajudge_yupp_output(id: str, user_msg: str, llm1_msg: str, llm2_msg: str) -> tuple[str, str]:
+            async with sem:
+                judge = YuppPromptDifficultyLabeler(llm)
+
+                return await judge.alabel((user_msg, llm1_msg, llm2_msg)), id
+
+        sem = asyncio.Semaphore(num_parallel)
+
+        return await tqdm_asyncio.gather(*[ajudge_yupp_output(*x) for x in inputs])  # type: ignore
+
+    output_file = output_file or input_file
+
+    chats = JsonChatIO(input_file).read_chats()
+    inputs: list[tuple[str, str, str, str]] = []
+
+    def truncate(s: str) -> str:
+        if len(s) < truncate_inputs:
+            return s
+        # remove the last partially-truncated word
+        return re.sub(r"\S+$", "...", s[:truncate_inputs])
+
+    for row_idx, chat in enumerate(chats):
+        try:
+            chat_id, user_message, llm_responses = chat.initial_prompt_and_responses()
+            if chat_id is None:
+                raise ValueError(f"Chat {row_idx} has no ID")
+            assert len(llm_responses) >= 2
+            llm1_response, llm2_response = llm_responses[:2]
+            inputs.append((chat_id, truncate(user_message), truncate(llm1_response), truncate(llm2_response)))
+        except ValueError:
+            logging.exception(f"Error processing chat row {row_idx}")
+            raise
+
+    results = asyncio.run(arun_batch(inputs))
+    prefix, suffix = "```json\n", "\n```"
+    with open(output_file, "w") as outf:
+        for res in results:
+            judgement_json_str, chat_id = res
+            judgement = None
+            try:
+                judgement = json.loads(judgement_json_str)
+            except json.JSONDecodeError:
+                if not (judgement_json_str.startswith(prefix) and judgement_json_str.endswith(suffix)):
+                    print(f"Can't parse judgement for {chat_id}: {judgement}")
+                    continue
+                try:
+                    judgement = json.loads(judgement_json_str[len(prefix) : len(judgement_json_str) - len(suffix)])
+                except json.JSONDecodeError:
+                    print(f"Can't parse judgement for {chat_id}: {judgement}")
+                    continue
+            outf.write(json.dumps(dict(judgement=judgement, chat_id=chat_id)))
+            outf.write("\n")
 
 
 @cli.command()

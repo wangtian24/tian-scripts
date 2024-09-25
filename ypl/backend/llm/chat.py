@@ -234,7 +234,7 @@ class Persona(BaseModelV1):
 # langchain uses Pydantic v1 in YuppMessage; using for compatibility
 class YuppChatMessageHistory(BaseModelV1):
     """
-    Holds the chat history for a Yupp chat user. Each turn can be composed of multiple chat messages (e.g., from two
+    Holds the chat history for a Yupp chat. Each turn can be composed of multiple chat messages (e.g., from two
     LLMs in parallel), so we use a list of messages to represent a turn.
     """
 
@@ -243,6 +243,11 @@ class YuppChatMessageHistory(BaseModelV1):
     eval_llms: list[str] = []
     judge_llm: str | None = None
     user_persona: Persona | None = None
+    chat_id: str | None = None
+
+    def initial_prompt_and_responses(self) -> tuple[str | None, Any, list[Any]]:
+        """Returns the prompt and respones from the initial turn."""
+        return self.chat_id, self.messages[0][0].content, [m.content for m in self.messages[1]]
 
     def triplet_blocks(self) -> Generator[tuple[YuppMessage, YuppMessage, YuppMessage], None, None]:
         """Generates triplet blocks of user-llm1-llm2 messages, similar to the front-end's behavior."""
@@ -404,8 +409,8 @@ class JsonChatIO(YuppChatIO):
     def delete(self) -> None:
         self.path.unlink()
 
-    def flush(self) -> None:
-        with self.path.open("a") as f:
+    def flush(self, mode: str = "a") -> None:
+        with self.path.open(mode=mode) as f:
             for chat in self.chats:
                 f.write(chat.json())
                 f.write("\n")
