@@ -27,6 +27,9 @@ def decayed_random_fraction(ranker: "Ranker", initial_value: float, final_value:
 
 
 class SelectionCriteria(Enum):
+    # These are for internal logging use only.
+    _MIN_TRAFFIC_FRACTION = "min_traffic_fraction"
+
     # Select models based on the expected reward.
     TOP = "top"
 

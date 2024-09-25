@@ -1,15 +1,22 @@
 import heapq
+import logging
 from abc import ABC, abstractmethod
 from collections import Counter
+from collections.abc import Sequence
 from functools import cache
 from typing import Any, Literal
 
 import numba
 import numpy as np
+from google.cloud import logging as goog_logging
 
+from ypl.backend.config import settings
 from ypl.backend.llm.constants import COSTS_BY_MODEL, FRONTEND_MODELS
 from ypl.backend.llm.ranking import Ranker, get_ranker
 from ypl.backend.llm.routing.policy import DEFAULT_ROUTING_POLICY, RoutingPolicy, SelectionCriteria
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 class Router(ABC):
@@ -76,12 +83,14 @@ class RankedRouter(Router):
             raise ValueError(f"Can't select ({num_models}) models out of {len(self.models)} available ones")
 
         selected_models = self._select_models_by_minimum_traffic_fraction(num_models)
+        selection_criterias = [SelectionCriteria._MIN_TRAFFIC_FRACTION.value] * len(selected_models)
         num_models_to_select = num_models - len(selected_models)
 
         if self.policy.random_fraction:
             for _ in range(num_models_to_select):
                 if self.rng.random() < self.policy.random_fraction(self.ranker):
                     selected_models.extend(self._select_random_models(1, exclude=selected_models))
+                    selection_criterias.append(SelectionCriteria.RANDOM.value)
 
         num_models_to_select = num_models - len(selected_models)
         additional_models = []
@@ -126,9 +135,31 @@ class RankedRouter(Router):
             case _:
                 raise ValueError(f"Unsupported selection criteria: {self.policy.selection_criteria}")
 
+        selection_criterias.extend([self.policy.selection_criteria.value] * len(additional_models))
         selected_models.extend(additional_models)
-        self.rng.shuffle(selected_models)
-        return selected_models
+
+        models_to_criterias = list(zip(selected_models, selection_criterias, strict=False))
+        self.rng.shuffle(models_to_criterias)
+
+        if not models_to_criterias:
+            RoutingDecision(
+                candidate_model_names=list(self.models),
+                chosen_model_names=[],
+                selection_criteria=[],
+            ).log(structured_output=True)
+
+            return []
+
+        selected_models_, selection_criterias_ = list(zip(*models_to_criterias, strict=False))
+        decision = RoutingDecision(
+            candidate_model_names=list(self.models),
+            chosen_model_names=list(selected_models_),
+            selection_criteria=list(selection_criterias_),
+        )
+
+        decision.log(structured_output=True)
+
+        return list(selected_models_)
 
     def update_running_cost(
         self,
@@ -399,6 +430,55 @@ def _fast_compute_all_num_intersections(intervals: np.ndarray) -> tuple[np.ndarr
         heapq.heappush(interval_heap, (end, idx))
 
     return counts, permutation_map
+
+
+class RoutingDecision:
+    def __init__(
+        self,
+        candidate_model_names: Sequence[str],
+        chosen_model_names: Sequence[str],
+        selection_criteria: Sequence[str],
+        **kwargs: Any,
+    ) -> None:
+        """
+        Args:
+            candidate_model_names: The names of the models that were proposed.
+            chosen_model_names: The names of the models that were finally chosen. Should be a subset of the above.
+            selection_criteria: The names of the criteria that made the decision. If there are multiple, it means that
+                multiple were involved in building the chosen model list, and they are inseparable.
+            **kwargs: Additional metadata to log.
+        """
+        from ypl import __version__
+
+        self.codebase_version = __version__
+        self.candidate_model_names = candidate_model_names
+        self.chosen_model_names = chosen_model_names
+        self.selection_criteria = selection_criteria
+        self.additional_metadata = kwargs
+
+    def log(self, structured_output: bool = False) -> None:
+        """
+        Logs the routing decision with a lot of schema flexibility. Parts of this should eventually be standardized
+        once our router models are more concrete. The `additional_metadata` kwargs will be stored under the
+        `additional_metadata` field in the log.
+
+        Args:
+            structured_output: Whether to log the decision in a structured format. This requires google-cloud-logging.
+        """
+        payload = {
+            "codebase_version": self.codebase_version,
+            "candidate_model_names": self.candidate_model_names,
+            "chosen_model_names": self.chosen_model_names,
+            "selection_criteria": self.selection_criteria,
+            "additional_metadata": self.additional_metadata,
+        }
+
+        if structured_output and settings.USE_GOOGLE_CLOUD_LOGGING:
+            logging_client = goog_logging.Client()  # type: ignore
+            logger = logging_client.logger("routing-decisions")  # type: ignore
+            logger.log_struct(payload)
+        else:
+            logging.info(f"Routing decision: {payload}")
 
 
 @cache

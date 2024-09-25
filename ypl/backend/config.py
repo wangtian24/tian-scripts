@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     POSTGRES_DATABASE: str = ""
 
     CACHE_DIR: str = ".cache"
+    USE_GOOGLE_CLOUD_LOGGING: bool = False
 
     @computed_field  # type: ignore[misc]
     @property
