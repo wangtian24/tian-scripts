@@ -2,8 +2,10 @@ import enum
 import uuid
 from typing import TYPE_CHECKING
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import JSON, Column, Text, UniqueConstraint
 from sqlalchemy import Enum as SQLAlchemyEnum
+from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlmodel import Field, ForeignKey, Relationship
 
 from ypl.db.base import BaseModel
@@ -141,6 +143,8 @@ class ChatMessage(BaseModel, table=True):
     message_type: MessageType = Field(sa_column=Column(SQLAlchemyEnum(MessageType), nullable=False))
     content: str = Field(nullable=False, sa_type=Text)
     assistant_model_name: str | None = Field()
+    content_tsvector: TSVECTOR | None = Field(default=None, sa_column=Column(TSVECTOR))
+    content_pgvector: Vector | None = Field(default=None, sa_column=Column(Vector(1536)))
     evals_as_message_1: list["Eval"] = Relationship(
         sa_relationship_kwargs={
             "foreign_keys": "[Eval.message_1_id]",
