@@ -76,9 +76,10 @@ jobs:
           filters: |
             db:
               - 'ypl/db/**'
+            db_tests:
+              - 'tests/**'  # All top level tests are db tests as of now
 
-      # TODO(carmen/aravind): add back --test-alembic once the tests are fixed
-      # only run tests with alembic if the PR touches the db folder
-      # - name: Run tests with alembic
-      #   if: steps.changes.outputs.db == 'true'
-      #   run: poetry run pytest --test-alembic tests
+      # only run tests with alembic if the PR touches the db folder or the tests folder
+      - name: Run tests with alembic
+        if: ${{ steps.changes.outputs.db == 'true' || steps.changes.outputs.db_tests == 'true' }}
+        run: poetry run pytest --test-alembic tests
