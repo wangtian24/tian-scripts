@@ -10,11 +10,9 @@ RUN pip install poetry==1.8.2 && \
     poetry config virtualenvs.create false
 
 COPY ./pyproject.toml ./poetry.lock* /app/
-COPY ./ypl/backend /app/ypl/backend
+COPY ./ypl/ /app/ypl
 COPY ./data/nltk_data /home/nltk_data
-COPY ./ypl/db /app/ypl/db
 COPY ./.env /app/.env
-COPY ./ypl/cli.py /app/ypl/cli.py
 COPY ./README.md /app/README.md
 
 RUN bash -c "poetry install --no-root"
