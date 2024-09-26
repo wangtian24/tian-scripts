@@ -34,6 +34,7 @@ class ModelInfo(BaseModelV1):
     provider: ChatProvider | str
     model: str
     api_key: str
+    base_url: str | None = None
 
 
 def get_base_model(chat_llm_cls: type[Any] | None, model: str) -> str:
@@ -43,12 +44,40 @@ def get_base_model(chat_llm_cls: type[Any] | None, model: str) -> str:
     return model
 
 
+def get_canonical_model_name(model: str, provider: ChatProvider) -> str:
+    """
+    Returns the canonical model name for the given provider. Different providers may assign different names to the
+    same model, e.g., HuggingFace vs. Google. This function returns the name that is used by the provider.
+    """
+    match model, provider:
+        case "gemma-2-9b-it", ChatProvider.TOGETHER:
+            return "google/gemma-2-9b-it"
+        case "nemotron-4-340b-instruct", ChatProvider.NVIDIA:
+            return "nvidia/nemotron-4-340b-instruct"
+        case "yi-large", ChatProvider.NVIDIA:
+            return "01-ai/yi-large"
+        case "deepseek-coder-v2", ChatProvider.DEEPSEEK:
+            return "deepseek-coder"  # this is not a bug. FE does not have v2 in it
+        case "qwen1.5-72b-chat", ChatProvider.TOGETHER:
+            return "Qwen/Qwen1.5-72B-Chat"
+        case "phi-3-mini-4k-instruct", ChatProvider.MICROSOFT:
+            return "microsoft/phi-3-mini-4k-instruct"
+        case _:
+            return model
+
+
 def get_chat_model(
     info: ModelInfo,
     chat_model_pool: dict[ChatProvider, list[str]] = FRONTEND_MODELS_BY_PROVIDER,
     **chat_kwargs: Any | None,
 ) -> BaseChatModel:
+    """
+    Gets the chat model based on the provider and the model name. For OpenAI, Anthropic, Google, Mistral, and HF, the
+    only required fields are the provider name, model name, and the API key. For Together, DeepSeek, Nvidia, Anyscale,
+    Qwen, and 01, `info` should additionally contain the `base_url` field.
+    """
     provider, model, api_key = info.provider, info.model, info.api_key
+    chat_kwargs = chat_kwargs.copy()
 
     if isinstance(provider, str):
         provider = ChatProvider.from_string(provider)
@@ -58,10 +87,16 @@ def get_chat_model(
         ChatProvider.ANTHROPIC: ChatAnthropic,
         ChatProvider.GOOGLE: ChatGoogleGenerativeAI,
         ChatProvider.MISTRAL: ChatMistralAI,
+        ChatProvider.TOGETHER: ChatOpenAI,
+        ChatProvider.DEEPSEEK: ChatOpenAI,
+        ChatProvider.NVIDIA: ChatOpenAI,
+        ChatProvider.ANYSCALE: ChatOpenAI,
+        ChatProvider.ZERO_ONE: ChatOpenAI,
+        ChatProvider.QWEN: ChatOpenAI,
     }
 
     chat_llm_cls = chat_llms.get(provider)
-    full_model = model
+    full_model = get_canonical_model_name(model, provider)
     base_model = get_base_model(chat_llm_cls, model)
 
     if not chat_llm_cls:
@@ -69,6 +104,9 @@ def get_chat_model(
 
     if base_model not in chat_model_pool.get(provider, []):
         raise ValueError(f"Unsupported model: {base_model} for provider: {provider}")
+
+    if info.base_url and "base_url" not in chat_kwargs:
+        chat_kwargs["base_url"] = info.base_url
 
     return chat_llm_cls(api_key=SecretStr(api_key), model=full_model, **chat_kwargs)  # type: ignore
 

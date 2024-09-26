@@ -474,8 +474,8 @@ class RoutingDecision:
         }
 
         if structured_output and settings.USE_GOOGLE_CLOUD_LOGGING:
-            logging_client = goog_logging.Client()  # type: ignore
-            logger = logging_client.logger("routing-decisions")  # type: ignore
+            logging_client = goog_logging.Client()
+            logger = logging_client.logger("routing-decisions")
             logger.log_struct(payload)
         else:
             logging.info(f"Routing decision: {payload}")

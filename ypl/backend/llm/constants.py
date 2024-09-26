@@ -15,6 +15,9 @@ class ChatProvider(Enum):
     NVIDIA = 9
     QWEN = 10
     HERMES = 11
+    TOGETHER = 12
+    ANYSCALE = 13
+    HUGGINGFACE = 14
 
     @classmethod
     def from_string(cls, provider: str) -> "ChatProvider":
@@ -33,63 +36,47 @@ FRONTEND_MODELS_BY_PROVIDER = {
         "gpt-4-turbo",
     ],
     ChatProvider.MISTRAL: ["mistral-large-latest"],
-    ChatProvider.GOOGLE: [
-        "gemini-1.5-pro",
-        "gemma-2-9b-it",
-    ],
+    ChatProvider.GOOGLE: ["gemini-1.5-pro"],
     ChatProvider.ANTHROPIC: ["claude-3-5-sonnet-20240620"],
-    ChatProvider.META: [
-        "meta-llama/Meta-Llama-3.1-70B-Instruct",
-    ],
     ChatProvider.MICROSOFT: [
         "phi-3-mini-4k-instruct",
-    ],
-    ChatProvider.ZERO_ONE: [
-        "yi-large",
     ],
     ChatProvider.DEEPSEEK: [
         "deepseek-coder-v2",
     ],
-    ChatProvider.NVIDIA: [
-        "nemotron-4-340b-instruct",
+    ChatProvider.NVIDIA: ["nemotron-4-340b-instruct", "yi-large"],
+    ChatProvider.QWEN: ["qwen-max"],
+    ChatProvider.ANYSCALE: [
+        "meta-llama/Meta-Llama-3.1-70B-Instruct",
     ],
-    ChatProvider.QWEN: [
+    ChatProvider.TOGETHER: [
+        "gemma-2-9b-it",
         "qwen1.5-72b-chat",
-        "qwen-max",
     ],
 }
 
 ALL_MODELS_BY_PROVIDER = {
+    ChatProvider.HERMES: [
+        "hermes-3-llama-3.1-405b-fp8",
+    ],
     ChatProvider.OPENAI: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4o-mini-2024-07-18"],
     ChatProvider.MISTRAL: ["mistral-large-latest"],
-    ChatProvider.GOOGLE: [
-        "gemini-1.5-pro",
-        "gemma-2-9b-it",
-    ],
+    ChatProvider.GOOGLE: ["gemini-1.5-pro"],
     ChatProvider.ANTHROPIC: ["claude-3-5-sonnet-20240620"],
-    ChatProvider.META: [
-        "meta-llama/Meta-Llama-3.1-70B-Instruct",
-    ],
     ChatProvider.MICROSOFT: [
         "phi-3-mini-4k-instruct",
-        "phi-3-medium-4k-instruct",
-    ],
-    ChatProvider.ZERO_ONE: [
-        "yi-large",
     ],
     ChatProvider.DEEPSEEK: [
         "deepseek-coder-v2",
     ],
-    ChatProvider.NVIDIA: [
-        "nemotron-4-340b-instruct",
+    ChatProvider.NVIDIA: ["nemotron-4-340b-instruct", "yi-large"],
+    ChatProvider.QWEN: ["qwen-max"],
+    ChatProvider.ANYSCALE: [
+        "meta-llama/Meta-Llama-3.1-70B-Instruct",
     ],
-    ChatProvider.QWEN: [
-        "qwen1.5-7b-chat",
+    ChatProvider.TOGETHER: [
+        "gemma-2-9b-it",
         "qwen1.5-72b-chat",
-        "qwen-max",
-    ],
-    ChatProvider.HERMES: [
-        "hermes-3-llama-3.1-405b-fp8",
     ],
 }
 
