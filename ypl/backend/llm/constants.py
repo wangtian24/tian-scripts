@@ -44,7 +44,6 @@ FRONTEND_MODELS_BY_PROVIDER = {
     ChatProvider.DEEPSEEK: [
         "deepseek-coder-v2",
     ],
-    ChatProvider.NVIDIA: ["nemotron-4-340b-instruct", "yi-large"],
     ChatProvider.QWEN: ["qwen-max"],
     ChatProvider.ANYSCALE: [
         "meta-llama/Meta-Llama-3.1-70B-Instruct",
