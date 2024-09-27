@@ -357,7 +357,7 @@ def convert_backfill_data(
             num_attempted_chats_per_user=num_attempted_chats_per_user,
             git_commit_sha=git_commit_sha,
             judge_models=[x.model for x in judge_config_.llms],
-            judge_model_temperatures=judge_config_.llm_temperatures,
+            judge_model_temperatures=[x.temperature or 0.0 for x in judge_config_.llms],
         )
 
         output_io.flush()

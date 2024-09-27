@@ -34,6 +34,7 @@ class ModelInfo(BaseModelV1):
     provider: ChatProvider | str
     model: str
     api_key: str
+    temperature: float | None = None
     base_url: str | None = None
 
 
