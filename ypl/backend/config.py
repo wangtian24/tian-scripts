@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     CACHE_DIR: str = ".cache"
     USE_GOOGLE_CLOUD_LOGGING: bool = False
 
+    ROUTING_GOOD_MODELS_RANK_THRESHOLD: int = 3  # the rank cutoff for what is considered a "good" model for routing
+    ROUTING_GOOD_MODELS_ALWAYS: bool = False  # if true, a good model will always be included in the selected models
+    ROUTING_DO_LOGGING: bool = True  # if true, logging will be done
+
     @computed_field  # type: ignore[misc]
     @property
     def server_host(self) -> str:

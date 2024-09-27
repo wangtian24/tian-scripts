@@ -70,67 +70,129 @@ class RankedRouter(Router):
         budget: float = float("inf"),
         **kwargs: Any,
     ) -> list[Any]:
-        """Select `num_models` models, within budget, to route to.
+        selected_models, selection_criterias = self._select_models_helper(num_models, budget, **kwargs)
+
+        if settings.ROUTING_DO_LOGGING:
+            decision = RoutingDecision(
+                candidate_model_names=list(self.models),
+                chosen_model_names=selected_models,
+                selection_criteria=selection_criterias,
+            )
+
+            decision.log(structured_output=True)
+
+        return selected_models
+
+    def _select_models_helper(
+        self,
+        num_models: int,
+        budget: float = float("inf"),
+        always_route_good_models: bool | None = None,
+        exclude: list[Any] | None = None,
+        do_min_traffic_fraction: bool = True,
+        **kwargs: Any,
+    ) -> tuple[list[Any], list[str]]:
+        """Select `num_models` models, within budget, to route to. This is a helper function for
+        :py:meth:`.select_models` to account for the recursive call to include at least one good model.
 
         Args:
             num_models: The number of models to select.
             budget: The max total budget for the models.
+            always_route_good_models: Whether to always include one good model in the selected models. See
+                :py:attr:`.ROUTING_GOOD_MODELS_ALWAYS`.
+            exclude: A list of models to exclude from the selection.
+            do_min_traffic_fraction: Whether to include models based on the minimum traffic fraction. See
+                :py:attr:`.ROUTING_MIN_TRAFFIC_FRACTION`.
+            **kwargs: Additional arguments to pass to the helper function.
 
         Returns:
-            The selected models.
+            The selected models and the selection criteria.
         """
+        exclude = list(dict.fromkeys(exclude or []))
+
+        if always_route_good_models is None:
+            always_route_good_models = settings.ROUTING_GOOD_MODELS_ALWAYS
+
         if num_models > len(self.models):
             raise ValueError(f"Can't select ({num_models}) models out of {len(self.models)} available ones")
 
-        selected_models = self._select_models_by_minimum_traffic_fraction(num_models)
-        selection_criterias = [SelectionCriteria._MIN_TRAFFIC_FRACTION.value] * len(selected_models)
-        num_models_to_select = num_models - len(selected_models)
+        selected_models = []
+        selection_criterias = []
+
+        if do_min_traffic_fraction:
+            selected_models += self._select_models_by_minimum_traffic_fraction(num_models)
+            selection_criterias += [SelectionCriteria._MIN_TRAFFIC_FRACTION.value] * len(selected_models)
+
+        num_models_to_select = max(num_models - len(selected_models), 0)
+
+        if always_route_good_models:
+            num_good_to_select = min(num_models_to_select, settings.ROUTING_GOOD_MODELS_RANK_THRESHOLD)
+
+            if num_good_to_select:
+                good_models = set(
+                    self._select_best_models(num_good_to_select, budget, exclude=selected_models + exclude)
+                )
+                bad_models = list(self.models - good_models)
+                exclude_models = list(dict.fromkeys(selected_models + bad_models))
+
+                selected_good_models, _ = self._select_models_helper(
+                    num_good_to_select,
+                    budget,
+                    always_route_good_models=False,
+                    exclude=exclude_models,
+                    do_min_traffic_fraction=False,
+                )
+
+                selected_models.append(self.rng.choice(selected_good_models))
+                selection_criterias.append(SelectionCriteria._ALWAYS_INCLUDE_TOP.value)
 
         if self.policy.random_fraction:
             for _ in range(num_models_to_select):
                 if self.rng.random() < self.policy.random_fraction(self.ranker):
-                    selected_models.extend(self._select_random_models(1, exclude=selected_models))
+                    selected_models.extend(self._select_random_models(1, exclude=selected_models + exclude))
                     selection_criterias.append(SelectionCriteria.RANDOM.value)
 
-        num_models_to_select = num_models - len(selected_models)
+        num_models_to_select = max(num_models - len(selected_models), 0)
         additional_models = []
 
         match self.policy.selection_criteria:
             case SelectionCriteria.TOP:
-                additional_models = self._select_best_models(num_models_to_select, budget, exclude=selected_models)
+                additional_models = self._select_best_models(
+                    num_models_to_select, budget, exclude=selected_models + exclude
+                )
             case SelectionCriteria.PROPORTIONAL:
                 additional_models = self._select_probability_weighted_models(
-                    num_models_to_select, exclude=selected_models
+                    num_models_to_select, exclude=selected_models + exclude
                 )
             case SelectionCriteria.CONF_INTERVAL_WIDTH:
                 additional_models = self._select_high_conf_interval_models(
-                    num_models_to_select, exclude=selected_models
+                    num_models_to_select, exclude=selected_models + exclude
                 )
             case SelectionCriteria.RANDOM:
-                additional_models = self._select_random_models(num_models_to_select, exclude=selected_models)
+                additional_models = self._select_random_models(num_models_to_select, exclude=selected_models + exclude)
             case SelectionCriteria.MIN_RUNNING_COST:
                 additional_models = self._select_running_cost_models(
-                    num_models_to_select, mode="min", exclude=selected_models
+                    num_models_to_select, mode="min", exclude=selected_models + exclude
                 )
             case SelectionCriteria.MAX_RUNNING_COST:
                 additional_models = self._select_running_cost_models(
-                    num_models_to_select, mode="max", exclude=selected_models
+                    num_models_to_select, mode="max", exclude=selected_models + exclude
                 )
             case SelectionCriteria.CONF_INTERVAL_NUM_OVERLAP:
                 additional_models = self._select_high_overlap_conf_interval_models(
-                    num_models_to_select, exclude=selected_models
+                    num_models_to_select, exclude=selected_models + exclude
                 )
             case SelectionCriteria.CONF_INTERVAL_PAIR_OVERLAP:
                 additional_models = self._select_high_overlap_conf_interval_pair_models(
-                    num_models_to_select, exclude=selected_models
+                    num_models_to_select, exclude=selected_models + exclude
                 )
             case SelectionCriteria.MIN_SIMPLE_COST:
                 additional_models = self._select_simple_cost_models(
-                    num_models_to_select, mode="min", exclude=selected_models
+                    num_models_to_select, mode="min", exclude=selected_models + exclude
                 )
             case SelectionCriteria.MAX_SIMPLE_COST:
                 additional_models = self._select_simple_cost_models(
-                    num_models_to_select, mode="max", exclude=selected_models
+                    num_models_to_select, mode="max", exclude=selected_models + exclude
                 )
             case _:
                 raise ValueError(f"Unsupported selection criteria: {self.policy.selection_criteria}")
@@ -142,24 +204,11 @@ class RankedRouter(Router):
         self.rng.shuffle(models_to_criterias)
 
         if not models_to_criterias:
-            RoutingDecision(
-                candidate_model_names=list(self.models),
-                chosen_model_names=[],
-                selection_criteria=[],
-            ).log(structured_output=True)
-
-            return []
+            return [], []
 
         selected_models_, selection_criterias_ = list(zip(*models_to_criterias, strict=False))
-        decision = RoutingDecision(
-            candidate_model_names=list(self.models),
-            chosen_model_names=list(selected_models_),
-            selection_criteria=list(selection_criterias_),
-        )
 
-        decision.log(structured_output=True)
-
-        return list(selected_models_)
+        return list(selected_models_), list(selection_criterias_)
 
     def update_running_cost(
         self,
@@ -274,15 +323,24 @@ class RankedRouter(Router):
 
         selected_models: list[Any] = []
         total_cost = 0.0
+        max_cost = max(
+            x.dollars_per_million_output_tokens + x.dollars_per_million_input_tokens for x in COSTS_BY_MODEL.values()
+        )
 
         for model, _ in sorted_models:
-            cost = self.ranker.costs[model]
+            try:
+                cost = self.ranker.costs[model]
+            except KeyError:
+                continue
+            except AttributeError:
+                cost = max_cost
+
             if total_cost + cost <= budget and len(selected_models) < num_models:
                 selected_models.append(model)
                 total_cost += cost
 
         if len(selected_models) < num_models:
-            raise ValueError(f"Budget too low to select {num_models} models")
+            logging.warning(f"Budget too low to select {num_models} models; returning {len(selected_models)} models")
 
         return selected_models
 

@@ -5,6 +5,7 @@ from typing import Any
 import numpy as np
 from pytest import approx, mark
 
+from ypl.backend.config import settings
 from ypl.backend.llm.ranking import Battle, ChoixRanker, ChoixRankerConfIntervals, EloRanker
 from ypl.backend.llm.routing.policy import (
     RoutingPolicy,
@@ -22,6 +23,7 @@ from ypl.backend.tests.utils import get_battles
 CONF_INTERVAL_ROUTING_POLICY = RoutingPolicy(SelectionCriteria.CONF_INTERVAL_WIDTH)
 PROPORTIONAL_ROUTING_POLICY = RoutingPolicy(SelectionCriteria.PROPORTIONAL)
 TOP_ROUTING_POLICY = RoutingPolicy(SelectionCriteria.TOP)
+RANDOM_ROUTING_POLICY = RoutingPolicy(SelectionCriteria.RANDOM)
 
 
 def _check_list_len_distribution(lst: list[Any], expected: dict[int, Any]) -> None:
@@ -70,6 +72,35 @@ def test_top_routing() -> None:
     routed_battles = [router.select_models(2) for _ in range(10)]
     _check_list_len_distribution(routed_battles, {2: 10})
     _check_list_item_distribution(routed_battles, {"gpt-3": 10, "gpt-2": 10})
+
+
+def test_always_include_top_routing() -> None:
+    model_rewards = {"gpt-0": 0.25, "gpt-1": 0.5, "gpt-2": 1.0, "gpt-3": 100.0}
+    models = list(model_rewards.keys())
+    battles, results = get_battles(model_rewards, 1000)
+    battles_objs = [Battle(battle[0], battle[1], result) for battle, result in zip(battles, results, strict=True)]
+
+    prev_state = (settings.ROUTING_GOOD_MODELS_RANK_THRESHOLD, settings.ROUTING_GOOD_MODELS_ALWAYS)
+    settings.ROUTING_GOOD_MODELS_RANK_THRESHOLD = 1
+    settings.ROUTING_GOOD_MODELS_ALWAYS = True
+
+    try:
+        ranker = ChoixRanker(models, choix_ranker_algorithm="rank_centrality", battles=battles_objs)
+        router = RankedRouter(models, policy=RANDOM_ROUTING_POLICY, ranker=ranker, seed=11)
+
+        routed_battles = [router.select_models(2) for _ in range(100)]
+    finally:
+        settings.ROUTING_GOOD_MODELS_RANK_THRESHOLD, settings.ROUTING_GOOD_MODELS_ALWAYS = prev_state
+
+    _check_list_item_distribution(
+        routed_battles,
+        {
+            "gpt-3": approx(100, abs=20),
+            "gpt-2": approx(30, abs=15),
+            "gpt-1": approx(30, abs=15),
+            "gpt-0": approx(30, abs=15),
+        },
+    )
 
 
 def test_decrease_conf_interval_routing() -> None:

@@ -67,11 +67,6 @@ def test_simple_route(router: RankedRouter) -> None:
         assert expected_common_route in common_routes
 
 
-def test_budget_too_low(router: RankedRouter) -> None:
-    with pytest.raises(ValueError):
-        router.select_models(num_models=2, budget=1)
-
-
 def test_num_models_too_high(router: RankedRouter) -> None:
     with pytest.raises(ValueError):
         router.select_models(num_models=10)

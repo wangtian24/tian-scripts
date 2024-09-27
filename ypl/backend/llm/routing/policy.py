@@ -27,8 +27,9 @@ def decayed_random_fraction(ranker: "Ranker", initial_value: float, final_value:
 
 
 class SelectionCriteria(Enum):
-    # These are for internal logging use only.
-    _MIN_TRAFFIC_FRACTION = "min_traffic_fraction"
+    # These are internal policies.
+    _MIN_TRAFFIC_FRACTION = "min_traffic_fraction"  # from the setting MINIMUM_MODEL_TRAFFIC_FRACTION (see router.py)
+    _ALWAYS_INCLUDE_TOP = "always_include_top"  # from the setting ROUTING_GOOD_MODELS_ALWAYS (router.py, config.py)
 
     # Select models based on the expected reward.
     TOP = "top"
