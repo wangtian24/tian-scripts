@@ -299,7 +299,7 @@ async def asynthesize_chats(
 
 def generate_random_user(**kwargs: Any | None) -> users.User:
     return users.User(
-        id=str(uuid.uuid4()),
+        user_id=str(uuid.uuid4()),
         name=f"YF-{random.choice(FIRST_NAMES)} {random.choice(LAST_NAMES)}",
         email=f"{uuid.uuid4()}@example.com",
         email_verified=datetime.now(),

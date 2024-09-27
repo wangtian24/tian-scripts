@@ -25,9 +25,10 @@ class LLMLabeler(Generic[InputType, OutputType]):
     Represents an LLM that takes in objects of type `InputType` and outputs a label of type `OutputType`.
     """
 
-    def __init__(self, llm: BaseChatModel) -> None:
+    def __init__(self, llm: BaseChatModel, timeout_secs: float = 5.0) -> None:
         self.llm = self._prepare_llm(llm)
         self.asyncio_context: ContextVar = ContextVar("Coroutine local")
+        self.timeout_secs = timeout_secs
 
     @property
     def error_value(self) -> OutputType:
@@ -64,10 +65,11 @@ class LLMLabeler(Generic[InputType, OutputType]):
     async def alabel(self, input: InputType) -> OutputType:
         """Labels the input asynchronously."""
         try:
-            prepared_input = self._prepare_input(input)
-            output = await self.llm.ainvoke(prepared_input)  # type: ignore
+            async with asyncio.timeout(self.timeout_secs):
+                prepared_input = self._prepare_input(input)
+                output = await self.llm.ainvoke(prepared_input)  # type: ignore
 
-            return await self._aparse_output(output)
+                return await self._aparse_output(output)
         except Exception as e:
             logging.exception(f"Error labeling input {input}: {e}")
             return self.error_value
