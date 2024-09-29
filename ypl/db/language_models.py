@@ -95,6 +95,11 @@ class LanguageModelProviderAssociation(BaseModel, table=True):
     language_model_id: uuid.UUID = Field(primary_key=True, foreign_key="language_models.language_model_id")
     provider_id: uuid.UUID = Field(primary_key=True, foreign_key="providers.provider_id")
 
+    # The name of the language model as it is known to the provider.
+    # For example, Together AI calls Llama 3.1 "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo".
+    # If this is not set, then the language model's internal_name is used.
+    provider_specific_model_name: str | None = Field(default=None)
+
     # Whether the model should be accessed via the provider.
     # Using this instead of deleting, as it is more semantic while temporarily disabling a model on a provider.
     # For permanent removal of the model on a provider, set deleted_at.
