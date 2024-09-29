@@ -12,7 +12,7 @@ def alembic_config() -> Config:
 @pytest.fixture(scope="session")
 def pmr_postgres_config() -> PostgresConfig:
     # As we add more extensions, we will need to have a custom image that has all the extensions installed
-    return PostgresConfig(image="pgvector/pgvector:pg15")
+    return PostgresConfig(image="pgvector/pgvector:pg16")
 
 
 alembic_engine = create_postgres_fixture()
