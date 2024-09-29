@@ -541,4 +541,18 @@ class RoutingDecision:
 
 @cache
 def get_router() -> RankedRouter:
-    return RankedRouter(models=FRONTEND_MODELS, policy=DEFAULT_ROUTING_POLICY, ranker=get_ranker())
+    if settings.ROUTING_WEIGHTS:
+        try:
+            selection_criterias = {
+                SelectionCriteria(selection_criteria): weight
+                for selection_criteria, weight in settings.ROUTING_WEIGHTS.items()
+            }
+
+            policy = RoutingPolicy(selection_criteria=selection_criterias, random_fraction=0.1)
+        except ValueError:
+            logging.exception("Invalid selection criteria in ROUTING_WEIGHTS; falling back to default")
+            policy = DEFAULT_ROUTING_POLICY
+    else:
+        policy = DEFAULT_ROUTING_POLICY
+
+    return RankedRouter(models=FRONTEND_MODELS, policy=policy, ranker=get_ranker())

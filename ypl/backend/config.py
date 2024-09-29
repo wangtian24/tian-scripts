@@ -52,6 +52,11 @@ class Settings(BaseSettings):
     ROUTING_GOOD_MODELS_ALWAYS: bool = False  # if true, a good model will always be included in the selected models
     ROUTING_DO_LOGGING: bool = True  # if true, logging will be done
 
+    # If provided, the ranked router will use a metarouting strategy among the provided policies as keys. For a list
+    # of the available policies, see `ypl.backend.llm.routing.policy.SelectionCriteria`. If this is empty or null,
+    # the router will use the default policy.
+    ROUTING_WEIGHTS: dict[str, float] = {}
+
     @computed_field  # type: ignore[misc]
     @property
     def server_host(self) -> str:

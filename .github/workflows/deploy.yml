@@ -77,11 +77,14 @@ jobs:
           echo "POSTGRES_HOST_NON_POOLING=${{ secrets.POSTGRES_HOST_NON_POOLING_PRODUCTION }}" >> .env
           echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY_PRODUCTION }}" >> .env
         elif [[ "${{ env.ENVIRONMENT }}" == "staging" ]]; then
+          echo "ROUTING_WEIGHTS='{\"random\": 0.1, \"top\": 0.7, \"min_simple_cost\": 0.2}'" >> .env
+          echo "ROUTING_GOOD_MODELS_ALWAYS=True" >> .env
           echo "POSTGRES_USER=${{ secrets.POSTGRES_USER_STAGING }}" >> .env
           echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_STAGING }}" >> .env
           echo "POSTGRES_HOST=${{ secrets.POSTGRES_HOST_STAGING }}" >> .env
           echo "POSTGRES_DATABASE=${{ secrets.POSTGRES_DATABASE_STAGING }}" >> .env
           echo "POSTGRES_HOST_NON_POOLING=${{ secrets.POSTGRES_HOST_NON_POOLING_STAGING }}" >> .env
+          echo "USE_GOOGLE_CLOUD_LOGGING=True" >> .env
           echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY_STAGING }}" >> .env
         fi
 
