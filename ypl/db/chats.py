@@ -9,6 +9,7 @@ from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlmodel import Field, ForeignKey, Relationship
 
 from ypl.db.base import BaseModel
+from ypl.db.language_models import LanguageModel
 from ypl.db.ratings import Category
 from ypl.db.users import User
 
@@ -142,6 +143,7 @@ class ChatMessage(BaseModel, table=True):
     turn: Turn = Relationship(back_populates="chat_messages")
     message_type: MessageType = Field(sa_column=Column(SQLAlchemyEnum(MessageType), nullable=False))
     content: str = Field(nullable=False, sa_type=Text)
+    # Deprecated: Use assistant_language_model_id instead.
     assistant_model_name: str | None = Field()
     content_tsvector: TSVECTOR | None = Field(default=None, sa_column=Column(TSVECTOR))
     content_pgvector: Vector | None = Field(default=None, sa_column=Column(Vector(1536)))
@@ -169,6 +171,12 @@ class ChatMessage(BaseModel, table=True):
 
     # Streaming metrics for display purposes in the UI, such as average streaming speed.
     streaming_metrics: dict[str, str] = Field(default_factory=dict, sa_type=JSON, nullable=True)
+
+    # The language model used to generate the message. Set when the message_type is assistant_message.
+    assistant_language_model_id: uuid.UUID | None = Field(
+        foreign_key="language_models.language_model_id", nullable=True
+    )
+    assistant_language_model: "LanguageModel" = Relationship(back_populates="chat_messages")
 
     # Needed for sa_type=JSON
     class Config:

@@ -11,6 +11,7 @@ from sqlmodel import Field, Relationship
 from ypl.db.base import BaseModel
 
 if TYPE_CHECKING:
+    from ypl.db.chats import ChatMessage
     from ypl.db.ratings import Rating, RatingHistory
 
 
@@ -159,6 +160,8 @@ class LanguageModel(BaseModel, table=True):
     providers: list["Provider"] = Relationship(
         back_populates="language_models", link_model=LanguageModelProviderAssociation
     )
+
+    chat_messages: list["ChatMessage"] = Relationship(back_populates="assistant_language_model")
 
 
 # Provider is a service that can be used to access a model, e.g. OpenAI, Anthropic, Together AI, etc.
