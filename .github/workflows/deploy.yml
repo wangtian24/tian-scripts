@@ -53,13 +53,13 @@ jobs:
         if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.event.inputs.environment }}" == "production" ]]; then
           echo "ENVIRONMENT=production" >> $GITHUB_ENV
           echo "SERVICE_NAME=backend" >> $GITHUB_ENV
-          echo "MEMORY=8G" >> $GITHUB_ENV
+          echo "MEMORY=16G" >> $GITHUB_ENV
           echo "CPU=4" >> $GITHUB_ENV
         else
           echo "ENVIRONMENT=staging" >> $GITHUB_ENV
           echo "SERVICE_NAME=backend-staging" >> $GITHUB_ENV
-          echo "MEMORY=4G" >> $GITHUB_ENV
-          echo "CPU=2" >> $GITHUB_ENV
+          echo "MEMORY=16G" >> $GITHUB_ENV
+          echo "CPU=4" >> $GITHUB_ENV
         fi
 
     - name: Create .env file

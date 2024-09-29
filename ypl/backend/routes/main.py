@@ -17,7 +17,8 @@ logger = logging.getLogger(__name__)
 
 def log_sql_query(conn, cursor, statement, parameters, context, executemany):  # type: ignore
     logger.info(f"SQL Query: {statement}")
-    logger.info(f"Parameters: {parameters}")
+    if parameters:
+        logger.info(f"Parameters: {parameters}")
 
 
 def app_init() -> None:
@@ -25,7 +26,7 @@ def app_init() -> None:
     nltk_data_path = os.getenv("NLTK_DATA")
     if nltk_data_path:
         nltk.data.path.append(nltk_data_path)
-    if settings.ENVIRONMENT == "local":
+    if settings.ENVIRONMENT != "production":
         sa.event.listen(sa.engine.Engine, "before_cursor_execute", log_sql_query)
 
     get_ranker().add_evals_from_db()
