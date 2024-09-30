@@ -39,9 +39,10 @@ from ypl.backend.llm.labeler import WildChatRealismLabeler
 from ypl.backend.llm.prompt_classifiers import categorize_user_messages
 from ypl.backend.llm.ranking import get_default_ranker
 from ypl.backend.llm.synthesize import SQLChatIO, SynthesizerConfig, SyntheticUserGenerator, asynthesize_chats
+from ypl.backend.llm.utils import fetch_categories_with_descriptions_from_db
 from ypl.db.chats import Chat
 
-logging.basicConfig(level=logging.WARNING)
+logging.getLogger().setLevel(logging.INFO)
 
 
 def db_cmd(f: Callable[..., Any]) -> Callable[..., Any]:
@@ -372,6 +373,23 @@ def convert_backfill_data(
     output_io.flush()
 
 
+def _update_ranking(
+    category_names: list[str] | None = None,
+    exclude_ties: bool = False,
+    from_date: datetime | None = None,
+    to_date: datetime | None = None,
+    user_from_date: datetime | None = None,
+    user_to_date: datetime | None = None,
+    language_codes: list[str] | None = None,
+) -> None:
+    params = locals()
+    ranker = get_default_ranker()
+    ranker.add_evals_from_db(**params)
+    for ranked_model in ranker.leaderboard():
+        logging.info(ranked_model)
+    ranker.to_db()
+
+
 @cli.command()
 @click.option("--category-names", multiple=True, help="Categories to include (can be specified multiple times)")
 @click.option("--exclude-ties", is_flag=True, help="Exclude ties")
@@ -388,13 +406,18 @@ def update_ranking(
     user_from_date: datetime | None = None,
     user_to_date: datetime | None = None,
     language_codes: list[str] | None = None,
+    all_categories: bool = False,
 ) -> None:
-    params = locals()
-    ranker = get_default_ranker()
-    ranker.add_evals_from_db(**params)
-    for ranked_model in ranker.leaderboard():
-        print(ranked_model)
-    ranker.to_db()
+    _update_ranking(category_names, exclude_ties, from_date, to_date, user_from_date, user_to_date, language_codes)
+
+
+@cli.command()
+def update_ranking_all_categories() -> None:
+    for category_name in fetch_categories_with_descriptions_from_db():
+        logging.info(f"Updating ranking for category: {category_name}")
+        _update_ranking(category_names=[category_name])
+    logging.info("Updating ranking with no categories")
+    _update_ranking()
 
 
 @cli.command(help="Label the realism of user prompts read in from a JSON file, relative to WildChat")

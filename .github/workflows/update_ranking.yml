@@ -10,13 +10,13 @@ jobs:
   update_rankings_staging:
     uses: ./.github/workflows/cronjob.yml
     with:
-      command: update-ranking
+      command: update-ranking-all-categories
       environment: staging
     secrets: inherit
 
   update_rankings_production:
     uses: ./.github/workflows/cronjob.yml
     with:
-      command: update-ranking
+      command: update-ranking-all-categories
       environment: production
     secrets: inherit
