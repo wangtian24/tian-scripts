@@ -22,6 +22,10 @@ env:
   IMAGE_NAME: "gcr.io/yupp-llms/backend-${{ github.event.inputs.environment || 'staging' }}:v1"
   REGION: us-east4
 
+permissions:
+  contents: write  # Permission required for pushing new tags.
+  packages: read
+  
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
