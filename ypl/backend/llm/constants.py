@@ -34,6 +34,8 @@ FRONTEND_MODELS_BY_PROVIDER = {
         "gpt-4o",
         "gpt-4o-mini",
         "gpt-4-turbo",
+        "o1-preview-2024-09-12",
+        "o1-mini-2024-09-12",
     ],
     ChatProvider.MISTRAL: ["mistral-large-latest"],
     ChatProvider.GOOGLE: ["gemini-1.5-pro"],
@@ -55,10 +57,14 @@ FRONTEND_MODELS_BY_PROVIDER = {
 }
 
 ALL_MODELS_BY_PROVIDER = {
-    ChatProvider.HERMES: [
-        "hermes-3-llama-3.1-405b-fp8",
+    ChatProvider.OPENAI: [
+        "gpt-4o",
+        "gpt-4o-mini",
+        "gpt-4-turbo",
+        "gpt-4o-mini-2024-07-18",
+        "o1-preview-2024-09-12",
+        "o1-mini-2024-09-12",
     ],
-    ChatProvider.OPENAI: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4o-mini-2024-07-18"],
     ChatProvider.MISTRAL: ["mistral-large-latest"],
     ChatProvider.GOOGLE: ["gemini-1.5-pro"],
     ChatProvider.ANTHROPIC: ["claude-3-5-sonnet-20240620"],
@@ -68,7 +74,6 @@ ALL_MODELS_BY_PROVIDER = {
     ChatProvider.DEEPSEEK: [
         "deepseek-coder-v2",
     ],
-    ChatProvider.NVIDIA: ["nemotron-4-340b-instruct", "yi-large"],
     ChatProvider.QWEN: ["qwen-max"],
     ChatProvider.ANYSCALE: [
         "meta-llama/Meta-Llama-3.1-70B-Instruct",
@@ -110,6 +115,16 @@ COSTS_BY_MODEL = {
     ),
     "gpt-4-turbo": ModelCost(
         dollars_per_million_input_tokens=10, dollars_per_million_output_tokens=30, tokenizer_name="gpt-4-turbo"
+    ),
+    "o1-preview-2024-09-12": ModelCost(
+        dollars_per_million_input_tokens=15,
+        dollars_per_million_output_tokens=60,
+        tokenizer_name="gpt-4o",  # approximation
+    ),
+    "o1-mini-2024-09-12": ModelCost(
+        dollars_per_million_input_tokens=3,
+        dollars_per_million_output_tokens=12,
+        tokenizer_name="gpt-4o",  # approximation
     ),
     "mistral-large-latest": ModelCost(
         dollars_per_million_input_tokens=3,
