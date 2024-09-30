@@ -281,7 +281,7 @@ class Ranker:
         if language_codes:
             enum_codes = []
             for code in language_codes:
-                if enum_code := LanguageCode.from_string(code):
+                if enum_code := LanguageCode.from_string(code):  # type: ignore
                     enum_codes.append(enum_code)
                 else:
                     raise ValueError(f"Invalid language code: {code}")
