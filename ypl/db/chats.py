@@ -63,11 +63,25 @@ class Turn(BaseModel, table=True):
     __table_args__ = (UniqueConstraint("chat_id", "sequence_id", name="uq_chat_sequence"),)
 
 
+# Note only names are used in the DB for enums.
+# https://docs.sqlalchemy.org/en/20/core/type_basics.html#sqlalchemy.types.Enum
 class MessageType(enum.Enum):
     USER_MESSAGE = "user_message"
     ASSISTANT_MESSAGE = "assistant_message"
     # The tl;dr feature (previously known as quick take)
     QUICK_RESPONSE_MESSAGE = "quick_response_message"
+
+
+# Note only names are used in the DB for enums.
+# https://docs.sqlalchemy.org/en/20/core/type_basics.html#sqlalchemy.types.Enum
+class MessageUIStatus(enum.Enum):
+    UNKNOWN = "unknown"
+    # The user has seen the message.
+    SEEN = "seen"
+    # The user has dismissed the message.
+    DISMISSED = "dismissed"
+    # The user has selected the message.
+    SELECTED = "selected"
 
 
 LanguageCodeType = TypeVar("LanguageCodeType", bound="LanguageCodeEnum")
@@ -136,6 +150,18 @@ class ChatMessage(BaseModel, table=True):
         foreign_key="language_models.language_model_id", nullable=True
     )
     assistant_language_model: "LanguageModel" = Relationship(back_populates="chat_messages")
+
+    ui_status: MessageUIStatus = Field(
+        sa_column=Column(
+            SQLAlchemyEnum(MessageUIStatus),
+            nullable=False,
+            default=MessageUIStatus.UNKNOWN,
+            server_default=MessageUIStatus.UNKNOWN.value,
+        )
+    )
+    # When present, indicates in which order this message should be displayed in relation to
+    # other messages in the same turn.
+    turn_sequence_number: int | None = Field(nullable=True)
 
     # Needed for sa_type=JSON
     class Config:
