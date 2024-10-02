@@ -6,25 +6,24 @@ import pytest
 from mabwiser.mab import LearningPolicy
 
 from ypl.backend.llm.mab_ranker import MultiArmedBanditRanker
-from ypl.backend.llm.routing.policy import RoutingPolicy, SelectionCriteria
-from ypl.backend.llm.routing.router import RankedRouter
+from ypl.backend.llm.routing.router import EloProposer, RouterModule, RouterState
 from ypl.backend.tests.utils import get_battles
 
 random.seed(123)
 
-ROUTING_POLICY = RoutingPolicy(selection_criteria=SelectionCriteria.TOP)
 
-
-def _get_model_counts(router: RankedRouter, num_trials: int) -> dict[str, int]:
+def _get_model_counts(router: RouterModule, num_trials: int, models: list[str]) -> dict[str, int]:
     counter: Counter[str] = Counter()
+
     for _ in range(num_trials):
-        model = router.select_models(num_models=1)[0]
+        model = router.select_models(1, state=RouterState(all_models=set(models))).get_sorted_selected_models()[0]
         counter[model] += 1
+
     return counter
 
 
 @pytest.fixture()
-def router() -> Generator[RankedRouter, None, None]:
+def router_and_models() -> Generator[tuple[RouterModule, list[str]], None, None]:
     costs = [10.0, 20.0, 15.0, 25.0, 10.0]
     models = ["gpt-4o", "gpt-4o-mini", "mistral-large-latest", "gemini-1.5-pro", "claude-3-5-sonnet-20240620"]
     ranker = MultiArmedBanditRanker(
@@ -49,27 +48,27 @@ def router() -> Generator[RankedRouter, None, None]:
     rewards = [r for _, r in past_actions]
 
     ranker.fit(battles, rewards)
-    router = RankedRouter(models=models, ranker=ranker, policy=ROUTING_POLICY)
-    yield router
+    router = EloProposer(ranker)
+
+    yield router, models
 
 
-def test_simple_route(router: RankedRouter) -> None:
+def test_simple_route(router_and_models: tuple[RouterModule, list[str]]) -> None:
+    router, models = router_and_models
     routes = []
+
     for _ in range(200):
-        selected = router.select_models(num_models=2)
+        selected = list(router.select_models(2, state=RouterState(all_models=set(models))).get_selected_models())
         routes.append(tuple(sorted(selected)))
+
     common_routes = [r for r, _ in Counter(routes).most_common(5)]
+
     for expected_common_route in [
         ("gpt-4o", "gpt-4o-mini"),
         ("gpt-4o-mini", "mistral-large-latest"),
         ("claude-3-5-sonnet-20240620", "gpt-4o-mini"),
     ]:
         assert expected_common_route in common_routes
-
-
-def test_num_models_too_high(router: RankedRouter) -> None:
-    with pytest.raises(ValueError):
-        router.select_models(num_models=10)
 
 
 def test_update_model() -> None:
@@ -79,23 +78,20 @@ def test_update_model() -> None:
         models=models,
         learning_policy=LearningPolicy.EpsilonGreedy(epsilon=0.1),
     )
-    router = RankedRouter(
-        models=models,
-        policy=ROUTING_POLICY,
-        ranker=ranker,
-    )
+
+    router = EloProposer(ranker)
     battles, rewards = get_battles({"chatgpt": 0.9, "llama": 0.1}, 100)
     ranker.fit(battles, rewards)
-    model_counts = _get_model_counts(router, 100)
+    model_counts = _get_model_counts(router, 100, models)
     assert model_counts["chatgpt"] > model_counts["llama"]
 
     battles, rewards = get_battles({"chatgpt": 0.1, "llama": 0.9}, 200)
     ranker.update_batch(battles, rewards)
-    model_counts = _get_model_counts(router, 100)
+    model_counts = _get_model_counts(router, 100, models)
     assert model_counts["chatgpt"] < model_counts["llama"]
 
     ranker.add_model("claude", 10.0)
     battles, rewards = get_battles({"chatgpt": 0.1, "llama": 0.1, "claude": 0.8}, 100)
     ranker.update_batch(battles, rewards)
-    model_counts = _get_model_counts(router, 100)
+    model_counts = _get_model_counts(router, 100, models + ["claude"])
     assert model_counts["claude"] > 1

@@ -1,418 +1,723 @@
 import heapq
 import logging
 from abc import ABC, abstractmethod
-from collections import Counter
 from collections.abc import Sequence
-from functools import cache
-from typing import Any, Literal
+from itertools import chain
+from typing import Any
 
 import numba
 import numpy as np
 from google.cloud import logging as goog_logging
+from pydantic import BaseModel
 
 from ypl.backend.config import settings
-from ypl.backend.llm.constants import COSTS_BY_MODEL, FRONTEND_MODELS
-from ypl.backend.llm.ranking import Ranker, get_ranker
-from ypl.backend.llm.routing.policy import DEFAULT_ROUTING_POLICY, RoutingPolicy, SelectionCriteria
+from ypl.backend.llm.constants import COSTS_BY_MODEL
+from ypl.backend.llm.ranking import ConfidenceIntervalRankerMixin, Ranker, get_ranker
+from ypl.backend.llm.routing.policy import SelectionCriteria, decayed_random_fraction
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-class Router(ABC):
-    def __init__(self, models: list[Any], policy: RoutingPolicy):
-        self.models = set(models)
-        self.policy = policy
+class RouterState(BaseModel):
+    """
+    The current state of the routing pipeline, used to track the models that have been selected and those that
+    are excluded.
+    """
+
+    selected_models: dict[str, dict[SelectionCriteria, float]] = {}  # models to selection criterias and scores
+    excluded_models: set[str] = set()  # models to exclude
+    all_models: set[str] = set()  # all models to choose from
+
+    def __add__(self, other: "RouterState") -> "RouterState":
+        """
+        Merge two RouterStates together, adding the scores of duplicate model-criteria pairs.
+        """
+        merged_selected_models: dict[str, dict[SelectionCriteria, float]] = {}
+
+        for model, criteria_map in chain(other.selected_models.items(), self.selected_models.items()):
+            if model in self.excluded_models or model in other.excluded_models:
+                continue
+
+            for criteria, score in criteria_map.items():
+                if model not in merged_selected_models:
+                    merged_selected_models[model] = {}
+                    merged_selected_models[model][criteria] = score
+                elif criteria not in merged_selected_models[model]:
+                    merged_selected_models[model][criteria] = score
+                else:
+                    merged_selected_models[model][criteria] += score
+
+        return RouterState(
+            selected_models=merged_selected_models,
+            excluded_models=self.excluded_models.union(other.excluded_models),
+            all_models=self.all_models.union(other.all_models),
+        )
+
+    def deepcopy(self) -> "RouterState":
+        """Return a deep copy of the RouterState."""
+        return self.model_copy(deep=True)
+
+    def get_selected_models(self) -> set[str]:
+        """
+        Return the models that have been selected.
+        """
+        return set(self.selected_models.keys())
+
+    def get_sorted_selected_models(self) -> list[str]:
+        """
+        Return the models that have been selected, sorted by the sum of their scores.
+        """
+        return sorted(self.get_selected_models(), key=lambda x: sum(self.selected_models[x].values()), reverse=True)
+
+    def get_selectable_models(self) -> set[str]:
+        """
+        Return the models that are not excluded.
+        """
+        return self.all_models - self.excluded_models
+
+    def multiply_scores(self, factor: float) -> None:
+        """
+        Multiply the scores of all selected models by a factor.
+        """
+        for model, criteria_map in self.selected_models.items():
+            for criteria, score in criteria_map.items():
+                self.selected_models[model][criteria] = score * factor
+
+    def get_model_score_map(self) -> dict[str, float]:
+        """
+        Return a map of the models to their scores, summed over all criteria.
+        """
+        return {model: sum(criteria_map.values()) for model, criteria_map in self.selected_models.items()}
+
+
+class RNGMixin:
+    """
+    Mixin class to add a random number generator to a class.
+    """
+
+    _rng: np.random.RandomState | None = None
+    _seed: int | None = None
+
+    def set_seed(self, seed: int) -> None:
+        if self._seed is not None:
+            raise ValueError("Seed already set")
+
+        self._seed = seed
+
+    def get_rng(self) -> np.random.RandomState:
+        if self._rng is None:
+            self._rng = np.random.RandomState(self._seed)
+
+        return self._rng
+
+
+class RouterModule(ABC):
+    """
+    Abstract base class for a module in the routing pipeline. Routing is defined as passing a state through an
+    arithmetic circuit of modules, which may include selection, filtering, mapping, branching, and sequential
+    and parallel composition, akin to MapReduce or a Unix pipeline. A router is composed of a sequence of
+    arithmetic operations on RouterModule, e.g.,
+
+    .. code-block::python
+
+        router = CostModelProposer() | TopK(3)
+        state = router.select_models(state=RouterState(all_models=set(FRONTEND_MODELS)))
+        print(state.get_selected_models())
+
+    would route to the top 3 cheapest models out of the available front-end models, passing the state
+    sequentially through CostModelProposer to TopK. These three arithmetic operations are supported:
+
+    .. code-block::python
+
+        # Sequential composition; the state is passed sequentially through each module
+        router = CostModelProposer() | EloProposer(ranker)
+
+        # Parallel composition; the state is split across two modules, which operate in parallel.
+        # The results of each module are merged together (see :py:meth:`.RouterState.__add__`).
+        router = CostModelProposer() & EloProposer(ranker)
+
+        # Exclusive drawing; the state is randomly routed to one of the two modules, with a probability
+        # given by the `with_probs` method.
+        router = CostModelProposer() ^ EloProposer(ranker)
+
+    These modules can be chained and combined arbitrarily, e.g.,
+
+    .. code-block::python
+
+        router = (
+            (((EloProposer(ranker) & CostModelProposer()) | TopK(3))
+            ^ ConfidenceIntervalWidthModelProposer(ranker)).with_probs(0.75, 0.25)
+        ) | RoutingDecisionLogger()
+
+    See Also:
+    - :py:meth:`.RouterSequentialChain`, :py:meth:`.RouterParallelChain`, :py:meth:`.RouterExclusiveChain`
+    - :py:meth:`.RouterState.__add__`, :py:meth:`.RouterState.multiply_scores`
+    - :py:meth:`.RouterDecisionLogger`
+    """
+
+    def select_models(self, num_models: int = 0, state: RouterState | None = None) -> RouterState:
+        response = self._select_models(num_models or 1, state or RouterState())
+        return response
+
+    def __or__(self, other: "RouterModule") -> "RouterModule":
+        return RouterSequentialChain(self, other)
+
+    def __and__(self, other: "RouterModule") -> "RouterModule":
+        return RouterParallelChain(self, other)
+
+    def __xor__(self, other: "RouterModule") -> "RouterExclusiveChain":
+        return RouterExclusiveChain(self, other)
 
     @abstractmethod
-    def select_models(self, num_models: int, budget: float = float("inf"), **kwargs: Any) -> list[Any]:
-        pass
+    def _select_models(self, num_models: int, state: RouterState) -> RouterState:
+        raise NotImplementedError
 
 
-class RandomRouter(Router):
-    def select_models(self, num_models: int, budget: float = float("inf"), **kwargs: Any) -> list[Any]:
-        return list(np.random.choice(list(self.models), size=num_models, replace=False))
+class RouterDecisionLogger(RouterModule):
+    def __init__(self, enabled: bool = True) -> None:
+        """
+        Args:
+            enabled: Whether to log the routing decision.
+        """
+        self.enabled = enabled
 
-
-class RankedRouter(Router):
-    def __init__(self, models: list[Any], policy: RoutingPolicy, ranker: Ranker, seed: int = 123) -> None:
-        super().__init__(models, policy)
-        self.ranker = ranker
-        self.rng = np.random.RandomState(seed)
-
-        self._running_costs: Counter = Counter()
-        self._running_cost_alpha = 0.95  # EMA alpha
-        self._total_costs: Counter = Counter()
-
-    def update_ranker(self, model_a: str, model_b: str, result: float, category: str | None = None) -> None:
-        self.ranker.update(model_a, model_b, result, category)
-        self.models = set(self.ranker.get_models())
-
-    def _select_models_by_minimum_traffic_fraction(self, num_models: int) -> list[Any]:
-        if not num_models or not self.policy.minimum_model_traffic_fraction:
-            return []
-
-        selected_models = []
-        remaining_slots = num_models
-
-        for model, fraction in self.policy.minimum_model_traffic_fraction.items():
-            if model in self.models and self.rng.random() < fraction:
-                selected_models.append(model)
-                remaining_slots -= 1
-                if remaining_slots == 0:
-                    break
-        self.rng.shuffle(selected_models)
-        return selected_models
-
-    def select_models(
-        self,
-        num_models: int,
-        budget: float = float("inf"),
-        **kwargs: Any,
-    ) -> list[Any]:
-        selected_models, selection_criterias = self._select_models_helper(num_models, budget, **kwargs)
-
-        if settings.ROUTING_DO_LOGGING:
+    def _select_models(self, _: int, state: RouterState) -> RouterState:
+        """
+        Log the routing decision.
+        """
+        if self.enabled:
             decision = RoutingDecision(
-                candidate_model_names=list(self.models),
-                chosen_model_names=selected_models,
-                selection_criteria=selection_criterias,
+                candidate_model_names=list(state.all_models),
+                chosen_model_names=list(state.selected_models.keys()),
+                selection_criteria=list(
+                    dict.fromkeys(
+                        [
+                            str(criteria)
+                            for _, criteria_map in state.selected_models.items()
+                            for criteria in criteria_map.keys()
+                        ]
+                    )
+                ),
             )
-
             decision.log(structured_output=True)
 
-        return selected_models
+        return state
 
-    def _select_models_helper(
-        self,
-        num_models: int,
-        budget: float = float("inf"),
-        always_route_good_models: bool | None = None,
-        exclude: list[Any] | None = None,
-        do_min_traffic_fraction: bool = True,
-        **kwargs: Any,
-    ) -> tuple[list[Any], list[str]]:
-        """Select `num_models` models, within budget, to route to. This is a helper function for
-        :py:meth:`.select_models` to account for the recursive call to include at least one good model.
+
+class RouterSequentialChain(RouterModule):
+    def __init__(self, *args: RouterModule) -> None:
+        """
+        Represents a sequential chain of routing modules, i.e., the state is passed sequentially through each module.
+        See :py:class:`.RouterModule` for more information.
 
         Args:
-            num_models: The number of models to select.
-            budget: The max total budget for the models.
-            always_route_good_models: Whether to always include one good model in the selected models. See
-                :py:attr:`.ROUTING_GOOD_MODELS_ALWAYS`.
-            exclude: A list of models to exclude from the selection.
-            do_min_traffic_fraction: Whether to include models based on the minimum traffic fraction. See
-                :py:attr:`.ROUTING_MIN_TRAFFIC_FRACTION`.
-            **kwargs: Additional arguments to pass to the helper function.
-
-        Returns:
-            The selected models and the selection criteria.
+            *args: The modules to pass the state through sequentially.
         """
-        exclude = list(dict.fromkeys(exclude or []))
+        self.router_modules: list[RouterModule] = list(args)
 
-        if always_route_good_models is None:
-            always_route_good_models = settings.ROUTING_GOOD_MODELS_ALWAYS
+    def __or__(self, other: "RouterModule") -> "RouterModule":
+        self.router_modules.append(other)
+        return self
 
-        if num_models > len(self.models):
-            raise ValueError(f"Can't select ({num_models}) models out of {len(self.models)} available ones")
+    def _select_models(self, num_models: int, state: RouterState) -> RouterState:
+        for router_module in self.router_modules:
+            state = router_module.select_models(num_models, state=state)
 
-        selected_models = []
-        selection_criterias = []
+        return state
 
-        if do_min_traffic_fraction:
-            selected_models += self._select_models_by_minimum_traffic_fraction(num_models)
-            selection_criterias += [SelectionCriteria._MIN_TRAFFIC_FRACTION.value] * len(selected_models)
 
-        num_models_to_select = max(num_models - len(selected_models), 0)
+class RouterExclusiveChain(RNGMixin, RouterModule):
+    def __init__(self, *args: RouterModule) -> None:
+        """
+        Represents an exclusive chain of routing modules, i.e., the state is randomly routed to one of the modules.
+        See :py:class:`.RouterModule` for more information.
 
-        if always_route_good_models:
-            num_good_to_select = min(num_models_to_select, settings.ROUTING_GOOD_MODELS_RANK_THRESHOLD)
+        Args:
+            *args: The modules to randomly route the state to.
+        """
+        self.router_modules: list[RouterModule] = list(args)
+        self.random_probabilities: list[float] = []
 
-            if num_good_to_select:
-                good_models = set(
-                    self._select_best_models(num_good_to_select, budget, exclude=selected_models + exclude)
-                )
-                bad_models = list(self.models - good_models)
-                exclude_models = list(dict.fromkeys(selected_models + bad_models))
+    def __xor__(self, other: "RouterModule") -> "RouterExclusiveChain":
+        self.router_modules.append(other)
+        return self
 
-                selected_good_models, _ = self._select_models_helper(
-                    num_good_to_select,
-                    budget,
-                    always_route_good_models=False,
-                    exclude=exclude_models,
-                    do_min_traffic_fraction=False,
-                )
+    def with_probs(self, *probabilities: float) -> "RouterExclusiveChain":
+        """
+        Set the probabilities of routing to each module in the same order that it was constructed.
 
-                selected_models.append(self.rng.choice(selected_good_models))
-                selection_criterias.append(SelectionCriteria._ALWAYS_INCLUDE_TOP.value)
+        Args:
+            *probabilities: The probabilities of routing to each module.
+        """
+        p = np.array(probabilities)
+        p = p / p.sum()
+        self.random_probabilities = p.tolist()
 
-        if self.policy.random_fraction:
-            for _ in range(num_models_to_select):
-                if self.rng.random() < self.policy.random_fraction(self.ranker):
-                    selected_models.extend(self._select_random_models(1, exclude=selected_models + exclude))
-                    selection_criterias.append(SelectionCriteria.RANDOM.value)
+        return self
 
-        num_models_to_select = max(num_models - len(selected_models), 0)
-        additional_models = []
-
-        match self.policy.selection_criteria:
-            case SelectionCriteria.TOP:
-                additional_models = self._select_best_models(
-                    num_models_to_select, budget, exclude=selected_models + exclude
-                )
-            case SelectionCriteria.PROPORTIONAL:
-                additional_models = self._select_probability_weighted_models(
-                    num_models_to_select, exclude=selected_models + exclude
-                )
-            case SelectionCriteria.CONF_INTERVAL_WIDTH:
-                additional_models = self._select_high_conf_interval_models(
-                    num_models_to_select, exclude=selected_models + exclude
-                )
-            case SelectionCriteria.RANDOM:
-                additional_models = self._select_random_models(num_models_to_select, exclude=selected_models + exclude)
-            case SelectionCriteria.MIN_RUNNING_COST:
-                additional_models = self._select_running_cost_models(
-                    num_models_to_select, mode="min", exclude=selected_models + exclude
-                )
-            case SelectionCriteria.MAX_RUNNING_COST:
-                additional_models = self._select_running_cost_models(
-                    num_models_to_select, mode="max", exclude=selected_models + exclude
-                )
-            case SelectionCriteria.CONF_INTERVAL_NUM_OVERLAP:
-                additional_models = self._select_high_overlap_conf_interval_models(
-                    num_models_to_select, exclude=selected_models + exclude
-                )
-            case SelectionCriteria.CONF_INTERVAL_PAIR_OVERLAP:
-                additional_models = self._select_high_overlap_conf_interval_pair_models(
-                    num_models_to_select, exclude=selected_models + exclude
-                )
-            case SelectionCriteria.MIN_SIMPLE_COST:
-                additional_models = self._select_simple_cost_models(
-                    num_models_to_select, mode="min", exclude=selected_models + exclude
-                )
-            case SelectionCriteria.MAX_SIMPLE_COST:
-                additional_models = self._select_simple_cost_models(
-                    num_models_to_select, mode="max", exclude=selected_models + exclude
-                )
-            case _:
-                raise ValueError(f"Unsupported selection criteria: {self.policy.selection_criteria}")
-
-        selection_criterias.extend([self.policy.selection_criteria.value] * len(additional_models))
-        selected_models.extend(additional_models)
-
-        models_to_criterias = list(zip(selected_models, selection_criterias, strict=False))
-        self.rng.shuffle(models_to_criterias)
-
-        if not models_to_criterias:
-            return [], []
-
-        selected_models_, selection_criterias_ = list(zip(*models_to_criterias, strict=False))
-
-        return list(selected_models_), list(selection_criterias_)
-
-    def update_running_cost(
-        self,
-        model: Any,
-        input_str: str = "",
-        output_str: str = "",
-        num_input_tokens: int = 0,
-        num_output_tokens: int = 0,
-    ) -> None:
-        """Update the running cost of a model."""
-
-        try:
-            cost_model = COSTS_BY_MODEL[model]
-        except KeyError:
-            # Assume the cost model is gpt4o-mini if the model is not found, which is roughly in line
-            cost_model = COSTS_BY_MODEL["gpt-4o-mini"]
-
-        c = cost_model.compute_cost(
-            input_string=input_str,
-            output_string=output_str,
-            num_input_tokens=num_input_tokens,
-            num_output_tokens=num_output_tokens,
-        )
-
-        # we store the negative cost to make computing the min cost more efficient (Counter's most_common routine)
-        c = -c
-
-        old_val = float(self._running_costs[model] if model in self._running_costs else c)
-
-        # mypy hates this, but it's 100% safe (float vs. int for sorting)
-        self._running_costs[model] = (
-            self._running_cost_alpha * old_val + (1 - self._running_cost_alpha) * c  # type: ignore
-        )
-
-        # and this as well
-        self._total_costs[model] += -c  # type: ignore
-
-    def get_total_cost(self) -> float:
-        return sum(self._total_costs.values())
-
-    def _select_running_cost_models(
-        self, num_models: int, mode: Literal["min", "max"], exclude: list[Any] | None = None
-    ) -> list[Any]:
-        if not num_models:
-            return []
-
-        running_costs = self._running_costs.copy()
-        exclude = exclude or []
-
-        for model in exclude:
-            if model in running_costs:
-                del running_costs[model]
-
-        selected_models = (
-            running_costs.most_common(num_models) if mode == "min" else self._running_costs.most_common()[-num_models:]
-        )
-
-        return [model for model, _ in selected_models]
-
-    def _select_simple_cost_models(
-        self, num_models: int, mode: Literal["min", "max"], exclude: list[Any] | None = None
-    ) -> list[Any]:
-        if not num_models:
-            return []
-
-        exclude_set = set(exclude) if exclude else set()
-        model_costs = sorted(
-            (
-                (cost.dollars_per_million_output_tokens + cost.dollars_per_million_input_tokens, name)
-                for name, cost in COSTS_BY_MODEL.items()
-                if name not in exclude_set
-            ),
-            key=lambda x: x[0],
-        )
-
-        if mode == "min":
-            return [model for _, model in model_costs[:num_models]]
+    def _select_models(self, num_models: int, state: RouterState) -> RouterState:
+        if len(self.random_probabilities) != len(self.router_modules):
+            logging.warning(
+                "Random probabilities not set for RouterExclusiveChain; using default of 1/len(router_modules)"
+            )
+            probs = np.full(len(self.router_modules), 1 / len(self.router_modules))
         else:
-            return [model for _, model in model_costs[-num_models:]]
+            probs = np.array(self.random_probabilities)
 
-    def _select_probability_weighted_models(self, num_models: int, exclude: list[Any] | None = None) -> list[Any]:
-        if not num_models:
-            return []
+        chosen_module = self.get_rng().choice(np.array(self.router_modules, dtype=object), replace=False, p=probs)
+        state = chosen_module.select_models(num_models, state=state)
 
+        return state
+
+
+class RouterParallelChain(RouterModule):
+    def __init__(self, *args: RouterModule) -> None:
+        """
+        Represents a parallel chain of routing modules, i.e., the state is split across all modules.
+        See :py:class:`.RouterModule` for more information.
+
+        Args:
+            *args: The modules to pass the state through in parallel.
+        """
+        self.router_modules: list[RouterModule] = list(args)
+
+    def __and__(self, other: "RouterModule") -> "RouterModule":
+        self.router_modules.append(other)
+        return self
+
+    def _select_models(self, num_models: int, state: RouterState) -> RouterState:
+        responses = []
+
+        for router_module in self.router_modules:
+            router_response = router_module.select_models(num_models, state=state.deepcopy())
+            responses.append(router_response)
+
+        for response in responses:
+            state += response
+
+        return state
+
+
+class ModelProposer(RouterModule):
+    """
+    Represents a proposer of a set of models to route to. Subclasses should implement the `_propose_models` method
+    to define the specific model selection logic.
+    """
+
+    def _select_models(self, num_models: int, state: RouterState) -> RouterState:
+        """
+        Propose a set of models to route to.
+
+        Args:
+            num_models: The number of models to propose.
+            state: The state to propose models for. The `all_models` field is used to determine the set of
+                models to propose, e.g., `FRONTEND_MODELS`.
+        """
+        models_to_select = state.get_selectable_models()
+
+        if num_models == 0:
+            return RouterState()
+
+        num_models = min(len(models_to_select), num_models)
+
+        response = self._propose_models(min(len(models_to_select), num_models), models_to_select, state.deepcopy())
+
+        return response
+
+    @abstractmethod
+    def _propose_models(self, num_models: int, models_to_select: set[str], state: RouterState) -> RouterState:
+        """
+        Propose a set of models to route to.
+
+        Args:
+            num_models: The number of models to propose.
+            models_to_select: The set of models to propose.
+            state: The state to propose models for.
+        """
+        raise NotImplementedError
+
+
+class RandomModelProposer(RNGMixin, ModelProposer):
+    def _propose_models(self, num_models: int, models_to_select: set[str], state: RouterState) -> RouterState:
+        """
+        Randomly select a set of models to route to.
+
+        Args:
+            num_models: The number of models to propose.
+            models_to_select: The set of models to randomly select from.
+            state: The state to propose models for.
+        """
+        selected_models = self.get_rng().choice(list(models_to_select), num_models, replace=False)
+
+        return RouterState(
+            selected_models={model: {SelectionCriteria.RANDOM: 1.0} for model in selected_models},
+            excluded_models=state.excluded_models,
+        )
+
+
+class ModelFilter(RouterModule):
+    """
+    Represents a filter of a set of models to route to. Subclasses should implement the `_filter` method
+    to define the specific model filtering logic.
+    """
+
+    def __init__(self, persist: bool = False) -> None:
+        """
+        Args:
+            persist: Whether to persist the models that are excluded from the selection, so that they are never
+                selected again in future routing modules.
+        """
+        self.persist = persist
+
+    def _select_models(self, num_models: int, state: RouterState) -> RouterState:
+        state, excluded_models = self._filter(state)
+
+        if self.persist:
+            state.excluded_models = state.excluded_models.union(excluded_models)
+
+        return state
+
+    @abstractmethod
+    def _filter(self, state: RouterState) -> tuple[RouterState, set[str]]:
+        """
+        Filter a set of models to route to.
+
+        Args:
+            state: The state to filter models for.
+        """
+        raise NotImplementedError
+
+
+class TopK(ModelFilter):
+    """
+    Represents a filter of a set of models to route to. The top-k models are selected, where the score is the sum of the
+    scores of the models.
+    """
+
+    def __init__(self, k: int, persist: bool = True) -> None:
+        """
+        Args:
+            k: The number of top-k models to select.
+        """
+        super().__init__(persist=persist)
+        self.k = k
+
+    def _filter(self, state: RouterState) -> tuple[RouterState, set[str]]:
+        selected_models = sorted(state.selected_models.items(), key=lambda x: sum(x[1].values()), reverse=True)
+        excluded_models = {model for model, _ in selected_models[self.k :]}
+
+        state.selected_models = {model: x for model, x in state.selected_models.items() if model not in excluded_models}
+
+        return state, excluded_models
+
+
+class MinimumFractionModelProposer(RNGMixin, ModelProposer):
+    def __init__(self, minimum_model_traffic_fraction: dict[str, float]) -> None:
+        self.minimum_model_traffic_fraction = minimum_model_traffic_fraction
+
+    def _propose_models(self, num_models: int, models_to_select: set[str], state: RouterState) -> RouterState:
+        if num_models > len(models_to_select):
+            return state
+
+        models = list(models_to_select)
+        probs = np.array([self.minimum_model_traffic_fraction.get(model, 0) for model in models])
+        probs /= probs.sum()
+
+        selected_models = self.get_rng().choice(models, num_models, replace=False, p=probs)
+
+        return RouterState(
+            selected_models={model: {SelectionCriteria._MIN_TRAFFIC_FRACTION: 1.0} for model in selected_models},
+            excluded_models=state.excluded_models,
+        )
+
+
+class RandomShuffle(RNGMixin, ModelProposer):
+    def __init__(self, shuffle_same_scores_only: bool = False) -> None:
+        self.shuffle_same_scores_only = shuffle_same_scores_only
+
+    def _propose_models(self, num_models: int, models_to_select: set[str], state: RouterState) -> RouterState:
+        if self.shuffle_same_scores_only:
+            # Shuffle only the order of models with the same score
+            model_score_map = state.get_model_score_map()
+            score_model_map: dict[float, list[str]] = {score: [] for score in model_score_map.values()}
+            shuffled_items = list(model_score_map.items())
+            self.get_rng().shuffle(shuffled_items)  # type: ignore
+
+            for model, score in shuffled_items:
+                score_model_map[score].append(model)
+
+            selected_models = {}
+
+            for score, models in score_model_map.items():
+                for model in models:
+                    selected_models[model] = {SelectionCriteria.RANDOM: score}
+
+            return RouterState(
+                selected_models=selected_models, excluded_models=state.excluded_models, all_models=set(models_to_select)
+            )
+        else:
+            selected_models = self.get_rng().choice(list(models_to_select), num_models, replace=False)  # type: ignore
+
+            return RouterState(
+                selected_models={model: {SelectionCriteria.RANDOM: 1.0} for model in selected_models},
+                excluded_models=state.excluded_models,
+                all_models=set(models_to_select),
+            )
+
+
+class AlwaysGoodModelMetaRouter(ModelProposer):
+    """
+    A meta-router that ensures that at least one "good" model is always selected, where the definition of "good" is
+    defined by the `num_good` parameter and the `ranker` parameter, which is a :py:class:`.Ranker` used to rank
+    the models.
+    """
+
+    def __init__(self, ranker: Ranker, router: RouterModule, num_good: int) -> None:
+        self.router = router
+        self.num_good = num_good
+        self.ranker = ranker
+
+    def _propose_models(self, num_models: int, models_to_select: set[str], state: RouterState) -> RouterState:
+        good_model_response = EloProposer(self.ranker).select_models(self.num_good, state.deepcopy())
+        good_model_response.all_models = good_model_response.get_selected_models()
+        good_model_response = self.router.select_models(min(self.num_good, num_models), good_model_response)
+
+        top1_filter = TopK(1)
+        good_model_response = top1_filter.select_models(state=good_model_response)
+        good_model_response.multiply_scores(1000)  # ensures that one good model is always selected
+        state.excluded_models.update(good_model_response.selected_models.keys())
+
+        if num_models > 1:
+            default_response = self.router.select_models(num_models - 1, state.deepcopy())
+            default_response.excluded_models = set()
+            good_model_response.excluded_models = set()
+            good_model_response += default_response
+
+        return good_model_response
+
+
+class EloProposer(RNGMixin, ModelProposer):
+    """
+    A proposer of a set of models to route to. The models are ranked by the `ranker` parameter, which is a
+    :py:class:`.Ranker`.
+    """
+
+    def __init__(self, ranker: Ranker) -> None:
+        """
+        Args:
+            ranker: The ranker to use to rank the models.
+        """
+        self.ranker = ranker
+
+    def _propose_models(self, num_models: int, models_to_select: set[str], state: RouterState) -> RouterState:
+        elo_ratings = self.ranker.get_ratings()
+
+        sorted_models = sorted(
+            [model for model in models_to_select],
+            key=lambda m: elo_ratings.get(m, 1.0) + self.get_rng().random() * 1e-7,  # add a small random jitter
+            reverse=True,
+        )
+
+        selected_models = sorted_models[:num_models]
+        max_elo = max(elo_ratings.values(), default=1.0)
+
+        return RouterState(
+            selected_models={
+                model: {SelectionCriteria.TOP: elo_ratings.get(model, 1.0) / max_elo} for model in selected_models
+            },
+            excluded_models=state.excluded_models,
+        )
+
+
+class ProportionalModelProposer(RNGMixin, ModelProposer):
+    """
+    A proposer of a set of models to route to. The models are selected proportionally following
+    :py:meth:`.Ranker.get_probabilities`.
+    """
+
+    def __init__(self, ranker: Ranker) -> None:
+        """
+        Args:
+            ranker: The ranker to use to rank the models.
+        """
+        self.ranker = ranker
+
+    def _propose_models(self, num_models: int, models_to_select: set[str], state: RouterState) -> RouterState:
         probabilities = self.ranker.get_probabilities().copy()
-        if exclude is not None:
-            for model in exclude:
-                if model in probabilities:
-                    del probabilities[model]
+
         if not probabilities:
-            return []
+            return RouterState()
+
+        for k, _ in list(probabilities.items()):
+            if k not in models_to_select:
+                del probabilities[k]
+
+        if not probabilities:
+            return RouterState()
+
         # Re-normalize probabilities to sum to 1
         probabilities = {k: v / sum(probabilities.values()) for k, v in probabilities.items()}
-
         models = list(probabilities.keys())
-        return list(self.rng.choice(models, size=num_models, p=list(probabilities.values()), replace=False))
 
-    def _select_best_models(self, num_models: int, budget: float, exclude: list[Any] | None = None) -> list[Any]:
-        if not num_models:
-            return []
-
-        # Add a small random number to the rating to break ties.
-        ratings = {k: v + self.rng.random() * 1e-10 for k, v in self.ranker.get_ratings().items()}
-        if exclude is not None:
-            for model in exclude:
-                if model in ratings:
-                    del ratings[model]
-
-        sorted_models = sorted(ratings.items(), key=lambda x: x[1], reverse=True)
-        if not sorted_models:
-            return []
-
-        selected_models: list[Any] = []
-        total_cost = 0.0
-        max_cost = max(
-            x.dollars_per_million_output_tokens + x.dollars_per_million_input_tokens for x in COSTS_BY_MODEL.values()
+        chosen_models = set(
+            self.get_rng().choice(models, size=num_models, p=list(probabilities.values()), replace=False)
         )
 
-        for model, _ in sorted_models:
-            try:
-                cost = self.ranker.costs[model]
-            except KeyError:
-                continue
-            except AttributeError:
-                cost = max_cost
+        return RouterState(
+            selected_models={model: {SelectionCriteria.PROPORTIONAL: 1.0} for model in chosen_models},
+            excluded_models=state.excluded_models,
+            all_models=set(models),
+        )
 
-            if total_cost + cost <= budget and len(selected_models) < num_models:
-                selected_models.append(model)
-                total_cost += cost
 
-        if len(selected_models) < num_models:
-            logging.warning(f"Budget too low to select {num_models} models; returning {len(selected_models)} models")
+class ConfidenceIntervalWidthModelProposer(ModelProposer):
+    """
+    A proposer of a set of models to route to. The models are selected based on the width of the confidence
+    intervals, where the width is defined by the `ranker`.
+    """
 
-        return selected_models
+    def __init__(self, ranker: ConfidenceIntervalRankerMixin) -> None:
+        """
+        Args:
+            ranker: The ranker to use to rank the models.
+        """
+        self.ranker = ranker
 
-    def _select_high_conf_interval_models(self, num_models: int, exclude: list[Any] | None = None) -> list[Any]:
         if not hasattr(self.ranker, "get_confidence_intervals"):
             raise ValueError("Ranker must implement `get_confidence_intervals`")
+
+    def _propose_models(self, num_models: int, models_to_select: set[str], state: RouterState) -> RouterState:
         conf_interval_widths = {model: abs(x[1] - x[0]) for model, x in self.ranker.get_confidence_intervals().items()}
-        if exclude is not None:
-            for model in exclude:
-                if model in conf_interval_widths:
-                    del conf_interval_widths[model]
+
+        for model in list(conf_interval_widths.keys()):
+            if model not in models_to_select:
+                del conf_interval_widths[model]
 
         sorted_models = sorted(conf_interval_widths.items(), key=lambda x: x[1], reverse=True)
-        return [model for model, _ in sorted_models[:num_models]]
+        selected_models = [model for model, _ in sorted_models[:num_models]]
 
-    def _select_high_overlap_conf_interval_pair_models(
-        self, num_models: int, exclude: list[Any] | None = None
-    ) -> list[Any]:
+        return RouterState(
+            selected_models={
+                model: {SelectionCriteria.CONF_INTERVAL_WIDTH: 1.0 / (rank + 1)}
+                for rank, model in enumerate(selected_models)
+            },
+            excluded_models=state.excluded_models,
+            all_models=set(conf_interval_widths.keys()),
+        )
+
+
+class ConfidenceIntervalNumOverlapModelProposer(ModelProposer):
+    """
+    A proposer of a set of models to route to. The models are selected based on the number of overlaps in the confidence
+    intervals, where the confidence intervals are computed by the `ranker`.
+    """
+
+    def __init__(self, ranker: Ranker) -> None:
+        """
+        Args:
+            ranker: The ranker to use to rank the models.
+        """
+        self.ranker = ranker
+
         if not hasattr(self.ranker, "get_confidence_intervals"):
             raise ValueError("Ranker must implement `get_confidence_intervals`")
 
+    def _propose_models(self, num_models: int, models_to_select: set[str], state: RouterState) -> RouterState:
         conf_intervals = []
         models = []
-        exclude = exclude or []
-        exclude_set = set(exclude)
 
-        for model, ci in self.ranker.get_confidence_intervals().items():
-            if model in exclude_set:
-                continue
-
-            conf_intervals.append(ci)
-            models.append(model)
-
-        if not conf_intervals or not num_models:
-            return []
-
-        highest_overlapping_pairs, _ = _fast_compute_all_conf_overlap_diffs(np.array(conf_intervals), num_models)
-        sorted_ind = list(dict.fromkeys(highest_overlapping_pairs.flatten()))[:num_models]
-
-        return [models[i] for i in sorted_ind]
-
-    def _select_random_models(self, num_models: int, exclude: list[Any] | None = None) -> list[Any]:
-        models = set(self.models)
-        if exclude is not None:
-            models -= set(exclude)
-        return list(self.rng.choice(list(models), size=num_models, replace=False))
-
-    def _select_high_overlap_conf_interval_models(self, num_models: int, exclude: list[Any] | None = None) -> list[Any]:
-        if not hasattr(self.ranker, "get_confidence_intervals"):
-            raise ValueError("Ranker must implement `get_confidence_intervals`")
-
-        conf_intervals = []
-        models = []
-        exclude = exclude or []
-        exclude_set = set(exclude)
-
-        for model, ci in self.ranker.get_confidence_intervals().items():
-            if model in exclude_set:
+        for model, ci in self.ranker.get_confidence_intervals().items():  # type: ignore
+            if model not in models_to_select:
                 continue
 
             conf_intervals.append(ci)
             models.append(model)
 
         if not conf_intervals:
-            return []
+            return RouterState()
 
         num_overlaps, perm_map = _fast_compute_all_num_intersections(np.array(conf_intervals))
         sorted_ind = np.argpartition(num_overlaps, -num_models)[-num_models:]
         sorted_models = [(num_overlaps[i], models[perm_map[i]]) for i in sorted_ind]
         sorted_models = sorted(sorted_models, key=lambda x: x[0], reverse=True)
 
-        return [model for _, model in sorted_models][:num_models]
+        selected_models = [model for _, model in sorted_models][:num_models]
+
+        return RouterState(
+            selected_models={
+                model: {SelectionCriteria.CONF_INTERVAL_NUM_OVERLAP: 1.0 / (rank + 1)}
+                for rank, model in enumerate(selected_models)
+            },
+            excluded_models=state.excluded_models,
+            all_models=set(models),
+        )
+
+
+class ConfidenceIntervalWidthOverlapModelProposer(ModelProposer):
+    """
+    A proposer of a set of models to route to. The models are selected based on the overlap width of the
+    confidence intervals, where the confidence intervals are computed by the `ranker`.
+    """
+
+    def __init__(self, ranker: Ranker) -> None:
+        """
+        Args:
+            ranker: The ranker to use to rank the models.
+        """
+        self.ranker = ranker
+
+        if not hasattr(self.ranker, "get_confidence_intervals"):
+            raise ValueError("Ranker must implement `get_confidence_intervals`")
+
+    def _propose_models(self, num_models: int, models_to_select: set[str], state: RouterState) -> RouterState:
+        conf_intervals = []
+        models = []
+
+        for model, ci in self.ranker.get_confidence_intervals().items():  # type: ignore
+            if model not in models_to_select:
+                continue
+
+            conf_intervals.append(ci)
+            models.append(model)
+
+        if not conf_intervals or not num_models:
+            return RouterState()
+
+        highest_overlapping_pairs, _ = _fast_compute_all_conf_overlap_diffs(np.array(conf_intervals), num_models)
+        sorted_ind = list(dict.fromkeys(highest_overlapping_pairs.flatten()))[:num_models]
+
+        return RouterState(
+            selected_models={
+                models[i]: {SelectionCriteria.CONF_INTERVAL_PAIR_OVERLAP: 1.0 / (rank + 1)}
+                for rank, i in enumerate(sorted_ind)
+            },
+            excluded_models=state.excluded_models,
+            all_models=set(models),
+        )
+
+
+class CostModelProposer(ModelProposer):
+    def _propose_models(self, num_models: int, models_to_select: set[str], state: RouterState) -> RouterState:
+        model_costs = []
+
+        for model in models_to_select:
+            m = model if model in COSTS_BY_MODEL else "gpt-4o-mini"
+            cost = (
+                COSTS_BY_MODEL[m].dollars_per_million_output_tokens + COSTS_BY_MODEL[m].dollars_per_million_input_tokens
+            )
+            model_costs.append((cost, model))
+
+        model_costs = sorted(model_costs, key=lambda x: x[0])
+        selected_models = model_costs[:num_models]
+
+        return RouterState(
+            selected_models={
+                model: {SelectionCriteria.MIN_SIMPLE_COST: 1 / (cost + 1)} for cost, model in selected_models
+            },
+            excluded_models=state.excluded_models,
+            all_models=set([x[1] for x in model_costs]),
+        )
 
 
 @numba.njit
@@ -539,20 +844,25 @@ class RoutingDecision:
             logging.info(f"Routing decision: {payload}")
 
 
-@cache
-def get_router() -> RankedRouter:
-    if settings.ROUTING_WEIGHTS:
-        try:
-            selection_criterias = {
-                SelectionCriteria(selection_criteria): weight
-                for selection_criteria, weight in settings.ROUTING_WEIGHTS.items()
-            }
+def get_router_ranker(ranker: Ranker | None = None) -> tuple[RouterModule, Ranker]:
+    min_weight = settings.ROUTING_WEIGHTS.get("min_simple_cost", 0.1)
+    rand_weight = settings.ROUTING_WEIGHTS.get("random", 0.1)
+    top_weight = settings.ROUTING_WEIGHTS.get("top", 0.1)
+    ranker = ranker or get_ranker()
 
-            policy = RoutingPolicy(selection_criteria=selection_criterias, random_fraction=0.1)
-        except ValueError:
-            logging.exception("Invalid selection criteria in ROUTING_WEIGHTS; falling back to default")
-            policy = DEFAULT_ROUTING_POLICY
-    else:
-        policy = DEFAULT_ROUTING_POLICY
+    router: RouterModule = (CostModelProposer() ^ RandomModelProposer() ^ EloProposer(ranker)).with_probs(
+        min_weight,
+        rand_weight + decayed_random_fraction(ranker, initial_value=0.6, final_value=0.05, steps=50000),
+        top_weight,
+    )
 
-    return RankedRouter(models=FRONTEND_MODELS, policy=policy, ranker=get_ranker())
+    if settings.ROUTING_GOOD_MODELS_ALWAYS:
+        router = AlwaysGoodModelMetaRouter(ranker, router, num_good=settings.ROUTING_GOOD_MODELS_RANK_THRESHOLD)
+
+    router = router | RouterDecisionLogger(enabled=settings.ROUTING_DO_LOGGING)
+
+    return router, ranker
+
+
+def get_router(ranker: Ranker | None = None) -> RouterModule:
+    return get_router_ranker(ranker)[0]
