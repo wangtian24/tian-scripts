@@ -387,7 +387,11 @@ def _update_ranking(
     ranker.add_evals_from_db(**params)
     for ranked_model in ranker.leaderboard():
         logging.info(ranked_model)
-    ranker.to_db()
+    if category_names:
+        for category_name in category_names:
+            ranker.to_db(category_name=category_name)
+    else:
+        ranker.to_db()
 
 
 @cli.command()
@@ -406,7 +410,6 @@ def update_ranking(
     user_from_date: datetime | None = None,
     user_to_date: datetime | None = None,
     language_codes: list[str] | None = None,
-    all_categories: bool = False,
 ) -> None:
     _update_ranking(category_names, exclude_ties, from_date, to_date, user_from_date, user_to_date, language_codes)
 
