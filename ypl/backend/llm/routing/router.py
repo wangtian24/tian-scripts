@@ -11,7 +11,8 @@ from google.cloud import logging as goog_logging
 from pydantic import BaseModel
 
 from ypl.backend.config import settings
-from ypl.backend.llm.constants import COSTS_BY_MODEL
+from ypl.backend.llm.chat import ModelInfo
+from ypl.backend.llm.constants import COSTS_BY_MODEL, FRONTEND_MODELS, ChatProvider
 from ypl.backend.llm.ranking import ConfidenceIntervalRankerMixin, Ranker, get_ranker
 from ypl.backend.llm.routing.policy import SelectionCriteria, decayed_random_fraction
 
@@ -90,6 +91,14 @@ class RouterState(BaseModel):
         """
         return {model: sum(criteria_map.values()) for model, criteria_map in self.selected_models.items()}
 
+    @classmethod
+    def new_all_models_state(cls) -> "RouterState":
+        return RouterState(
+            selected_models={},
+            excluded_models=set(),
+            all_models=set(FRONTEND_MODELS),
+        )
+
 
 class RNGMixin:
     """
@@ -156,9 +165,27 @@ class RouterModule(ABC):
     - :py:meth:`.RouterDecisionLogger`
     """
 
+    _multiplier: float | None = None
+
     def select_models(self, num_models: int = 0, state: RouterState | None = None) -> RouterState:
         response = self._select_models(num_models or 1, state or RouterState())
+
+        if self._multiplier is not None:
+            response.multiply_scores(self._multiplier)
+
         return response
+
+    async def aselect_models(self, num_models: int = 0, state: RouterState | None = None) -> RouterState:
+        response = await self._aselect_models(num_models or 1, state or RouterState())
+
+        if self._multiplier is not None:
+            response.multiply_scores(self._multiplier)
+
+        return response
+
+    def with_multiplier(self, multiplier: float) -> "RouterModule":
+        self._multiplier = multiplier
+        return self
 
     def __or__(self, other: "RouterModule") -> "RouterModule":
         return RouterSequentialChain(self, other)
@@ -173,14 +200,18 @@ class RouterModule(ABC):
     def _select_models(self, num_models: int, state: RouterState) -> RouterState:
         raise NotImplementedError
 
+    async def _aselect_models(self, num_models: int, state: RouterState) -> RouterState:
+        return self._select_models(num_models, state)
+
 
 class RouterDecisionLogger(RouterModule):
-    def __init__(self, enabled: bool = True) -> None:
+    def __init__(self, enabled: bool = True, prefix: str = "router") -> None:
         """
         Args:
             enabled: Whether to log the routing decision.
         """
         self.enabled = enabled
+        self.prefix = prefix
 
     def _select_models(self, _: int, state: RouterState) -> RouterState:
         """
@@ -188,6 +219,7 @@ class RouterDecisionLogger(RouterModule):
         """
         if self.enabled:
             decision = RoutingDecision(
+                prefix=self.prefix,
                 candidate_model_names=list(state.all_models),
                 chosen_model_names=list(state.selected_models.keys()),
                 selection_criteria=list(
@@ -320,8 +352,20 @@ class ModelProposer(RouterModule):
             return RouterState()
 
         num_models = min(len(models_to_select), num_models)
-
         response = self._propose_models(min(len(models_to_select), num_models), models_to_select, state.deepcopy())
+
+        return response
+
+    async def _aselect_models(self, num_models: int, state: RouterState) -> RouterState:
+        models_to_select = state.get_selectable_models()
+
+        if num_models == 0:
+            return RouterState()
+
+        num_models = min(len(models_to_select), num_models)
+        response = await self._apropose_models(
+            min(len(models_to_select), num_models), models_to_select, state.deepcopy()
+        )
 
         return response
 
@@ -337,6 +381,9 @@ class ModelProposer(RouterModule):
         """
         raise NotImplementedError
 
+    async def _apropose_models(self, num_models: int, models_to_select: set[str], state: RouterState) -> RouterState:
+        return self._propose_models(num_models, models_to_select, state)
+
 
 class RandomModelProposer(RNGMixin, ModelProposer):
     def _propose_models(self, num_models: int, models_to_select: set[str], state: RouterState) -> RouterState:
@@ -351,7 +398,7 @@ class RandomModelProposer(RNGMixin, ModelProposer):
         selected_models = self.get_rng().choice(list(models_to_select), num_models, replace=False)
 
         return RouterState(
-            selected_models={model: {SelectionCriteria.RANDOM: 1.0} for model in selected_models},
+            selected_models={model: {SelectionCriteria.RANDOM: self.get_rng().random()} for model in selected_models},
             excluded_models=state.excluded_models,
         )
 
@@ -795,9 +842,27 @@ def _fast_compute_all_num_intersections(intervals: np.ndarray) -> tuple[np.ndarr
     return counts, permutation_map
 
 
+class MaxSpeedProposer(ModelProposer):
+    def _propose_models(self, num_models: int, models_to_select: set[str], state: RouterState) -> RouterState:
+        model_speeds = [
+            (model_name, COSTS_BY_MODEL.get(model_name, COSTS_BY_MODEL["gpt-4-turbo"]).tokens_per_second)
+            for model_name in models_to_select
+        ]
+
+        max_speed = max(speed for _, speed in model_speeds)
+
+        return RouterState(
+            selected_models={
+                model_name: {SelectionCriteria.MAX_SPEED: speed / max_speed} for model_name, speed in model_speeds
+            },
+            all_models=models_to_select,
+        )
+
+
 class RoutingDecision:
     def __init__(
         self,
+        prefix: str,
         candidate_model_names: Sequence[str],
         chosen_model_names: Sequence[str],
         selection_criteria: Sequence[str],
@@ -805,6 +870,7 @@ class RoutingDecision:
     ) -> None:
         """
         Args:
+            prefix: A prefix to identify the router that made the decision.
             candidate_model_names: The names of the models that were proposed.
             chosen_model_names: The names of the models that were finally chosen. Should be a subset of the above.
             selection_criteria: The names of the criteria that made the decision. If there are multiple, it means that
@@ -814,6 +880,7 @@ class RoutingDecision:
         from ypl import __version__
 
         self.codebase_version = __version__
+        self.prefix = prefix
         self.candidate_model_names = candidate_model_names
         self.chosen_model_names = chosen_model_names
         self.selection_criteria = selection_criteria
@@ -830,6 +897,7 @@ class RoutingDecision:
         """
         payload = {
             "codebase_version": self.codebase_version,
+            "prefix": self.prefix,
             "candidate_model_names": self.candidate_model_names,
             "chosen_model_names": self.chosen_model_names,
             "selection_criteria": self.selection_criteria,
@@ -859,10 +927,33 @@ def get_router_ranker(ranker: Ranker | None = None) -> tuple[RouterModule, Ranke
     if settings.ROUTING_GOOD_MODELS_ALWAYS:
         router = AlwaysGoodModelMetaRouter(ranker, router, num_good=settings.ROUTING_GOOD_MODELS_RANK_THRESHOLD)
 
-    router = router | RouterDecisionLogger(enabled=settings.ROUTING_DO_LOGGING)
+    router = router | RouterDecisionLogger(enabled=settings.ROUTING_DO_LOGGING, prefix="default-router")
 
     return router, ranker
 
 
 def get_router(ranker: Ranker | None = None) -> RouterModule:
     return get_router_ranker(ranker)[0]
+
+
+def get_prompt_conditional_router(prompt: str, num_models: int) -> RouterModule:
+    from ypl.backend.llm.routing.prompt_router import ZeroShotPromptQualityProposer
+
+    model_info = ModelInfo(
+        provider=ChatProvider.OPENAI,
+        api_key=settings.OPENAI_API_KEY_ROUTING,
+        temperature=0.0,
+        model="gpt-4o",
+    )
+    rand_weight = settings.ROUTING_WEIGHTS.get("random", 0.1)
+    prompt_weight = settings.ROUTING_WEIGHTS.get("best_prompt_quality", 0.5)
+
+    router: RouterModule = (
+        (RandomModelProposer() ^ ZeroShotPromptQualityProposer(model_info, prompt)).with_probs(
+            rand_weight, prompt_weight
+        )
+        | TopK(num_models)
+        | RouterDecisionLogger(enabled=settings.ROUTING_DO_LOGGING, prefix="prompt-conditional-router")
+    )
+
+    return router

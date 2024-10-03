@@ -3,23 +3,28 @@ from typing import Any
 from fastapi import APIRouter, Body, Query
 from tqdm import tqdm
 
+from ypl.backend.config import settings
 from ypl.backend.llm.constants import FRONTEND_MODELS
 from ypl.backend.llm.ranking import get_ranker
-from ypl.backend.llm.routing.router import RouterState, get_router_ranker
+from ypl.backend.llm.routing.router import RouterState, get_prompt_conditional_router, get_router_ranker
 
 router = APIRouter()
 
 
 @router.post("/select_models")
-def select_models(
+async def select_models(
     prompt: str = Query(..., description="Prompt"),
     num_models: int = Query(default=2, description="Number of different models to route to"),
     budget: float = Query(default=float("inf"), description="Budget"),
 ) -> list[str]:
-    router, ranker = get_router_ranker()
-    all_models_state = RouterState(all_models=set(FRONTEND_MODELS).union(ranker.get_models()))
+    if settings.ROUTING_USE_PROMPT_CONDITIONAL:
+        router = get_prompt_conditional_router(prompt, num_models)
+        all_models_state = RouterState.new_all_models_state()
+    else:
+        router, ranker = get_router_ranker()
+        all_models_state = RouterState(all_models=set(FRONTEND_MODELS).union(ranker.get_models()))
 
-    return list(router.select_models(num_models, state=all_models_state).get_selected_models())
+    return list((await router.aselect_models(num_models, state=all_models_state)).get_selected_models())
 
 
 @router.post("/update_ranker")

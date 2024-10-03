@@ -284,3 +284,27 @@ Model B: {response2}
 JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages(
     [("human", JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT)]
 )
+
+PROMPTS_MODEL_QUALITY_SYS_PROMPT = """You are a specialized language model designed to predict the quality of a model's response to a given prompt. You are given
+the following information about the models:
+
+{model_metadata}
+"""
+
+PROMPTS_MODEL_QUALITY_USER_PROMPT_COMPLEX = """The prompt is as follows: {prompt}
+
+Pick the five most suitable models for the prompt, taking speed and quality into consideration. Your repsonse must be a JSON object with the model names as keys and
+the suitability scores as integers between 0 and 100, with 0 being the worst and 100 the best. Do not explain. Example:
+
+{"model1": 80, "model2": 90, "model3": 50}
+"""
+
+PROMPTS_MODEL_QUALITY_USER_PROMPT_SIMPLE = """The prompt is as follows: {prompt}
+
+Pick the five most suitable models for the prompt, taking speed and quality into consideration. Your response must be a Python list of the model names,
+e.g., ["model1", ...]. Do not explain. Do not ever put markdown or markup.
+"""
+
+PROMPTS_MODEL_QUALITY_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages(
+    [("system", PROMPTS_MODEL_QUALITY_SYS_PROMPT), ("human", PROMPTS_MODEL_QUALITY_USER_PROMPT_SIMPLE)]
+)

@@ -10,6 +10,7 @@ from vertexai.preview import tokenization
 class ModelCost(BaseModelV1):
     dollars_per_million_input_tokens: float
     dollars_per_million_output_tokens: float
+    tokens_per_second: float = 0.0  # number of tokens output per second
 
     tokenizer_type: Literal["huggingface", "tiktoken", "google"] = "tiktoken"
     tokenizer_name: str = "gpt-4o-mini"

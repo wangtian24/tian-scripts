@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     # the router will use the default policy.
     ROUTING_WEIGHTS: dict[str, float] = {}
 
+    # Whether to use prompt-conditional routing. Defaults to false.
+    ROUTING_USE_PROMPT_CONDITIONAL: bool = False
+    OPENAI_API_KEY_ROUTING: str = ""
+
     @computed_field  # type: ignore[misc]
     @property
     def server_host(self) -> str:

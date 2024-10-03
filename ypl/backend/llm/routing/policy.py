@@ -55,4 +55,10 @@ class SelectionCriteria(Enum):
     # Select the models with the highest cost per million tokens.
     MAX_SIMPLE_COST = "max_simple_cost"
 
+    # Select the models with the best quality for the given prompt
+    BEST_PROMPT_QUALITY = "best_prompt_quality"
+
+    # Select the models with the fastest speed
+    MAX_SPEED = "max_speed"
+
     RANDOM = "random"
