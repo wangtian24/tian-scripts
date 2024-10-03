@@ -4,7 +4,6 @@ from fastapi import APIRouter, Body, Query
 from tqdm import tqdm
 
 from ypl.backend.config import settings
-from ypl.backend.llm.constants import FRONTEND_MODELS
 from ypl.backend.llm.ranking import get_ranker
 from ypl.backend.llm.routing.router import RouterState, get_prompt_conditional_router, get_router_ranker
 
@@ -19,10 +18,10 @@ async def select_models(
 ) -> list[str]:
     if settings.ROUTING_USE_PROMPT_CONDITIONAL:
         router = get_prompt_conditional_router(prompt, num_models)
-        all_models_state = RouterState.new_all_models_state()
     else:
         router, ranker = get_router_ranker()
-        all_models_state = RouterState(all_models=set(FRONTEND_MODELS).union(ranker.get_models()))
+
+    all_models_state = RouterState.new_all_models_state()
 
     return list((await router.aselect_models(num_models, state=all_models_state)).get_selected_models())
 
