@@ -27,9 +27,9 @@ class ChatProvider(Enum):
             raise ValueError(f"Unsupported provider string: {provider}") from e
 
 
-# Remember to keep the list of models in sync with
-# https://github.com/yupp-ai/sarai-chat/blob/main/lib/llms.tsx#L38
-FRONTEND_MODELS_BY_PROVIDER = {
+# These are the models that are currently active in the system.
+# TODO: This should be fetched from the database.
+ACTIVE_MODELS_BY_PROVIDER = {
     ChatProvider.OPENAI: [
         "gpt-4o",
         "gpt-4o-mini",
@@ -84,7 +84,6 @@ ALL_MODELS_BY_PROVIDER = {
     ],
 }
 
-FRONTEND_MODELS = [model for models in FRONTEND_MODELS_BY_PROVIDER.values() for model in models]
 ALL_EMBEDDING_MODELS_BY_PROVIDER = {ChatProvider.OPENAI: ["text-embedding-ada-002"]}
 
 # fmt: off

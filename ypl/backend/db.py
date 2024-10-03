@@ -3,17 +3,19 @@ from typing import Annotated
 
 from fastapi import Depends
 from sqlalchemy import ClauseElement, Compiled, Engine
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlmodel import Session, create_engine
 
 from ypl.backend.config import settings
 
 engine: Engine | None = None
+async_engine: AsyncEngine | None = None
 
 
 def get_engine() -> Engine:
     global engine
     if engine is None:
-        engine = create_engine(str(settings.db_url))
+        engine = create_engine(str(settings.db_url), connect_args={"sslmode": settings.db_ssl_mode})
     return engine
 
 
@@ -27,3 +29,10 @@ def get_raw_sql(query: ClauseElement) -> Compiled:
 
 
 SessionDep = Annotated[Session, Depends(get_db)]
+
+
+def get_async_engine() -> AsyncEngine:
+    global async_engine
+    if async_engine is None:
+        async_engine = create_async_engine(str(settings.db_url_async), connect_args={"ssl": settings.db_ssl_mode})
+    return async_engine

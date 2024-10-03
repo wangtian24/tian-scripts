@@ -5,6 +5,7 @@ from typing import Annotated, Any, Literal, Self
 from pydantic import (
     AnyUrl,
     BeforeValidator,
+    PostgresDsn,
     computed_field,
     model_validator,
 )
@@ -69,11 +70,30 @@ class Settings(BaseSettings):
             return f"http://{self.DOMAIN}"
         return f"https://{self.DOMAIN}"
 
+    def _db_url(self, async_mode: bool) -> str:
+        scheme = "postgresql" + ("+asyncpg" if async_mode else "")
+        return PostgresDsn.build(
+            scheme=scheme,
+            username=self.POSTGRES_USER,
+            password=self.POSTGRES_PASSWORD,
+            host=self.POSTGRES_HOST,
+            path=f"{self.POSTGRES_DATABASE}",
+        ).unicode_string()
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def db_ssl_mode(self) -> str:
+        return "disable" if self.ENVIRONMENT == "local" else "require"
+
     @computed_field  # type: ignore[misc]
     @property
     def db_url(self) -> str:
-        ssl_mode = "disable" if self.ENVIRONMENT == "local" else "require"
-        return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}/{self.POSTGRES_DATABASE}?sslmode={ssl_mode}"
+        return self._db_url(async_mode=False)
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def db_url_async(self) -> str:
+        return self._db_url(async_mode=True)
 
     def _check_default_secret(self, var_name: str, value: str | None) -> None:
         if value == DEFAULT_UNSAFE_PASSWORD:

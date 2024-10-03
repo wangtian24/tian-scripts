@@ -9,12 +9,16 @@ import numba
 import numpy as np
 from google.cloud import logging as goog_logging
 from pydantic import BaseModel
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ypl.backend.config import settings
+from ypl.backend.db import get_async_engine
 from ypl.backend.llm.chat import ModelInfo
-from ypl.backend.llm.constants import COSTS_BY_MODEL, FRONTEND_MODELS, ChatProvider
+from ypl.backend.llm.constants import COSTS_BY_MODEL, ChatProvider
 from ypl.backend.llm.ranking import ConfidenceIntervalRankerMixin, Ranker, get_ranker
 from ypl.backend.llm.routing.policy import SelectionCriteria, decayed_random_fraction
+from ypl.db.language_models import LanguageModel, LanguageModelProviderAssociation, Provider
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -92,11 +96,27 @@ class RouterState(BaseModel):
         return {model: sum(criteria_map.values()) for model, criteria_map in self.selected_models.items()}
 
     @classmethod
-    def new_all_models_state(cls) -> "RouterState":
+    async def new_all_models_state(cls) -> "RouterState":
+        query = (
+            select(LanguageModel.internal_name)
+            .distinct()
+            .join(LanguageModelProviderAssociation)
+            .join(Provider)
+            .where(
+                LanguageModel.deleted_at.is_(None),  # type: ignore
+                LanguageModelProviderAssociation.deleted_at.is_(None),  # type: ignore
+                Provider.deleted_at.is_(None),  # type: ignore
+                LanguageModelProviderAssociation.is_active.is_(True),  # type: ignore
+                Provider.is_active.is_(True),  # type: ignore
+            )
+        )
+        async with AsyncSession(get_async_engine()) as session:
+            models = await session.exec(query)
+
         return RouterState(
             selected_models={},
             excluded_models=set(),
-            all_models=set(FRONTEND_MODELS),
+            all_models=set(models.all()),
         )
 
 

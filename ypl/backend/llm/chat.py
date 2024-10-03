@@ -18,7 +18,7 @@ from pydantic.v1 import SecretStr
 from sentence_transformers import SentenceTransformer
 
 from ypl.backend import prompts
-from ypl.backend.llm.constants import FRONTEND_MODELS_BY_PROVIDER, ChatProvider
+from ypl.backend.llm.constants import ACTIVE_MODELS_BY_PROVIDER, ChatProvider
 from ypl.backend.llm.utils import combine_short_sentences
 from ypl.db.chats import MessageType
 
@@ -69,7 +69,7 @@ def get_canonical_model_name(model: str, provider: ChatProvider) -> str:
 
 def get_chat_model(
     info: ModelInfo,
-    chat_model_pool: dict[ChatProvider, list[str]] = FRONTEND_MODELS_BY_PROVIDER,
+    chat_model_pool: dict[ChatProvider, list[str]] = ACTIVE_MODELS_BY_PROVIDER,
     **chat_kwargs: Any | None,
 ) -> BaseChatModel:
     """
@@ -114,7 +114,7 @@ def get_chat_model(
 
 def get_chat_history_model(
     info: ModelInfo,
-    chat_model_pool: dict[ChatProvider, list[str]] = FRONTEND_MODELS_BY_PROVIDER,
+    chat_model_pool: dict[ChatProvider, list[str]] = ACTIVE_MODELS_BY_PROVIDER,
     **chat_kwargs: Any | None,
 ) -> BaseChatModel:
     llm = get_chat_model(info, chat_model_pool=chat_model_pool, **chat_kwargs)
