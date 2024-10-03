@@ -24,8 +24,9 @@ on:
         required: true
         type: choice
         options:
-        - update-ranking
-        - categorize-messages
+          - categorize-messages
+          - update-ranking
+          - update-ranking-all-categories
       args:
         description: 'Arguments for the CLI command'
         required: false

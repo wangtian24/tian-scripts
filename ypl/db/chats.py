@@ -213,4 +213,35 @@ class Eval(BaseModel, table=True):
     judge_model_name: str | None = Field(nullable=True)
 
 
+class TurnQuality(BaseModel, table=True):
+    __tablename__ = "turn_qualities"
+
+    turn_quality_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
+    turn_id: uuid.UUID = Field(foreign_key="turns.turn_id", nullable=False, unique=True)
+    turn: "Turn" = Relationship(back_populates="turn_quality")
+
+    # The difficulty of the prompt: 1 (easy) to 10 (hard).
+    # A difficult prompt requires increased capabilities from the LLM, including domain knowledge,
+    # creativity, or increased cognitive load.
+    prompt_difficulty: float | None = Field(nullable=True)
+
+    # The novelty of the prompt: 1 (very similar to existing prompts) to 10 (unique and novel).
+    # A novel prompt differs from known prompts in terms of structure, domain, or format.
+    prompt_novelty: float | None = Field(nullable=True)
+
+    # The contribution of the turn to the system: 1 (no contribution) to 10 (game-changing).
+    # A "contributing" turn is one that results in changes in the state of the system, such as
+    # modifications to the rankings of different language models.
+    turn_contribution: float | None = Field(nullable=True)
+
+    # The language model used to judge the difficulty of the prompt.
+    prompt_difficulty_judge_model_id: uuid.UUID | None = Field(
+        foreign_key="language_models.language_model_id", nullable=True
+    )
+    prompt_difficulty_judge_model: "LanguageModel" = Relationship(back_populates="turn_qualities")
+
+    # The overall quality of the turn.
+    quality: float | None = Field(nullable=True)
+
+
 # TODO(minqi): Add comparison result (fka yupptake).
