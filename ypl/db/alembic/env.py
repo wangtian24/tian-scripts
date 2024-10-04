@@ -88,4 +88,4 @@ if context.is_offline_mode():
 else:
     run_migrations_online()
 
-config.set_main_option("sqlalchemy.url", settings.db_url)
+config.set_main_option("sqlalchemy.url", settings.db_url.replace("%", "%%"))
