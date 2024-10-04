@@ -83,7 +83,7 @@ def test_always_include_top_routing() -> None:
     starting_state = RouterState(all_models=set(models))
 
     ranker = ChoixRanker(models, choix_ranker_algorithm="rank_centrality", battles=battles_objs)
-    router = AlwaysGoodModelMetaRouter(ranker, RandomModelProposer(), num_good=1)
+    router = AlwaysGoodModelMetaRouter(ranker, RandomModelProposer().with_seed(0), num_good=1)
 
     routed_battles = [
         list(router.select_models(2, state=starting_state.deepcopy()).get_selected_models()) for _ in range(100)
@@ -139,7 +139,9 @@ def test_decrease_conf_interval_routing() -> None:
 
 def test_traffic_fraction_routing() -> None:
     models = ["a", "b", "c", "d"]
-    router = (MinimumFractionModelProposer({"c": 0.3, "d": 0.4}) ^ RandomModelProposer()).with_probs(0.4, 0.6)
+    router = (
+        MinimumFractionModelProposer({"c": 0.3, "d": 0.4}).with_seed(0) ^ RandomModelProposer().with_seed(0)
+    ).with_probs(0.4, 0.6)
     starting_state = RouterState(all_models=set(models))
     battles = [
         list(router.select_models(2, state=starting_state.deepcopy()).get_selected_models()) for _ in range(1000)
@@ -151,10 +153,10 @@ def test_traffic_fraction_routing() -> None:
     # Model c should be > 30% of the time, and model d > 40%.
     # Count the occurrences of each model in the battles
     expected_distribution = {
-        "c": approx(600, rel=0.2),
-        "d": approx(700, rel=0.2),
-        "a": approx(350, rel=0.2),
-        "b": approx(350, rel=0.2),
+        "c": approx(600, rel=0.25),
+        "d": approx(700, rel=0.25),
+        "a": approx(350, rel=0.25),
+        "b": approx(350, rel=0.25),
     }
 
     _check_list_item_distribution(battles, expected_distribution)

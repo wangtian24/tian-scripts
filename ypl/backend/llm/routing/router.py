@@ -3,7 +3,7 @@ import logging
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from itertools import chain
-from typing import Any
+from typing import Any, Self
 
 import numba
 import numpy as np
@@ -134,6 +134,10 @@ class RNGMixin:
             raise ValueError("Seed already set")
 
         self._seed = seed
+
+    def with_seed(self, seed: int) -> Self:
+        self.set_seed(seed)
+        return self
 
     def get_rng(self) -> np.random.RandomState:
         if self._rng is None:
