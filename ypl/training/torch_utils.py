@@ -1,5 +1,6 @@
-from typing import TypeVar
+from typing import Self, TypeVar
 
+import numpy as np
 import torch
 
 T = TypeVar("T")
@@ -42,3 +43,42 @@ class DeviceMixin:
                 return input_.to(self.device)  # type: ignore
             case _:
                 return input_
+
+
+class PyTorchRNGMixin:
+    """
+    Mixin class to add random number generators to a class.
+    """
+
+    _np_rng: np.random.RandomState | None = None
+    _torch_rng: torch.Generator | None = None
+    _seed: int | None = None
+
+    def set_seed(self, seed: int) -> None:
+        if self._seed is not None:
+            raise ValueError("Seed already set")
+
+        self._seed = seed
+
+    def set_deterministic(self, deterministic: bool) -> None:
+        # This is a global setting...
+        torch.use_deterministic_algorithms(deterministic)
+
+    def with_seed(self, seed: int) -> Self:
+        self.set_seed(seed)
+        return self
+
+    def get_numpy_rng(self) -> np.random.RandomState:
+        if self._np_rng is None:
+            self._np_rng = np.random.RandomState(self._seed)
+
+        return self._np_rng
+
+    def get_torch_rng(self) -> torch.Generator:
+        if self._torch_rng is None:
+            self._torch_rng = torch.Generator()
+
+            if self._seed is not None:
+                self._torch_rng.manual_seed(self._seed)
+
+        return self._torch_rng

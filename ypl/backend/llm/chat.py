@@ -94,6 +94,7 @@ def get_chat_model(
         ChatProvider.ANYSCALE: ChatOpenAI,
         ChatProvider.ZERO_ONE: ChatOpenAI,
         ChatProvider.QWEN: ChatOpenAI,
+        ChatProvider.MICROSOFT: ChatOpenAI,
     }
 
     chat_llm_cls = chat_llms.get(provider)
@@ -108,6 +109,9 @@ def get_chat_model(
 
     if info.base_url and "base_url" not in chat_kwargs:
         chat_kwargs["base_url"] = info.base_url
+
+    if full_model.startswith("o1") and provider == ChatProvider.OPENAI:
+        chat_kwargs["temperature"] = 1  # temperature must be 1 for o1 models
 
     return chat_llm_cls(api_key=SecretStr(api_key), model=full_model, **chat_kwargs)  # type: ignore
 
