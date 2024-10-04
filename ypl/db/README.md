@@ -23,10 +23,10 @@ We use [Alembic](https://alembic.sqlalchemy.org/en/latest/) to manage migrations
 ```bash
 alembic revision --autogenerate -m "description for the migration"
 ```
-Note: this does not capture server_default changes. If you change the server_default, you will need to manually add it to the migration script.
+Note: this does not capture server_default changes. If you change the server_default or adding a new column with a default value, you will need to manually add it to the migration script.
 1. A new file will be created in the `versions` folder. 
 1. Review the generated file and make necessary changes.
-1. Run 'poetry run ruff format db/' to fix any formatting issues. You can fix any issues iteratively by running 'poetry run ruff check --fix' 
+1. Run 'poetry run ruff format ypl/db/' to fix any formatting issues. You can fix any issues iteratively by running 'poetry run ruff check --fix' 
 1. Test actual migration: ensure that .env file has the correct environment value (local, staging), and run `alembic upgrade head` to apply the migration to the corresponding database. 
 
 ## Step 2: Review cycle

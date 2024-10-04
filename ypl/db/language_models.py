@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
 from sqlalchemy import BigInteger, Column, Numeric, UniqueConstraint
+from sqlalchemy import Enum as sa_Enum
 from sqlmodel import Field, Relationship
 
 from ypl.db.base import BaseModel
@@ -13,6 +14,14 @@ from ypl.db.base import BaseModel
 if TYPE_CHECKING:
     from ypl.db.chats import ChatMessage, TurnQuality
     from ypl.db.ratings import Rating, RatingHistory
+
+
+class LanguageModelStatusEnum(Enum):
+    SUBMITTED = "SUBMITTED"
+    VERIFIED_PENDING_ACTIVATION = "VERIFIED_PENDING_ACTIVATION"
+    REJECTED = "REJECTED"
+    ACTIVE = "ACTIVE"
+    INACTIVE = "INACTIVE"
 
 
 class LicenseEnum(Enum):
@@ -136,7 +145,9 @@ class LanguageModel(BaseModel, table=True):
     # This is a human-readable name for the model, e.g. "GPT 4o".
     label: str | None = Field(default=None)
 
-    license: LicenseEnum = Field(default=LicenseEnum.unknown)
+    license: LicenseEnum = Field(
+        default=LicenseEnum.unknown, sa_column=Column(sa_Enum(LicenseEnum), server_default=LicenseEnum.unknown.name)
+    )
     family: str | None = Field(default=None)
     avatar_url: str | None = Field(default=None)
 
@@ -149,6 +160,18 @@ class LanguageModel(BaseModel, table=True):
     # This is the knowledge cutoff of the model in yyyy mm dd format.
     # For example, a knowledge cutoff of 2024 06 15 means the model was trained on data up to June 15, 2024.
     knowledge_cutoff_date: date | None = Field(default=None, nullable=True)
+
+    # This is the status of the language model. Once a new model is created, its status is SUBMITTED.
+    # If the model is rejected, it is not made available to the public and status is set to REJECTED.
+    # After the model has been verified by the automatic checks, the status is set to VERIFIED_PENDING_ACTIVATION.
+    # If the model is verified and some manual work is needed then post completion of the same,
+    # the status is set to ACTIVE.
+    # If the model is no longer available to the public, the status is set to INACTIVE.
+    # Don't softdelete as we need to preserve history for ranking and leaderboard.
+    status: LanguageModelStatusEnum = Field(
+        default=LanguageModelStatusEnum.SUBMITTED,
+        sa_column=Column(sa_Enum(LanguageModelStatusEnum), server_default=LanguageModelStatusEnum.SUBMITTED.name),
+    )
 
     # This is the organization that owns the language model.
     organization_id: uuid.UUID | None = Field(foreign_key="organizations.organization_id", nullable=True, default=None)
