@@ -4,7 +4,7 @@ import json
 import logging
 import re
 import sys
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any
@@ -12,8 +12,11 @@ from typing import Any
 import click
 import git
 import numpy as np
+import pandas as pd
 from dotenv import load_dotenv
+from sqlalchemy import func
 from sqlmodel import Session, select, text
+from tqdm import tqdm
 from tqdm.asyncio import tqdm_asyncio
 
 from ypl.backend.config import settings
@@ -27,10 +30,7 @@ from ypl.backend.llm.chat import (
     YuppChatIO,
     YuppChatMessageHistory,
     YuppMessageRow,
-    compare_llm_responses,
     get_chat_model,
-    highlight_llm_similarities,
-    highlight_llm_similarities_with_embeddings,
 )
 from ypl.backend.llm.constants import COSTS_BY_MODEL
 from ypl.backend.llm.embedding import get_embedding_model
@@ -40,9 +40,11 @@ from ypl.backend.llm.prompt_classifiers import categorize_user_messages
 from ypl.backend.llm.ranking import get_default_ranker
 from ypl.backend.llm.synthesize import SQLChatIO, SynthesizerConfig, SyntheticUserGenerator, asynthesize_chats
 from ypl.backend.llm.utils import fetch_categories_with_descriptions_from_db
-from ypl.db.chats import Chat
+from ypl.db.chats import Chat, ChatMessage, MessageType, Turn, TurnQuality
+from ypl.db.language_models import LanguageModel, LanguageModelProviderAssociation, Provider
 
 logging.getLogger().setLevel(logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 def db_cmd(f: Callable[..., Any]) -> Callable[..., Any]:
@@ -78,15 +80,6 @@ def click_provider_option(*args: str, **kwargs: Any | None) -> Any:
     )
 
 
-SAMPLE: dict = {
-    "prompt": "What is the difference between marriage license and marriage certificate?",
-    "responses": {
-        "response_a": "A marriage license is a legal document that allows a couple to get married. It is issued by a government agency, such as a county clerk's office or a state government, and is valid for a certain period of time, usually one year. After the marriage has taken place, the couple must obtain a marriage certificate, which is a document that records the marriage and is used to prove that the marriage took place. The marriage certificate is usually issued by the same government agency that issued the marriage license, and it is typically used for legal purposes, such as to change a name on a driver's license or to prove that a couple is married when applying for government benefits.",  # noqa
-        "response_b": "A marriage license and a marriage certificate are two different legal documents that have separate purposes.\n\n1. Marriage License: A marriage license is a legal document that gives a couple permission to get married. It's usually obtained from local government or court officials before the wedding ceremony takes place. The couple is required to meet certain criteria, such as being of a certain age or not being closely related. Once the license is issued, there's often a waiting period before the marriage ceremony can take place. The marriage license has to be signed by the couple, their witnesses, and the officiant conducting the marriage ceremony, then returned to the license issuer for recording.\n\n2. Marriage Certificate: A marriage certificate, on the other hand, is a document that proves a marriage has legally taken place. It's issued after the marriage ceremony, once the signed marriage license has been returned and recorded. The marriage certificate includes details about the couple, like their names, the date and location of their wedding, and the names of their witnesses. This document serves as the official record of the marriage and is often needed for legal transactions like changing a name, adding a spouse to insurance, or proving marital status.",  # noqa
-    },
-}
-
-
 @click.group()
 def cli() -> None:
     """Main."""
@@ -99,49 +92,6 @@ def _set_api_key(api_key: str) -> str:
         if not api_key:
             raise ValueError("An API key should be provided using --api-key or the env variable OPENAI_API_KEY")
     return api_key
-
-
-@cli.command()
-@click.option("--prompt", required=True, help="The prompt to send to OpenAI")
-@click.option("--api-key", help="API key")
-@click_provider_option("--provider", help="LLM provider")
-@click.option("--model", default="gpt-4o-mini", help="The provider model to use")
-def compare_responses(prompt: str, api_key: str, provider: str, model: str) -> None:
-    api_key = _set_api_key(api_key)
-
-    response = compare_llm_responses(
-        provider=provider,
-        api_key=api_key,
-        model=model,
-        prompt=SAMPLE["prompt"],
-        responses=SAMPLE["responses"],
-    )
-    print(response.json(indent=2))
-
-
-@cli.command()
-@click.option("--api-key", help="API key")
-@click_provider_option("--provider", help="LLM provider")
-@click.option("--model", default="gpt-4o-mini", help="The provider model to use")
-def highlight_similarities(api_key: str, provider: str, model: str) -> None:
-    api_key = _set_api_key(api_key)
-
-    response = highlight_llm_similarities(
-        provider=provider,
-        api_key=api_key,
-        model=model,
-        responses=SAMPLE["responses"],
-    )
-    print(response.content)
-
-
-@cli.command()
-def highlight_similarities_embeddings() -> None:
-    response = highlight_llm_similarities_with_embeddings(
-        response_a=SAMPLE["responses"]["response_a"],
-        response_b=SAMPLE["responses"]["response_b"],
-    )
-    print(json.dumps(response, indent=2))
 
 
 @cli.command(
@@ -184,29 +134,53 @@ def estimate_cost(model: str | None, input: str, output: str) -> None:
 )
 @click.option("-o", "--output-path", required=True, help="The output path of the file")
 def chats_to_json(sql: str, output_path: str) -> None:
-    messages: list[YuppMessageRow] = []
     writer = JsonChatIO(output_path)
     with Session(get_engine()) as session:
         ids = [str(row[0]) for row in session.exec(text(sql)).all()]  # type: ignore
-        chats = session.exec(select(Chat).where(Chat.chat_id.in_(ids))).all()  # type: ignore
-        for chat in chats:
-            for turn in chat.turns:
-                if len(turn.chat_messages) < 3:
-                    continue
-                prompt, response1, response2 = turn.chat_messages[:3]
-                messages.append([HumanMessage(content=prompt.content)])
-                messages.append(
-                    [
-                        AIMessage(content=response1.content),
-                        AIMessage(content=response2.content),
-                    ]
-                )
-            writer.append_chat(YuppChatMessageHistory(messages=messages))
-    writer.flush()
+
+        query = (
+            select(ChatMessage.content, ChatMessage.message_type, ChatMessage.message_id, Turn.turn_id)  # type: ignore
+            .join(Turn, ChatMessage.turn_id == Turn.turn_id)
+            .join(Chat, Turn.chat_id == Chat.chat_id)
+            .where(
+                Chat.deleted_at.is_(None),  # type: ignore
+                Chat.chat_id.in_(ids),  # type: ignore
+                ChatMessage.message_type.in_([MessageType.USER_MESSAGE, MessageType.ASSISTANT_MESSAGE]),  # type: ignore
+            )
+            .order_by(Turn.turn_id)
+        )
+
+        results = session.exec(query).all()
+
+        # Organize the results by turns.
+        grouped_results = defaultdict(list)
+        for content, message_type, message_id, turn_id in results:
+            grouped_results[turn_id].append((content, message_type, message_id))
+
+        for turn_id, message_tuples in grouped_results.items():
+            messages: list[YuppMessageRow] = []
+            user_messages = [
+                (content, message_id)
+                for (content, message_type, message_id) in message_tuples
+                if message_type == MessageType.USER_MESSAGE
+            ]
+            assert len(user_messages) == 1, f"turn_id: {turn_id} has {len(user_messages)} user messages"
+            prompt = user_messages[0]
+            assistant_messages = [
+                (content, message_id)
+                for (content, message_type, message_id) in message_tuples
+                if message_type == MessageType.ASSISTANT_MESSAGE
+            ]
+            if len(assistant_messages) < 2:
+                continue
+
+            messages.append([HumanMessage(content=prompt[0], id=str(prompt[1]))])
+            messages.append([AIMessage(content=message[0], id=str(message[1])) for message in assistant_messages])
+            writer.append_chat(YuppChatMessageHistory(messages=messages, chat_id=str(turn_id)))
+    writer.flush(mode="w")
 
 
 @cli.command(help="Evaluate the difficulty of the initial prompt of a chat.")
-@click.option("-c", "--config", required=True, help="The judge config to use")
 @click_provider_option("--provider", help="LLM and embeddings provider")
 @click.option("--api-key", help="API key", required=True)
 @click.option("--language-model", default="gpt-4o-mini", help="The LLM to use for judging realism")
@@ -289,6 +263,51 @@ def judge_yupp_prompt_difficulty(
                     continue
             outf.write(json.dumps(dict(judgement=judgement, chat_id=chat_id)))
             outf.write("\n")
+
+
+@cli.command()
+@click.option("-i", "--input-path", help="The output path of the file")
+@click_provider_option("--provider", help="LLM and embeddings provider")
+@click.option("--language-model", default="gpt-4o-mini", help="The LLM to use for judging realism")
+def store_prompt_difficulty(input_path: str, provider: str, language_model: str) -> None:
+    df = pd.read_json(input_path, lines=True)
+
+    with Session(get_engine()) as session:
+        query = (
+            select(LanguageModel.language_model_id)
+            .join(
+                LanguageModelProviderAssociation,
+                LanguageModel.language_model_id == LanguageModelProviderAssociation.language_model_id,  # type: ignore
+            )
+            .join(Provider, LanguageModelProviderAssociation.provider_id == Provider.provider_id)  # type: ignore
+            .where(
+                func.lower(Provider.name) == provider.lower(),
+                LanguageModel.internal_name == language_model,
+                LanguageModel.deleted_at.is_(None),  # type: ignore
+            )
+        )
+        llm_id = session.exec(query).first()
+        if not llm_id:
+            raise ValueError(f"Model {language_model} not found")
+
+        for i, row in tqdm(list(df.iterrows())):
+            row_id = row["chat_id"]
+            prompt_difficulty = float(row["judgement"]["overall"])
+            turn_quality = session.exec(select(TurnQuality).where(TurnQuality.turn_id == row_id)).first()
+            if turn_quality is None:
+                turn_quality = TurnQuality(
+                    turn_id=row_id,
+                    prompt_difficulty=prompt_difficulty,
+                    prompt_difficulty_judge_model_id=llm_id,
+                )
+            else:
+                turn_quality.prompt_difficulty = prompt_difficulty
+                turn_quality.prompt_difficulty_judge_model_id = llm_id
+            session.add(turn_quality)
+            if i % 500 == 0:
+                session.commit()
+                print(f"Committed {i} rows")
+        session.commit()
 
 
 @cli.command()
