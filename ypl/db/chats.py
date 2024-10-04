@@ -60,6 +60,8 @@ class Turn(BaseModel, table=True):
 
     evals: list["Eval"] = Relationship(back_populates="turn")
 
+    turn_quality: "TurnQuality" = Relationship(back_populates="turn")
+
     __table_args__ = (UniqueConstraint("chat_id", "sequence_id", name="uq_chat_sequence"),)
 
 

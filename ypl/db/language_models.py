@@ -11,7 +11,7 @@ from sqlmodel import Field, Relationship
 from ypl.db.base import BaseModel
 
 if TYPE_CHECKING:
-    from ypl.db.chats import ChatMessage
+    from ypl.db.chats import ChatMessage, TurnQuality
     from ypl.db.ratings import Rating, RatingHistory
 
 
@@ -160,6 +160,8 @@ class LanguageModel(BaseModel, table=True):
     providers: list["Provider"] = Relationship(
         back_populates="language_models", link_model=LanguageModelProviderAssociation
     )
+
+    turn_qualities: list["TurnQuality"] = Relationship(back_populates="prompt_difficulty_judge_model")
 
     chat_messages: list["ChatMessage"] = Relationship(back_populates="assistant_language_model")
 
