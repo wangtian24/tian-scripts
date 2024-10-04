@@ -3,7 +3,7 @@ import logging
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from itertools import chain
-from typing import Any, Self
+from typing import Any
 
 import numba
 import numpy as np
@@ -19,6 +19,7 @@ from ypl.backend.llm.constants import COSTS_BY_MODEL, ChatProvider
 from ypl.backend.llm.ranking import ConfidenceIntervalRankerMixin, Ranker, get_ranker
 from ypl.backend.llm.routing.policy import SelectionCriteria, decayed_random_fraction
 from ypl.db.language_models import LanguageModel, LanguageModelProviderAssociation, LanguageModelStatusEnum, Provider
+from ypl.utils import RNGMixin
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -119,31 +120,6 @@ class RouterState(BaseModel):
             excluded_models=set(),
             all_models=set(models.all()),
         )
-
-
-class RNGMixin:
-    """
-    Mixin class to add a random number generator to a class.
-    """
-
-    _rng: np.random.RandomState | None = None
-    _seed: int | None = None
-
-    def set_seed(self, seed: int) -> None:
-        if self._seed is not None:
-            raise ValueError("Seed already set")
-
-        self._seed = seed
-
-    def with_seed(self, seed: int) -> Self:
-        self.set_seed(seed)
-        return self
-
-    def get_rng(self) -> np.random.RandomState:
-        if self._rng is None:
-            self._rng = np.random.RandomState(self._seed)
-
-        return self._rng
 
 
 class RouterModule(ABC):
