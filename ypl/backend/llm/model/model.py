@@ -7,7 +7,7 @@ from sqlalchemy.engine import Result
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
 from ypl.backend.db import get_engine
-from ypl.db.language_models import LanguageModel
+from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum
 
 
 class LanguageModelResponseBody(BaseModel):
@@ -22,9 +22,11 @@ class LanguageModelResponseBody(BaseModel):
     context_window_tokens: int | None
     knowledge_cutoff_date: date | None
     organization_name: str | None
+    status: str
 
 
 def create_model(model: LanguageModel) -> UUID:
+    model.status = LanguageModelStatusEnum.SUBMITTED
     with Session(get_engine()) as session:
         session.add(model)
         session.commit()
@@ -32,12 +34,19 @@ def create_model(model: LanguageModel) -> UUID:
         return model.language_model_id
 
 
-def get_available_models() -> list[LanguageModelResponseBody]:
+# All active and inactive models are returned as part of the leaderboard as these have
+# been onboarded and used for ranking in past
+def get_leaderboard_models() -> list[LanguageModelResponseBody]:
     with Session(get_engine()) as session:
         query = (
             select(LanguageModel)
             .options(selectinload(LanguageModel.organization))  # type: ignore
-            .where(LanguageModel.deleted_at.is_(None))  # type: ignore
+            .where(
+                LanguageModel.deleted_at.is_(None),  # type: ignore
+                LanguageModel.status.in_(  # type: ignore
+                    [LanguageModelStatusEnum.ACTIVE, LanguageModelStatusEnum.INACTIVE]
+                ),
+            )
         )
         models = session.exec(query).all()
         return [
@@ -49,12 +58,20 @@ def get_available_models() -> list[LanguageModelResponseBody]:
         ]
 
 
-def get_model_details(model_id: str) -> LanguageModelResponseBody | None:
+# Only active and inactive models are returned as part of the model details as these
+# have been onboarded and used for ranking in past
+def get_leaderboard_model_details(model_id: str) -> LanguageModelResponseBody | None:
     with Session(get_engine()) as session:
         query = (
             select(LanguageModel)
             .options(selectinload(LanguageModel.organization))  # type: ignore
-            .where(LanguageModel.language_model_id == model_id, LanguageModel.deleted_at.is_(None))  # type: ignore
+            .where(
+                LanguageModel.language_model_id == model_id,
+                LanguageModel.deleted_at.is_(None),  # type: ignore
+                LanguageModel.status.in_(  # type: ignore
+                    [LanguageModelStatusEnum.ACTIVE, LanguageModelStatusEnum.INACTIVE]
+                ),
+            )
         )
         model = session.exec(query).first()
         if model is None:

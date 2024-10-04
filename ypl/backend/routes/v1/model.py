@@ -6,8 +6,8 @@ from ypl.backend.llm.model.model import (
     LanguageModelResponseBody,
     create_model,
     delete_model,
-    get_available_models,
-    get_model_details,
+    get_leaderboard_model_details,
+    get_leaderboard_models,
     update_model,
 )
 from ypl.db.language_models import LanguageModel
@@ -30,7 +30,7 @@ async def create_model_route(model: LanguageModel) -> str:
 @router.get("/models", response_model=list[LanguageModelResponseBody])
 async def read_models_route() -> list[LanguageModelResponseBody]:
     try:
-        return get_available_models()
+        return get_leaderboard_models()
     except Exception as e:
         logger.exception("Error getting models - %s", str(e))
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -39,7 +39,7 @@ async def read_models_route() -> list[LanguageModelResponseBody]:
 @router.get("/model/{model_id}", response_model=LanguageModelResponseBody | None)
 async def read_model_route(model_id: str) -> LanguageModelResponseBody | None:
     try:
-        model = get_model_details(model_id)
+        model = get_leaderboard_model_details(model_id)
         return model
     except Exception as e:
         logger.exception("Error getting model - %s", str(e))
