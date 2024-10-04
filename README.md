@@ -109,7 +109,11 @@ Important credentials (ie LLM API keys) can be found in 1Password.
 
 ### Linting and type checking
 
-This repo uses `ruff` for Python linting and `mypy` to make sure Python code is typed. Please download the IDE extensions from [here](https://code.visualstudio.com/docs/python/linting) to help with linting and type checking.
+This repo uses `ruff` for Python linting and `mypy` to make sure Python code is typed. Please download the IDE extensions for `ruff` and `mypy` from [here](https://code.visualstudio.com/docs/python/linting) to help with linting and type checking.
+
+When using `mypy` in VSCode, you may need to enable the "Run using active interpreter" setting to make sure `mypy` uses the daemon in the virtual environment. You can find it by going to `Settings`, searching for `mypy.runUsingActiveInterpreter`, and checking the box.
+
+
 Github actions in `.github/workflows` are set up to run these linters on push and pull requests.
 
 ## Deployment

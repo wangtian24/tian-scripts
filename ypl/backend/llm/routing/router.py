@@ -105,7 +105,7 @@ class RouterState(BaseModel):
             .join(Provider)
             .where(
                 LanguageModel.deleted_at.is_(None),  # type: ignore
-                LanguageModel.status.is_(LanguageModelStatusEnum.ACTIVE),  # type: ignore
+                LanguageModel.status == LanguageModelStatusEnum.ACTIVE,
                 LanguageModelProviderAssociation.deleted_at.is_(None),  # type: ignore
                 Provider.deleted_at.is_(None),  # type: ignore
                 LanguageModelProviderAssociation.is_active.is_(True),  # type: ignore
