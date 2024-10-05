@@ -11,7 +11,7 @@ from ypl.db.point_transactions import PointTransaction
 
 if TYPE_CHECKING:
     from ypl.db.chats import Chat, Eval, Turn
-
+    from ypl.db.language_models import LanguageModel
 # The default user is SYSTEM.
 SYSTEM_USER_ID = "SYSTEM"
 
@@ -44,7 +44,11 @@ class User(BaseModel, table=True):
 
     # user who created this user
     creator_user_id: str | None = Field(foreign_key="users.user_id", default=None, nullable=True)
-    creator: "User" = Relationship(back_populates="created_users")
+    user_creator: "User" = Relationship(
+        back_populates="created_users", sa_relationship_kwargs={"remote_side": "User.user_id"}
+    )
+    created_users: list["User"] = Relationship(back_populates="user_creator")
+    created_language_models: list["LanguageModel"] = Relationship(back_populates="language_model_creator")
 
     accounts: list["Account"] = Relationship(back_populates="user", cascade_delete=True)
     sessions: list["Session"] = Relationship(back_populates="user", cascade_delete=True)

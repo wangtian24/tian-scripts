@@ -179,8 +179,10 @@ class LanguageModel(BaseModel, table=True):
     organization: "Organization" = Relationship(back_populates="language_models")
 
     # This is the user that created the language model.
-    creator_user_id: str | None = Field(foreign_key="users.user_id", nullable=True, default=None)
-    creator: "User" = Relationship(back_populates="created_language_models")
+    creator_user_id: str = Field(foreign_key="users.user_id", nullable=False)
+    language_model_creator: "User" = Relationship(
+        back_populates="created_language_models", sa_relationship_kwargs={"remote_side": "User.user_id"}
+    )
 
     ratings: list["Rating"] = Relationship(back_populates="model")
     ratings_history: list["RatingHistory"] = Relationship(back_populates="model")
