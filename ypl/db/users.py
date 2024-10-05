@@ -12,6 +12,8 @@ from ypl.db.point_transactions import PointTransaction
 if TYPE_CHECKING:
     from ypl.db.chats import Chat, Eval, Turn
 
+# The default user is SYSTEM.
+SYSTEM_USER_NAME = "SYSTEM"
 
 # The schema is based on the required authjs.dev prisma schema to minimize the custom logic required in
 # the next js app.
@@ -39,6 +41,10 @@ class User(BaseModel, table=True):
         default=None,
         nullable=True,
     )
+
+    # user who created this user
+    creator_user_id: str | None = Field(foreign_key="users.user_id", default=None, nullable=True)
+    creator: "User" = Relationship(back_populates="created_users")
 
     accounts: list["Account"] = Relationship(back_populates="user", cascade_delete=True)
     sessions: list["Session"] = Relationship(back_populates="user", cascade_delete=True)
