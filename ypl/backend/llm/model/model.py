@@ -2,15 +2,15 @@ from datetime import date, datetime
 from uuid import UUID
 
 from pydantic import BaseModel
-from sqlalchemy import update
+from sqlalchemy import String, cast, func, update
 from sqlalchemy.engine import Result
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
 from ypl.backend.db import get_engine
-from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum
+from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, LicenseEnum
 
 
-class LanguageModelResponseBody(BaseModel):
+class LanguageModelStruct(BaseModel):
     language_model_id: UUID
     name: str
     internal_name: str
@@ -23,6 +23,7 @@ class LanguageModelResponseBody(BaseModel):
     knowledge_cutoff_date: date | None
     organization_name: str | None
     status: str
+    creator_user_id: str
 
 
 def create_model(model: LanguageModel) -> UUID:
@@ -34,23 +35,51 @@ def create_model(model: LanguageModel) -> UUID:
         return model.language_model_id
 
 
-# All active and inactive models are returned as part of the leaderboard as these have
-# been onboarded and used for ranking in past
-def get_leaderboard_models() -> list[LanguageModelResponseBody]:
+def get_models(
+    name: str | None = None,
+    licenses: list[LicenseEnum] | None = None,
+    family: str | None = None,
+    statuses: list[LanguageModelStatusEnum] | None = None,
+    creator_user_id: str | None = None,
+    exclude_deleted: bool = True,
+) -> list[LanguageModelStruct]:
+    """Get models from the database.
+
+    Args:
+        name: The name of the model to filter by.
+        license: The licenses of the model to filter by.
+        family: The family of the model to filter by.
+        status: The statuses of the model to filter by.
+        creator_user_id: The creator user id of the model to filter by.
+        exclude_deleted: Whether to exclude deleted models.
+    Returns:
+        The models that match the filter criteria.
+    """
     with Session(get_engine()) as session:
         query = (
-            select(LanguageModel)
-            .options(selectinload(LanguageModel.organization))  # type: ignore
-            .where(
-                LanguageModel.deleted_at.is_(None),  # type: ignore
-                LanguageModel.status.in_(  # type: ignore
-                    [LanguageModelStatusEnum.ACTIVE, LanguageModelStatusEnum.INACTIVE]
-                ),
-            )
+            select(LanguageModel).options(selectinload(LanguageModel.organization))  # type: ignore
         )
+
+        if name:
+            query = query.where(func.lower(LanguageModel.name) == name.lower())
+        if licenses:
+            query = query.where(
+                func.lower(cast(LanguageModel.license, String)).in_([license.value.lower() for license in licenses])
+            )
+        if family:
+            query = query.where(func.lower(LanguageModel.family) == family.lower())
+        if exclude_deleted:
+            query = query.where(LanguageModel.deleted_at.is_(None))  # type: ignore
+        if statuses:
+            query = query.where(
+                func.lower(cast(LanguageModel.status, String)).in_([status.value.lower() for status in statuses])
+            )
+        if creator_user_id:
+            query = query.where(LanguageModel.creator_user_id == creator_user_id)
+
         models = session.exec(query).all()
         return [
-            LanguageModelResponseBody(
+            LanguageModelStruct(
                 **model.model_dump(exclude={"organization"}),
                 organization_name=model.organization.organization_name if model.organization else None,
             )
@@ -60,7 +89,7 @@ def get_leaderboard_models() -> list[LanguageModelResponseBody]:
 
 # Only active and inactive models are returned as part of the model details as these
 # have been onboarded and used for ranking in past
-def get_leaderboard_model_details(model_id: str) -> LanguageModelResponseBody | None:
+def get_model_details(model_id: str) -> LanguageModelStruct | None:
     with Session(get_engine()) as session:
         query = (
             select(LanguageModel)
@@ -76,13 +105,13 @@ def get_leaderboard_model_details(model_id: str) -> LanguageModelResponseBody | 
         model = session.exec(query).first()
         if model is None:
             return None
-        return LanguageModelResponseBody(
+        return LanguageModelStruct(
             **model.model_dump(exclude={"organization"}),
             organization_name=model.organization.organization_name if model.organization else None,
         )
 
 
-def update_model(model_id: str, updated_model: LanguageModel) -> LanguageModelResponseBody:
+def update_model(model_id: str, updated_model: LanguageModel) -> LanguageModelStruct:
     with Session(get_engine()) as session:
         model_data = updated_model.model_dump(exclude_unset=True, exclude={"language_model_id"})
         if not model_data:
@@ -100,7 +129,7 @@ def update_model(model_id: str, updated_model: LanguageModel) -> LanguageModelRe
         session.commit()
         session.refresh(existing_model)
 
-        return LanguageModelResponseBody(
+        return LanguageModelStruct(
             **existing_model.model_dump(exclude={"organization"}),
             organization_name=existing_model.organization.organization_name if existing_model.organization else None,
         )
