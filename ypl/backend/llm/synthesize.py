@@ -288,13 +288,22 @@ async def asynthesize_chat(
 
 
 async def asynthesize_chats(
-    config: SynthesizerConfig, user: SyntheticYuppChatUser, num_chats: int = 1, num_parallel: int = 16
+    config: SynthesizerConfig,
+    user: SyntheticYuppChatUser,
+    num_chats: int = 1,
+    num_parallel: int = 16,
+    chunk_size: int = 200,
 ) -> list[YuppChatMessageHistory]:
     """Synthesizes multiple chats asynchronously using the given configuration."""
     sem = asyncio.Semaphore(num_parallel)
-    tasks = [asynthesize_chat(config, user.copy(), sem) for _ in range(num_chats)]
+    results = []
 
-    return list(await tqdm_asyncio.gather(*tasks))
+    # this is to avoid having too many open FDs
+    for idx in range(0, num_chats, chunk_size):
+        tasks = [asynthesize_chat(config, user.copy(), sem) for _ in range(min(chunk_size, num_chats - idx))]
+        results += list(await tqdm_asyncio.gather(*tasks))
+
+    return results
 
 
 def generate_random_user(**kwargs: Any | None) -> users.User:
