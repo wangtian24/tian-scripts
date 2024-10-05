@@ -10,6 +10,7 @@ from sqlalchemy import Enum as sa_Enum
 from sqlmodel import Field, Relationship
 
 from ypl.db.base import BaseModel
+from ypl.db.users import User
 
 if TYPE_CHECKING:
     from ypl.db.chats import ChatMessage, TurnQuality
@@ -176,6 +177,10 @@ class LanguageModel(BaseModel, table=True):
     # This is the organization that owns the language model.
     organization_id: uuid.UUID | None = Field(foreign_key="organizations.organization_id", nullable=True, default=None)
     organization: "Organization" = Relationship(back_populates="language_models")
+
+    # This is the user that created the language model.
+    creator_user_id: str | None = Field(foreign_key="users.user_id", nullable=True, default=None)
+    creator: "User" = Relationship(back_populates="created_language_models")
 
     ratings: list["Rating"] = Relationship(back_populates="model")
     ratings_history: list["RatingHistory"] = Relationship(back_populates="model")

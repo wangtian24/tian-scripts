@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from ypl.db.chats import Chat, Eval, Turn
 
 # The default user is SYSTEM.
-SYSTEM_USER_NAME = "SYSTEM"
+SYSTEM_USER_ID = "SYSTEM"
 
 # The schema is based on the required authjs.dev prisma schema to minimize the custom logic required in
 # the next js app.
