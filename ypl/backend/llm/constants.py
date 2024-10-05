@@ -174,6 +174,7 @@ COSTS_BY_MODEL = {
         dollars_per_million_input_tokens=0.2,  # based on fireworks
         dollars_per_million_output_tokens=0.2,
         tokenizer_name="gpt-4o",  # approximation
+        tokens_per_second=130,
     ),
     "phi-3-medium-4k-instruct": ModelCost(
         dollars_per_million_input_tokens=0.2,  # based on fireworks
@@ -201,6 +202,7 @@ COSTS_BY_MODEL = {
         dollars_per_million_input_tokens=3,  # based on Alibaba
         dollars_per_million_output_tokens=3,
         tokenizer_name="gpt-4o",  # approximation
+        tokens_per_second=100,
     ),
     "qwen1.5-72b-chat": ModelCost(
         dollars_per_million_input_tokens=3,  # based on Alibaba

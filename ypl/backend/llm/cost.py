@@ -52,3 +52,30 @@ class ModelCost(BaseModelV1):
             cost += tokenizer_counter(output_string) * self.dollars_per_million_output_tokens / 1_000_000
 
         return cost
+
+    def compute_time(
+        self,
+        num_input_tokens: int = 0,
+        num_output_tokens: int = 0,
+        input_string: str = "",
+        output_string: str = "",
+    ) -> float:
+        if num_input_tokens and input_string:
+            raise ValueError("Only one of `num_input_tokens` and `input_string` should be provided")
+        if num_output_tokens and output_string:
+            raise ValueError("Only one of `num_output_tokens` and `output_string` should be provided")
+
+        tokenizer_counter = self.get_tokenizer_counter()
+        time: float = 0.0
+
+        if num_input_tokens:
+            time += num_input_tokens / self.tokens_per_second
+        elif input_string:
+            time += tokenizer_counter(input_string) / self.tokens_per_second
+
+        if num_output_tokens:
+            time += num_output_tokens / self.tokens_per_second
+        elif output_string:
+            time += tokenizer_counter(output_string) / self.tokens_per_second
+
+        return time

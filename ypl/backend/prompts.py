@@ -1,5 +1,7 @@
 from langchain_core.prompts import ChatPromptTemplate
 
+from ypl.backend.llm.constants import MODEL_DESCRIPTIONS
+
 COMPARE_RESPONSES_SYSTEM_PROMPT = """
 You are a specialized language model designed to analyze and compare responses from multiple LLMs to a given prompt.
 Your task is to:
@@ -178,6 +180,8 @@ SYNTHESIZER_GENERATE_PERSONA_PROMPT = """Generate a JSON object representing per
 
 Generate a single JSON object. Try to imitate the above examples but don't just repeat them; be slightly different. "persona" should be a single noun. Do not explain or add markup. Random seed: {seed}"""
 
+MODEL_HEURISTICS_STR = "\n".join((x + ": " + y) for x, y in MODEL_DESCRIPTIONS.items())
+
 JUDGE_YUPP_CHAT_PROMPT = """User's prompt: {user_prompt}
 
 Response 1: {response1}
@@ -188,9 +192,28 @@ Response 2: {response2}
 
 (END RESPONSE 2)
 
-Which of the above responses is better given the user's prompt? Say 1 if the first is much better, 2 if the first is slightly better, 3 if they are about the same, 4 if the second is slightly better, and 5 if the second is much better. Do not explain or add markup; only return the integer."""
+Which of the above responses is better given the user's prompt? Say 1 if the first is much better, 2 if the first is slightly better, 4 if the second is slightly better, and 5 if the second is much better. Do not explain or add markup; only return the integer."""
+
+JUDGE_YUPP_CHAT_PROMPT_SPEED_AWARE = f"""User's prompt: {{user_prompt}}
+
+Response 1: {{response1}}
+
+(END RESPONSE 1; Took {{time1}} seconds to produce)
+
+Response 2: {{response2}}
+
+(END RESPONSE 2; Took {{time2}} seconds to produce)
+
+Model heuristics:
+{MODEL_HEURISTICS_STR}
+
+Which of the above responses is a better user experience given the user's prompt? Take both speed and quality into account when making the decision. Prefer the faster response if the quality is about the same. If you still can't make a decision, use the heuristics provided above. Say 1 if the first is much better, 2 if the first is slightly better, 4 if the second is slightly better, and 5 if the second is much better. Do not say 3. Do not explain or add markup; only return the integer."""
 
 JUDGE_YUPP_CHAT_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([("human", JUDGE_YUPP_CHAT_PROMPT)])
+
+JUDGE_YUPP_CHAT_PROMPT_SPEED_AWARE_TEMPLATE = ChatPromptTemplate.from_messages(
+    [("human", JUDGE_YUPP_CHAT_PROMPT_SPEED_AWARE)]
+)
 
 WILDCHAT_REALISM_PROMPT = """Below are some WildChat prompts, followed by two of our prompts:
 
@@ -293,7 +316,7 @@ the following information about the models:
 
 PROMPTS_MODEL_QUALITY_USER_PROMPT_COMPLEX = """The prompt is as follows: {prompt}
 
-Pick the five most suitable models for the prompt, taking speed and quality into consideration. Your repsonse must be a JSON object with the model names as keys and
+Pick the five most suitable models for the prompt, taking speed and quality into consideration. Your response must be a JSON object with the model names as keys and
 the suitability scores as integers between 0 and 100, with 0 being the worst and 100 the best. Do not explain. Example:
 
 {"model1": 80, "model2": 90, "model3": 50}
@@ -301,7 +324,7 @@ the suitability scores as integers between 0 and 100, with 0 being the worst and
 
 PROMPTS_MODEL_QUALITY_USER_PROMPT_SIMPLE = """The prompt is as follows: {prompt}
 
-Pick the five most suitable models for the prompt, taking speed and quality into consideration. Your response must be a Python list of the model names,
+Pick the ten most suitable models for the prompt, taking speed and quality into consideration. Your response must be a Python list of the model names,
 e.g., ["model1", ...]. Do not explain. Do not ever put markdown or markup.
 """
 

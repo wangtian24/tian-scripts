@@ -26,4 +26,6 @@ class RoutingMultilabelTrainer(Trainer):  # type: ignore[misc]
             # Not the most efficient but more readable
             loss += -loss_fn(logits[idx, better_model_id] - logits[idx, worse_model_id])
 
+        loss /= len(inputs["better_model_labels"])
+
         return (loss, logits) if return_outputs else loss

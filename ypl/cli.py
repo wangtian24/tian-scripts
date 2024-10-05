@@ -34,7 +34,13 @@ from ypl.backend.llm.chat import (
 )
 from ypl.backend.llm.constants import COSTS_BY_MODEL
 from ypl.backend.llm.embedding import get_embedding_model
-from ypl.backend.llm.judge import JudgeConfig, YuppEvaluationLabeler, YuppPromptDifficultyLabeler, choose_llm
+from ypl.backend.llm.judge import (
+    JudgeConfig,
+    SpeedAwareYuppEvaluationLabeler,
+    YuppEvaluationLabeler,
+    YuppPromptDifficultyLabeler,
+    choose_llm,
+)
 from ypl.backend.llm.labeler import WildChatRealismLabeler
 from ypl.backend.llm.prompt_classifiers import categorize_user_messages
 from ypl.backend.llm.ranking import get_default_ranker
@@ -490,17 +496,38 @@ def label_wildchat_realism(
     default=4,
     help="The number of jobs to run in parallel. Optimal " "value depends on the rate limit and CPU cores.",
 )
-def judge_yupp_llm_outputs(input_file: str, output_file: str, limit: int, config: str, num_parallel: int) -> None:
-    async def arun_batch(inputs: list[tuple[int, str, str, str, str, str]]) -> list[tuple[str, int]]:
+@click.option("--speed-aware", is_flag=True, help="Use speed-aware Yupp evaluation")
+@click.option("--no-exclude", is_flag=True, help="Do not exclude the two LLMs from the random selection")
+def judge_yupp_llm_outputs(
+    input_file: str, output_file: str, limit: int, config: str, num_parallel: int, speed_aware: bool, no_exclude: bool
+) -> None:
+    async def arun_batch(
+        inputs: list[tuple[int, str, str, str, str, str, float | None, float | None]],
+    ) -> list[tuple[str, int]]:
         async def ajudge_yupp_output(
-            row_idx: int, user_msg: str, llm1_msg: str, llm2_msg: str, llm1: str, llm2: str
+            row_idx: int,
+            user_msg: str,
+            llm1_msg: str,
+            llm2_msg: str,
+            llm1: str,
+            llm2: str,
+            time1: float | None = None,
+            time2: float | None = None,
         ) -> tuple[str, int]:
             async with sem:
-                llm_info = choose_llm(cfg.llms, exclude_models={llm1, llm2}, seed=row_idx)
+                llm_info = choose_llm(cfg.llms, exclude_models=None if no_exclude else {llm1, llm2}, seed=row_idx)
                 llm = get_chat_model(llm_info, temperature=0.0)
-                judge = YuppEvaluationLabeler(llm)
 
-                return llm_info.model, await judge.alabel((user_msg, llm1_msg, llm2_msg))
+                if time1 is not None and time2 is not None:
+                    judge1 = SpeedAwareYuppEvaluationLabeler(llm)
+                    in1 = (user_msg, llm1_msg, llm2_msg, time1, time2)
+
+                    return llm_info.model, await judge1.alabel(in1)  # for MyPy
+                else:
+                    judge2 = YuppEvaluationLabeler(llm)
+                    in2 = (user_msg, llm1_msg, llm2_msg)
+
+                    return llm_info.model, await judge2.alabel(in2)  # for MyPy
 
         sem = asyncio.Semaphore(num_parallel)
 
@@ -510,7 +537,8 @@ def judge_yupp_llm_outputs(input_file: str, output_file: str, limit: int, config
     output_file = output_file or input_file
 
     chats = JsonChatIO(input_file).read_chats()
-    coro_inputs: list[tuple[int, str, str, str, str, str]] = []
+    coro_inputs: list[tuple[int, str, str, str, str, str, float | None, float | None]] = []
+    default_cost = COSTS_BY_MODEL["gpt-4o-mini"]
 
     for row_idx, chat in enumerate(chats[:limit]):
         try:
@@ -526,6 +554,12 @@ def judge_yupp_llm_outputs(input_file: str, output_file: str, limit: int, config
                         str(llm2_response.content),
                         llm1,
                         llm2,
+                        COSTS_BY_MODEL.get(llm1, default_cost).compute_time(output_string=str(llm1_response.content))
+                        if speed_aware
+                        else None,
+                        COSTS_BY_MODEL.get(llm2, default_cost).compute_time(output_string=str(llm2_response.content))
+                        if speed_aware
+                        else None,
                     )
                 )
         except ValueError:
@@ -534,7 +568,9 @@ def judge_yupp_llm_outputs(input_file: str, output_file: str, limit: int, config
 
     results = asyncio.run(arun_batch(coro_inputs))
 
-    for (chosen_llm, result), (idx, _, _, _, _, _) in zip(results, coro_inputs, strict=False):
+    for (chosen_llm, result), inp in zip(results, coro_inputs, strict=False):
+        idx = inp[0]
+
         if result is None or result < 0:
             new_result = None
         else:

@@ -8,7 +8,11 @@ from pydantic.v1 import BaseModel as BaseModelV1
 from ypl.backend.llm.chat import ModelInfo
 from ypl.backend.llm.constants import COSTS_BY_MODEL
 from ypl.backend.llm.labeler import LLMLabeler
-from ypl.backend.prompts import JUDGE_YUPP_CHAT_PROMPT_TEMPLATE, JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT_TEMPLATE
+from ypl.backend.prompts import (
+    JUDGE_YUPP_CHAT_PROMPT_SPEED_AWARE_TEMPLATE,
+    JUDGE_YUPP_CHAT_PROMPT_TEMPLATE,
+    JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT_TEMPLATE,
+)
 
 
 class JudgeConfig(BaseModelV1):
@@ -47,7 +51,24 @@ class YuppEvaluationLabeler(LLMLabeler[tuple[str, str, str], int]):
         return JUDGE_YUPP_CHAT_PROMPT_TEMPLATE | llm  # type: ignore
 
     def _prepare_input(self, input: tuple[str, str, str]) -> dict[str, Any]:
+        """Tuple is (user_prompt, response1, response2)"""
         return dict(response1=input[1], response2=input[2], user_prompt=input[0])
+
+    def _parse_output(self, output: BaseMessage) -> int:
+        return int(str(output.content).strip()[0])
+
+    @property
+    def error_value(self) -> int:
+        return -1
+
+
+class SpeedAwareYuppEvaluationLabeler(LLMLabeler[tuple[str, str, str, float, float], int]):
+    def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
+        return JUDGE_YUPP_CHAT_PROMPT_SPEED_AWARE_TEMPLATE | llm  # type: ignore
+
+    def _prepare_input(self, input: tuple[str, str, str, float, float]) -> dict[str, Any]:
+        """Tuple is (user_prompt, response1, response2, time1, time2)"""
+        return dict(response1=input[1], response2=input[2], user_prompt=input[0], time1=input[3], time2=input[4])
 
     def _parse_output(self, output: BaseMessage) -> int:
         return int(str(output.content).strip()[0])

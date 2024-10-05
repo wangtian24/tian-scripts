@@ -86,6 +86,7 @@ class RoutingCollator(TokenizerCollator[RoutingTrainingExample]):
             [example.prompt for example in batch],
             padding=True,
             truncation=True,
+            max_length=512,
             return_tensors="pt",
             return_attention_mask=True,
         ).data
