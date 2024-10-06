@@ -8,17 +8,12 @@ from ypl.training.data.base import CollateType, PandasDataset, TokenizerCollator
 
 class RoutingTrainingExample(BaseModel):
     """
-    Represents a single routing example containing a prompt and the corresponding better and worse models.
-
-    Attributes:
-        prompt (str): The input text prompt.
-        better_model (str): The identifier of the better-performing model.
-        worse_model (str): The identifier of the worse-performing model.
+    Represents a single routing example containing a prompt and the corresponding ranked models,
+    in order from best to worst.
     """
 
     prompt: str
-    better_model: str
-    worse_model: str
+    models: list[str]
 
 
 class RoutingDataset(PandasDataset[RoutingTrainingExample]):
@@ -37,7 +32,7 @@ class RoutingDataset(PandasDataset[RoutingTrainingExample]):
         Returns:
             A dictionary mapping model names to unique integer IDs.
         """
-        all_models = list(dict.fromkeys(self.df[["better_model", "worse_model"]].values.flatten()))
+        all_models = list(dict.fromkeys([x for y in self.df["models"].apply(eval) for x in y]))
         model_map = {model: i for i, model in enumerate(all_models)}
 
         return model_map
@@ -53,12 +48,9 @@ class RoutingDataset(PandasDataset[RoutingTrainingExample]):
             The routing example at the given index.
         """
         row = self.df.iloc[index]
+        models = eval(row["models"])
 
-        return RoutingTrainingExample(
-            prompt=row["prompt"],
-            better_model=row["better_model"],
-            worse_model=row["worse_model"],
-        )
+        return RoutingTrainingExample(prompt=row["prompt"], models=models)
 
 
 class RoutingCollator(TokenizerCollator[RoutingTrainingExample]):
@@ -91,12 +83,8 @@ class RoutingCollator(TokenizerCollator[RoutingTrainingExample]):
             return_attention_mask=True,
         ).data
 
-        tokenizer_output["better_model_labels"] = torch.tensor(
-            [self.model_map[example.better_model] for example in batch]
-        )
-
-        tokenizer_output["worse_model_labels"] = torch.tensor(
-            [self.model_map[example.worse_model] for example in batch]
+        tokenizer_output["model_labels"] = torch.tensor(
+            [[self.model_map[model] for model in example.models] for example in batch]
         )
 
         return tokenizer_output  # type: ignore

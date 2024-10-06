@@ -23,6 +23,8 @@ def cli() -> None:
 @click.option("--training-pct", required=False, default=90, help="Percentage of data to use for training")
 @click.option("--max-steps", required=False, default=1000, help="Maximum number of steps to train for")
 @click.option("-lr", "--learning-rate", required=False, default=5e-5, help="Learning rate")
+@click.option("-bsz", "--batch-size", required=False, default=8, help="Batch size")
+@click.option("-o", "--output-folder", required=False, default="model", help="Output folder")
 def train_routing(
     input_file: str,
     model_name: str,
@@ -30,6 +32,8 @@ def train_routing(
     training_pct: int,
     max_steps: int,
     learning_rate: float,
+    batch_size: int,
+    output_folder: str,
 ) -> None:
     """Train a routing model."""
     dataset = RoutingDataset.from_csv(input_file, sep="\t")
@@ -44,8 +48,8 @@ def train_routing(
             output_dir="output",
             max_steps=max_steps,
             optim="schedule_free_adamw",
-            per_device_train_batch_size=8,
-            per_device_eval_batch_size=8,
+            per_device_train_batch_size=batch_size,
+            per_device_eval_batch_size=batch_size,
             learning_rate=learning_rate,
             logging_steps=10,
         ),
@@ -55,7 +59,13 @@ def train_routing(
         data_collator=RoutingCollator(tokenizer=model.tokenizer, model_map=model_map),
     )
 
-    trainer.train()
+    try:
+        trainer.train()
+    except KeyboardInterrupt:
+        logging.info("Keyboard interrupt detected, evaluating model...")
+
+    print(trainer.evaluate(val_dataset))
+    model.save_pretrained(output_folder)
 
 
 if __name__ == "__main__":

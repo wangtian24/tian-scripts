@@ -1,11 +1,12 @@
 import torch
 import torch.nn as nn
+from huggingface_hub import PyTorchModelHubMixin
 
 from ypl.training.torch_utils import DeviceMixin
 
 
 # For now, assume that all models can fit on a single device.
-class YuppModel(DeviceMixin, nn.Module):
+class YuppModel(PyTorchModelHubMixin, DeviceMixin, nn.Module):  # type: ignore[misc]
     def __init__(self) -> None:
         super().__init__()
 
