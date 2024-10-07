@@ -125,7 +125,7 @@ pytest-alembic = "0.11.1"
 pytest-mock-resources = {extras = ["postgres-binary"], version = "2.12.0"}
 
 
-[tool.poetry.group.training.dependencies]
+[tool.poetry.group.pytorch.dependencies]
 torch = "2.4.1"
 torchvision = "0.19.1"
 torchaudio = "2.4.1"
@@ -150,6 +150,7 @@ exclude = ["ypl/db/alembic/", "tmp/", "notebooks/"]
 cache_dir = ".mypy_cache"
 
 [tool.pytest.ini_options]
+addopts = "--ignore ypl/pytorch/tests"  # Skip torch tests on CI box until we have a GPU
 filterwarnings = [
     "ignore::DeprecationWarning:httpx.*:",
     "ignore::FutureWarning:transformers.*",

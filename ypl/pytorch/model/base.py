@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from huggingface_hub import PyTorchModelHubMixin
 
+from ypl.pytorch.data.base import StrAnyDict
 from ypl.pytorch.torch_utils import DeviceMixin
 
 
@@ -19,6 +20,9 @@ class YuppModel(PyTorchModelHubMixin, DeviceMixin, nn.Module):  # type: ignore[m
     def device(self, device: torch.device) -> None:
         self.to(device)
         self._device = device
+
+    def forward(self, batch: StrAnyDict) -> StrAnyDict:
+        raise NotImplementedError
 
 
 class YuppClassificationModel(YuppModel):

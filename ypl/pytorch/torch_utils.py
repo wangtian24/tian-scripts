@@ -1,15 +1,23 @@
-from typing import Self, TypeVar
+import logging
+from typing import Any, Self, TypeVar
 
 import numpy as np
 import torch
 
+from ypl.pytorch.serve.cuda_graph import CudaGraphFunctor, CudaGraphPoolExecutor
+
+logging.basicConfig(level=logging.INFO)
 T = TypeVar("T")
+StrAnyDict = dict[str, Any]
 
 
 class DeviceMixin:
     """Mixin for associating a single device with a class."""
 
     _device: torch.device = torch.device("cpu")
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        return super().__init_subclass__(**kwargs)
 
     @property
     def device(self) -> torch.device:
@@ -54,6 +62,9 @@ class PyTorchRNGMixin:
     _torch_rng: torch.Generator | None = None
     _seed: int | None = None
 
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        return super().__init_subclass__(**kwargs)
+
     def set_seed(self, seed: int) -> None:
         if self._seed is not None:
             raise ValueError("Seed already set")
@@ -82,3 +93,106 @@ class PyTorchRNGMixin:
                 self._torch_rng.manual_seed(self._seed)
 
         return self._torch_rng
+
+
+class TorchAccelerationMixin:
+    """Mixin for adding inference acceleration routines to a model, such as TorchDynamo and CUDA graphs."""
+
+    _is_dynamo_compiled: bool = False
+    _is_cuda_graph_compiled: bool = False
+    _dynamo_cache_size_limit: int = 128
+    _cuda_graph_executor: CudaGraphPoolExecutor | None = None
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        from ypl.pytorch.model.base import YuppModel
+
+        if not issubclass(cls, YuppModel):
+            raise TypeError("TorchDynamoMixin must be used together with YuppModel")
+
+        return super().__init_subclass__(**kwargs)
+
+    def compile_cuda_graphs(self, num_graphs_per_input: int = 4) -> None:
+        from ypl.pytorch.model.base import YuppModel
+
+        assert isinstance(self, YuppModel)
+
+        self.eval()
+        s = torch.cuda.Stream()
+        s.wait_stream(torch.cuda.current_stream())
+
+        with torch.cuda.stream(s):
+            for i, input in enumerate(self._warmup_inputs):
+                logging.info(f"Warming up model (iteration {i + 1})")
+                self(input)  # warmup
+
+        torch.cuda.current_stream().wait_stream(s)
+        graph_functors = []
+
+        for input in self._warmup_inputs:
+            for _ in range(num_graphs_per_input):
+                logging.info(f"Compiling CUDA graph {[v.size() for v in input.values()]}")
+                g = torch.cuda.CUDAGraph()
+                s = torch.cuda.Stream()
+                static_input = {k: v.clone() for k, v in input.items()}
+                graph_functor = CudaGraphFunctor(g, static_input, s)
+
+                with graph_functor.capture():
+                    graph_functor.set_output(self(static_input))
+
+                graph_functors.append(graph_functor)
+
+        self._cuda_graph_executor = CudaGraphPoolExecutor(graph_functors)  # type: ignore[assignment]
+        self._is_cuda_graph_compiled = True  # type: ignore[assignment]
+
+    def cuda_graph_forward(self, input: StrAnyDict) -> StrAnyDict:
+        return self.cuda_graph_executor.submit(input)
+
+    @property
+    def is_dynamo_compiled(self) -> bool:
+        return self._is_dynamo_compiled
+
+    @property
+    def is_cuda_graph_compiled(self) -> bool:
+        return self._is_cuda_graph_compiled
+
+    @property
+    def cuda_graph_executor(self) -> CudaGraphPoolExecutor:
+        if self._cuda_graph_executor is None:
+            raise RuntimeError("CUDA graph executor not compiled. Call compile_cuda_graphs() first.")
+
+        return self._cuda_graph_executor
+
+    @property
+    def _warmup_inputs(self) -> list[StrAnyDict]:
+        return []  # returns a list of inputs to warmup the forward method
+
+    @property
+    def _dynamo_options(self) -> dict[str, Any]:
+        return {}
+
+    def compile(self) -> Self:
+        """
+        Compile and warm up the model with TorchDynamo and the inputs, as defined by
+        :py:meth:`.TorchDynamoMixin._warmup_inputs`. Returns the compiled version of the model.
+        """
+        from ypl.pytorch.model.base import YuppModel
+
+        assert isinstance(self, YuppModel)
+
+        self.eval()
+
+        if self._is_dynamo_compiled:
+            raise RuntimeError("Model already compiled")
+
+        torch._dynamo.config.cache_size_limit = self._dynamo_cache_size_limit
+        compiled_obj = torch.compile(self, **self._dynamo_options)
+        compiled_obj._is_dynamo_compiled = True  # type: ignore[attr-defined]
+        torch.set_float32_matmul_precision("high")  # to use tensor cores
+
+        for i, input in enumerate(self._warmup_inputs):
+            logging.info(f"Warming up model (iteration {i + 1}/{len(self._warmup_inputs)})")
+            compiled_obj(input)  # warmup
+
+        logging.info("Model warmed up")
+
+        return compiled_obj  # type: ignore[return-value]

@@ -4,7 +4,7 @@ from typing import Any
 import torch
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-from ypl.pytorch.data.base import CollateType
+from ypl.pytorch.data.base import StrAnyDict
 from ypl.pytorch.model.base import YuppClassificationModel
 from ypl.utils import dict_extract
 
@@ -56,7 +56,7 @@ class RoutingMultilabelClassificationModel(RoutingModel):
             )
         }
 
-    def forward(self, batch: CollateType) -> torch.Tensor:
+    def forward(self, batch: StrAnyDict) -> StrAnyDict:
         """
         Perform a forward pass through the model to obtain logits. The logits are treated as multilabel classification
         scores for each model, i.e., to get the scores, an elementwise sigmoid should be computed.
@@ -67,7 +67,7 @@ class RoutingMultilabelClassificationModel(RoutingModel):
         Returns:
             The logits output by the model.
         """
-        return self.model(**dict_extract(batch, {"input_ids", "attention_mask"})).logits  # type: ignore
+        return dict(logits=self.model(**dict_extract(batch, {"input_ids", "attention_mask"})).logits)
 
     def _save_pretrained(self, save_directory: str) -> None:
         Path(save_directory, "base_model").write_text(self.model.config._name_or_path)

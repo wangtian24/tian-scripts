@@ -3,7 +3,7 @@ import torch
 from pydantic import BaseModel
 from transformers import AutoTokenizer
 
-from ypl.pytorch.data.base import CollateType, PandasDataset, TokenizerCollator
+from ypl.pytorch.data.base import PandasDataset, StrAnyDict, TokenizerCollator
 
 
 class CategorizerTrainingExample(BaseModel):
@@ -51,7 +51,7 @@ class CategorizerCollator(TokenizerCollator[CategorizerTrainingExample]):
         super().__init__(tokenizer)
         self.label_map = label_map
 
-    def collate(self, batch: list[CategorizerTrainingExample]) -> CollateType:
+    def collate(self, batch: list[CategorizerTrainingExample]) -> StrAnyDict:
         """
         Collates a batch of categorizer examples into tensors suitable for model input. This method encodes
         the prompts and converts categories into tensor formats.

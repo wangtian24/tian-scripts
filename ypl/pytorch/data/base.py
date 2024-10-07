@@ -5,11 +5,10 @@ import pandas as pd
 import torch.utils.data as tud
 from transformers import AutoTokenizer
 
-from ypl.pytorch.torch_utils import DeviceMixin
+from ypl.pytorch.torch_utils import DeviceMixin, StrAnyDict
 from ypl.utils import RNGMixin
 
 ExampleType = TypeVar("ExampleType")
-CollateType = dict[str, Any]
 
 
 class DatasetCollator(Generic[ExampleType]):
@@ -23,7 +22,7 @@ class DatasetCollator(Generic[ExampleType]):
         - PyTorch's `DataLoader` for a how collators are used.
     """
 
-    def __call__(self, batch: list[ExampleType]) -> CollateType:
+    def __call__(self, batch: list[ExampleType]) -> StrAnyDict:
         """
         Collate a list of examples into a batch.
 
@@ -51,7 +50,7 @@ class TokenizerCollator(DeviceMixin, DatasetCollator[ExampleType]):
         """
         self.tokenizer = tokenizer
 
-    def __call__(self, batch: list[ExampleType]) -> CollateType:
+    def __call__(self, batch: list[ExampleType]) -> StrAnyDict:
         """
         Tokenize and collate a batch of examples.
 
@@ -64,7 +63,7 @@ class TokenizerCollator(DeviceMixin, DatasetCollator[ExampleType]):
         batch_ = self.collate(batch)
         return self.to_alike(batch_)
 
-    def collate(self, batch: list[ExampleType]) -> CollateType:
+    def collate(self, batch: list[ExampleType]) -> StrAnyDict:
         """
         Collate a list of examples without tokenization. This method should be overridden by subclasses to implement
         specific collation logic.

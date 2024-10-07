@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.utils.data as tud
 from transformers import Trainer
 
-from ypl.pytorch.data.base import CollateType
+from ypl.pytorch.data.base import StrAnyDict
 from ypl.pytorch.data.categorizer import CategorizerDataset
 from ypl.pytorch.data.routing import RoutingDataset
 from ypl.pytorch.model.categorizer import CategorizerClassificationModel
@@ -14,9 +14,9 @@ class RoutingMultilabelTrainer(Trainer):  # type: ignore[misc]
     """Transformers trainer for routing multilabel classification models."""
 
     def compute_loss(
-        self, model: RoutingMultilabelClassificationModel, inputs: CollateType, return_outputs: bool = False
+        self, model: RoutingMultilabelClassificationModel, inputs: StrAnyDict, return_outputs: bool = False
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
-        logits = model(inputs)
+        logits = model(inputs)["logits"]
         normalizer = nn.LogSoftmax(dim=-1)
         loss: torch.Tensor = torch.zeros(1, device=self.args.device)
         logprobs = normalizer(logits)
@@ -54,9 +54,9 @@ class CategorizerTrainer(Trainer):  # type: ignore[misc]
     """Transformers trainer for categorizer models."""
 
     def compute_loss(
-        self, model: CategorizerClassificationModel, inputs: CollateType, return_outputs: bool = False
+        self, model: CategorizerClassificationModel, inputs: StrAnyDict, return_outputs: bool = False
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
-        logits = model(inputs)
+        logits = model(inputs)["logits"]
         loss_fn = nn.CrossEntropyLoss()
         loss = loss_fn(logits[:, :-10], inputs["category_labels"]) + loss_fn(
             logits[:, -10:], inputs["difficulty_labels"]

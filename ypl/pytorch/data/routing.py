@@ -3,7 +3,7 @@ import torch
 from pydantic import BaseModel
 from transformers import AutoTokenizer
 
-from ypl.pytorch.data.base import CollateType, PandasDataset, TokenizerCollator
+from ypl.pytorch.data.base import PandasDataset, StrAnyDict, TokenizerCollator
 
 
 class RoutingTrainingExample(BaseModel):
@@ -67,7 +67,7 @@ class RoutingCollator(TokenizerCollator[RoutingTrainingExample]):
         super().__init__(tokenizer)
         self.label_map = label_map
 
-    def collate(self, batch: list[RoutingTrainingExample]) -> CollateType:
+    def collate(self, batch: list[RoutingTrainingExample]) -> StrAnyDict:
         """
         Collates a batch of routing examples into tensors suitable for model input. This method encodes
         the prompts and converts model labels into tensor formats.
