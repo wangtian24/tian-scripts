@@ -5,7 +5,7 @@ import pandas as pd
 import torch.utils.data as tud
 from transformers import AutoTokenizer
 
-from ypl.training.torch_utils import DeviceMixin
+from ypl.pytorch.torch_utils import DeviceMixin
 from ypl.utils import RNGMixin
 
 ExampleType = TypeVar("ExampleType")
@@ -126,12 +126,29 @@ class PandasDataset(RNGMixin, TypedDataset[ExampleType]):
     number generation capabilities and TypedDataset for dataset interface.
     """
 
+    label_column: str | None = None
+
     def __init__(self, df: pd.DataFrame) -> None:
         self.df = df
 
     def __len__(self) -> int:
         """Get the number of examples in the dataset."""
         return len(self.df)
+
+    def create_label_map(self) -> dict[str, int]:
+        """
+        Creates a mapping from category names to unique integer identifiers.
+
+        Returns:
+            A dictionary mapping labels to unique integer IDs.
+        """
+        if self.label_column is None:
+            raise ValueError("Label column not set")
+
+        all_categories = self.df[self.label_column].unique().tolist()
+        category_map = {category: i for i, category in enumerate(all_categories)}
+
+        return category_map
 
     def split(self, percentage: int, func: Callable[[ExampleType], int] | None = None) -> tuple[Self, Self]:
         """

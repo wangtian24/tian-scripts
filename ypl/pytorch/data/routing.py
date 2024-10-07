@@ -3,7 +3,7 @@ import torch
 from pydantic import BaseModel
 from transformers import AutoTokenizer
 
-from ypl.training.data.base import CollateType, PandasDataset, TokenizerCollator
+from ypl.pytorch.data.base import CollateType, PandasDataset, TokenizerCollator
 
 
 class RoutingTrainingExample(BaseModel):
@@ -25,7 +25,7 @@ class RoutingDataset(PandasDataset[RoutingTrainingExample]):
     def __init__(self, df: pd.DataFrame) -> None:
         super().__init__(df)
 
-    def create_model_map(self) -> dict[str, int]:
+    def create_label_map(self) -> dict[str, int]:
         """
         Creates a mapping from model names to unique integer identifiers.
 
@@ -50,6 +50,10 @@ class RoutingDataset(PandasDataset[RoutingTrainingExample]):
         row = self.df.iloc[index]
         models = eval(row["models"])
 
+        if "gpt-4o" == models[0]:
+            # swap gpt-4o with second element
+            models[0], models[1] = models[1], models[0]
+
         return RoutingTrainingExample(prompt=row["prompt"], models=models)
 
 
@@ -59,9 +63,9 @@ class RoutingCollator(TokenizerCollator[RoutingTrainingExample]):
     maps model labels to their corresponding indices.
     """
 
-    def __init__(self, tokenizer: AutoTokenizer, model_map: dict[str, int]) -> None:
+    def __init__(self, tokenizer: AutoTokenizer, label_map: dict[str, int]) -> None:
         super().__init__(tokenizer)
-        self.model_map = model_map
+        self.label_map = label_map
 
     def collate(self, batch: list[RoutingTrainingExample]) -> CollateType:
         """
@@ -84,7 +88,7 @@ class RoutingCollator(TokenizerCollator[RoutingTrainingExample]):
         ).data
 
         tokenizer_output["model_labels"] = torch.tensor(
-            [[self.model_map[model] for model in example.models] for example in batch]
+            [[self.label_map[model] for model in example.models] for example in batch]
         )
 
         return tokenizer_output  # type: ignore

@@ -4,12 +4,12 @@ from typing import Any
 import torch
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-from ypl.training.data.base import CollateType
-from ypl.training.model.base import YuppModel
+from ypl.pytorch.data.base import CollateType
+from ypl.pytorch.model.base import YuppClassificationModel
 from ypl.utils import dict_extract
 
 
-class RoutingModel(YuppModel):
+class RoutingModel(YuppClassificationModel):
     """Abstract base class for routing models."""
 
     def route_to_models(self, prompt: str) -> dict[str, float]:
@@ -20,19 +20,19 @@ class RoutingModel(YuppModel):
 class RoutingMultilabelClassificationModel(RoutingModel):
     """Multilabel classification model for routing."""
 
-    def __init__(self, model_name: str, model_map: dict[str, int]):
+    def __init__(self, model_name: str, label_map: dict[str, int]):
         """
         Initialize the multilabel classification model.
 
         Args:
             model_name: The name of the pretrained model.
-            model_map: Mapping from model names to unique integer IDs.
+            label_map: Mapping from model names to unique integer IDs.
         """
-        super().__init__()
-        self.model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=len(model_map))
+        super().__init__(model_name=model_name, label_map=label_map)
+        self.model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=len(label_map))
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model2id = model_map
-        self.id2model = {v: k for k, v in model_map.items()}
+        self.model2id = label_map
+        self.id2model = {v: k for k, v in label_map.items()}
 
     @torch.no_grad()
     def route_to_models(self, prompt: str) -> dict[str, float]:
