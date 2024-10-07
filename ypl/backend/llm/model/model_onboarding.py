@@ -21,12 +21,14 @@ def verify_onboard_submitted_models() -> None:
         for model in submitted_models:
             try:
                 # TODO: Implement model verification logic
-                # For now, we'll just do a hardcoded check and set the status to VERIFIED_PENDING_ACTIVATION
+                # For now, we'll just do a hardcoded check and
+                # set the status to VERIFIED_PENDING_ACTIVATION
                 if model.name.lower().startswith("google"):
                     model.status = LanguageModelStatusEnum.VERIFIED_PENDING_ACTIVATION
                     model.modified_at = datetime.utcnow()
                     logging.info(
-                        f"Model {model.name} ({model.internal_name}) validated successfully and set to ACTIVE."
+                        f"Model {model.name} ({model.internal_name}) validated successfully "
+                        f"and set to VERIFIED_PENDING_ACTIVATION."
                     )
                 else:
                     logging.info(
