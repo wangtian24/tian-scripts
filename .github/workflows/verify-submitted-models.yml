@@ -1,0 +1,21 @@
+name: Verify Submitted Models
+
+on:
+  schedule:
+    - cron: '0 */24 * * *'  # Every 24 hours
+  workflow_dispatch:
+
+jobs:
+  verify_submitted_models_staging:
+    uses: ./.github/workflows/cronjob.yml
+    with:
+      command: verify-submitted-models
+      environment: staging
+    secrets: inherit
+
+  verify_submitted_models_production:
+    uses: ./.github/workflows/cronjob.yml
+    with:
+      command: verify-submitted-models
+      environment: production
+    secrets: inherit

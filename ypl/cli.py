@@ -42,6 +42,7 @@ from ypl.backend.llm.judge import (
     choose_llm,
 )
 from ypl.backend.llm.labeler import WildChatRealismLabeler
+from ypl.backend.llm.model.model_onboarding import verify_onboard_submitted_models
 from ypl.backend.llm.prompt_classifiers import categorize_user_messages
 from ypl.backend.llm.ranking import get_default_ranker
 from ypl.backend.llm.synthesize import SQLChatIO, SynthesizerConfig, SyntheticUserGenerator, asynthesize_chats
@@ -595,6 +596,13 @@ def judge_yupp_llm_outputs(
 def categorize_messages(update_all_messages: bool) -> None:
     """Categorize user chat messages."""
     categorize_user_messages(update_all_messages)
+
+
+@cli.command()
+@db_cmd
+def verify_submitted_models() -> None:
+    """Verify and onboard submitted language models."""
+    verify_onboard_submitted_models()
 
 
 if __name__ == "__main__":
