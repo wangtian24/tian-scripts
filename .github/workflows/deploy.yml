@@ -159,8 +159,6 @@ jobs:
           --allow-unauthenticated \
           --cpu ${{ env.CPU }} \
           --memory ${{ env.MEMORY }} \
-          ${{ github.event.inputs.gpu && '--gpu 1' || '' }} \
-          ${{ github.event.inputs.gpu && '--gpu-type=nvidia-l4' || '' }} \
           --command="/app/ypl/backend/entrypoint.sh" \
           --args="service"
 
