@@ -1,0 +1,21 @@
+name: Store Prompt Language
+
+on:
+  schedule:
+    - cron: '45 */6 * * *'  # Every 6 hours, at 45 minutes past the hour.
+  workflow_dispatch:
+
+jobs:
+  store_prompt_language_staging:
+    uses: ./.github/workflows/cronjob.yml
+    with:
+      command: store-prompt-language
+      environment: staging
+    secrets: inherit
+
+  store_prompt_language_production:
+    uses: ./.github/workflows/cronjob.yml
+    with:
+      command: store-prompt-language
+      environment: production
+    secrets: inherit

@@ -14,7 +14,9 @@ import git
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
+from fast_langdetect import detect
 from sqlalchemy import func
+from sqlalchemy.orm import load_only
 from sqlmodel import Session, select, text
 from tqdm import tqdm
 from tqdm.asyncio import tqdm_asyncio
@@ -47,7 +49,7 @@ from ypl.backend.llm.prompt_classifiers import categorize_user_messages
 from ypl.backend.llm.ranking import get_default_ranker
 from ypl.backend.llm.synthesize import SQLChatIO, SynthesizerConfig, SyntheticUserGenerator, asynthesize_chats
 from ypl.backend.llm.utils import fetch_categories_with_descriptions_from_db
-from ypl.db.chats import Chat, ChatMessage, MessageType, Turn, TurnQuality
+from ypl.db.chats import Chat, ChatMessage, LanguageCode, MessageType, Turn, TurnQuality
 from ypl.db.language_models import LanguageModel, LanguageModelProviderAssociation, Provider
 
 logging.getLogger().setLevel(logging.INFO)
@@ -603,6 +605,57 @@ def categorize_messages(update_all_messages: bool) -> None:
 def verify_submitted_models() -> None:
     """Verify and onboard submitted language models."""
     verify_onboard_submitted_models()
+
+
+@cli.command()
+@click.option(
+    "--update-all-messages",
+    is_flag=True,
+    default=False,
+    help="Update language for all messages, not just those without a language code",
+)
+@db_cmd
+def store_prompt_language(update_all_messages: bool) -> None:
+    """Detect and store the language of chat messages."""
+    CHUNK_SIZE = 100
+
+    with Session(get_engine()) as session:
+        query = select(ChatMessage).options(
+            load_only(ChatMessage.message_id, ChatMessage.language_code, ChatMessage.content)  # type: ignore
+        )
+        if not update_all_messages:
+            query = query.where(ChatMessage.language_code.is_(None))  # type: ignore
+        messages = session.scalars(query).all()
+        logging.info(f"Total messages to process: {len(messages)}")
+        total_processed = 0
+        total_failed = 0
+
+        for i, message in enumerate(messages):
+            try:
+                input_text = message.content.replace("\n", " ").strip()
+                detected_language = detect(input_text)
+                lang_code = detected_language["lang"]
+                try:
+                    message.language_code = LanguageCode(lang_code)
+                except ValueError:
+                    logging.warning(f"Unsupported language code: {lang_code}")
+                total_processed += 1
+            except Exception as e:
+                logging.error(f"Language detection failed for message {message.message_id}: {e}")
+                logging.error(f"Message content: {message.content[:100]}...")
+                total_failed += 1
+
+            if (i + 1) % CHUNK_SIZE == 0:
+                session.commit()
+                logging.info(f"Processed {i + 1} messages. Committed chunk of {CHUNK_SIZE} messages")
+
+        session.commit()
+        logging.info("Committed final chunk of messages")
+        logging.info(
+            f"Language field population complete. "
+            f"Total messages processed: {total_processed}. "
+            f"Total messages failed: {total_failed}."
+        )
 
 
 if __name__ == "__main__":

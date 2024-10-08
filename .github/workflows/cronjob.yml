@@ -25,6 +25,7 @@ on:
         type: choice
         options:
           - categorize-messages
+          - store-prompt-language
           - update-ranking
           - update-ranking-all-categories
           - verify-submitted-models
