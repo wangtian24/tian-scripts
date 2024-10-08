@@ -98,6 +98,12 @@ jobs:
           echo "CPU=4" >> $GITHUB_ENV
         fi
 
+        if [[ "${{ github.event.inputs.gpu }}" == "true" ]]; then
+          echo "GPU=1" >> $GITHUB_ENV
+        else
+          echo "GPU=0" >> $GITHUB_ENV
+        fi
+
     - name: Create .env file
       run: |
         echo "ENVIRONMENT=${{ env.ENVIRONMENT }}" >> .env
@@ -150,15 +156,20 @@ jobs:
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
+    - name: Install gcloud beta
+      run: gcloud components install beta
+
     - name: Deploy to Cloud Run
       run: |
-        gcloud run deploy ${{ env.SERVICE_NAME }} \
+        gcloud beta run deploy ${{ env.SERVICE_NAME }} \
           --image ${{ env.IMAGE_NAME }} \
           --platform managed \
           --region ${{ env.REGION }} \
           --allow-unauthenticated \
           --cpu ${{ env.CPU }} \
           --memory ${{ env.MEMORY }} \
+          --gpu ${{ env.GPU }} \
+          --gpu-type nvidia-l4 \
           --command="/app/ypl/backend/entrypoint.sh" \
           --args="service"
 
