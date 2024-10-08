@@ -1,0 +1,15 @@
+FROM pytorch/pytorch:2.4.1-cuda11.8-cudnn9-runtime
+
+RUN apt-get update && \
+    apt-get install -y g++ git
+
+RUN pip install poetry==1.8.2 && \
+    poetry config virtualenvs.create false
+
+COPY pyproject.toml poetry.lock ./
+
+RUN poetry install --no-root --no-dev --no-cache && \
+  rm -rfv /root/.cache/
+
+# Clean up
+RUN apt-get clean && rm -rf /var/lib/apt/lists/*

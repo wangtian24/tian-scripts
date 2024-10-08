@@ -2247,6 +2247,20 @@ test = ["packaging", "pickleshare", "pytest", "pytest-asyncio (<0.22)", "testpat
 test-extra = ["curio", "ipython[test]", "matplotlib (!=3.2.0)", "nbformat", "numpy (>=1.23)", "pandas", "trio"]
 
 [[package]]
+name = "janus"
+version = "1.0.0"
+description = "Mixed sync-async queue to interoperate between asyncio tasks and classic threads"
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "janus-1.0.0-py3-none-any.whl", hash = "sha256:2596ea5482711c1ee3ef2df6c290aaf370a13c55a007826e8f7c32d696d1d00a"},
+    {file = "janus-1.0.0.tar.gz", hash = "sha256:df976f2cdcfb034b147a2d51edfc34ff6bfb12d4e2643d3ad0e10de058cb1612"},
+]
+
+[package.dependencies]
+typing-extensions = ">=3.7.4.3"
+
+[[package]]
 name = "jedi"
 version = "0.19.1"
 description = "An autocompletion tool for Python that can be used for text editors."
@@ -6668,4 +6682,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.11,<3.12"
-content-hash = "1849de050c0f5acf4f66fddd3aaedb3859c72247a6d38b9e5b479cc8a6796d00"
+content-hash = "79e7aacc4ee38eeaa99f0a287fa4090d7ad442833521118f92a82f947f44b3a0"

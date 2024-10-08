@@ -1,18 +1,20 @@
 import logging
-from queue import Queue
+from queue import Queue as PyQueue
 from threading import Lock, Thread
 from typing import Any
 
 import torch
+from janus import Queue as JQueue
+from janus import SyncQueue
 
-StrAnyDict = dict[str, Any]
+StrTensorDict = dict[str, torch.Tensor]
 
 
 class GraphNotFoundError(Exception):
     pass
 
 
-def get_size_key(input_batch: StrAnyDict) -> tuple[tuple[int, ...], ...]:
+def get_size_key(input_batch: StrTensorDict) -> tuple[tuple[int, ...], ...]:
     sorted_inp_values = [x[1] for x in sorted(input_batch.items(), key=lambda x: x[0])]
     return tuple(v.size() for v in sorted_inp_values)
 
@@ -56,31 +58,30 @@ class CudaGraphFunctor:
     def __init__(
         self,
         graph: torch.cuda.CUDAGraph,
-        static_batch_input: StrAnyDict,
+        static_batch_input: StrTensorDict,
         stream: torch.cuda.Stream,
     ):
         self.graph = graph
         self.static_batch_input = static_batch_input
-        self.static_output: StrAnyDict | None = None
+        self.static_output: StrTensorDict | None = None
         self.stream = stream
         self.lock = Lock()
 
-    def copy_to_static_input(self, input_batch: StrAnyDict) -> None:
-        with torch.cuda.stream(self.stream):
-            for k, v in self.static_batch_input.items():
-                v.copy_(input_batch[k])
+    def copy_to_static_input(self, input_batch: StrTensorDict) -> None:
+        for k, v in self.static_batch_input.items():
+            v.copy_(input_batch[k])
 
-    def get_size_key(self, input_batch: StrAnyDict | None = None) -> tuple[tuple[int, ...], ...]:
+    def get_size_key(self, input_batch: StrTensorDict | None = None) -> tuple[tuple[int, ...], ...]:
         input_batch = input_batch or self.static_batch_input
         return get_size_key(input_batch)
 
     def capture(self) -> CaptureContext:
         return self.CaptureContext(self)
 
-    def set_output(self, output: StrAnyDict) -> None:
+    def set_output(self, output: StrTensorDict) -> None:
         self.static_output = output
 
-    def __call__(self, input_batch: StrAnyDict) -> StrAnyDict:
+    def __call__(self, input_batch: StrTensorDict) -> StrTensorDict:
         assert self.static_output is not None, "Static output tensor is not set"
 
         with self.lock, torch.cuda.stream(self.stream):
@@ -97,21 +98,23 @@ class CudaGraphPoolExecutor:
 
     This class is designed to be used with a batch of inputs and a list of CUDA graph functors. It routes the inputs
     to the appropriate graph functor based on the size of the input.
+
+    This class is thread-safe and can be used to execute a batch of inputs asynchronously.
     """
 
     def __init__(self, graph_functors: list[CudaGraphFunctor], num_threads: int = 4):
-        self.graph_functor_map: dict[tuple[tuple[int, ...], ...], Queue[CudaGraphFunctor]] = {}
+        self.graph_functor_map: dict[tuple[tuple[int, ...], ...], PyQueue[CudaGraphFunctor]] = {}
 
         for graph_functor in graph_functors:
             size_key = graph_functor.get_size_key()
 
             if size_key not in self.graph_functor_map:
-                self.graph_functor_map[size_key] = Queue()
+                self.graph_functor_map[size_key] = PyQueue()
 
             self.graph_functor_map[size_key].put(graph_functor)
 
         self.threads = [Thread(target=self.run, daemon=True) for _ in range(num_threads)]
-        self._read_queue: Queue[tuple[Queue[StrAnyDict | None], StrAnyDict]] = Queue()
+        self._read_queue: JQueue[tuple[SyncQueue[StrTensorDict | None], StrTensorDict]] = JQueue()
 
         for thread in self.threads:
             thread.start()
@@ -119,7 +122,7 @@ class CudaGraphPoolExecutor:
     def run(self) -> None:
         """Continuously fetches work from the read queue and processes it."""
         while True:
-            write_queue, input = self._read_queue.get()
+            write_queue, input = self._read_queue.sync_q.get()
 
             try:
                 size_key = get_size_key(input)
@@ -138,7 +141,17 @@ class CudaGraphPoolExecutor:
                 write_queue.put(None)
                 logging.exception(e)
 
-    def submit(self, input: StrAnyDict) -> StrAnyDict:
+    async def asubmit(self, input: StrTensorDict) -> StrTensorDict:
+        write_queue: JQueue[StrTensorDict | None] = JQueue()
+        await self._read_queue.async_q.put((write_queue.sync_q, input))
+        ret = await write_queue.async_q.get()
+
+        if ret is None:
+            raise GraphNotFoundError(f"No graph functor found for input size {get_size_key(input)}")
+
+        return ret
+
+    def submit(self, input: StrTensorDict) -> StrTensorDict:
         """
         Submit an input to the CUDA graph pool executor. Routes the input to the appropriate graph functor based
         on the size of the input.
@@ -148,10 +161,9 @@ class CudaGraphPoolExecutor:
             - :py:meth:`.CudaGraphPoolExecutor.run`
             - For how this class is used, see :py:meth:`.CategorizerClassificationModel.categorize`
         """
-        write_queue: Queue[StrAnyDict | None] = Queue()
-        self._read_queue.put((write_queue, input))
-
-        ret = write_queue.get()
+        write_queue: JQueue[StrTensorDict | None] = JQueue()
+        self._read_queue.sync_q.put((write_queue.sync_q, input))
+        ret = write_queue.sync_q.get()
 
         if ret is None:
             raise GraphNotFoundError(f"No graph functor found for input size {get_size_key(input)}")

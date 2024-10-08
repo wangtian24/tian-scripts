@@ -4,7 +4,7 @@ from typing import Any
 import torch
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-from ypl.pytorch.data.base import StrAnyDict
+from ypl.pytorch.data.base import StrTensorDict
 from ypl.pytorch.model.base import YuppClassificationModel
 from ypl.pytorch.torch_utils import TorchAccelerationMixin
 from ypl.utils import dict_extract
@@ -37,7 +37,7 @@ class CategorizerClassificationModel(TorchAccelerationMixin, CategorizerModel):
         self.id2category = {v: k for k, v in label_map.items()}
 
     @torch.no_grad()
-    def categorize(self, prompt: str) -> tuple[str, int]:
+    async def acategorize(self, prompt: str) -> tuple[str, int]:
         self.eval()
         input_ids = self.to_alike(
             self.tokenizer.encode(
@@ -60,6 +60,45 @@ class CategorizerClassificationModel(TorchAccelerationMixin, CategorizerModel):
             if self.is_dynamo_compiled:
                 outputs = self(dict(input_ids=input_ids, attention_mask=attention_mask))["logits"]
             else:
+                outputs = (await self.acuda_graph_forward(dict(input_ids=input_ids, attention_mask=attention_mask)))[
+                    "logits"
+                ]
+
+            category_outputs = outputs[:, : len(self.category2id)]
+            difficulty_outputs = outputs[:, len(self.category2id) :]
+        else:
+            category_outputs = self.category_model(input_ids, attention_mask=attention_mask).logits.squeeze()
+            difficulty_outputs = self.difficulty_model(input_ids, attention_mask=attention_mask).logits.squeeze()
+
+        category_id = category_outputs.argmax().item()
+        difficulty_id = difficulty_outputs.argmax().item()
+
+        return self.id2category[category_id], difficulty_id + 1
+
+    @torch.no_grad()
+    def categorize(self, prompt: str) -> tuple[str, int]:
+        self.eval()
+        input_ids = self.to_alike(
+            self.tokenizer.encode(
+                prompt,
+                return_tensors="pt",
+                max_length=512,
+                truncation=True,
+            )
+        )
+
+        attention_mask = torch.ones_like(input_ids)
+
+        if self.is_dynamo_compiled or self.is_cuda_graph_compiled:
+            # Pad the input to the nearest multiple of 64
+            padding = (64 - input_ids.shape[-1] % 64) % 64
+            input_ids = torch.nn.functional.pad(input_ids, (0, padding))
+            attention_mask = torch.nn.functional.pad(attention_mask, (0, padding))
+
+            # Use self() if compiled:
+            if self.is_dynamo_compiled:
+                outputs = self(dict(input_ids=input_ids, attention_mask=attention_mask))["logits"]
+            else:
                 outputs = self.cuda_graph_forward(dict(input_ids=input_ids, attention_mask=attention_mask))["logits"]
 
             category_outputs = outputs[:, : len(self.category2id)]
@@ -74,8 +113,8 @@ class CategorizerClassificationModel(TorchAccelerationMixin, CategorizerModel):
         return self.id2category[category_id], difficulty_id + 1
 
     @property
-    def _warmup_inputs(self) -> list[StrAnyDict]:
-        inputs: list[StrAnyDict] = []
+    def _warmup_inputs(self) -> list[StrTensorDict]:
+        inputs: list[StrTensorDict] = []
         chunk_size_start = 128
         chunk_size_step = chunk_size_start
 
@@ -93,7 +132,7 @@ class CategorizerClassificationModel(TorchAccelerationMixin, CategorizerModel):
     def _dynamo_options(self) -> dict[str, Any]:
         return {"mode": "reduce-overhead", "dynamic": False, "fullgraph": True}
 
-    def forward(self, batch: StrAnyDict) -> StrAnyDict:
+    def forward(self, batch: StrTensorDict) -> StrTensorDict:
         """Perform a forward pass through the model to obtain logits."""
         clogs = self.category_model(**dict_extract(batch, {"input_ids", "attention_mask"})).logits
         dlogs = self.difficulty_model(**dict_extract(batch, {"input_ids", "attention_mask"})).logits

@@ -207,7 +207,12 @@ def test_random_routing(random_fraction: float, expected_distribution: dict[str,
     ranker = ChoixRanker(models=models, choix_ranker_algorithm="lsr_pairwise")
     ranker.update("a", "b", 1.0)
     ranker.update("a", "b", 1.0)
-    router = (EloProposer(ranker) ^ RandomModelProposer()).with_probs(1 - random_fraction, random_fraction)
+    router = (
+        (EloProposer(ranker).with_seed(0) ^ RandomModelProposer().with_seed(0))
+        .with_probs(1 - random_fraction, random_fraction)
+        .with_seed(0)
+    )
+
     selected = [
         list(router.select_models(2, state=RouterState(all_models=set(models))).get_selected_models())
         for _ in range(1000)

@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     # Whether to use prompt-conditional routing. Defaults to false.
     ROUTING_USE_PROMPT_CONDITIONAL: bool = False
     OPENAI_API_KEY_ROUTING: str = ""
-    CATEGORIZER_MODEL_PATH: str = ""
+    CATEGORIZER_MODEL_PATH: str = "gs://yupp-models/category-model.zip"
 
     @computed_field  # type: ignore[misc]
     @property

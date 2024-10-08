@@ -20,12 +20,39 @@ on:
         options:
         - staging
         - production
+      image:
+        description: 'Image to deploy'
+        required: true
+        default: 'backend'
+        type: string
+        options:
+        - backend
+        - backend-pytorch-service
+      region:
+        description: 'Region to deploy to'
+        required: true
+        default: 'us-east4'
+        type: string
+        options:
+        - us-east4
+        - us-central1
+      gpu:
+        description: 'Whether to deploy with GPU'
+        required: true
+        default: 'false'
+        type: boolean
+      categorizer_model_path:
+        description: 'Path to the categorizer model'
+        required: true
+        default: 'gs://yupp-models/category-model.zip'
+        type: string
+
 
 env:
   GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  SERVICE_NAME: backend
-  IMAGE_NAME: "gcr.io/yupp-llms/backend-${{ github.event.inputs.environment || 'staging' }}:v1"
-  REGION: us-east4
+  SERVICE_NAME: ${{ github.event.inputs.image || 'backend' }}
+  IMAGE_NAME: "gcr.io/yupp-llms/${{ github.event.inputs.image || 'backend' }}-${{ github.event.inputs.environment || 'staging' }}:v1"
+  REGION: ${{ github.event.inputs.region || 'us-east4' }}
 
 permissions:
   contents: write  # Permission required for pushing new tags.
@@ -61,12 +88,12 @@ jobs:
       run: |
         if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.event.inputs.environment }}" == "production" ]]; then
           echo "ENVIRONMENT=production" >> $GITHUB_ENV
-          echo "SERVICE_NAME=backend" >> $GITHUB_ENV
+          echo "SERVICE_NAME=${{ github.event.inputs.image || 'backend' }}" >> $GITHUB_ENV
           echo "MEMORY=16G" >> $GITHUB_ENV
           echo "CPU=4" >> $GITHUB_ENV
         else
           echo "ENVIRONMENT=staging" >> $GITHUB_ENV
-          echo "SERVICE_NAME=backend-staging" >> $GITHUB_ENV
+          echo "SERVICE_NAME=${{ github.event.inputs.image || 'backend' }}-staging" >> $GITHUB_ENV
           echo "MEMORY=16G" >> $GITHUB_ENV
           echo "CPU=4" >> $GITHUB_ENV
         fi
@@ -78,6 +105,7 @@ jobs:
         echo "NLTK_DATA=\"data/nltk_data\" " >> .env
         echo "BACKEND_CORS_ORIGINS=${{ env.BACKEND_CORS_ORIGINS }}" >> .env
         echo "X_API_KEY=${{ secrets.X_API_KEY }}" >> .env
+        echo "CATEGORIZER_MODEL_PATH=${{ github.events.inputs.categorizer_model_path }}" >> .env
         if [[ "${{ env.ENVIRONMENT }}" == "production" ]]; then
           echo "POSTGRES_USER=${{ secrets.POSTGRES_USER }}" >> .env
           echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_PRODUCTION }}" >> .env
@@ -131,6 +159,8 @@ jobs:
           --allow-unauthenticated \
           --cpu ${{ env.CPU }} \
           --memory ${{ env.MEMORY }} \
+          ${{ github.event.inputs.gpu && '--gpu 1' || '' }} \
+          ${{ github.event.inputs.gpu && '--gpu-type=nvidia-l4' || '' }} \
           --command="/app/ypl/backend/entrypoint.sh" \
           --args="service"
 

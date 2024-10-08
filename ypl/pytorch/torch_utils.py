@@ -8,7 +8,7 @@ from ypl.pytorch.serve.cuda_graph import CudaGraphFunctor, CudaGraphPoolExecutor
 
 logging.basicConfig(level=logging.INFO)
 T = TypeVar("T")
-StrAnyDict = dict[str, Any]
+StrTensorDict = dict[str, torch.Tensor]
 
 
 class DeviceMixin:
@@ -111,21 +111,13 @@ class TorchAccelerationMixin:
 
         return super().__init_subclass__(**kwargs)
 
+    @torch.no_grad()
     def compile_cuda_graphs(self, num_graphs_per_input: int = 4) -> None:
         from ypl.pytorch.model.base import YuppModel
 
         assert isinstance(self, YuppModel)
 
         self.eval()
-        s = torch.cuda.Stream()
-        s.wait_stream(torch.cuda.current_stream())
-
-        with torch.cuda.stream(s):
-            for i, input in enumerate(self._warmup_inputs):
-                logging.info(f"Warming up model (iteration {i + 1})")
-                self(input)  # warmup
-
-        torch.cuda.current_stream().wait_stream(s)
         graph_functors = []
 
         for input in self._warmup_inputs:
@@ -133,19 +125,28 @@ class TorchAccelerationMixin:
                 logging.info(f"Compiling CUDA graph {[v.size() for v in input.values()]}")
                 g = torch.cuda.CUDAGraph()
                 s = torch.cuda.Stream()
-                static_input = {k: v.clone() for k, v in input.items()}
+                s.wait_stream(torch.cuda.current_stream())
+                self(input)  # warmup
+                torch.cuda.synchronize()
+
+                static_input = {k: v.clone().detach() for k, v in input.items()}
                 graph_functor = CudaGraphFunctor(g, static_input, s)
+                torch.cuda.synchronize()
 
                 with graph_functor.capture():
                     graph_functor.set_output(self(static_input))
 
+                torch.cuda.synchronize()
                 graph_functors.append(graph_functor)
 
         self._cuda_graph_executor = CudaGraphPoolExecutor(graph_functors)  # type: ignore[assignment]
         self._is_cuda_graph_compiled = True  # type: ignore[assignment]
 
-    def cuda_graph_forward(self, input: StrAnyDict) -> StrAnyDict:
+    def cuda_graph_forward(self, input: StrTensorDict) -> StrTensorDict:
         return self.cuda_graph_executor.submit(input)
+
+    async def acuda_graph_forward(self, input: StrTensorDict) -> StrTensorDict:
+        return await self.cuda_graph_executor.asubmit(input)
 
     @property
     def is_dynamo_compiled(self) -> bool:
@@ -163,7 +164,7 @@ class TorchAccelerationMixin:
         return self._cuda_graph_executor
 
     @property
-    def _warmup_inputs(self) -> list[StrAnyDict]:
+    def _warmup_inputs(self) -> list[StrTensorDict]:
         return []  # returns a list of inputs to warmup the forward method
 
     @property
