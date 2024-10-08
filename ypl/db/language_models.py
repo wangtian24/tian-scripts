@@ -162,6 +162,15 @@ class LanguageModel(BaseModel, table=True):
     # For example, a knowledge cutoff of 2024 06 15 means the model was trained on data up to June 15, 2024.
     knowledge_cutoff_date: date | None = Field(default=None, nullable=True)
 
+    # Input cost in USD per million tokens, stored with 6 decimal places.
+    input_cost_usd_per_million_tokens: Decimal | None = Field(
+        sa_column=Column(Numeric(precision=10, scale=6), nullable=True), default=None
+    )
+    # Output cost in USD per million tokens, stored with 6 decimal places.
+    output_cost_usd_per_million_tokens: Decimal | None = Field(
+        sa_column=Column(Numeric(precision=10, scale=6), nullable=True), default=None
+    )
+
     # This is the status of the language model. Once a new model is created, its status is SUBMITTED.
     # If the model is rejected, it is not made available to the public and status is set to REJECTED.
     # After the model has been verified by the automatic checks, the status is set to VERIFIED_PENDING_ACTIVATION.
@@ -187,9 +196,8 @@ class LanguageModel(BaseModel, table=True):
     ratings: list["Rating"] = Relationship(back_populates="model")
     ratings_history: list["RatingHistory"] = Relationship(back_populates="model")
 
-    providers: list["Provider"] = Relationship(
-        back_populates="language_models", link_model=LanguageModelProviderAssociation
-    )
+    provider_id: uuid.UUID | None = Field(foreign_key="providers.provider_id", nullable=True, default=None)
+    provider: "Provider" = Relationship(back_populates="language_models")
 
     turn_qualities: list["TurnQuality"] = Relationship(back_populates="prompt_difficulty_judge_model")
 
@@ -218,9 +226,7 @@ class Provider(BaseModel, table=True):
     # For permanent removal of the provider, set deleted_at.
     is_active: bool = Field(default=True)
 
-    language_models: list[LanguageModel] = Relationship(
-        back_populates="providers", link_model=LanguageModelProviderAssociation
-    )
+    language_models: list[LanguageModel] = Relationship(back_populates="provider")
 
 
 # Organization is a group of entities that own the rights to a language model.
