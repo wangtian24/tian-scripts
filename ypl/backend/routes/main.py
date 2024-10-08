@@ -10,6 +10,7 @@ from ypl.backend.config import settings
 from ypl.backend.llm.ranking import get_ranker
 from ypl.backend.routes.api_auth import validate_api_key
 from ypl.backend.routes.v1 import health, highlight_similar_content, model, rank
+from ypl.backend.routes.v1 import provider as provider_route
 from ypl.backend.routes.v1 import route as llm_route
 
 logger = logging.getLogger(__name__)
@@ -38,5 +39,5 @@ api_router.include_router(highlight_similar_content.router, prefix="/v1", tags=[
 api_router.include_router(llm_route.router, prefix="/v1", tags=["route"])
 api_router.include_router(rank.router, prefix="/v1", tags=["leaderboard"])
 api_router.include_router(model.router, prefix="/v1", tags=["models"])
-
+api_router.include_router(provider_route.router, prefix="/v1", tags=["providers"])
 app_init()
