@@ -24,7 +24,7 @@ on:
         description: 'Image to deploy'
         required: true
         default: 'backend'
-        type: string
+        type: choice
         options:
         - backend
         - backend-pytorch-service
@@ -32,7 +32,7 @@ on:
         description: 'Region to deploy to'
         required: true
         default: 'us-east4'
-        type: string
+        type: choice
         options:
         - us-east4
         - us-central1
@@ -152,7 +152,7 @@ jobs:
 
     - name: Deploy to Cloud Run
       run: |
-        gcloud run deploy ${{ env.SERVICE_NAME }} \
+        gcloud beta run deploy ${{ env.SERVICE_NAME }} \
           --image ${{ env.IMAGE_NAME }} \
           --platform managed \
           --region ${{ env.REGION }} \
