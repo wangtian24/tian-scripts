@@ -24,6 +24,7 @@ class LanguageModelStruct(BaseModel):
     organization_name: str | None
     status: str
     creator_user_id: str
+    provider_id: UUID | None
 
 
 def create_model(model: LanguageModel) -> UUID:
