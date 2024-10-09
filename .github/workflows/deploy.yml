@@ -99,9 +99,9 @@ jobs:
         fi
 
         if [[ "${{ github.event.inputs.gpu }}" == "true" ]]; then
-          echo "GPU=1" >> $GITHUB_ENV
+          echo "CLOUD_RUN_EXTRA_FLAGS='--gpu 1 --gpu-type nvidia-l4 --args=service'" >> $GITHUB_ENV
         else
-          echo "GPU=0" >> $GITHUB_ENV
+          echo "CLOUD_RUN_EXTRA_FLAGS='--args=service'" >> $GITHUB_ENV
         fi
 
     - name: Create .env file
@@ -168,10 +168,8 @@ jobs:
           --allow-unauthenticated \
           --cpu ${{ env.CPU }} \
           --memory ${{ env.MEMORY }} \
-          --gpu ${{ env.GPU }} \
-          --gpu-type nvidia-l4 \
           --command="/app/ypl/backend/entrypoint.sh" \
-          --args="service"
+          ${{ env.CLOUD_RUN_EXTRA_FLAGS }}
 
     - name: Tag commit
       run: |
