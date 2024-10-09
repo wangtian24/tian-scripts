@@ -13,7 +13,6 @@ from ypl.db.language_models import Provider
 class ProviderStruct(BaseModel):
     provider_id: UUID
     name: str
-    base_api_url: str
     is_active: bool
 
 
