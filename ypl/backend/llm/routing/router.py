@@ -18,7 +18,7 @@ from ypl.backend.llm.chat import ModelInfo
 from ypl.backend.llm.constants import COSTS_BY_MODEL, ChatProvider
 from ypl.backend.llm.ranking import ConfidenceIntervalRankerMixin, Ranker, get_ranker
 from ypl.backend.llm.routing.policy import SelectionCriteria, decayed_random_fraction
-from ypl.db.language_models import LanguageModel, LanguageModelProviderAssociation, LanguageModelStatusEnum, Provider
+from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
 from ypl.utils import RNGMixin
 
 logging.basicConfig(level=logging.INFO)
@@ -101,14 +101,11 @@ class RouterState(BaseModel):
         query = (
             select(LanguageModel.internal_name)
             .distinct()
-            .join(LanguageModelProviderAssociation)
             .join(Provider)
             .where(
                 LanguageModel.deleted_at.is_(None),  # type: ignore
                 LanguageModel.status == LanguageModelStatusEnum.ACTIVE,
-                LanguageModelProviderAssociation.deleted_at.is_(None),  # type: ignore
                 Provider.deleted_at.is_(None),  # type: ignore
-                LanguageModelProviderAssociation.is_active.is_(True),  # type: ignore
                 Provider.is_active.is_(True),  # type: ignore
             )
         )

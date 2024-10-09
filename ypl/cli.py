@@ -50,7 +50,7 @@ from ypl.backend.llm.ranking import get_default_ranker
 from ypl.backend.llm.synthesize import SQLChatIO, SynthesizerConfig, SyntheticUserGenerator, asynthesize_chats
 from ypl.backend.llm.utils import fetch_categories_with_descriptions_from_db
 from ypl.db.chats import Chat, ChatMessage, LanguageCode, MessageType, Turn, TurnQuality
-from ypl.db.language_models import LanguageModel, LanguageModelProviderAssociation, Provider
+from ypl.db.language_models import LanguageModel, Provider
 
 logging.getLogger().setLevel(logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -284,11 +284,7 @@ def store_prompt_difficulty(input_path: str, provider: str, language_model: str)
     with Session(get_engine()) as session:
         query = (
             select(LanguageModel.language_model_id)
-            .join(
-                LanguageModelProviderAssociation,
-                LanguageModel.language_model_id == LanguageModelProviderAssociation.language_model_id,  # type: ignore
-            )
-            .join(Provider, LanguageModelProviderAssociation.provider_id == Provider.provider_id)  # type: ignore
+            .join(Provider, LanguageModel.provider_id == Provider.provider_id)  # type: ignore
             .where(
                 func.lower(Provider.name) == provider.lower(),
                 LanguageModel.internal_name == language_model,
