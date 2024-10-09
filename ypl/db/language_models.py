@@ -129,19 +129,24 @@ class LanguageModelProviderAssociation(BaseModel, table=True):
 class LanguageModel(BaseModel, table=True):
     __tablename__ = "language_models"
 
+    __table_args__ = (
+        UniqueConstraint("name", "provider_id"),
+        UniqueConstraint("internal_name", "provider_id"),
+    )
+
     language_model_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
 
     # This is the name displayed to the user, e.g. "gpt-4o-2024-05-13".
     # This name can be pseudonymous, e.g. "anonymous-model" with internal_name
     # "gpt-4o-2024-05-13". This is useful when Model Providers want to train
     # their models anonymously.
-    name: str = Field(index=True, unique=True)
+    # This is unique per provider.
+    name: str = Field(index=True)
 
     # This is the "real" name of the model as given by the Model Provider,
     # e.g. "gpt-4o-2024-05-13".
+    # This is unique per provider.
     internal_name: str = Field(sa_column=Column("internal_name", sa.VARCHAR(), nullable=False))
-    # Forcing the pre-convention constraint name for backwards compatibility.
-    __table_args__ = (UniqueConstraint("internal_name", name="language_models_internal_name_key"),)
 
     # This is a human-readable name for the model, e.g. "GPT 4o".
     label: str | None = Field(default=None)
