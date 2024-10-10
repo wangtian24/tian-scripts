@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime
 
-from huggingface_hub import ModelCard
+from huggingface_hub import HfApi, ModelCard
 from sqlmodel import Session, select
 from ypl.backend.db import get_engine
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum
@@ -21,8 +21,12 @@ def verify_onboard_submitted_models() -> None:
 
         for model in submitted_models:
             try:
-                card = ModelCard.load(model.internal_name)
+                api = HfApi()
+                model_info = api.model_info(model.internal_name)
+                downloads = model_info.downloads
+                likes = model_info.likes
 
+                card = ModelCard.load(model.internal_name)
                 mmlu_pro_score = None
                 if isinstance(card.data.eval_results, list):
                     for eval_result in card.data.eval_results:
@@ -36,17 +40,19 @@ def verify_onboard_submitted_models() -> None:
                 # TODO: Implement proper model verification logic
                 # For now, we'll use the MMLU-Pro score for verification
                 # TODO: Change these magic numbers to some configurable values as business rules
-                if mmlu_pro_score is not None and mmlu_pro_score > 50:
+                if mmlu_pro_score is not None and mmlu_pro_score > 50 and downloads > 1000 and likes > 100:
                     model.status = LanguageModelStatusEnum.VERIFIED_PENDING_ACTIVATION
                     model.modified_at = datetime.utcnow()
                     logging.info(
                         f"Model {model.name} ({model.internal_name}) validated successfully "
-                        f"and set to VERIFIED_PENDING_ACTIVATION. MMLU-Pro score: {mmlu_pro_score}"
+                        f"and set to VERIFIED_PENDING_ACTIVATION. MMLU-Pro score: {mmlu_pro_score}, "
+                        f"downloads: {downloads}, likes: {likes}"
                     )
                 else:
                     logging.info(
                         f"Model {model.name} ({model.internal_name}) not validated. "
-                        f"MMLU-Pro score: {mmlu_pro_score}. Keeping status as SUBMITTED."
+                        f"MMLU-Pro score: {mmlu_pro_score}, downloads: {downloads}, likes: {likes}. "
+                        f"Keeping status as SUBMITTED."
                     )
             except Exception as e:
                 # TODO: Implement alerting
