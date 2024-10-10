@@ -5,7 +5,7 @@ DEFAULT_SRC_HOST="34.85.174.70" #pgbouncer
 DEFAULT_SRC_PORT="6432" #pgbouncer port
 DEFAULT_SRC_DB="yuppdb"
 DEFAULT_SRC_USER="postgres"
-DEFAULT_SRC_PASSWORD="" #user input only
+#DEFAULT_SRC_PASSWORD="" #user input only
 
 # Default values point to the local development DB
 DEFAULT_DEST_HOST="localhost"
@@ -29,7 +29,7 @@ SRC_HOST=$(prompt_with_default "Enter source host" "$DEFAULT_SRC_HOST")
 SRC_PORT=$(prompt_with_default "Enter source port" "$DEFAULT_SRC_PORT")
 SRC_DB=$(prompt_with_default "Enter source database name" "$DEFAULT_SRC_DB")
 SRC_USER=$(prompt_with_default "Enter source username" "$DEFAULT_SRC_USER")
-SRC_PASSWORD=$(prompt_with_default "Enter source password" "$DEFAULT_SRC_PASSWORD")
+#SRC_PASSWORD=$(prompt_with_default "Enter source password" "$DEFAULT_SRC_PASSWORD")
 
 # Destination database details
 DEST_HOST=$(prompt_with_default "Enter destination host" "$DEFAULT_DEST_HOST")
@@ -43,7 +43,8 @@ TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 DUMP_FILE="/tmp/db_dump_${TIMESTAMP}.backup"
 
 echo "***********Backing up source database...***********"
-PGPASSWORD=$SRC_PASSWORD pg_dump -h $SRC_HOST -p $SRC_PORT -U $SRC_USER -d $SRC_DB -F c -b -v -f $DUMP_FILE
+#PGPASSWORD=$SRC_PASSWORD 
+pg_dump -h $SRC_HOST -p $SRC_PORT -U $SRC_USER -d $SRC_DB -F c -b -v -f $DUMP_FILE
 
 if [ $? -ne 0 ]; then
     echo "***********Error: Backup failed***********"
