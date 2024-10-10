@@ -89,20 +89,21 @@ jobs:
         if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.event.inputs.environment }}" == "production" ]]; then
           echo "ENVIRONMENT=production" >> $GITHUB_ENV
           echo "SERVICE_NAME=${{ github.event.inputs.image || 'backend' }}" >> $GITHUB_ENV
-          echo "MEMORY=16Gi" >> $GITHUB_ENV
-          echo "CPU=4" >> $GITHUB_ENV
+          echo "MEMORY=24Gi" >> $GITHUB_ENV
+          echo "CPU=6" >> $GITHUB_ENV
         else
           echo "ENVIRONMENT=staging" >> $GITHUB_ENV
           echo "SERVICE_NAME=${{ github.event.inputs.image || 'backend' }}-staging" >> $GITHUB_ENV
-          echo "MEMORY=16Gi" >> $GITHUB_ENV
-          echo "CPU=4" >> $GITHUB_ENV
+          echo "MEMORY=24Gi" >> $GITHUB_ENV
+          echo "CPU=6" >> $GITHUB_ENV
         fi
 
-        if [[ "${{ github.event.inputs.gpu }}" == "true" ]]; then
-          echo "CLOUD_RUN_EXTRA_FLAGS='--gpu 1 --gpu-type nvidia-l4 --args=service'" >> $GITHUB_ENV
+        if [[ "${{ github.event.inputs.image }}" == "backend-pytorch-service" ]]; then
+          echo "DOCKERFILE=Dockerfile.pytorch-service" >> $GITHUB_ENV
         else
-          echo "CLOUD_RUN_EXTRA_FLAGS='--args=service'" >> $GITHUB_ENV
+          echo "DOCKERFILE=Dockerfile" >> $GITHUB_ENV
         fi
+
 
     - name: Create .env file
       run: |
@@ -155,21 +156,37 @@ jobs:
         tags: ${{ env.IMAGE_NAME }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
+        file: ${{ env.DOCKERFILE }}
 
     - name: Install gcloud beta
       run: gcloud components install beta
 
     - name: Deploy to Cloud Run
       run: |
-        gcloud beta run deploy ${{ env.SERVICE_NAME }} \
-          --image ${{ env.IMAGE_NAME }} \
-          --platform managed \
-          --region ${{ env.REGION }} \
-          --allow-unauthenticated \
-          --cpu ${{ env.CPU }} \
-          --memory ${{ env.MEMORY }} \
-          --command="/app/ypl/backend/entrypoint.sh" \
-          ${{ env.CLOUD_RUN_EXTRA_FLAGS }}
+        if [[ "${{ github.event.inputs.gpu }}" == "true" ]]; then
+          gcloud beta run deploy ${{ env.SERVICE_NAME }} \
+            --image ${{ env.IMAGE_NAME }} \
+            --region ${{ env.REGION }} \
+            --allow-unauthenticated \
+            --cpu ${{ env.CPU }} \
+            --memory ${{ env.MEMORY }} \
+            --gpu-type nvidia-l4 \
+            --gpu 1 \
+            --service-min-instances 1 \
+            --args=service \
+            --no-cpu-throttling \
+            --command="/app/ypl/pytorch/serve/entrypoint.sh"
+        else
+          gcloud beta run deploy ${{ env.SERVICE_NAME }} \
+            --image ${{ env.IMAGE_NAME }} \
+            --platform managed \
+            --region ${{ env.REGION }} \
+            --allow-unauthenticated \
+            --cpu ${{ env.CPU }} \
+            --memory ${{ env.MEMORY }} \
+            --args=service \
+            --command="/app/ypl/backend/entrypoint.sh"
+        fi
 
     - name: Tag commit
       run: |

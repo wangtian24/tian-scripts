@@ -4,6 +4,7 @@ FROM gcr.io/yupp-llms/backend-pytorch-base:latest
 WORKDIR /app/
 
 ENV PYTHONPATH=/app
+ENV LD_LIBRARY_PATH=/usr/local/nvidia/lib64:${LD_LIBRARY_PATH}
 
 # Install Poetry
 RUN pip install poetry==1.8.2 && \
