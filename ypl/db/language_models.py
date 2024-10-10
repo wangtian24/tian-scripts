@@ -145,7 +145,7 @@ class LanguageModel(BaseModel, table=True):
 
     # This is the "real" name of the model as given by the Model Provider,
     # e.g. "gpt-4o-2024-05-13".
-    # This is unique per provider.
+    # This is unique per provider, and is sent to the model provider for identification.
     internal_name: str = Field(sa_column=Column("internal_name", sa.VARCHAR(), nullable=False))
 
     # This is a human-readable name for the model, e.g. "GPT 4o".
