@@ -126,6 +126,18 @@ jobs:
           echo "POSTGRES_DATABASE=${{ secrets.POSTGRES_DATABASE }}" >> .env
           echo "POSTGRES_HOST_NON_POOLING=${{ secrets.POSTGRES_HOST_NON_POOLING_PRODUCTION }}" >> .env
           echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY_PRODUCTION }}" >> .env
+          echo "ALIBABA_API_KEY=${{ secrets.ALIBABA_API_KEY_PRODUCTION }}" >> .env
+          echo "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY_PRODUCTION }}" >> .env
+          echo "ANYSCALE_API_KEY=${{ secrets.ANYSCALE_API_KEY_PRODUCTION }}" >> .env
+          echo "AZURE_API_KEY=${{ secrets.AZURE_API_KEY_PRODUCTION }}" >> .env
+          echo "DEEPSEEK_API_KEY=${{ secrets.DEEPSEEK_API_KEY_PRODUCTION }}" >> .env
+          echo "FIREWORKS_API_KEY=${{ secrets.FIREWORKS_API_KEY_PRODUCTION }}" >> .env
+          echo "GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY_PRODUCTION }}" >> .env
+          echo "HUGGINGFACE_API_KEY=${{ secrets.HUGGINGFACE_API_KEY_PRODUCTION }}" >> .env
+          echo "MISTRAL_API_KEY=${{ secrets.MISTRAL_API_KEY_PRODUCTION }}" >> .env
+          echo "NVIDIA_API_KEY=${{ secrets.NVIDIA_API_KEY_PRODUCTION }}" >> .env
+          echo "OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY_PRODUCTION }}" >> .env
+          echo "TOGETHERAI_API_KEY=${{ secrets.TOGETHERAI_API_KEY_PRODUCTION }}" >> .env
         elif [[ "${{ env.ENVIRONMENT }}" == "staging" ]]; then
           echo "ROUTING_USE_PROMPT_CONDITIONAL=${{ github.event.inputs.use_prompt_conditional_routing || 'false' }}" >> .env
           echo "ROUTING_WEIGHTS='{\"random\": 0.1, \"top\": 0.7, \"min_simple_cost\": 0.2}'" >> .env
@@ -138,6 +150,18 @@ jobs:
           echo "POSTGRES_HOST_NON_POOLING=${{ secrets.POSTGRES_HOST_NON_POOLING_STAGING }}" >> .env
           echo "USE_GOOGLE_CLOUD_LOGGING=True" >> .env
           echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY_STAGING }}" >> .env
+          echo "ALIBABA_API_KEY=${{ secrets.ALIBABA_API_KEY_STAGING }}" >> .env
+          echo "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY_STAGING }}" >> .env
+          echo "ANYSCALE_API_KEY=${{ secrets.ANYSCALE_API_KEY_STAGING }}" >> .env
+          echo "AZURE_API_KEY=${{ secrets.AZURE_API_KEY_STAGING }}" >> .env
+          echo "DEEPSEEK_API_KEY=${{ secrets.DEEPSEEK_API_KEY_STAGING }}" >> .env
+          echo "FIREWORKS_API_KEY=${{ secrets.FIREWORKS_API_KEY_STAGING }}" >> .env
+          echo "GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY_STAGING }}" >> .env
+          echo "HUGGINGFACE_API_KEY=${{ secrets.HUGGINGFACE_API_KEY_STAGING }}" >> .env
+          echo "MISTRAL_API_KEY=${{ secrets.MISTRAL_API_KEY_STAGING }}" >> .env
+          echo "NVIDIA_API_KEY=${{ secrets.NVIDIA_API_KEY_STAGING }}" >> .env
+          echo "OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY_STAGING }}" >> .env
+          echo "TOGETHERAI_API_KEY=${{ secrets.TOGETHERAI_API_KEY_STAGING }}" >> .env
         fi
 
     - name: Authenticate to Google Cloud

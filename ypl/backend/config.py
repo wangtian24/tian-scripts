@@ -35,6 +35,18 @@ class Settings(BaseSettings):
     AWS_ACCESS_KEY_ID: str = ""
     AWS_SECRET_ACCESS_KEY: str = ""
     OPENAI_API_KEY: str = ""
+    ALIBABA_API_KEY: str = ""
+    ANTHROPIC_API_KEY: str = ""
+    ANYSCALE_API_KEY: str = ""
+    AZURE_API_KEY: str = ""
+    DEEPSEEK_API_KEY: str = ""
+    FIREWORKS_API_KEY: str = ""
+    GOOGLE_API_KEY: str = ""
+    HUGGINGFACE_API_KEY: str = ""
+    MISTRAL_API_KEY: str = ""
+    NVIDIA_API_KEY: str = ""
+    OPENROUTER_API_KEY: str = ""
+    TOGETHERAI_API_KEY: str = ""
 
     DOMAIN: str = "localhost"
     ENVIRONMENT: Literal["test", "local", "staging", "production"] = "local"
@@ -120,6 +132,19 @@ class Settings(BaseSettings):
         self._check_default_secret("OPENAI_API_KEY", self.SECRET_KEY)
         self._check_default_secret("AWS_ACCESS_KEY_ID", self.AWS_ACCESS_KEY_ID)
         self._check_default_secret("AWS_SECRET_ACCESS_KEY", self.AWS_SECRET_ACCESS_KEY)
+        self._check_default_secret("ALIBABA_API_KEY", self.ALIBABA_API_KEY)
+        self._check_default_secret("ANTHROPIC_API_KEY", self.ANTHROPIC_API_KEY)
+        self._check_default_secret("ANYSCALE_API_KEY", self.ANYSCALE_API_KEY)
+        self._check_default_secret("AZURE_API_KEY", self.AZURE_API_KEY)
+        self._check_default_secret("DEEPSEEK_API_KEY", self.DEEPSEEK_API_KEY)
+        self._check_default_secret("FIREWORKS_API_KEY", self.FIREWORKS_API_KEY)
+        self._check_default_secret("GOOGLE_API_KEY", self.GOOGLE_API_KEY)
+        self._check_default_secret("HUGGINGFACE_API_KEY", self.HUGGINGFACE_API_KEY)
+        self._check_default_secret("MISTRAL_API_KEY", self.MISTRAL_API_KEY)
+        self._check_default_secret("NVIDIA_API_KEY", self.NVIDIA_API_KEY)
+        self._check_default_secret("OPENROUTER_API_KEY", self.OPENROUTER_API_KEY)
+        self._check_default_secret("TOGETHERAI_API_KEY", self.TOGETHERAI_API_KEY)
+
         return self
 
 
