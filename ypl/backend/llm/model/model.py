@@ -13,7 +13,6 @@ from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Licen
 class LanguageModelStruct(BaseModel):
     language_model_id: UUID
     name: str
-    internal_name: str
     label: str | None
     license: str
     family: str | None
@@ -28,6 +27,8 @@ class LanguageModelStruct(BaseModel):
 
 
 def create_model(model: LanguageModel) -> UUID:
+    if not model.internal_name:
+        model.internal_name = model.name
     model.status = LanguageModelStatusEnum.SUBMITTED
     with Session(get_engine()) as session:
         session.add(model)
