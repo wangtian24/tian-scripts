@@ -54,6 +54,7 @@ def do_simple_classification_training(
             per_device_eval_batch_size=batch_size,
             learning_rate=learning_rate,
             logging_steps=10,
+            fp16=True,
         ),
         model=model,
         train_dataset=train_dataset,

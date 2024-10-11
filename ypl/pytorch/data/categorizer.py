@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 import torch
 from pydantic import BaseModel
@@ -37,8 +38,19 @@ class CategorizerDataset(PandasDataset[CategorizerTrainingExample]):
         Returns:
             The categorizer example at the given index.
         """
+
+        def remap(x: int) -> int:
+            if np.isnan(x):
+                return 0
+
+            return x
+
         row = self.df.iloc[index]
-        return CategorizerTrainingExample(prompt=row["prompt"], category=row["category"], difficulty=row["difficulty"])
+        return CategorizerTrainingExample(
+            prompt=row["prompt"],
+            category=row["category"],
+            difficulty=remap(row["difficulty"]),
+        )
 
 
 class CategorizerCollator(TokenizerCollator[CategorizerTrainingExample]):

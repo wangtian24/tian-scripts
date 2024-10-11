@@ -7,10 +7,13 @@ from transformers import AutoTokenizer
 from vertexai.preview import tokenization
 
 
-class ModelCost(BaseModelV1):
+class ModelHeuristics(BaseModelV1):
     dollars_per_million_input_tokens: float
     dollars_per_million_output_tokens: float
     tokens_per_second: float = 0.0  # number of tokens output per second
+
+    # categories mapped to highest difficulty (1-10) the model can handle. "all" means general purpose.
+    skills: dict[str, float] = {}
 
     tokenizer_type: Literal["huggingface", "tiktoken", "google"] = "tiktoken"
     tokenizer_name: str = "gpt-4o-mini"
@@ -25,6 +28,28 @@ class ModelCost(BaseModelV1):
             return lambda string: tokenizer.count_tokens(string).total_tokens
         else:
             raise ValueError(f"Unsupported tokenizer type: {self.tokenizer_type}")
+
+    def estimate_quality(self, category: str, difficulty: int) -> float:
+        """
+        Estimates the quality of the model in the given category and difficulty.
+
+        Args:
+            category: The category of the prompt.
+            difficulty: The difficulty of the prompt.
+
+        Returns:
+          the difference between the model's skill in that category and the difficulty, i.e., negative values is the
+          amount the model needs to improve to reach the difficulty and positive values is the amount the model
+          exceeds the difficulty.
+        """
+        c = category.lower()
+
+        if c in self.skills:
+            return self.skills[c] - difficulty
+        elif "all" in self.skills:
+            return self.skills["all"] - difficulty
+
+        return -difficulty
 
     def compute_cost(
         self,

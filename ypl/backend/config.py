@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_ignore_empty=True, extra="ignore")
     API_PREFIX: str = "/api"
     SECRET_KEY: str = secrets.token_urlsafe(32)
+    X_API_KEY: str = ""
 
     AWS_REGION_NAME: str = ""
     AWS_ACCESS_KEY_ID: str = ""
@@ -61,7 +62,14 @@ class Settings(BaseSettings):
     # Whether to use prompt-conditional routing. Defaults to false.
     ROUTING_USE_PROMPT_CONDITIONAL: bool = False
     OPENAI_API_KEY_ROUTING: str = ""
+
+    # The GCP storage path to the prompt categorizer model.
     CATEGORIZER_MODEL_PATH: str = "gs://yupp-models/category-model.zip"
+
+    # PyTorch Serve service settings
+    PYTORCH_SERVE_GCP_SERVICE_NAME: str = "backend-pytorch-service"
+    PYTORCH_SERVE_GCP_REGION: str = "us-central1"  # only region that supports L4 GPUs
+    PYTORCH_SERVE_GCP_URL: str = ""
 
     @computed_field  # type: ignore[misc]
     @property

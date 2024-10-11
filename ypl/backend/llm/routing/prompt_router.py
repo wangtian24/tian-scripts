@@ -1,11 +1,14 @@
 import ast
+import logging
 from typing import Any
 
+import aiohttp
+import requests
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 
 from ypl.backend.llm.chat import ModelInfo, get_chat_model
-from ypl.backend.llm.constants import MODEL_DESCRIPTIONS
+from ypl.backend.llm.constants import MODEL_DESCRIPTIONS, MODEL_HEURISTICS
 from ypl.backend.llm.labeler import LLMLabeler
 from ypl.backend.llm.routing.policy import SelectionCriteria
 from ypl.backend.llm.routing.router import ModelProposer, RouterState
@@ -37,6 +40,78 @@ class ZeroShotPromptQualityLabeler(LLMLabeler[str, list[str]]):
             return self.error_value
 
         return ret
+
+
+class RemotePromptCategorizerProposer(ModelProposer):
+    def __init__(self, prompt: str, api_endpoint: str, api_key: str, remove_negative_quality: bool = True) -> None:
+        self.prompt = prompt
+        self.api_endpoint = api_endpoint
+        self.api_key = api_key
+        self.remove_negative_quality = remove_negative_quality
+
+    def _select_models_from_category(
+        self, response: dict[str, Any], num_models: int, models_to_select: set[str]
+    ) -> tuple[list[tuple[float, str]], set[str]]:
+        """
+        Helper function to select models from a category response.
+
+        Returns:
+            A tuple containing the selected models and the excluded models.
+        """
+        category, difficulty = response["category"], response["difficulty"]
+        models = []
+        excluded_models = set()
+
+        logging.info(f"Prompt categorizer response: {response}")
+
+        for model in models_to_select:
+            if model not in MODEL_HEURISTICS:
+                excluded_models.add(model)
+                continue
+
+            heuristics = MODEL_HEURISTICS[model]
+            quality = heuristics.estimate_quality(category, difficulty)
+
+            if self.remove_negative_quality and quality < 0:
+                excluded_models.add(model)
+                continue
+
+            models.append((quality, model))
+
+        return sorted(models, key=lambda x: x[0], reverse=True)[:num_models], excluded_models
+
+    def _propose_models(self, num_models: int, models_to_select: set[str], state: RouterState) -> RouterState:
+        response = requests.post(
+            self.api_endpoint + "/categorize",
+            json={"prompt": self.prompt},
+            headers={"X-API-KEY": self.api_key},
+        ).json()
+
+        return self._propose_models_from_category(response, num_models, models_to_select)
+
+    def _propose_models_from_category(
+        self, response: dict[str, Any], num_models: int, models_to_select: set[str]
+    ) -> RouterState:
+        selected_models, excluded_models = self._select_models_from_category(response, num_models, models_to_select)
+
+        return RouterState(
+            selected_models={
+                model: {SelectionCriteria.PROMPT_CATEGORIZER: quality} for quality, model in selected_models
+            },
+            all_models=models_to_select,
+            excluded_models=excluded_models,
+        )
+
+    async def _apropose_models(self, num_models: int, models_to_select: set[str], state: RouterState) -> RouterState:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                self.api_endpoint + "/categorize",
+                json={"prompt": self.prompt},
+                headers={"X-API-KEY": self.api_key},
+            ) as response:
+                json_response = await response.json()
+
+        return self._propose_models_from_category(json_response, num_models, models_to_select)
 
 
 class ZeroShotPromptQualityProposer(ModelProposer):

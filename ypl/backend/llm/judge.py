@@ -6,7 +6,7 @@ from langchain_core.messages import BaseMessage
 from pydantic.v1 import BaseModel as BaseModelV1
 
 from ypl.backend.llm.chat import ModelInfo
-from ypl.backend.llm.constants import COSTS_BY_MODEL
+from ypl.backend.llm.constants import MODEL_HEURISTICS
 from ypl.backend.llm.labeler import LLMLabeler
 from ypl.backend.prompts import (
     JUDGE_YUPP_CHAT_PROMPT_SPEED_AWARE_TEMPLATE,
@@ -40,7 +40,7 @@ def choose_llm(
         case "min_cost":
             # choose the LLM with the lowest cost
             return min(
-                models, key=lambda model_info: COSTS_BY_MODEL[model_info.model].dollars_per_million_output_tokens
+                models, key=lambda model_info: MODEL_HEURISTICS[model_info.model].dollars_per_million_output_tokens
             )
         case _:
             raise ValueError(f"Invalid choice strategy: {strategy}")

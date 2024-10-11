@@ -51,8 +51,8 @@ class CategorizerClassificationModel(TorchAccelerationMixin, CategorizerModel):
         attention_mask = torch.ones_like(input_ids)
 
         if self.is_dynamo_compiled or self.is_cuda_graph_compiled:
-            # Pad the input to the nearest multiple of 128
-            padding = (128 - input_ids.shape[-1] % 128) % 128
+            # Pad the input to the nearest multiple of 64
+            padding = (64 - input_ids.shape[-1] % 64) % 64
             input_ids = torch.nn.functional.pad(input_ids, (0, padding))
             attention_mask = torch.nn.functional.pad(attention_mask, (0, padding))
 
@@ -115,7 +115,7 @@ class CategorizerClassificationModel(TorchAccelerationMixin, CategorizerModel):
     @property
     def _warmup_inputs(self) -> list[StrTensorDict]:
         inputs: list[StrTensorDict] = []
-        chunk_size_start = 128
+        chunk_size_start = 64
         chunk_size_step = chunk_size_start
 
         for chunk_size in range(chunk_size_start, 512 + 1, chunk_size_step):

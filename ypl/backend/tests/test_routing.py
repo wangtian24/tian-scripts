@@ -38,7 +38,7 @@ def test_proportional_routing() -> None:
     for _ in range(20):
         ranker.update("gpt-1", "gpt-2", 0)
 
-    router = ProportionalModelProposer(ranker)
+    router = ProportionalModelProposer(ranker).with_seed(0)
     starting_state = RouterState(all_models=set(models))
 
     battles = [list(router.select_models(2, state=starting_state.deepcopy()).get_selected_models()) for _ in range(10)]

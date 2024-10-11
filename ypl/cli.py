@@ -34,7 +34,7 @@ from ypl.backend.llm.chat import (
     YuppMessageRow,
     get_chat_model,
 )
-from ypl.backend.llm.constants import COSTS_BY_MODEL
+from ypl.backend.llm.constants import MODEL_HEURISTICS
 from ypl.backend.llm.embedding import get_embedding_model
 from ypl.backend.llm.judge import (
     JudgeConfig,
@@ -125,7 +125,9 @@ def estimate_cost(model: str | None, input: str, output: str) -> None:
         if not model:
             raise ValueError("No model provided.")
 
-        cost = COSTS_BY_MODEL[model].compute_cost(input_string=data.get(input, ""), output_string=data.get(output, ""))
+        cost = MODEL_HEURISTICS[model].compute_cost(
+            input_string=data.get(input, ""), output_string=data.get(output, "")
+        )
         costs.append(cost)
 
     costs_arr = np.array(costs)
@@ -537,7 +539,7 @@ def judge_yupp_llm_outputs(
 
     chats = JsonChatIO(input_file).read_chats()
     coro_inputs: list[tuple[int, str, str, str, str, str, float | None, float | None]] = []
-    default_cost = COSTS_BY_MODEL["gpt-4o-mini"]
+    default_cost = MODEL_HEURISTICS["gpt-4o-mini"]
 
     for row_idx, chat in enumerate(chats[:limit]):
         try:
@@ -553,10 +555,10 @@ def judge_yupp_llm_outputs(
                         str(llm2_response.content),
                         llm1,
                         llm2,
-                        COSTS_BY_MODEL.get(llm1, default_cost).compute_time(output_string=str(llm1_response.content))
+                        MODEL_HEURISTICS.get(llm1, default_cost).compute_time(output_string=str(llm1_response.content))
                         if speed_aware
                         else None,
-                        COSTS_BY_MODEL.get(llm2, default_cost).compute_time(output_string=str(llm2_response.content))
+                        MODEL_HEURISTICS.get(llm2, default_cost).compute_time(output_string=str(llm2_response.content))
                         if speed_aware
                         else None,
                     )

@@ -57,7 +57,7 @@ class CategorizerTrainer(Trainer):  # type: ignore[misc]
         self, model: CategorizerClassificationModel, inputs: StrTensorDict, return_outputs: bool = False
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         logits = model(inputs)["logits"]
-        loss_fn = nn.CrossEntropyLoss()
+        loss_fn = nn.CrossEntropyLoss(ignore_index=-1)
         loss = loss_fn(logits[:, :-10], inputs["category_labels"]) + loss_fn(
             logits[:, -10:], inputs["difficulty_labels"]
         )
@@ -83,8 +83,14 @@ class CategorizerTrainer(Trainer):  # type: ignore[misc]
         for example in eval_dataset:  # type: ignore[attr-defined]
             category, difficulty = self.model.categorize(example.prompt)
             cat_accuracy.append(int(category == example.category))
-            diff_accuracy.append(int(difficulty == example.difficulty))
-            print(cat_accuracy[-1], diff_accuracy[-1], category, difficulty, example.prompt[:100])
+
+            if example.difficulty != 0:
+                diff_accuracy.append(int(difficulty == example.difficulty))
+
+            try:
+                print(cat_accuracy[-1], diff_accuracy[-1], category, difficulty, example.prompt[:100])
+            except Exception:
+                pass
 
         return dict(
             cat_accuracy=sum(cat_accuracy) / len(cat_accuracy),

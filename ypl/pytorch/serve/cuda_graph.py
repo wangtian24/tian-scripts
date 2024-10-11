@@ -86,6 +86,7 @@ class CudaGraphFunctor:
 
         with self.lock, torch.cuda.stream(self.stream):
             self.copy_to_static_input(input_batch)
+            self.stream.synchronize()
             self.graph.replay()
             self.stream.synchronize()
 

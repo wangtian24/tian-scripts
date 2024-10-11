@@ -61,4 +61,7 @@ class SelectionCriteria(Enum):
     # Select the models with the fastest speed
     MAX_SPEED = "max_speed"
 
+    # Select the models routed by the prompt categorizer
+    PROMPT_CATEGORIZER = "prompt_categorizer"
+
     RANDOM = "random"

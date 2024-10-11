@@ -7,15 +7,16 @@ from typing import Any
 
 import numba
 import numpy as np
+from google.auth import default
 from google.cloud import logging as goog_logging
+from google.cloud import run_v2
 from pydantic import BaseModel
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine
-from ypl.backend.llm.chat import ModelInfo
-from ypl.backend.llm.constants import COSTS_BY_MODEL, ChatProvider
+from ypl.backend.llm.constants import MODEL_HEURISTICS
 from ypl.backend.llm.ranking import ConfidenceIntervalRankerMixin, Ranker, get_ranker
 from ypl.backend.llm.routing.policy import SelectionCriteria, decayed_random_fraction
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
@@ -747,9 +748,10 @@ class CostModelProposer(ModelProposer):
         model_costs = []
 
         for model in models_to_select:
-            m = model if model in COSTS_BY_MODEL else "gpt-4o-mini"
+            m = model if model in MODEL_HEURISTICS else "gpt-4o-mini"
             cost = (
-                COSTS_BY_MODEL[m].dollars_per_million_output_tokens + COSTS_BY_MODEL[m].dollars_per_million_input_tokens
+                MODEL_HEURISTICS[m].dollars_per_million_output_tokens
+                + MODEL_HEURISTICS[m].dollars_per_million_input_tokens
             )
             model_costs.append((cost, model))
 
@@ -843,7 +845,7 @@ def _fast_compute_all_num_intersections(intervals: np.ndarray) -> tuple[np.ndarr
 class MaxSpeedProposer(ModelProposer):
     def _propose_models(self, num_models: int, models_to_select: set[str], state: RouterState) -> RouterState:
         model_speeds = [
-            (model_name, COSTS_BY_MODEL.get(model_name, COSTS_BY_MODEL["gpt-4-turbo"]).tokens_per_second)
+            (model_name, MODEL_HEURISTICS.get(model_name, MODEL_HEURISTICS["gpt-4-turbo"]).tokens_per_second)
             for model_name in models_to_select
         ]
 
@@ -934,22 +936,28 @@ def get_router(ranker: Ranker | None = None) -> RouterModule:
     return get_router_ranker(ranker)[0]
 
 
-def get_prompt_conditional_router(prompt: str, num_models: int) -> RouterModule:
-    from ypl.backend.llm.routing.prompt_router import ZeroShotPromptQualityProposer
+def get_gcp_cloud_run_uri(service_name: str, region: str) -> str:
+    credentials, project_id = default()
+    client = run_v2.ServicesClient(credentials=credentials)
+    name = f"projects/{project_id}/locations/{region}/services/{service_name}"
+    request = run_v2.GetServiceRequest(name=name)
+    response = client.get_service(request=request)
 
-    model_info = ModelInfo(
-        provider=ChatProvider.OPENAI,
-        api_key=settings.OPENAI_API_KEY_ROUTING,
-        temperature=0.0,
-        model="gpt-4o",
-    )
+    return response.uri
+
+
+def get_prompt_conditional_router(prompt: str, num_models: int) -> RouterModule:
+    from ypl.backend.llm.routing.prompt_router import RemotePromptCategorizerProposer
+
     rand_weight = settings.ROUTING_WEIGHTS.get("random", 0.1)
     prompt_weight = settings.ROUTING_WEIGHTS.get("best_prompt_quality", 0.5)
+    endpoint = settings.PYTORCH_SERVE_GCP_URL
+    key = settings.X_API_KEY
 
     router: RouterModule = (
-        (RandomModelProposer() ^ ZeroShotPromptQualityProposer(model_info, prompt)).with_probs(
-            rand_weight, prompt_weight
-        )
+        (
+            RandomModelProposer() ^ (RemotePromptCategorizerProposer(prompt, endpoint, key) | MaxSpeedProposer())
+        ).with_probs(rand_weight, prompt_weight)
         | TopK(num_models)
         | RouterDecisionLogger(enabled=settings.ROUTING_DO_LOGGING, prefix="prompt-conditional-router")
     )
