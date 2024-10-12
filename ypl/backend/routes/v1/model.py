@@ -12,6 +12,7 @@ from ypl.backend.llm.model.model import (
     update_model,
 )
 from ypl.backend.llm.model.model_onboarding import verify_onboard_specific_model
+from ypl.backend.llm.utils import post_to_slack
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, LicenseEnum
 
 logger = logging.getLogger(__name__)
@@ -21,7 +22,7 @@ router = APIRouter()
 
 async def async_verify_onboard_specific_models(model_id: UUID) -> None:
     try:
-        verify_onboard_specific_model(model_id)
+        await verify_onboard_specific_model(model_id)
     except Exception as e:
         logger.error(f"Error in verify_onboard_specific_model for model_id {model_id}: {str(e)}")
 
@@ -31,6 +32,9 @@ async def create_model_route(model: LanguageModel, background_tasks: BackgroundT
     try:
         model_id = create_model(model)
         background_tasks.add_task(async_verify_onboard_specific_models, model_id)
+        background_tasks.add_task(
+            post_to_slack, f"Model {model.name} ({model.internal_name}) submitted for validation."
+        )
         return str(model_id)
     except Exception as e:
         logger.exception("Error creating model - %s", str(e))

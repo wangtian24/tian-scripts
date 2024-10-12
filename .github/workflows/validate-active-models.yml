@@ -1,0 +1,21 @@
+name: Validate Active Models
+
+on:
+  schedule:
+    - cron: '0 */24 * * *'  # Every 24 hours
+  workflow_dispatch:
+
+jobs:
+  validate_active_models_staging:
+    uses: ./.github/workflows/cronjob.yml
+    with:
+      command: validate-active-models
+      environment: staging
+    secrets: inherit
+
+  validate_active_models_production:
+    uses: ./.github/workflows/cronjob.yml
+    with:
+      command: validate-active-models
+      environment: production
+    secrets: inherit

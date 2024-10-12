@@ -138,6 +138,7 @@ jobs:
           echo "NVIDIA_API_KEY=${{ secrets.NVIDIA_API_KEY_PRODUCTION }}" >> .env
           echo "OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY_PRODUCTION }}" >> .env
           echo "TOGETHERAI_API_KEY=${{ secrets.TOGETHERAI_API_KEY_PRODUCTION }}" >> .env
+          echo "SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL }}" >> .env
         elif [[ "${{ env.ENVIRONMENT }}" == "staging" ]]; then
           echo "ROUTING_USE_PROMPT_CONDITIONAL=${{ github.event.inputs.use_prompt_conditional_routing || 'false' }}" >> .env
           echo "ROUTING_WEIGHTS='{\"random\": 0.1, \"top\": 0.7, \"min_simple_cost\": 0.2}'" >> .env
@@ -162,6 +163,7 @@ jobs:
           echo "NVIDIA_API_KEY=${{ secrets.NVIDIA_API_KEY_STAGING }}" >> .env
           echo "OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY_STAGING }}" >> .env
           echo "TOGETHERAI_API_KEY=${{ secrets.TOGETHERAI_API_KEY_STAGING }}" >> .env
+          echo "SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL }}" >> .env
         fi
 
     - name: Authenticate to Google Cloud

@@ -1,9 +1,12 @@
+import logging
 import math
+import os
 from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import cache
 
 import numpy as np
+from slack_sdk.webhook import WebhookClient
 from sqlmodel import select
 
 from ypl.backend.db import Session, get_engine
@@ -138,3 +141,24 @@ def fetch_categories_with_descriptions_from_db() -> dict[str, str | None]:
             select(Category.name, Category.description).where(Category.name != OVERALL_CATEGORY_NAME)
         ).all()
         return {name: description for name, description in categories}
+
+
+def post_to_slack(message: str) -> None:
+    """
+    Post a message to a Slack channel using a webhook URL.
+
+    Args:
+        message (str): The message to post to Slack.
+    """
+    webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
+    if not webhook_url:
+        logging.error("SLACK_WEBHOOK_URL environment variable is not set")
+        return
+
+    try:
+        webhook = WebhookClient(webhook_url)
+        response = webhook.send(text=message)
+        if response.status_code != 200:
+            logging.error(f"Failed to post message to Slack. Status code: {response.status_code}")
+    except Exception as e:
+        logging.error(f"Failed to post message to Slack: {str(e)}")

@@ -1,4 +1,5 @@
 # Standard library imports
+import asyncio
 import logging
 import os
 from datetime import datetime
@@ -10,11 +11,13 @@ import google.generativeai as genai
 from huggingface_hub import HfApi, InferenceClient, ModelInfo
 from huggingface_hub.utils import HfHubHTTPError
 from openai import OpenAI
-from sqlmodel import Session, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
 
 # Local imports
-from ypl.backend.db import get_engine
+from ypl.backend.db import get_async_engine
 from ypl.backend.llm.constants import PROVIDER_KEY_MAPPING
+from ypl.backend.llm.utils import post_to_slack
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
 
 # Constants
@@ -24,14 +27,14 @@ LIKES_THRESHOLD = 100
 REJECT_AFTER_DAYS = 3
 
 
-def verify_onboard_submitted_models() -> None:
+async def verify_onboard_submitted_models() -> None:
     """
     Verify and onboard submitted models.
 
     This function should be run periodically to check and update the status of submitted models.
     It queries for submitted models, verifies them, and updates their status accordingly.
     """
-    with Session(get_engine()) as session:
+    async with AsyncSession(get_async_engine()) as session:
         query = (
             select(LanguageModel, Provider.name.label("provider_name"), Provider.base_api_url.label("base_url"))  # type: ignore
             .join(Provider, LanguageModel.provider_id == Provider.provider_id)  # type: ignore
@@ -40,22 +43,22 @@ def verify_onboard_submitted_models() -> None:
                 LanguageModel.deleted_at.is_(None),  # type: ignore
             )
         )
-        submitted_models = session.exec(query).all()
+        submitted_models = await session.execute(query)
 
         for model, provider_name, base_url in submitted_models:
-            verify_and_update_model_status(session, model, provider_name, base_url)
+            await verify_and_update_model_status(session, model, provider_name, base_url)
 
-        session.commit()
+        await session.commit()
 
 
-def verify_onboard_specific_model(model_id: UUID) -> None:
+async def verify_onboard_specific_model(model_id: UUID) -> None:
     """
     Verify and onboard a specific model.
 
     This function should be called to check and update the status of a specific model.
     It queries for the model, verifies it, and updates its status accordingly.
     """
-    with Session(get_engine()) as session:
+    async with AsyncSession(get_async_engine()) as session:
         query = (
             select(LanguageModel, Provider.name.label("provider_name"), Provider.base_api_url.label("base_url"))  # type: ignore
             .join(Provider, LanguageModel.provider_id == Provider.provider_id)  # type: ignore
@@ -65,17 +68,19 @@ def verify_onboard_specific_model(model_id: UUID) -> None:
                 LanguageModel.deleted_at.is_(None),  # type: ignore
             )
         )
-        result = session.exec(query).first()
+        result = await session.execute(query)
 
         if result:
             model, provider_name, base_url = result
-            verify_and_update_model_status(session, model, provider_name, base_url)
-            session.commit()
+            await verify_and_update_model_status(session, model, provider_name, base_url)
+            await session.commit()
         else:
             logging.warning(f"No submitted model found with id {model_id}")
 
 
-def verify_and_update_model_status(session: Session, model: LanguageModel, provider_name: str, base_url: str) -> None:
+async def verify_and_update_model_status(
+    session: AsyncSession, model: LanguageModel, provider_name: str, base_url: str
+) -> None:
     """
     Verify and update the status of a single model.
 
@@ -92,12 +97,17 @@ def verify_and_update_model_status(session: Session, model: LanguageModel, provi
             model.status = LanguageModelStatusEnum.ACTIVE
             model.modified_at = datetime.utcnow()
             logging.info(f"Model {model.name} ({model.internal_name}) validated successfully " f"and set to ACTIVE.")
+            post_to_slack(f"Model {model.name} ({model.internal_name}) validated successfully " f"and set to ACTIVE.")
         else:
             is_hf_verified = verify_hf_model(model)
             if is_hf_verified:
                 model.status = LanguageModelStatusEnum.VERIFIED_PENDING_ACTIVATION
                 model.modified_at = datetime.utcnow()
                 logging.info(
+                    f"Model {model.name} ({model.internal_name}) validated successfully "
+                    f"and set to VERIFIED_PENDING_ACTIVATION."
+                )
+                post_to_slack(
                     f"Model {model.name} ({model.internal_name}) validated successfully "
                     f"and set to VERIFIED_PENDING_ACTIVATION."
                 )
@@ -109,9 +119,13 @@ def verify_and_update_model_status(session: Session, model: LanguageModel, provi
                 logging.info(
                     f"Model {model.name} ({model.internal_name}) not validated. " f"Setting status to REJECTED."
                 )
+                post_to_slack(
+                    f"Model {model.name} ({model.internal_name}) not validated. " f"Setting status to REJECTED."
+                )
     except Exception as e:
         # TODO: Implement alerting
         logging.error(f"Model {model.name} ({model.internal_name}) validation failed: {str(e)}")
+        post_to_slack(f"Model {model.name} ({model.internal_name}) validation failed: {str(e)}")
 
 
 def verify_hf_model(model: LanguageModel) -> bool:
@@ -226,20 +240,22 @@ def verify_inference_running(model: LanguageModel, provider_name: str, base_url:
                 {"role": "user", "content": "Tell me a story"},
             ]
             completion = client_hf.chat.completions.create(model=model.internal_name, messages=messages, stream=True)
+
             for chunk in completion:
                 if chunk.choices[0].delta.content and len(chunk.choices[0].delta.content) > 0:
                     logging.info(f"Model {model.internal_name} is running on provider's endpoint.")
                     is_inference_running = True
                     break
+
         elif cleaned_provider_name == "google":
             genai.configure(api_key=api_key)
             google_model = genai.GenerativeModel(model.internal_name)
-            completion = google_model.generate_content("What is the capital of Odisha?", stream=True)
-            for chunk in completion:
-                if chunk.text and len(chunk.text) > 0:
-                    logging.info(f"Model {model.internal_name} is running on provider's endpoint.")
-                    is_inference_running = True
-                    break
+            content = google_model.generate_content("What is the capital of Odisha?")
+
+            if content.text and len(content.text) > 0:
+                logging.info(f"Model {model.internal_name} is running on provider's endpoint.")
+                is_inference_running = True
+
         else:
             client_openai = OpenAI(api_key=api_key, base_url=base_url)
             completion = client_openai.chat.completions.create(
@@ -288,4 +304,4 @@ def get_provider_api_key(provider_name: str) -> str:
 
 
 if __name__ == "__main__":
-    verify_onboard_submitted_models()
+    asyncio.run(verify_onboard_submitted_models())

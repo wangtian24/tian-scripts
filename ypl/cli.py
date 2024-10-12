@@ -44,6 +44,7 @@ from ypl.backend.llm.judge import (
     choose_llm,
 )
 from ypl.backend.llm.labeler import WildChatRealismLabeler
+from ypl.backend.llm.model.model_management import _validate_active_models
 from ypl.backend.llm.model.model_onboarding import verify_onboard_submitted_models
 from ypl.backend.llm.prompt_classifiers import categorize_user_messages
 from ypl.backend.llm.ranking import get_default_ranker
@@ -602,7 +603,14 @@ def categorize_messages(update_all_messages: bool) -> None:
 @db_cmd
 def verify_submitted_models() -> None:
     """Verify and onboard submitted language models."""
-    verify_onboard_submitted_models()
+    asyncio.run(verify_onboard_submitted_models())
+
+
+@cli.command()
+@db_cmd
+def validate_active_models() -> None:
+    """Validate active language models."""
+    asyncio.run(_validate_active_models())
 
 
 @cli.command()
