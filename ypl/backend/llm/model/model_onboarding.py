@@ -5,7 +5,8 @@ from datetime import datetime
 
 # Third-party imports
 import anthropic
-from huggingface_hub import HfApi, ModelInfo
+import google.generativeai as genai
+from huggingface_hub import HfApi, InferenceClient, ModelInfo
 from huggingface_hub.utils import HfHubHTTPError
 from openai import OpenAI
 from sqlmodel import Session, select
@@ -42,10 +43,9 @@ def verify_onboard_submitted_models() -> None:
 
         for model, provider_name, base_url in submitted_models:
             try:
-                is_hf_verified = verify_hf_model(model)
                 is_inference_running = verify_inference_running(model, provider_name, base_url)
 
-                if is_hf_verified or is_inference_running:
+                if is_inference_running:
                     model.status = LanguageModelStatusEnum.VERIFIED_PENDING_ACTIVATION
                     model.modified_at = datetime.utcnow()
                     logging.info(
@@ -53,9 +53,18 @@ def verify_onboard_submitted_models() -> None:
                         f"and set to VERIFIED_PENDING_ACTIVATION."
                     )
                 else:
-                    # reject if the model was submitted more than 3 days ago
-                    if model.created_at and (datetime.utcnow() - model.created_at).days > REJECT_AFTER_DAYS:
-                        model.status = LanguageModelStatusEnum.REJECTED
+                    is_hf_verified = verify_hf_model(model)
+                    if is_hf_verified:
+                        model.status = LanguageModelStatusEnum.VERIFIED_PENDING_ACTIVATION
+                        model.modified_at = datetime.utcnow()
+                        logging.info(
+                            f"Model {model.name} ({model.internal_name}) validated successfully "
+                            f"and set to VERIFIED_PENDING_ACTIVATION."
+                        )
+                    else:
+                        # reject if the model was submitted more than 3 days ago
+                        if model.created_at and (datetime.utcnow() - model.created_at).days > REJECT_AFTER_DAYS:
+                            model.status = LanguageModelStatusEnum.REJECTED
                         model.modified_at = datetime.utcnow()
                         logging.info(
                             f"Model {model.name} ({model.internal_name}) not validated. " f"Setting status to REJECTED."
@@ -161,7 +170,8 @@ def verify_inference_running(model: LanguageModel, provider_name: str, base_url:
         logging.info(
             f"Verifying inference running for model {model.internal_name} on provider {provider_name} at {base_url}"
         )
-        if provider_name.lower() == "anthropic":
+        cleaned_provider_name = "".join(provider_name.split()).lower()
+        if cleaned_provider_name == "anthropic":
             client_anthropic = anthropic.Anthropic(api_key=api_key)
             message = client_anthropic.messages.create(
                 model=model.internal_name,
@@ -172,6 +182,26 @@ def verify_inference_running(model: LanguageModel, provider_name: str, base_url:
                 logging.info(f"Model {model.internal_name} is running on provider's endpoint.")
                 is_inference_running = True
 
+        elif cleaned_provider_name == "huggingface":
+            client_hf = InferenceClient(token=api_key)
+            messages = [
+                {"role": "user", "content": "Tell me a story"},
+            ]
+            completion = client_hf.chat.completions.create(model=model.internal_name, messages=messages, stream=True)
+            for chunk in completion:
+                if chunk.choices[0].delta.content and len(chunk.choices[0].delta.content) > 0:
+                    logging.info(f"Model {model.internal_name} is running on provider's endpoint.")
+                    is_inference_running = True
+                    break
+        elif cleaned_provider_name == "google":
+            genai.configure(api_key=api_key)
+            google_model = genai.GenerativeModel(model.internal_name)
+            completion = google_model.generate_content("What is the capital of Odisha?", stream=True)
+            for chunk in completion:
+                if chunk.text and len(chunk.text) > 0:
+                    logging.info(f"Model {model.internal_name} is running on provider's endpoint.")
+                    is_inference_running = True
+                    break
         else:
             client_openai = OpenAI(api_key=api_key, base_url=base_url)
             completion = client_openai.chat.completions.create(

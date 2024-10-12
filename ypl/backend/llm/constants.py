@@ -588,9 +588,9 @@ PROVIDER_KEY_MAPPING = {
     "fireworks": "FIREWORKS_API_KEY",
     "google": "GOOGLE_API_KEY",
     "huggingface": "HUGGINGFACE_API_KEY",
-    "mistral": "MISTRAL_API_KEY",
+    "mistralai": "MISTRAL_API_KEY",
     "nvidia": "NVIDIA_API_KEY",
     "openai": "OPENAI_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
-    "togetherai": "TOGETHERAI_API_KEY",
+    "togetherai": "TOGETHER_API_KEY",
 }
