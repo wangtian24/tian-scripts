@@ -1,6 +1,7 @@
 import logging
+from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 
 from ypl.backend.llm.model.model import (
     LanguageModelStruct,
@@ -10,6 +11,7 @@ from ypl.backend.llm.model.model import (
     get_models,
     update_model,
 )
+from ypl.backend.llm.model.model_onboarding import verify_onboard_specific_model
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, LicenseEnum
 
 logger = logging.getLogger(__name__)
@@ -17,10 +19,18 @@ logger.setLevel(logging.INFO)
 router = APIRouter()
 
 
+async def async_verify_onboard_specific_models(model_id: UUID) -> None:
+    try:
+        verify_onboard_specific_model(model_id)
+    except Exception as e:
+        logger.error(f"Error in verify_onboard_specific_model for model_id {model_id}: {str(e)}")
+
+
 @router.post("/models", response_model=str)
-async def create_model_route(model: LanguageModel) -> str:
+async def create_model_route(model: LanguageModel, background_tasks: BackgroundTasks) -> str:
     try:
         model_id = create_model(model)
+        background_tasks.add_task(async_verify_onboard_specific_models, model_id)
         return str(model_id)
     except Exception as e:
         logger.exception("Error creating model - %s", str(e))

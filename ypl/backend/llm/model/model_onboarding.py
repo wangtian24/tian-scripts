@@ -2,6 +2,7 @@
 import logging
 import os
 from datetime import datetime
+from uuid import UUID
 
 # Third-party imports
 import anthropic
@@ -42,38 +43,75 @@ def verify_onboard_submitted_models() -> None:
         submitted_models = session.exec(query).all()
 
         for model, provider_name, base_url in submitted_models:
-            try:
-                is_inference_running = verify_inference_running(model, provider_name, base_url)
-
-                if is_inference_running:
-                    model.status = LanguageModelStatusEnum.VERIFIED_PENDING_ACTIVATION
-                    model.modified_at = datetime.utcnow()
-                    logging.info(
-                        f"Model {model.name} ({model.internal_name}) validated successfully "
-                        f"and set to VERIFIED_PENDING_ACTIVATION."
-                    )
-                else:
-                    is_hf_verified = verify_hf_model(model)
-                    if is_hf_verified:
-                        model.status = LanguageModelStatusEnum.VERIFIED_PENDING_ACTIVATION
-                        model.modified_at = datetime.utcnow()
-                        logging.info(
-                            f"Model {model.name} ({model.internal_name}) validated successfully "
-                            f"and set to VERIFIED_PENDING_ACTIVATION."
-                        )
-                    else:
-                        # reject if the model was submitted more than 3 days ago
-                        if model.created_at and (datetime.utcnow() - model.created_at).days > REJECT_AFTER_DAYS:
-                            model.status = LanguageModelStatusEnum.REJECTED
-                        model.modified_at = datetime.utcnow()
-                        logging.info(
-                            f"Model {model.name} ({model.internal_name}) not validated. " f"Setting status to REJECTED."
-                        )
-            except Exception as e:
-                # TODO: Implement alerting
-                logging.error(f"Model {model.name} ({model.internal_name}) validation failed: {str(e)}")
+            verify_and_update_model_status(session, model, provider_name, base_url)
 
         session.commit()
+
+
+def verify_onboard_specific_model(model_id: UUID) -> None:
+    """
+    Verify and onboard a specific model.
+
+    This function should be called to check and update the status of a specific model.
+    It queries for the model, verifies it, and updates its status accordingly.
+    """
+    with Session(get_engine()) as session:
+        query = (
+            select(LanguageModel, Provider.name.label("provider_name"), Provider.base_api_url.label("base_url"))  # type: ignore
+            .join(Provider, LanguageModel.provider_id == Provider.provider_id)  # type: ignore
+            .where(
+                LanguageModel.language_model_id == model_id,
+                LanguageModel.status == LanguageModelStatusEnum.SUBMITTED,
+                LanguageModel.deleted_at.is_(None),  # type: ignore
+            )
+        )
+        result = session.exec(query).first()
+
+        if result:
+            model, provider_name, base_url = result
+            verify_and_update_model_status(session, model, provider_name, base_url)
+            session.commit()
+        else:
+            logging.warning(f"No submitted model found with id {model_id}")
+
+
+def verify_and_update_model_status(session: Session, model: LanguageModel, provider_name: str, base_url: str) -> None:
+    """
+    Verify and update the status of a single model.
+
+    Args:
+        session (Session): The database session.
+        model (LanguageModel): The model to verify and update.
+        provider_name (str): The name of the provider.
+        base_url (str): The base URL for the provider's API.
+    """
+    try:
+        is_inference_running = verify_inference_running(model, provider_name, base_url)
+
+        if is_inference_running:
+            model.status = LanguageModelStatusEnum.ACTIVE
+            model.modified_at = datetime.utcnow()
+            logging.info(f"Model {model.name} ({model.internal_name}) validated successfully " f"and set to ACTIVE.")
+        else:
+            is_hf_verified = verify_hf_model(model)
+            if is_hf_verified:
+                model.status = LanguageModelStatusEnum.VERIFIED_PENDING_ACTIVATION
+                model.modified_at = datetime.utcnow()
+                logging.info(
+                    f"Model {model.name} ({model.internal_name}) validated successfully "
+                    f"and set to VERIFIED_PENDING_ACTIVATION."
+                )
+            else:
+                # reject if the model was submitted more than 3 days ago
+                if model.created_at and (datetime.utcnow() - model.created_at).days > REJECT_AFTER_DAYS:
+                    model.status = LanguageModelStatusEnum.REJECTED
+                model.modified_at = datetime.utcnow()
+                logging.info(
+                    f"Model {model.name} ({model.internal_name}) not validated. " f"Setting status to REJECTED."
+                )
+    except Exception as e:
+        # TODO: Implement alerting
+        logging.error(f"Model {model.name} ({model.internal_name}) validation failed: {str(e)}")
 
 
 def verify_hf_model(model: LanguageModel) -> bool:
