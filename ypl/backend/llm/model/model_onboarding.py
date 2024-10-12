@@ -4,6 +4,7 @@ import os
 from datetime import datetime
 
 # Third-party imports
+import anthropic
 from huggingface_hub import HfApi, ModelInfo
 from huggingface_hub.utils import HfHubHTTPError
 from openai import OpenAI
@@ -18,6 +19,7 @@ from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provi
 MMLU_PRO_THRESHOLD = 50
 DOWNLOADS_THRESHOLD = 1000
 LIKES_THRESHOLD = 100
+REJECT_AFTER_DAYS = 3
 
 
 def verify_onboard_submitted_models() -> None:
@@ -51,11 +53,13 @@ def verify_onboard_submitted_models() -> None:
                         f"and set to VERIFIED_PENDING_ACTIVATION."
                     )
                 else:
-                    model.status = LanguageModelStatusEnum.REJECTED
-                    model.modified_at = datetime.utcnow()
-                    logging.info(
-                        f"Model {model.name} ({model.internal_name}) not validated. " f"Setting status to REJECTED."
-                    )
+                    # reject if the model was submitted more than 3 days ago
+                    if model.created_at and (datetime.utcnow() - model.created_at).days > REJECT_AFTER_DAYS:
+                        model.status = LanguageModelStatusEnum.REJECTED
+                        model.modified_at = datetime.utcnow()
+                        logging.info(
+                            f"Model {model.name} ({model.internal_name}) not validated. " f"Setting status to REJECTED."
+                        )
             except Exception as e:
                 # TODO: Implement alerting
                 logging.error(f"Model {model.name} ({model.internal_name}) validation failed: {str(e)}")
@@ -150,19 +154,38 @@ def verify_inference_running(model: LanguageModel, provider_name: str, base_url:
     Verify if the model is running on PyTorch Serve.
     """
     try:
+        is_inference_running = False
         # TODO: Update this code to ensure non OpenAI providers are supported
         api_key = get_provider_api_key(provider_name)
-        client = OpenAI(api_key=api_key, base_url=base_url)
 
-        completion = client.chat.completions.create(
-            model=model.internal_name, messages=[{"role": "user", "content": "What is the capital of Odisha?"}]
+        logging.info(
+            f"Verifying inference running for model {model.internal_name} on provider {provider_name} at {base_url}"
         )
+        if provider_name.lower() == "anthropic":
+            client_anthropic = anthropic.Anthropic(api_key=api_key)
+            message = client_anthropic.messages.create(
+                model=model.internal_name,
+                max_tokens=1024,
+                messages=[{"role": "user", "content": "What is the capital of Odisha?"}],
+            )
+            if message.content and len(message.content) > 0:
+                logging.info(f"Model {model.internal_name} is running on provider's endpoint.")
+                is_inference_running = True
 
-        if completion.choices[0].message.content and len(completion.choices[0].message.content) > 0:
-            logging.info(f"Model {model.internal_name} is running on provider's endpoint.")
-            return True
         else:
-            return False
+            client_openai = OpenAI(api_key=api_key, base_url=base_url)
+            completion = client_openai.chat.completions.create(
+                model=model.internal_name,
+                messages=[{"role": "user", "content": "What is the capital of Odisha?"}],
+                stream=True,
+            )
+            for chunk in completion:
+                if chunk.choices[0].delta.content and len(chunk.choices[0].delta.content) > 0:
+                    logging.info(f"Model {model.internal_name} is running on provider's endpoint.")
+                    is_inference_running = True
+                    break
+
+        return is_inference_running
     except Exception as e:
         logging.error(f"Unexpected error verifying inference running for model {model.internal_name}: {str(e)}")
         return False
@@ -184,6 +207,7 @@ def get_provider_api_key(provider_name: str) -> str:
     # Remove any blank characters within the provider_name as DB has blank spaces
     cleaned_provider_name = "".join(provider_name.split()).lower()
     env_var_name = PROVIDER_KEY_MAPPING.get(cleaned_provider_name)
+    logging.info(f"API key environment variable name for provider {provider_name}: {env_var_name}")
 
     if not env_var_name:
         raise ValueError(f"Unknown provider name: {provider_name}")
