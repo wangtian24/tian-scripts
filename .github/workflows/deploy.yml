@@ -119,6 +119,9 @@ jobs:
         echo "X_API_KEY=${{ secrets.X_API_KEY }}" >> .env
         echo "PYTORCH_SERVE_GCP_URL='${{ github.event.inputs.pytorch_serve_gcp_url }}'" >> .env
         echo "CATEGORIZER_MODEL_PATH=${{ github.events.inputs.categorizer_model_path }}" >> .env
+        echo "ROUTING_USE_PROMPT_CONDITIONAL=${{ github.event.inputs.use_prompt_conditional_routing || 'false' }}" >> .env
+        echo "ROUTING_WEIGHTS='{\"random\": 0.1, \"top\": 0.7, \"min_simple_cost\": 0.2}'" >> .env
+        echo "ROUTING_GOOD_MODELS_ALWAYS=True" >> .env
         if [[ "${{ env.ENVIRONMENT }}" == "production" ]]; then
           echo "POSTGRES_USER=${{ secrets.POSTGRES_USER }}" >> .env
           echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_PRODUCTION }}" >> .env
@@ -140,9 +143,6 @@ jobs:
           echo "TOGETHERAI_API_KEY=${{ secrets.TOGETHERAI_API_KEY_PRODUCTION }}" >> .env
           echo "SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL }}" >> .env
         elif [[ "${{ env.ENVIRONMENT }}" == "staging" ]]; then
-          echo "ROUTING_USE_PROMPT_CONDITIONAL=${{ github.event.inputs.use_prompt_conditional_routing || 'false' }}" >> .env
-          echo "ROUTING_WEIGHTS='{\"random\": 0.1, \"top\": 0.7, \"min_simple_cost\": 0.2}'" >> .env
-          echo "ROUTING_GOOD_MODELS_ALWAYS=True" >> .env
           echo "OPENAI_API_KEY_ROUTING=${{ secrets.OPENAI_API_KEY_ROUTING }}" >> .env
           echo "POSTGRES_USER=${{ secrets.POSTGRES_USER_STAGING }}" >> .env
           echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_STAGING }}" >> .env
