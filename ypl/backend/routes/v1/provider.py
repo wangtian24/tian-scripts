@@ -31,7 +31,7 @@ async def create_provider_route(provider: Provider) -> UUID:
 @router.get("/providers", response_model=list[ProviderStruct])
 async def read_providers_route(
     name: str | None = Query(None),  # noqa: B008
-    is_active: bool | None = Query(None),  # noqa: B008
+    is_active: bool = Query(True),  # noqa: B008
     exclude_deleted: bool = Query(True),  # noqa: B008
 ) -> list[ProviderStruct]:
     try:

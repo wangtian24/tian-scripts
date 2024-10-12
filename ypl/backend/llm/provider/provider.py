@@ -26,7 +26,7 @@ async def create_provider(provider: Provider) -> UUID:
 
 async def get_providers(
     name: str | None = None,
-    is_active: bool | None = None,
+    is_active: bool = True,
     exclude_deleted: bool = True,
 ) -> list[ProviderStruct]:
     """Get providers from the database.
