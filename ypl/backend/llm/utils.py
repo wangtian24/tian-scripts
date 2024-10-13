@@ -1,3 +1,4 @@
+import datetime
 import logging
 import math
 import os
@@ -6,6 +7,7 @@ from dataclasses import dataclass
 from functools import cache
 
 import numpy as np
+import tweepy
 from slack_sdk.webhook import WebhookClient
 from sqlmodel import select
 
@@ -143,7 +145,7 @@ def fetch_categories_with_descriptions_from_db() -> dict[str, str | None]:
         return {name: description for name, description in categories}
 
 
-def post_to_slack(message: str) -> None:
+async def post_to_slack(message: str) -> None:
     """
     Post a message to a Slack channel using a webhook URL.
 
@@ -152,13 +154,41 @@ def post_to_slack(message: str) -> None:
     """
     webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
     if not webhook_url:
-        logging.error("SLACK_WEBHOOK_URL environment variable is not set")
+        logging.warning("SLACK_WEBHOOK_URL environment variable is not set")
         return
 
     try:
         webhook = WebhookClient(webhook_url)
         response = webhook.send(text=message)
         if response.status_code != 200:
-            logging.error(f"Failed to post message to Slack. Status code: {response.status_code}")
+            logging.warning(f"Failed to post message to Slack. Status code: {response.status_code}")
     except Exception as e:
-        logging.error(f"Failed to post message to Slack: {str(e)}")
+        logging.warning(f"Failed to post message to Slack: {str(e)}")
+
+
+async def post_to_x(message: str) -> None:
+    """Post a message to X."""
+    bearer_token = os.environ.get("TWITTER_BEARER_TOKEN")
+    consumer_key = os.environ.get("TWITTER_CONSUMER_KEY")
+    consumer_secret = os.environ.get("TWITTER_CONSUMER_SECRET")
+    access_token = os.environ.get("TWITTER_ACCESS_TOKEN")
+    access_token_secret = os.environ.get("TWITTER_ACCESS_TOKEN_SECRET")
+    if bearer_token and consumer_key and consumer_secret and access_token and access_token_secret:
+        try:
+            client = tweepy.Client(
+                bearer_token=bearer_token,
+                access_token=access_token,
+                access_token_secret=access_token_secret,
+                consumer_key=consumer_key,
+                consumer_secret=consumer_secret,
+            )
+            # TODO: Use some random number to avoid duplicate tweets.
+            tweet = datetime.datetime.now(datetime.UTC).isoformat() + " " + message
+            client.create_tweet(text=tweet)
+        except Exception as e:
+            logging.warning(f"Failed to post message to X: {str(e)}")
+    else:
+        logging.warning(
+            "TWITTER_BEARER_TOKEN, TWITTER_CONSUMER_KEY, TWITTER_CONSUMER_SECRET, TWITTER_ACCESS_TOKEN, or "
+            "TWITTER_ACCESS_TOKEN_SECRET environment variable is not set"
+        )

@@ -1,6 +1,6 @@
 # Standard library imports
-import asyncio
 import logging
+import os
 from uuid import UUID
 
 # Third-party imports
@@ -14,7 +14,7 @@ from ypl.backend.llm.utils import post_to_slack
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
 
 
-async def _validate_active_models() -> None:
+async def validate_active_onboarded_models() -> None:
     """
     Validate active models.
 
@@ -88,17 +88,16 @@ async def verify_and_update_model_status(
             # model.status = LanguageModelStatusEnum.INACTIVE
             # model.modified_at = datetime.utcnow()
             error_message = (
-                f"Model {model.name} ({model.internal_name}) is not running "
-                f"at the inference endpoint. Please investigate."
+                f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} ({model.internal_name}) "
+                "is not running at the inference endpoint. Please investigate."
             )
             logging.error(error_message)
-            post_to_slack(f":warning: {error_message}")
-    except Exception as e:
-        error_message = f"Model {model.name} ({model.internal_name}) inference validation failed: {str(e)}"
+            await post_to_slack(f":warning: {error_message}")
+    except Exception:
+        error_message = (
+            f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} ({model.internal_name}) "
+            "inference validation failed: {str(e)}"
+        )
         logging.error(error_message)
-        post_to_slack(f":x: {error_message}")
+        await post_to_slack(f":x: {error_message}")
         # TODO: Implement additional alerting if needed
-
-
-if __name__ == "__main__":
-    asyncio.run(_validate_active_models())

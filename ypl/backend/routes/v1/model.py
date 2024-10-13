@@ -1,4 +1,5 @@
 import logging
+import os
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
@@ -33,7 +34,9 @@ async def create_model_route(model: LanguageModel, background_tasks: BackgroundT
         model_id = create_model(model)
         background_tasks.add_task(async_verify_onboard_specific_models, model_id)
         background_tasks.add_task(
-            post_to_slack, f"Model {model.name} ({model.internal_name}) submitted for validation."
+            post_to_slack,
+            f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} ({model.internal_name}) "
+            "submitted for validation.",
         )
         return str(model_id)
     except Exception as e:

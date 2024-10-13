@@ -1,5 +1,4 @@
 # Standard library imports
-import asyncio
 import logging
 import os
 from datetime import datetime
@@ -17,7 +16,7 @@ from sqlmodel import select
 # Local imports
 from ypl.backend.db import get_async_engine
 from ypl.backend.llm.constants import PROVIDER_KEY_MAPPING
-from ypl.backend.llm.utils import post_to_slack
+from ypl.backend.llm.utils import post_to_slack, post_to_x
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
 
 # Constants
@@ -69,9 +68,10 @@ async def verify_onboard_specific_model(model_id: UUID) -> None:
             )
         )
         result = await session.execute(query)
+        row = result.first()
 
-        if result:
-            model, provider_name, base_url = result
+        if row:
+            model, provider_name, base_url = row
             await verify_and_update_model_status(session, model, provider_name, base_url)
             await session.commit()
         else:
@@ -97,7 +97,14 @@ async def verify_and_update_model_status(
             model.status = LanguageModelStatusEnum.ACTIVE
             model.modified_at = datetime.utcnow()
             logging.info(f"Model {model.name} ({model.internal_name}) validated successfully " f"and set to ACTIVE.")
-            post_to_slack(f"Model {model.name} ({model.internal_name}) validated successfully " f"and set to ACTIVE.")
+            await post_to_slack(
+                f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} ({model.internal_name}) "
+                "validated successfully and set to ACTIVE."
+            )
+            await post_to_x(
+                f"Environment {os.environ.get('ENVIRONMENT')} - New model {model.name} ({model.internal_name}) "
+                "is now available."
+            )
         else:
             is_hf_verified = verify_hf_model(model)
             if is_hf_verified:
@@ -107,9 +114,9 @@ async def verify_and_update_model_status(
                     f"Model {model.name} ({model.internal_name}) validated successfully "
                     f"and set to VERIFIED_PENDING_ACTIVATION."
                 )
-                post_to_slack(
-                    f"Model {model.name} ({model.internal_name}) validated successfully "
-                    f"and set to VERIFIED_PENDING_ACTIVATION."
+                await post_to_slack(
+                    f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} ({model.internal_name}) "
+                    "validated successfully and set to VERIFIED_PENDING_ACTIVATION."
                 )
             else:
                 # reject if the model was submitted more than 3 days ago
@@ -119,13 +126,20 @@ async def verify_and_update_model_status(
                 logging.info(
                     f"Model {model.name} ({model.internal_name}) not validated. " f"Setting status to REJECTED."
                 )
-                post_to_slack(
-                    f"Model {model.name} ({model.internal_name}) not validated. " f"Setting status to REJECTED."
+                await post_to_slack(
+                    f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} ({model.internal_name}) "
+                    "not validated. Setting status to REJECTED."
                 )
-    except Exception as e:
+    except Exception:
         # TODO: Implement alerting
-        logging.error(f"Model {model.name} ({model.internal_name}) validation failed: {str(e)}")
-        post_to_slack(f"Model {model.name} ({model.internal_name}) validation failed: {str(e)}")
+        logging.error(
+            f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} ({model.internal_name}) "
+            "validation failed: {str(e)}"
+        )
+        await post_to_slack(
+            f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} ({model.internal_name}) "
+            "validation failed: {str(e)}"
+        )
 
 
 def verify_hf_model(model: LanguageModel) -> bool:
@@ -261,13 +275,10 @@ def verify_inference_running(model: LanguageModel, provider_name: str, base_url:
             completion = client_openai.chat.completions.create(
                 model=model.internal_name,
                 messages=[{"role": "user", "content": "What is the capital of Odisha?"}],
-                stream=True,
             )
-            for chunk in completion:
-                if chunk.choices[0].delta.content and len(chunk.choices[0].delta.content) > 0:
-                    logging.info(f"Model {model.internal_name} is running on provider's endpoint.")
-                    is_inference_running = True
-                    break
+            if completion.choices[0].message.content and len(completion.choices[0].message.content) > 0:
+                logging.info(f"Model {model.internal_name} is running on provider's endpoint.")
+                is_inference_running = True
 
         return is_inference_running
     except Exception as e:
@@ -301,7 +312,3 @@ def get_provider_api_key(provider_name: str) -> str:
         raise ValueError(f"API key not found for provider: {provider_name}")
 
     return api_key
-
-
-if __name__ == "__main__":
-    asyncio.run(verify_onboard_submitted_models())

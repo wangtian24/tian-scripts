@@ -44,7 +44,7 @@ from ypl.backend.llm.judge import (
     choose_llm,
 )
 from ypl.backend.llm.labeler import WildChatRealismLabeler
-from ypl.backend.llm.model.model_management import _validate_active_models
+from ypl.backend.llm.model.model_management import validate_active_onboarded_models
 from ypl.backend.llm.model.model_onboarding import verify_onboard_submitted_models
 from ypl.backend.llm.prompt_classifiers import categorize_user_messages
 from ypl.backend.llm.ranking import get_default_ranker
@@ -610,7 +610,7 @@ def verify_submitted_models() -> None:
 @db_cmd
 def validate_active_models() -> None:
     """Validate active language models."""
-    asyncio.run(_validate_active_models())
+    asyncio.run(validate_active_onboarded_models())
 
 
 @cli.command()
