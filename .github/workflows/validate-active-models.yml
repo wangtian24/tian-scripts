@@ -2,7 +2,7 @@ name: Validate Active Models
 
 on:
   schedule:
-    - cron: '0 */24 * * *'  # Every 24 hours
+    - cron: '30 4 * * *'  # 10:00 AM IST (4:30 AM UTC)
   workflow_dispatch:
 
 jobs:
