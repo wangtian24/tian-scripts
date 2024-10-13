@@ -183,7 +183,9 @@ async def post_to_x(message: str) -> None:
                 consumer_secret=consumer_secret,
             )
             # TODO: Use some random number to avoid duplicate tweets.
-            tweet = datetime.datetime.now(datetime.UTC).isoformat() + " " + message
+            # Uncomment the following line to tweet the actual message.
+            # tweet = datetime.datetime.now(datetime.UTC).isoformat() + " " + message
+            tweet = datetime.datetime.now(datetime.UTC).isoformat() + " " + "Hello...something magical just happened!"
             client.create_tweet(text=tweet)
         except Exception as e:
             logging.warning(f"Failed to post message to X: {str(e)}")
