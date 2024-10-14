@@ -50,7 +50,7 @@ class RemotePromptCategorizerProposer(ModelProposer):
         self.remove_negative_quality = remove_negative_quality
 
     def _select_models_from_category(
-        self, response: dict[str, Any], num_models: int, models_to_select: set[str]
+        self, response: dict[str, Any], models_to_select: set[str]
     ) -> tuple[list[tuple[float, str]], set[str]]:
         """
         Helper function to select models from a category response.
@@ -78,21 +78,19 @@ class RemotePromptCategorizerProposer(ModelProposer):
 
             models.append((quality, model))
 
-        return sorted(models, key=lambda x: x[0], reverse=True)[:num_models], excluded_models
+        return sorted(models, key=lambda x: x[0], reverse=True), excluded_models
 
-    def _propose_models(self, num_models: int, models_to_select: set[str], state: RouterState) -> RouterState:
+    def _propose_models(self, models_to_select: set[str], state: RouterState) -> RouterState:
         response = requests.post(
             self.api_endpoint + "/categorize",
             json={"prompt": self.prompt},
             headers={"X-API-KEY": self.api_key},
         ).json()
 
-        return self._propose_models_from_category(response, num_models, models_to_select)
+        return self._propose_models_from_category(response, models_to_select)
 
-    def _propose_models_from_category(
-        self, response: dict[str, Any], num_models: int, models_to_select: set[str]
-    ) -> RouterState:
-        selected_models, excluded_models = self._select_models_from_category(response, num_models, models_to_select)
+    def _propose_models_from_category(self, response: dict[str, Any], models_to_select: set[str]) -> RouterState:
+        selected_models, excluded_models = self._select_models_from_category(response, models_to_select)
 
         return RouterState(
             selected_models={
@@ -102,7 +100,7 @@ class RemotePromptCategorizerProposer(ModelProposer):
             excluded_models=excluded_models,
         )
 
-    async def _apropose_models(self, num_models: int, models_to_select: set[str], state: RouterState) -> RouterState:
+    async def _apropose_models(self, models_to_select: set[str], state: RouterState) -> RouterState:
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 self.api_endpoint + "/categorize",
@@ -111,7 +109,7 @@ class RemotePromptCategorizerProposer(ModelProposer):
             ) as response:
                 json_response = await response.json()
 
-        return self._propose_models_from_category(json_response, num_models, models_to_select)
+        return self._propose_models_from_category(json_response, models_to_select)
 
 
 class ZeroShotPromptQualityProposer(ModelProposer):
@@ -119,10 +117,10 @@ class ZeroShotPromptQualityProposer(ModelProposer):
         self.chat_model = get_chat_model(model_info)
         self.prompt = prompt
 
-    def _propose_models(self, num_models: int, models_to_select: set[str], state: RouterState) -> RouterState:
+    def _propose_models(self, models_to_select: set[str], state: RouterState) -> RouterState:
         model_metadata = {model: MODEL_DESCRIPTIONS[model] for model in models_to_select if model in MODEL_DESCRIPTIONS}
         labeler = ZeroShotPromptQualityLabeler(model_metadata, self.chat_model)
-        models = [x for x in labeler.label(self.prompt) if x in models_to_select][:num_models]
+        models = [x for x in labeler.label(self.prompt) if x in models_to_select]
 
         return RouterState(
             selected_models={
@@ -131,10 +129,10 @@ class ZeroShotPromptQualityProposer(ModelProposer):
             all_models=models_to_select,
         )
 
-    async def _apropose_models(self, num_models: int, models_to_select: set[str], state: RouterState) -> RouterState:
+    async def _apropose_models(self, models_to_select: set[str], state: RouterState) -> RouterState:
         model_metadata = {model: MODEL_DESCRIPTIONS[model] for model in models_to_select if model in MODEL_DESCRIPTIONS}
         labeler = ZeroShotPromptQualityLabeler(model_metadata, self.chat_model)
-        models = [x for x in await labeler.alabel(self.prompt) if x in models_to_select][:num_models]
+        models = [x for x in await labeler.alabel(self.prompt) if x in models_to_select]
 
         return RouterState(
             selected_models={

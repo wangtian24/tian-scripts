@@ -166,16 +166,16 @@ class RouterModule(ABC):
 
     _multiplier: float | None = None
 
-    def select_models(self, num_models: int = 0, state: RouterState | None = None) -> RouterState:
-        response = self._select_models(num_models or 1, state or RouterState())
+    def select_models(self, state: RouterState | None = None) -> RouterState:
+        response = self._select_models(state or RouterState())
 
         if self._multiplier is not None:
             response.multiply_scores(self._multiplier)
 
         return response
 
-    async def aselect_models(self, num_models: int = 0, state: RouterState | None = None) -> RouterState:
-        response = await self._aselect_models(num_models or 1, state or RouterState())
+    async def aselect_models(self, state: RouterState | None = None) -> RouterState:
+        response = await self._aselect_models(state or RouterState())
 
         if self._multiplier is not None:
             response.multiply_scores(self._multiplier)
@@ -196,11 +196,11 @@ class RouterModule(ABC):
         return RouterExclusiveChain(self, other)
 
     @abstractmethod
-    def _select_models(self, num_models: int, state: RouterState) -> RouterState:
+    def _select_models(self, state: RouterState) -> RouterState:
         raise NotImplementedError
 
-    async def _aselect_models(self, num_models: int, state: RouterState) -> RouterState:
-        return self._select_models(num_models, state)
+    async def _aselect_models(self, state: RouterState) -> RouterState:
+        return self._select_models(state)
 
 
 class RouterDecisionLogger(RouterModule):
@@ -212,7 +212,7 @@ class RouterDecisionLogger(RouterModule):
         self.enabled = enabled
         self.prefix = prefix
 
-    def _select_models(self, _: int, state: RouterState) -> RouterState:
+    def _select_models(self, state: RouterState) -> RouterState:
         """
         Log the routing decision.
         """
@@ -251,9 +251,9 @@ class RouterSequentialChain(RouterModule):
         self.router_modules.append(other)
         return self
 
-    def _select_models(self, num_models: int, state: RouterState) -> RouterState:
+    def _select_models(self, state: RouterState) -> RouterState:
         for router_module in self.router_modules:
-            state = router_module.select_models(num_models, state=state)
+            state = router_module.select_models(state=state)
 
         return state
 
@@ -287,7 +287,7 @@ class RouterExclusiveChain(RNGMixin, RouterModule):
 
         return self
 
-    def _select_models(self, num_models: int, state: RouterState) -> RouterState:
+    def _select_models(self, state: RouterState) -> RouterState:
         if len(self.random_probabilities) != len(self.router_modules):
             logging.warning(
                 "Random probabilities not set for RouterExclusiveChain; using default of 1/len(router_modules)"
@@ -297,7 +297,7 @@ class RouterExclusiveChain(RNGMixin, RouterModule):
             probs = np.array(self.random_probabilities)
 
         chosen_module = self.get_rng().choice(np.array(self.router_modules, dtype=object), replace=False, p=probs)
-        state = chosen_module.select_models(num_models, state=state)
+        state = chosen_module.select_models(state=state)
 
         return state
 
@@ -317,11 +317,11 @@ class RouterParallelChain(RouterModule):
         self.router_modules.append(other)
         return self
 
-    def _select_models(self, num_models: int, state: RouterState) -> RouterState:
+    def _select_models(self, state: RouterState) -> RouterState:
         responses = []
 
         for router_module in self.router_modules:
-            router_response = router_module.select_models(num_models, state=state.deepcopy())
+            router_response = router_module.select_models(state=state.deepcopy())
             responses.append(router_response)
 
         for response in responses:
@@ -336,7 +336,7 @@ class ModelProposer(RouterModule):
     to define the specific model selection logic.
     """
 
-    def _select_models(self, num_models: int, state: RouterState) -> RouterState:
+    def _select_models(self, state: RouterState) -> RouterState:
         """
         Propose a set of models to route to.
 
@@ -346,30 +346,18 @@ class ModelProposer(RouterModule):
                 models to propose, e.g., `FRONTEND_MODELS`.
         """
         models_to_select = state.get_selectable_models()
-
-        if num_models == 0:
-            return RouterState()
-
-        num_models = min(len(models_to_select), num_models)
-        response = self._propose_models(min(len(models_to_select), num_models), models_to_select, state.deepcopy())
+        response = self._propose_models(models_to_select, state.deepcopy())
 
         return response
 
-    async def _aselect_models(self, num_models: int, state: RouterState) -> RouterState:
+    async def _aselect_models(self, state: RouterState) -> RouterState:
         models_to_select = state.get_selectable_models()
-
-        if num_models == 0:
-            return RouterState()
-
-        num_models = min(len(models_to_select), num_models)
-        response = await self._apropose_models(
-            min(len(models_to_select), num_models), models_to_select, state.deepcopy()
-        )
+        response = await self._apropose_models(models_to_select, state.deepcopy())
 
         return response
 
     @abstractmethod
-    def _propose_models(self, num_models: int, models_to_select: set[str], state: RouterState) -> RouterState:
+    def _propose_models(self, models_to_select: set[str], state: RouterState) -> RouterState:
         """
         Propose a set of models to route to.
 
@@ -380,12 +368,12 @@ class ModelProposer(RouterModule):
         """
         raise NotImplementedError
 
-    async def _apropose_models(self, num_models: int, models_to_select: set[str], state: RouterState) -> RouterState:
-        return self._propose_models(num_models, models_to_select, state)
+    async def _apropose_models(self, models_to_select: set[str], state: RouterState) -> RouterState:
+        return self._propose_models(models_to_select, state)
 
 
 class RandomModelProposer(RNGMixin, ModelProposer):
-    def _propose_models(self, num_models: int, models_to_select: set[str], state: RouterState) -> RouterState:
+    def _propose_models(self, models_to_select: set[str], state: RouterState) -> RouterState:
         """
         Randomly select a set of models to route to.
 
@@ -394,7 +382,7 @@ class RandomModelProposer(RNGMixin, ModelProposer):
             models_to_select: The set of models to randomly select from.
             state: The state to propose models for.
         """
-        selected_models = self.get_rng().choice(list(models_to_select), num_models, replace=False)
+        selected_models = self.get_rng().choice(list(models_to_select), len(models_to_select), replace=False)
 
         return RouterState(
             selected_models={model: {SelectionCriteria.RANDOM: self.get_rng().random()} for model in selected_models},
@@ -416,7 +404,7 @@ class ModelFilter(RouterModule):
         """
         self.persist = persist
 
-    def _select_models(self, num_models: int, state: RouterState) -> RouterState:
+    def _select_models(self, state: RouterState) -> RouterState:
         state, excluded_models = self._filter(state)
 
         if self.persist:
@@ -459,18 +447,23 @@ class TopK(ModelFilter):
 
 
 class MinimumFractionModelProposer(RNGMixin, ModelProposer):
-    def __init__(self, minimum_model_traffic_fraction: dict[str, float]) -> None:
+    def __init__(
+        self,
+        num_models: int,
+        minimum_model_traffic_fraction: dict[str, float],
+    ) -> None:
         self.minimum_model_traffic_fraction = minimum_model_traffic_fraction
+        self.num_models = num_models
 
-    def _propose_models(self, num_models: int, models_to_select: set[str], state: RouterState) -> RouterState:
-        if num_models > len(models_to_select):
+    def _propose_models(self, models_to_select: set[str], state: RouterState) -> RouterState:
+        if self.num_models > len(models_to_select):
             return state
 
         models = list(models_to_select)
         probs = np.array([self.minimum_model_traffic_fraction.get(model, 0) for model in models])
         probs /= probs.sum()
 
-        selected_models = self.get_rng().choice(models, num_models, replace=False, p=probs)
+        selected_models = self.get_rng().choice(models, min(self.num_models, len(models)), replace=False, p=probs)
 
         return RouterState(
             selected_models={model: {SelectionCriteria._MIN_TRAFFIC_FRACTION: 1.0} for model in selected_models},
@@ -482,7 +475,7 @@ class RandomShuffle(RNGMixin, ModelProposer):
     def __init__(self, shuffle_same_scores_only: bool = False) -> None:
         self.shuffle_same_scores_only = shuffle_same_scores_only
 
-    def _propose_models(self, num_models: int, models_to_select: set[str], state: RouterState) -> RouterState:
+    def _propose_models(self, models_to_select: set[str], state: RouterState) -> RouterState:
         if self.shuffle_same_scores_only:
             # Shuffle only the order of models with the same score
             model_score_map = state.get_model_score_map()
@@ -503,7 +496,7 @@ class RandomShuffle(RNGMixin, ModelProposer):
                 selected_models=selected_models, excluded_models=state.excluded_models, all_models=set(models_to_select)
             )
         else:
-            selected_models = self.get_rng().choice(list(models_to_select), num_models, replace=False)  # type: ignore
+            selected_models = self.get_rng().choice(list(models_to_select), len(models_to_select), replace=False)  # type: ignore
 
             return RouterState(
                 selected_models={model: {SelectionCriteria.RANDOM: 1.0} for model in selected_models},
@@ -524,21 +517,20 @@ class AlwaysGoodModelMetaRouter(ModelProposer):
         self.num_good = num_good
         self.ranker = ranker
 
-    def _propose_models(self, num_models: int, models_to_select: set[str], state: RouterState) -> RouterState:
-        good_model_response = EloProposer(self.ranker).select_models(self.num_good, state.deepcopy())
+    def _propose_models(self, models_to_select: set[str], state: RouterState) -> RouterState:
+        good_model_response = (EloProposer(self.ranker) | TopK(self.num_good)).select_models(state.deepcopy())
         good_model_response.all_models = good_model_response.get_selected_models()
-        good_model_response = self.router.select_models(min(self.num_good, num_models), good_model_response)
+        good_model_response = self.router.select_models(good_model_response)
 
         top1_filter = TopK(1)
         good_model_response = top1_filter.select_models(state=good_model_response)
         good_model_response.multiply_scores(1000)  # ensures that one good model is always selected
         state.excluded_models.update(good_model_response.selected_models.keys())
 
-        if num_models > 1:
-            default_response = self.router.select_models(num_models - 1, state.deepcopy())
-            default_response.excluded_models = set()
-            good_model_response.excluded_models = set()
-            good_model_response += default_response
+        default_response = self.router.select_models(state.deepcopy())
+        default_response.excluded_models = set()
+        good_model_response.excluded_models = set()
+        good_model_response += default_response
 
         return good_model_response
 
@@ -556,16 +548,15 @@ class EloProposer(RNGMixin, ModelProposer):
         """
         self.ranker = ranker
 
-    def _propose_models(self, num_models: int, models_to_select: set[str], state: RouterState) -> RouterState:
+    def _propose_models(self, models_to_select: set[str], state: RouterState) -> RouterState:
         elo_ratings = self.ranker.get_ratings()
 
-        sorted_models = sorted(
+        selected_models = sorted(
             [model for model in models_to_select],
             key=lambda m: elo_ratings.get(m, 1.0) + self.get_rng().random() * 1e-7,  # add a small random jitter
             reverse=True,
         )
 
-        selected_models = sorted_models[:num_models]
         max_elo = max(elo_ratings.values(), default=1.0)
 
         return RouterState(
@@ -582,14 +573,16 @@ class ProportionalModelProposer(RNGMixin, ModelProposer):
     :py:meth:`.Ranker.get_probabilities`.
     """
 
-    def __init__(self, ranker: Ranker) -> None:
+    def __init__(self, num_models: int, ranker: Ranker) -> None:
         """
         Args:
+            num_models: The number of models to propose.
             ranker: The ranker to use to rank the models.
         """
         self.ranker = ranker
+        self.num_models = num_models
 
-    def _propose_models(self, num_models: int, models_to_select: set[str], state: RouterState) -> RouterState:
+    def _propose_models(self, models_to_select: set[str], state: RouterState) -> RouterState:
         probabilities = self.ranker.get_probabilities().copy()
 
         if not probabilities:
@@ -607,7 +600,12 @@ class ProportionalModelProposer(RNGMixin, ModelProposer):
         models = list(probabilities.keys())
 
         chosen_models = set(
-            self.get_rng().choice(models, size=num_models, p=list(probabilities.values()), replace=False)
+            self.get_rng().choice(
+                models,
+                size=min(self.num_models, len(models)),
+                p=list(probabilities.values()),
+                replace=False,
+            )
         )
 
         return RouterState(
@@ -623,17 +621,19 @@ class ConfidenceIntervalWidthModelProposer(ModelProposer):
     intervals, where the width is defined by the `ranker`.
     """
 
-    def __init__(self, ranker: ConfidenceIntervalRankerMixin) -> None:
+    def __init__(self, num_models: int, ranker: ConfidenceIntervalRankerMixin) -> None:
         """
         Args:
+            num_models: The number of models to propose.
             ranker: The ranker to use to rank the models.
         """
         self.ranker = ranker
+        self.num_models = num_models
 
         if not hasattr(self.ranker, "get_confidence_intervals"):
             raise ValueError("Ranker must implement `get_confidence_intervals`")
 
-    def _propose_models(self, num_models: int, models_to_select: set[str], state: RouterState) -> RouterState:
+    def _propose_models(self, models_to_select: set[str], state: RouterState) -> RouterState:
         conf_interval_widths = {model: abs(x[1] - x[0]) for model, x in self.ranker.get_confidence_intervals().items()}
 
         for model in list(conf_interval_widths.keys()):
@@ -641,7 +641,7 @@ class ConfidenceIntervalWidthModelProposer(ModelProposer):
                 del conf_interval_widths[model]
 
         sorted_models = sorted(conf_interval_widths.items(), key=lambda x: x[1], reverse=True)
-        selected_models = [model for model, _ in sorted_models[:num_models]]
+        selected_models = [model for model, _ in sorted_models[: self.num_models]]
 
         return RouterState(
             selected_models={
@@ -659,17 +659,18 @@ class ConfidenceIntervalNumOverlapModelProposer(ModelProposer):
     intervals, where the confidence intervals are computed by the `ranker`.
     """
 
-    def __init__(self, ranker: Ranker) -> None:
+    def __init__(self, num_models: int, ranker: Ranker) -> None:
         """
         Args:
             ranker: The ranker to use to rank the models.
         """
         self.ranker = ranker
+        self.num_models = num_models
 
         if not hasattr(self.ranker, "get_confidence_intervals"):
             raise ValueError("Ranker must implement `get_confidence_intervals`")
 
-    def _propose_models(self, num_models: int, models_to_select: set[str], state: RouterState) -> RouterState:
+    def _propose_models(self, models_to_select: set[str], state: RouterState) -> RouterState:
         conf_intervals = []
         models = []
 
@@ -684,11 +685,12 @@ class ConfidenceIntervalNumOverlapModelProposer(ModelProposer):
             return RouterState()
 
         num_overlaps, perm_map = _fast_compute_all_num_intersections(np.array(conf_intervals))
-        sorted_ind = np.argpartition(num_overlaps, -num_models)[-num_models:]
+        k = min(self.num_models, len(models))
+        sorted_ind = np.argpartition(num_overlaps, -k)[-k:]
         sorted_models = [(num_overlaps[i], models[perm_map[i]]) for i in sorted_ind]
         sorted_models = sorted(sorted_models, key=lambda x: x[0], reverse=True)
 
-        selected_models = [model for _, model in sorted_models][:num_models]
+        selected_models = [model for _, model in sorted_models][:k]
 
         return RouterState(
             selected_models={
@@ -706,17 +708,19 @@ class ConfidenceIntervalWidthOverlapModelProposer(ModelProposer):
     confidence intervals, where the confidence intervals are computed by the `ranker`.
     """
 
-    def __init__(self, ranker: Ranker) -> None:
+    def __init__(self, num_models: int, ranker: Ranker) -> None:
         """
         Args:
+            num_models: The number of models to propose.
             ranker: The ranker to use to rank the models.
         """
+        self.num_models = num_models
         self.ranker = ranker
 
         if not hasattr(self.ranker, "get_confidence_intervals"):
             raise ValueError("Ranker must implement `get_confidence_intervals`")
 
-    def _propose_models(self, num_models: int, models_to_select: set[str], state: RouterState) -> RouterState:
+    def _propose_models(self, models_to_select: set[str], state: RouterState) -> RouterState:
         conf_intervals = []
         models = []
 
@@ -726,6 +730,8 @@ class ConfidenceIntervalWidthOverlapModelProposer(ModelProposer):
 
             conf_intervals.append(ci)
             models.append(model)
+
+        num_models = min(self.num_models, len(models))
 
         if not conf_intervals or not num_models:
             return RouterState()
@@ -744,7 +750,7 @@ class ConfidenceIntervalWidthOverlapModelProposer(ModelProposer):
 
 
 class CostModelProposer(ModelProposer):
-    def _propose_models(self, num_models: int, models_to_select: set[str], state: RouterState) -> RouterState:
+    def _propose_models(self, models_to_select: set[str], state: RouterState) -> RouterState:
         model_costs = []
 
         for model in models_to_select:
@@ -755,8 +761,7 @@ class CostModelProposer(ModelProposer):
             )
             model_costs.append((cost, model))
 
-        model_costs = sorted(model_costs, key=lambda x: x[0])
-        selected_models = model_costs[:num_models]
+        selected_models = sorted(model_costs, key=lambda x: x[0])
 
         return RouterState(
             selected_models={
@@ -843,7 +848,7 @@ def _fast_compute_all_num_intersections(intervals: np.ndarray) -> tuple[np.ndarr
 
 
 class MaxSpeedProposer(ModelProposer):
-    def _propose_models(self, num_models: int, models_to_select: set[str], state: RouterState) -> RouterState:
+    def _propose_models(self, models_to_select: set[str], state: RouterState) -> RouterState:
         model_speeds = [
             (model_name, MODEL_HEURISTICS.get(model_name, MODEL_HEURISTICS["gpt-4-turbo"]).tokens_per_second)
             for model_name in models_to_select
@@ -927,7 +932,7 @@ def get_router_ranker(ranker: Ranker | None = None) -> tuple[RouterModule, Ranke
     if settings.ROUTING_GOOD_MODELS_ALWAYS:
         router = AlwaysGoodModelMetaRouter(ranker, router, num_good=settings.ROUTING_GOOD_MODELS_RANK_THRESHOLD)
 
-    router = router | RouterDecisionLogger(enabled=settings.ROUTING_DO_LOGGING, prefix="default-router")
+    router = router | TopK(2) | RouterDecisionLogger(enabled=settings.ROUTING_DO_LOGGING, prefix="default-router")
 
     return router, ranker
 

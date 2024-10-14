@@ -16,6 +16,7 @@ from ypl.backend.llm.routing.router import (
     ProportionalModelProposer,
     RandomModelProposer,
     RouterState,
+    TopK,
     _fast_compute_all_conf_overlap_diffs,
     _fast_compute_all_num_intersections,
 )
@@ -38,10 +39,10 @@ def test_proportional_routing() -> None:
     for _ in range(20):
         ranker.update("gpt-1", "gpt-2", 0)
 
-    router = ProportionalModelProposer(ranker).with_seed(0)
+    router = ProportionalModelProposer(2, ranker).with_seed(0)
     starting_state = RouterState(all_models=set(models))
 
-    battles = [list(router.select_models(2, state=starting_state.deepcopy()).get_selected_models()) for _ in range(10)]
+    battles = [list(router.select_models(state=starting_state.deepcopy()).get_selected_models()) for _ in range(10)]
     _check_list_len_distribution(battles, {2: 10})
     _check_list_item_distribution(battles, {"gpt-1": 10, "gpt-2": 10})
 
@@ -52,7 +53,7 @@ def test_proportional_routing() -> None:
         ranker.update("gpt-3", "gpt-2", 1)
 
     starting_state = RouterState(all_models={"gpt-1", "gpt-2", "gpt-3"})
-    battles = [list(router.select_models(2, state=starting_state.deepcopy()).get_selected_models()) for _ in range(200)]
+    battles = [list(router.select_models(state=starting_state.deepcopy()).get_selected_models()) for _ in range(200)]
     _check_list_len_distribution(battles, {2: 200})
     _check_list_item_distribution(
         battles, {"gpt-1": approx(80, abs=20), "gpt-2": approx(150, abs=20), "gpt-3": approx(180, abs=20)}
@@ -65,11 +66,11 @@ def test_top_routing() -> None:
     battles, results = get_battles(model_rewards, 50)
     battles_objs = [Battle(battle[0], battle[1], result) for battle, result in zip(battles, results, strict=True)]
     ranker = ChoixRanker(models, choix_ranker_algorithm="rank_centrality", battles=battles_objs)
-    router = EloProposer(ranker)
+    router = EloProposer(ranker) | TopK(2)
     starting_state = RouterState(all_models=set(models))
 
     routed_battles = [
-        list(router.select_models(2, state=starting_state.deepcopy()).get_selected_models()) for _ in range(10)
+        list(router.select_models(state=starting_state.deepcopy()).get_selected_models()) for _ in range(10)
     ]
     _check_list_len_distribution(routed_battles, {2: 10})
     _check_list_item_distribution(routed_battles, {"gpt-3": 10, "gpt-2": 10})
@@ -83,10 +84,10 @@ def test_always_include_top_routing() -> None:
     starting_state = RouterState(all_models=set(models))
 
     ranker = ChoixRanker(models, choix_ranker_algorithm="rank_centrality", battles=battles_objs)
-    router = AlwaysGoodModelMetaRouter(ranker, RandomModelProposer().with_seed(0), num_good=1)
+    router = AlwaysGoodModelMetaRouter(ranker, RandomModelProposer().with_seed(0), num_good=1) | TopK(2)
 
     routed_battles = [
-        list(router.select_models(2, state=starting_state.deepcopy()).get_selected_models()) for _ in range(100)
+        list(router.select_models(state=starting_state.deepcopy()).get_selected_models()) for _ in range(100)
     ]
 
     _check_list_item_distribution(
@@ -116,10 +117,10 @@ def test_decrease_conf_interval_routing() -> None:
         ranker.update("c", "d", 1.0)
         ranker.update("d", "c", 0.0)
 
-    router = ConfidenceIntervalWidthModelProposer(ranker)
+    router = ConfidenceIntervalWidthModelProposer(2, ranker)
     starting_state = RouterState(all_models=set(models))
     routed_battles = [
-        list(router.select_models(2, state=starting_state.deepcopy()).get_selected_models()) for _ in range(10)
+        list(router.select_models(state=starting_state.deepcopy()).get_selected_models()) for _ in range(10)
     ]
 
     assert sorted(routed_battles[0]) == ["a", "b"]
@@ -132,7 +133,7 @@ def test_decrease_conf_interval_routing() -> None:
         ranker.update("c", "d", 1.0)
 
     routed_battles = [
-        list(router.select_models(2, state=starting_state.deepcopy()).get_selected_models()) for _ in range(10)
+        list(router.select_models(state=starting_state.deepcopy()).get_selected_models()) for _ in range(10)
     ]
     assert sorted(routed_battles[0]) == ["c", "d"]
 
@@ -140,12 +141,10 @@ def test_decrease_conf_interval_routing() -> None:
 def test_traffic_fraction_routing() -> None:
     models = ["a", "b", "c", "d"]
     router = (
-        MinimumFractionModelProposer({"c": 0.3, "d": 0.4}).with_seed(0) ^ RandomModelProposer().with_seed(0)
-    ).with_probs(0.4, 0.6)
+        MinimumFractionModelProposer(2, {"c": 0.3, "d": 0.4}).with_seed(0) ^ RandomModelProposer().with_seed(0)
+    ).with_probs(0.4, 0.6) | TopK(2)
     starting_state = RouterState(all_models=set(models))
-    battles = [
-        list(router.select_models(2, state=starting_state.deepcopy()).get_selected_models()) for _ in range(1000)
-    ]
+    battles = [list(router.select_models(state=starting_state.deepcopy()).get_selected_models()) for _ in range(1000)]
 
     # All battles should have 2 different models.
     _check_list_len_distribution([tuple(set(battle)) for battle in battles], {2: 1000})
@@ -207,15 +206,12 @@ def test_random_routing(random_fraction: float, expected_distribution: dict[str,
     ranker = ChoixRanker(models=models, choix_ranker_algorithm="lsr_pairwise")
     ranker.update("a", "b", 1.0)
     ranker.update("a", "b", 1.0)
-    router = (
-        (EloProposer(ranker).with_seed(0) ^ RandomModelProposer().with_seed(0))
-        .with_probs(1 - random_fraction, random_fraction)
-        .with_seed(0)
-    )
+    router = (EloProposer(ranker).with_seed(0) ^ RandomModelProposer().with_seed(0)).with_probs(
+        1 - random_fraction, random_fraction
+    ).with_seed(0) | TopK(2)
 
     selected = [
-        list(router.select_models(2, state=RouterState(all_models=set(models))).get_selected_models())
-        for _ in range(1000)
+        list(router.select_models(state=RouterState(all_models=set(models))).get_selected_models()) for _ in range(1000)
     ]
 
     _check_list_len_distribution(selected, {2: 1000})

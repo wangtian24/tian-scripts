@@ -6,7 +6,7 @@ import pytest
 from mabwiser.mab import LearningPolicy
 
 from ypl.backend.llm.mab_ranker import MultiArmedBanditRanker
-from ypl.backend.llm.routing.router import EloProposer, RouterModule, RouterState
+from ypl.backend.llm.routing.router import EloProposer, RouterModule, RouterState, TopK
 from ypl.backend.tests.utils import get_battles
 
 random.seed(123)
@@ -16,7 +16,7 @@ def _get_model_counts(router: RouterModule, num_trials: int, models: list[str]) 
     counter: Counter[str] = Counter()
 
     for _ in range(num_trials):
-        model = router.select_models(1, state=RouterState(all_models=set(models))).get_sorted_selected_models()[0]
+        model = router.select_models(state=RouterState(all_models=set(models))).get_sorted_selected_models()[0]
         counter[model] += 1
 
     return counter
@@ -48,7 +48,7 @@ def router_and_models() -> Generator[tuple[RouterModule, list[str]], None, None]
     rewards = [r for _, r in past_actions]
 
     ranker.fit(battles, rewards)
-    router = EloProposer(ranker)
+    router = EloProposer(ranker) | TopK(2)
 
     yield router, models
 
@@ -58,7 +58,7 @@ def test_simple_route(router_and_models: tuple[RouterModule, list[str]]) -> None
     routes = []
 
     for _ in range(200):
-        selected = list(router.select_models(2, state=RouterState(all_models=set(models))).get_selected_models())
+        selected = list(router.select_models(state=RouterState(all_models=set(models))).get_selected_models())
         routes.append(tuple(sorted(selected)))
 
     common_routes = [r for r, _ in Counter(routes).most_common(5)]
