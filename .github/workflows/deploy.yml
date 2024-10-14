@@ -236,3 +236,23 @@ jobs:
         git config user.email 'github-actions[bot]@users.noreply.github.com'
         git tag -f latest-${{ github.event.inputs.environment || 'staging' }} ${{ github.sha }}
         git push origin latest-${{ github.event.inputs.environment || 'staging' }} --force
+
+    - name: Post to Slack for Deployment
+      uses: slackapi/slack-github-action@v1.27.0
+      with:
+        payload: |
+          {
+            "text": "New backend service version deployed to ${{ env.ENVIRONMENT }}",
+            "blocks": [
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "New backend service version deployed to ${{ env.ENVIRONMENT }}"
+                }
+              }
+            ]
+          }
+      env:
+        SLACK_WEBHOOK_URL: ${{ env.SLACK_WEBHOOK_URL }}
+        SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
