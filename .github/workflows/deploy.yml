@@ -237,22 +237,23 @@ jobs:
         git tag -f latest-${{ github.event.inputs.environment || 'staging' }} ${{ github.sha }}
         git push origin latest-${{ github.event.inputs.environment || 'staging' }} --force
 
-    - name: Post to Slack for Deployment
+    - name: Post to Slack for Production Deployment
+      if: env.ENVIRONMENT == 'production'
       uses: slackapi/slack-github-action@v1.27.0
       with:
         payload: |
           {
-            "text": "New backend service version deployed to ${{ env.ENVIRONMENT }}",
+            "text": "New backend service version deployed to production",
             "blocks": [
               {
                 "type": "section",
                 "text": {
                   "type": "mrkdwn",
-                  "text": "New backend service version deployed to ${{ env.ENVIRONMENT }}"
+                  "text": "New backend service version deployed to production"
                 }
               }
             ]
           }
       env:
-        SLACK_WEBHOOK_URL: ${{ env.ENVIRONMENT == 'production' && secrets.SLACK_WEBHOOK_URL_PRODUCTION || secrets.SLACK_WEBHOOK_URL_STAGING }}
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_PRODUCTION }}
         SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
