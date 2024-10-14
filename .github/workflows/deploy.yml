@@ -254,5 +254,5 @@ jobs:
             ]
           }
       env:
-        SLACK_WEBHOOK_URL: ${{ env.SLACK_WEBHOOK_URL }}
+        SLACK_WEBHOOK_URL: ${{ env.ENVIRONMENT == 'production' && secrets.SLACK_WEBHOOK_URL_PRODUCTION || secrets.SLACK_WEBHOOK_URL_STAGING }}
         SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
