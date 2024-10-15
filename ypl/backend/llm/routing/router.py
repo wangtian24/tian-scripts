@@ -16,6 +16,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine
+from ypl.backend.llm.chat import adeduce_original_provider, simple_deduce_original_provider
 from ypl.backend.llm.constants import MODEL_HEURISTICS
 from ypl.backend.llm.ranking import ConfidenceIntervalRankerMixin, Ranker, get_ranker
 from ypl.backend.llm.routing.policy import SelectionCriteria, decayed_random_fraction
@@ -60,6 +61,18 @@ class RouterState(BaseModel):
             excluded_models=self.excluded_models.union(other.excluded_models),
             all_models=self.all_models.union(other.all_models),
         )
+
+    def __sub__(self, other: "RouterState") -> "RouterState":
+        """Return a copy of the current state excluding the selected models in the other state."""
+        state = self.deepcopy()
+        state.selected_models = {
+            model: criteria_map
+            for model, criteria_map in state.selected_models.items()
+            if model not in other.selected_models
+        }
+        state.all_models = state.all_models.union(other.all_models)
+
+        return state
 
     def deepcopy(self) -> "RouterState":
         """Return a deep copy of the RouterState."""
@@ -204,6 +217,14 @@ class RouterModule(ABC):
         return self._select_models(state)
 
 
+class Passthrough(RouterModule):
+    def _select_models(self, state: RouterState) -> RouterState:
+        return state
+
+    async def _aselect_models(self, state: RouterState) -> RouterState:
+        return state
+
+
 class RouterDecisionLogger(RouterModule):
     def __init__(self, enabled: bool = True, prefix: str = "router") -> None:
         """
@@ -258,6 +279,12 @@ class RouterSequentialChain(RouterModule):
 
         return state
 
+    async def _aselect_models(self, state: RouterState) -> RouterState:
+        for router_module in self.router_modules:
+            state = await router_module.aselect_models(state=state)
+
+        return state
+
 
 class RouterExclusiveChain(RNGMixin, RouterModule):
     def __init__(self, *args: RouterModule) -> None:
@@ -288,7 +315,7 @@ class RouterExclusiveChain(RNGMixin, RouterModule):
 
         return self
 
-    def _select_models(self, state: RouterState) -> RouterState:
+    def _choose_module(self) -> RouterModule:
         if len(self.random_probabilities) != len(self.router_modules):
             logging.warning(
                 "Random probabilities not set for RouterExclusiveChain; using default of 1/len(router_modules)"
@@ -297,10 +324,17 @@ class RouterExclusiveChain(RNGMixin, RouterModule):
         else:
             probs = np.array(self.random_probabilities)
 
-        chosen_module = self.get_rng().choice(np.array(self.router_modules, dtype=object), replace=False, p=probs)
-        state = chosen_module.select_models(state=state)
+        return self.get_rng().choice(  # type: ignore[no-any-return]
+            np.array(self.router_modules, dtype=object), replace=False, p=probs
+        )
 
-        return state
+    def _select_models(self, state: RouterState) -> RouterState:
+        chosen_module = self._choose_module()
+        return chosen_module.select_models(state=state)
+
+    async def _aselect_models(self, state: RouterState) -> RouterState:
+        chosen_module = self._choose_module()
+        return await chosen_module.aselect_models(state=state)
 
 
 class RouterParallelChain(RouterModule):
@@ -323,6 +357,18 @@ class RouterParallelChain(RouterModule):
 
         for router_module in self.router_modules:
             router_response = router_module.select_models(state=state.deepcopy())
+            responses.append(router_response)
+
+        for response in responses:
+            state += response
+
+        return state
+
+    async def _aselect_models(self, state: RouterState) -> RouterState:
+        responses = []
+
+        for router_module in self.router_modules:
+            router_response = await router_module.aselect_models(state=state.deepcopy())
             responses.append(router_response)
 
         for response in responses:
@@ -413,15 +459,26 @@ class ModelFilter(RouterModule):
 
         return state
 
+    async def _aselect_models(self, state: RouterState) -> RouterState:
+        state, excluded_models = await self._afilter(state)
+
+        if self.persist:
+            state.excluded_models = state.excluded_models.union(excluded_models)
+
+        return state
+
     @abstractmethod
     def _filter(self, state: RouterState) -> tuple[RouterState, set[str]]:
         """
-        Filter a set of models to route to.
+        Filter a set of models to route to. Returns the filtered state and the excluded models.
 
         Args:
             state: The state to filter models for.
         """
         raise NotImplementedError
+
+    async def _afilter(self, state: RouterState) -> tuple[RouterState, set[str]]:
+        return self._filter(state)
 
 
 class TopK(ModelFilter):
@@ -918,6 +975,100 @@ class RoutingDecision:
             logging.info(f"Routing decision: {payload}")
 
 
+class ProviderFilter(ModelFilter):
+    """
+    Filters models based on their provider. If `one_per_provider` is set, only one model per provider is selected, e.g.
+    ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "claude-3-opus", "claude-3.5-sonnet"] -> ["gpt-4o", "claude-3-opus"].
+    The filtering occurs in order of the providers by reverse score, so higher-scoring models are chosen first.
+
+    If `providers` is set, only models in the set are considered. If `inverse` is set, the filter is inverted, so models
+    not in the set are selected.
+    """
+
+    def __init__(
+        self,
+        one_per_provider: bool = False,
+        providers: set[str] | str = "",
+        inverse: bool = False,
+        persist: bool = False,
+    ) -> None:
+        """
+        Args:
+            one_per_provider: Whether to only select one model per provider.
+            providers: A set of providers to filter by. If empty, all providers are considered. If a string, it is
+                split by commas and spaces.
+            inverse: Whether to invert the filter.
+            persist: Whether to persist the filter across requests, storing the removed models in the `excluded_models`
+                field of the router state.
+        """
+        super().__init__(persist)
+
+        if isinstance(providers, str):
+            providers = {providers}
+
+        self.providers: set[str] = providers
+        self.inverse = inverse
+        self.one_per_provider = one_per_provider
+
+    def _filter(self, state: RouterState) -> tuple[RouterState, set[str]]:
+        assert self.providers or self.one_per_provider, "Either providers or one_per_provider must be set"
+
+        filtered_models = state.selected_models
+        curr_providers = set()
+
+        if self.providers:
+            filtered_models = {
+                model: criteria
+                for model, criteria in state.selected_models.items()
+                if (not self.inverse and simple_deduce_original_provider(model) in self.providers)
+                or (self.inverse and simple_deduce_original_provider(model) not in self.providers)
+            }
+
+        if self.one_per_provider:
+            filtered_models = {}
+
+            for model in state.get_sorted_selected_models():
+                if simple_deduce_original_provider(model) not in curr_providers:
+                    filtered_models[model] = state.selected_models[model]
+                    curr_providers.add(simple_deduce_original_provider(model))
+
+        excluded_models = state.selected_models.keys() - filtered_models.keys()
+
+        return RouterState(
+            selected_models=filtered_models,
+            all_models=state.all_models,
+        ), excluded_models
+
+    async def _afilter(self, state: RouterState) -> tuple[RouterState, set[str]]:
+        assert self.providers or self.one_per_provider, "Either providers or one_per_provider must be set"
+
+        filtered_models = state.selected_models
+        curr_providers = set()
+
+        if self.providers:
+            filtered_models = {
+                model: criteria
+                for model, criteria in state.selected_models.items()
+                if (not self.inverse and await adeduce_original_provider(model) in self.providers)
+                or (self.inverse and await adeduce_original_provider(model) not in self.providers)
+            }
+
+        if self.one_per_provider:
+            filtered_models = {}
+
+            for model in state.get_sorted_selected_models():
+                if (await adeduce_original_provider(model)) not in curr_providers:
+                    filtered_models[model] = state.selected_models[model]
+                    curr_providers.add(await adeduce_original_provider(model))
+
+        excluded_models = state.selected_models.keys() - filtered_models.keys()
+
+        return RouterState(
+            selected_models=filtered_models,
+            all_models=state.all_models,
+        ), excluded_models
+
+
 def get_router_ranker(ranker: Ranker | None = None) -> tuple[RouterModule, Ranker]:
     min_weight = settings.ROUTING_WEIGHTS.get("min_simple_cost", 0.1)
     rand_weight = settings.ROUTING_WEIGHTS.get("random", 0.1)
@@ -962,7 +1113,14 @@ def get_prompt_conditional_router(prompt: str, num_models: int) -> RouterModule:
 
     router: RouterModule = (
         (
-            RandomModelProposer() ^ (RemotePromptCategorizerProposer(prompt, endpoint, key) | MaxSpeedProposer())
+            RandomModelProposer()
+            ^ (
+                RemotePromptCategorizerProposer(prompt, endpoint, key)
+                | MaxSpeedProposer()
+                | (
+                    ProviderFilter(one_per_provider=True) & Passthrough().with_multiplier(0.01)
+                )  # small weight so it only kicks in if not enough selected
+            )
         ).with_probs(rand_weight, prompt_weight)
         | TopK(num_models)
         | RouterDecisionLogger(enabled=settings.ROUTING_DO_LOGGING, prefix="prompt-conditional-router")

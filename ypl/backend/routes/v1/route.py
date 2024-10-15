@@ -23,7 +23,7 @@ async def select_models(
 
     all_models_state = await RouterState.new_all_models_state()
 
-    return list((await router.aselect_models(state=all_models_state)).get_selected_models())
+    return (await router.aselect_models(state=all_models_state)).get_sorted_selected_models()
 
 
 @router.post("/update_ranker")

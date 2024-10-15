@@ -1,5 +1,6 @@
 import re
 from collections.abc import Generator
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Generic, TypeVar
 
@@ -16,11 +17,16 @@ from langchain_openai import ChatOpenAI
 from nltk.tokenize import sent_tokenize, word_tokenize
 from pydantic.v1 import SecretStr
 from sentence_transformers import SentenceTransformer
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ypl.backend import prompts
-from ypl.backend.llm.constants import ACTIVE_MODELS_BY_PROVIDER, ChatProvider
+from ypl.backend.db import get_async_engine
+from ypl.backend.llm.constants import ACTIVE_MODELS_BY_PROVIDER, PROVIDER_MODEL_PATTERNS, ChatProvider
 from ypl.backend.llm.utils import combine_short_sentences
 from ypl.db.chats import MessageType
+from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
+from ypl.utils import async_timed_cache
 
 DEFAULT_HIGH_SIM_THRESHOLD = 0.825
 DEFAULT_UNIQUENESS_THRESHOLD = 0.75
@@ -65,6 +71,51 @@ def get_canonical_model_name(model: str, provider: ChatProvider) -> str:
             return "microsoft/phi-3-mini-4k-instruct"
         case _:
             return model
+
+
+@lru_cache(maxsize=1024)
+def standardize_provider_name(provider: str) -> str:
+    return re.sub(r"\s+", "", provider).lower()
+
+
+def simple_deduce_original_provider(model: str) -> str:
+    for pattern, provider in PROVIDER_MODEL_PATTERNS.items():
+        if pattern.match(model):
+            return provider
+
+    return model
+
+
+@async_timed_cache(seconds=600)
+async def adeduce_original_provider(model: str) -> str:
+    """Tries to deduce the original provider of a model."""
+    # First try to match the model string to a known provider
+    for pattern, provider in PROVIDER_MODEL_PATTERNS.items():
+        if pattern.match(model):
+            return provider
+
+    # If no match was found, try to return the provider in the database
+    query = (
+        select(Provider.name)
+        .join(LanguageModel)
+        .where(
+            LanguageModel.internal_name == model,
+            LanguageModel.deleted_at.is_(None),  # type: ignore
+            LanguageModel.status == LanguageModelStatusEnum.ACTIVE,
+            Provider.deleted_at.is_(None),  # type: ignore
+            Provider.is_active.is_(True),  # type: ignore
+        )
+        .limit(1)
+    )
+
+    async with AsyncSession(get_async_engine()) as session:
+        providers = await session.exec(query)
+
+    if provider_ := providers.first():
+        return standardize_provider_name(provider_)
+
+    # If all else fails, return the model name
+    return model
 
 
 def get_chat_model(

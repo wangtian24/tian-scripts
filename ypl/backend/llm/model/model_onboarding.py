@@ -15,6 +15,7 @@ from sqlmodel import select
 
 # Local imports
 from ypl.backend.db import get_async_engine
+from ypl.backend.llm.chat import standardize_provider_name
 from ypl.backend.llm.constants import PROVIDER_KEY_MAPPING
 from ypl.backend.llm.utils import post_to_slack, post_to_x
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
@@ -236,7 +237,8 @@ def verify_inference_running(model: LanguageModel, provider_name: str, base_url:
         logging.info(
             f"Verifying inference running for model {model.internal_name} on provider {provider_name} at {base_url}"
         )
-        cleaned_provider_name = "".join(provider_name.split()).lower()
+        cleaned_provider_name = standardize_provider_name(provider_name)
+
         if cleaned_provider_name == "anthropic":
             client_anthropic = anthropic.Anthropic(api_key=api_key)
             message = client_anthropic.messages.create(
@@ -300,7 +302,7 @@ def get_provider_api_key(provider_name: str) -> str:
         ValueError: If the API key for the provider is not found.
     """
     # Remove any blank characters within the provider_name as DB has blank spaces
-    cleaned_provider_name = "".join(provider_name.split()).lower()
+    cleaned_provider_name = standardize_provider_name(provider_name)
     env_var_name = PROVIDER_KEY_MAPPING.get(cleaned_provider_name)
     logging.info(f"API key environment variable name for provider {provider_name}: {env_var_name}")
 

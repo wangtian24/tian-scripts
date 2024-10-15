@@ -1,3 +1,4 @@
+import re
 from collections import defaultdict
 from enum import Enum
 
@@ -19,6 +20,7 @@ class ChatProvider(Enum):
     TOGETHER = 12
     ANYSCALE = 13
     HUGGINGFACE = 14
+    AI21 = 15
 
     @classmethod
     def from_string(cls, provider: str) -> "ChatProvider":
@@ -123,6 +125,7 @@ MODEL_HEURISTICS: dict[str, ModelHeuristics] = defaultdict(
             "multilingual": 4,
             "summarization": 8,
             "education": 4,
+            "factual": 6,
         },
     )
 )
@@ -149,6 +152,7 @@ MODEL_HEURISTICS.update(
                 "multilingual": 7,
                 "summarization": 10,
                 "education": 9,
+                "factual": 9,
             },
         ),
         "gpt-4o-mini": ModelHeuristics(
@@ -171,28 +175,7 @@ MODEL_HEURISTICS.update(
                 "multilingual": 6,
                 "summarization": 10,
                 "education": 8,
-            },
-        ),
-        "gpt-4o-mini-2024-07-18": ModelHeuristics(
-            dollars_per_million_input_tokens=0.15,
-            dollars_per_million_output_tokens=0.6,
-            tokenizer_name="gpt-4o-mini",
-            tokens_per_second=100,
-            skills={
-                "all": 8,
-                "other": 10,
-                "opinion": 7,
-                "advice": 5,
-                "creative writing": 5,
-                "math": 7,
-                "code": 6,
-                "analysis": 7,
-                "entertainment": 7,
-                "comparison": 7,
-                "reasoning": 6,
-                "multilingual": 6,
-                "summarization": 10,
-                "education": 8,
+                "factual": 8,
             },
         ),
         "gpt-4-turbo": ModelHeuristics(
@@ -215,6 +198,7 @@ MODEL_HEURISTICS.update(
                 "multilingual": 6,
                 "summarization": 10,
                 "education": 8,
+                "factual": 8,
             },
         ),
         "o1-preview-2024-09-12": ModelHeuristics(
@@ -237,6 +221,7 @@ MODEL_HEURISTICS.update(
                 "multilingual": 10,
                 "summarization": 10,
                 "education": 10,
+                "factual": 10,
             },
         ),
         "o1-mini-2024-09-12": ModelHeuristics(
@@ -250,8 +235,8 @@ MODEL_HEURISTICS.update(
                 "opinion": 9,
                 "advice": 6,
                 "creative writing": 6,
-                "math": 8,
-                "code": 8,
+                "math": 9,
+                "code": 9,
                 "analysis": 9,
                 "entertainment": 9,
                 "comparison": 9,
@@ -259,6 +244,7 @@ MODEL_HEURISTICS.update(
                 "multilingual": 7,
                 "summarization": 10,
                 "education": 9,
+                "factual": 10,
             },
         ),
         "mistral-large-latest": ModelHeuristics(
@@ -281,6 +267,30 @@ MODEL_HEURISTICS.update(
                 "multilingual": 4,
                 "summarization": 7,
                 "education": 5,
+                "factual": 6,
+            },
+        ),
+        "codestral-2405": ModelHeuristics(
+            dollars_per_million_input_tokens=0.2,
+            dollars_per_million_output_tokens=0.6,
+            tokenizer_name="gpt-4o",  # approximation
+            tokens_per_second=80,
+            skills={
+                "all": 5,
+                "other": 5,
+                "opinion": 5,
+                "advice": 4,
+                "creative writing": 3,
+                "math": 4,
+                "code": 6,
+                "analysis": 5,
+                "entertainment": 5,
+                "comparison": 5,
+                "reasoning": 5,
+                "multilingual": 2,
+                "summarization": 6,
+                "education": 4,
+                "factual": 3,
             },
         ),
         "gemini-1.5-pro": ModelHeuristics(
@@ -295,7 +305,7 @@ MODEL_HEURISTICS.update(
                 "opinion": 8,
                 "advice": 5,
                 "creative writing": 7,
-                "math": 6,
+                "math": 7,
                 "code": 5,
                 "analysis": 7,
                 "entertainment": 7,
@@ -304,21 +314,22 @@ MODEL_HEURISTICS.update(
                 "multilingual": 8,
                 "summarization": 9,
                 "education": 7,
+                "factual": 6,
             },
         ),
         "google/gemma-2-9b-it": ModelHeuristics(
             dollars_per_million_input_tokens=0.2,  # based on fireworks
             dollars_per_million_output_tokens=0.2,
             tokenizer_name="gpt-4o",  # approximation
-            tokens_per_second=100,
+            tokens_per_second=120,
             skills={
                 "all": 4,
                 "other": 5,
                 "opinion": 3,
                 "advice": 4,
                 "creative writing": 3,
-                "math": 2,
-                "code": 2,
+                "math": 3,
+                "code": 3,
                 "analysis": 3,
                 "entertainment": 3,
                 "comparison": 3,
@@ -326,6 +337,7 @@ MODEL_HEURISTICS.update(
                 "multilingual": 1,
                 "summarization": 6,
                 "education": 2,
+                "factual": 3,
             },
         ),
         "gemini-1.5-flash-8b": ModelHeuristics(
@@ -339,8 +351,8 @@ MODEL_HEURISTICS.update(
                 "opinion": 3,
                 "advice": 4,
                 "creative writing": 3,
-                "math": 2,
-                "code": 2,
+                "math": 6,
+                "code": 6,
                 "analysis": 3,
                 "entertainment": 3,
                 "comparison": 3,
@@ -348,6 +360,7 @@ MODEL_HEURISTICS.update(
                 "multilingual": 6,
                 "summarization": 6,
                 "education": 2,
+                "factual": 6,
             },
         ),
         "claude-3-5-sonnet-20240620": ModelHeuristics(
@@ -370,6 +383,7 @@ MODEL_HEURISTICS.update(
                 "multilingual": 5,
                 "summarization": 9,
                 "education": 8,
+                "factual": 8,
             },
         ),
         "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo": ModelHeuristics(
@@ -392,6 +406,7 @@ MODEL_HEURISTICS.update(
                 "multilingual": 4,
                 "summarization": 8,
                 "education": 4,
+                "factual": 7,
             },
         ),
         "microsoft/phi-3-mini-4k-instruct": ModelHeuristics(
@@ -414,6 +429,7 @@ MODEL_HEURISTICS.update(
                 "multilingual": 0,
                 "summarization": 2,
                 "education": 2,
+                "factual": 3,
             },
         ),
         "phi-3-medium-4k-instruct": ModelHeuristics(
@@ -436,6 +452,7 @@ MODEL_HEURISTICS.update(
                 "multilingual": 0,
                 "summarization": 2,
                 "education": 2,
+                "factual": 3,
             },
         ),
         "yi-large": ModelHeuristics(
@@ -463,6 +480,7 @@ MODEL_HEURISTICS.update(
                 "multilingual": 7,
                 "summarization": 8,
                 "education": 7,
+                "factual": 4,
             },
         ),
         "nemotron-4-340b-instruct": ModelHeuristics(
@@ -490,6 +508,7 @@ MODEL_HEURISTICS.update(
                 "multilingual": 4,
                 "summarization": 2,
                 "education": 2,
+                "factual": 3,
             },
         ),
         "Qwen/Qwen1.5-72B-Chat": ModelHeuristics(
@@ -512,6 +531,7 @@ MODEL_HEURISTICS.update(
                 "multilingual": 5,
                 "summarization": 5,
                 "education": 3,
+                "factual": 4,
             },
         ),
         "qwen-max": ModelHeuristics(
@@ -534,10 +554,94 @@ MODEL_HEURISTICS.update(
                 "multilingual": 5,
                 "summarization": 7,
                 "education": 4,
+                "factual": 4,
+            },
+        ),
+        "google/gemma-2-27b-it": ModelHeuristics(
+            dollars_per_million_input_tokens=0.2,
+            dollars_per_million_output_tokens=0.2,
+            tokenizer_name="gpt-4o",  # approximation
+            tokens_per_second=70,
+            skills={
+                "all": 4,
+                "other": 5,
+                "opinion": 3,
+                "advice": 4,
+                "creative writing": 3,
+                "math": 4,
+                "code": 4,
+                "analysis": 3,
+                "entertainment": 4,
+                "comparison": 4,
+                "reasoning": 5,
+                "multilingual": 2,
+                "summarization": 6,
+                "education": 3,
+                "factual": 4,
             },
         ),
     }
 )
+
+MODEL_HEURISTICS["gpt-4o-mini-2024-07-18"] = MODEL_HEURISTICS["gpt-4o-mini"]
+MODEL_HEURISTICS["gemini-1.5-pro-exp-0827"] = MODEL_HEURISTICS["gemini-1.5-pro"]
+
+ALL_MODELS_LOCAL = {
+    "qwen/qwen-2.5-72b-instruct",
+    "gemini-1.5-pro-exp-0827",
+    "meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo",
+    "llama-3.1-sonar-small-128k-chat",
+    "cohere/command-r-08-2024",
+    "cohere/command-r-plus",
+    "gpt-4o-2024-05-13",
+    "databricks/dbrx-instruct",
+    "llama-3.1-sonar-large-128k-online",
+    "qwen-plus",
+    "gemini-1.5-flash-8b",
+    "gpt-3.5-turbo-0125",
+    "claude-3-5-sonnet-20240620",
+    "gpt-4o-mini-2024-07-18",
+    "o1-mini-2024-09-12",
+    "meta-llama/Llama-3-8b-chat-hf",
+    "gpt-4-turbo",
+    "meta-llama/llama-3.2-1b-instruct",
+    "gpt-4o-mini",
+    "Qwen/Qwen1.5-72B-Chat",
+    "claude-3-sonnet-20240229",
+    "pixtral-12b-2409",
+    "gemini-1.5-flash-exp-0827",
+    "gemini-1.5-flash-8b-exp-0827",
+    "meta-llama/llama-3.1-70b-instruct",
+    "open-mixtral-8x7b",
+    "llama-3.1-sonar-small-128k-online",
+    "meta-llama/Llama-3-70b-chat-hf",
+    "deepseek/deepseek-chat",
+    "cohere/command-r",
+    "google/gemma-2-9b-it",
+    "mistral-medium",
+    "ai21/jamba-1-5-mini",
+    "meta-llama/llama-3.1-8b-instruct",
+    "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
+    "llama-3.1-sonar-huge-128k-online",
+    "mistral-large-2402",
+    "claude-3-opus-20240229",
+    "open-mixtral-8x22b",
+    "ai21/jamba-1-5-large",
+    "Qwen/Qwen1.5-110B-Chat",
+    "qwen-max",
+    "claude-3-haiku-20240307",
+    "o1-preview-2024-09-12",
+    "meta-llama/Llama-3.2-11B-Vision-Instruct-Turbo",
+    "meta-llama/Llama-3.2-3B-Instruct-Turbo",
+    "gpt-4o",
+    "Qwen/Qwen2-72B-Instruct",
+    "codestral-2405",
+    "deepseek-coder",
+    "gpt-4o-2024-08-06",
+    "google/gemma-2-27b-it",
+    "llama-3.1-sonar-large-128k-chat",
+    "cohere/command-r-plus-08-2024",
+}
 
 MODEL_DESCRIPTIONS = {
     "gpt-4o": (
@@ -594,4 +698,15 @@ PROVIDER_KEY_MAPPING = {
     "openrouter": "OPENROUTER_API_KEY",
     "togetherai": "TOGETHER_API_KEY",
     "perplexity": "PERPLEXITY_API_KEY",
+}
+
+PROVIDER_MODEL_PATTERNS = {
+    re.compile(r"^(chatgpt|gpt-[34]|o1).*$", re.IGNORECASE): "openai",
+    re.compile(r"^(gemini|google|gemma|palm).*$", re.IGNORECASE): "google",
+    re.compile(r"^(mistral|codestral|pixtral|mixtral).*$", re.IGNORECASE): "mistralai",
+    re.compile(r"^(claude|opus).*$", re.IGNORECASE): "anthropic",
+    re.compile(r"^(phi|microsoft).*$", re.IGNORECASE): "azure",
+    re.compile(r"^(qwen|alibaba).*$", re.IGNORECASE): "alibaba",
+    re.compile(r"^(meta|llama|codellama).*$", re.IGNORECASE): "meta",
+    re.compile(r"^(ai21|jamba).*$", re.IGNORECASE): "ai21",
 }
