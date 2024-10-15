@@ -332,7 +332,7 @@ MODEL_HEURISTICS.update(
             dollars_per_million_input_tokens=0.2,  # based on fireworks
             dollars_per_million_output_tokens=0.2,
             tokenizer_name="gpt-4o",  # approximation
-            tokens_per_second=120,
+            tokens_per_second=200,  # from ArtificialAnalysis
             skills={
                 "all": 4,
                 "other": 5,
@@ -344,7 +344,7 @@ MODEL_HEURISTICS.update(
                 "analysis": 3,
                 "entertainment": 3,
                 "comparison": 3,
-                "reasoning": 4,
+                "reasoning": 5,
                 "multilingual": 6,
                 "summarization": 6,
                 "education": 2,
