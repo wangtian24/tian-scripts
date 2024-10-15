@@ -593,4 +593,5 @@ PROVIDER_KEY_MAPPING = {
     "openai": "OPENAI_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
     "togetherai": "TOGETHER_API_KEY",
+    "perplexity": "PERPLEXITY_API_KEY",
 }

@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     MISTRAL_API_KEY: str = ""
     NVIDIA_API_KEY: str = ""
     OPENROUTER_API_KEY: str = ""
+    PERPLEXITY_API_KEY: str = ""
     TOGETHERAI_API_KEY: str = ""
 
     DOMAIN: str = "localhost"
@@ -143,6 +144,7 @@ class Settings(BaseSettings):
         self._check_default_secret("MISTRAL_API_KEY", self.MISTRAL_API_KEY)
         self._check_default_secret("NVIDIA_API_KEY", self.NVIDIA_API_KEY)
         self._check_default_secret("OPENROUTER_API_KEY", self.OPENROUTER_API_KEY)
+        self._check_default_secret("PERPLEXITY_API_KEY", self.PERPLEXITY_API_KEY)
         self._check_default_secret("TOGETHERAI_API_KEY", self.TOGETHERAI_API_KEY)
 
         return self
