@@ -20,7 +20,7 @@ from ypl.backend.llm.constants import MODEL_HEURISTICS
 from ypl.backend.llm.ranking import ConfidenceIntervalRankerMixin, Ranker, get_ranker
 from ypl.backend.llm.routing.policy import SelectionCriteria, decayed_random_fraction
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
-from ypl.utils import RNGMixin
+from ypl.utils import RNGMixin, async_timed_cache
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -98,6 +98,7 @@ class RouterState(BaseModel):
         return {model: sum(criteria_map.values()) for model, criteria_map in self.selected_models.items()}
 
     @classmethod
+    @async_timed_cache(seconds=600)  # Cache for 10 minutes
     async def new_all_models_state(cls) -> "RouterState":
         query = (
             select(LanguageModel.internal_name)
