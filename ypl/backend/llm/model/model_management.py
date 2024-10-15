@@ -27,8 +27,9 @@ async def validate_active_onboarded_models() -> None:
             .join(Provider, LanguageModel.provider_id == Provider.provider_id)  # type: ignore
             .where(
                 LanguageModel.status == LanguageModelStatusEnum.ACTIVE,
-                LanguageModel.provider_id.is_not(None),  # type: ignore
                 LanguageModel.deleted_at.is_(None),  # type: ignore
+                Provider.is_active.is_(True),  # type: ignore
+                Provider.deleted_at.is_(None),  # type: ignore
             )
         )
         active_models = await session.execute(query)
@@ -53,8 +54,9 @@ async def validate_specific_active_model(model_id: UUID) -> None:
             .where(
                 LanguageModel.language_model_id == model_id,
                 LanguageModel.status == LanguageModelStatusEnum.ACTIVE,
-                LanguageModel.provider_id.is_not(None),  # type: ignore
                 LanguageModel.deleted_at.is_(None),  # type: ignore
+                Provider.is_active.is_(True),  # type: ignore
+                Provider.deleted_at.is_(None),  # type: ignore
             )
         )
         result = await session.execute(query)
