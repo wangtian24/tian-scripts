@@ -14,7 +14,6 @@ import git
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
-from fast_langdetect import detect
 from sqlalchemy import func
 from sqlalchemy.orm import load_only
 from sqlmodel import Session, select, text
@@ -623,6 +622,8 @@ def validate_active_models() -> None:
 @db_cmd
 def store_prompt_language(update_all_messages: bool) -> None:
     """Detect and store the language of chat messages."""
+    from fast_langdetect import detect  # Moved the import here so that the model doesn't download for every command
+
     CHUNK_SIZE = 100
 
     with Session(get_engine()) as session:

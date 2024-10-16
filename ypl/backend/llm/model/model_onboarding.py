@@ -1,7 +1,7 @@
 # Standard library imports
 import logging
 import os
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID
 
 # Third-party imports
@@ -121,25 +121,28 @@ async def verify_and_update_model_status(
                 )
             else:
                 # reject if the model was submitted more than 3 days ago
-                if model.created_at and (datetime.utcnow() - model.created_at).days > REJECT_AFTER_DAYS:
+                if (
+                    model.created_at
+                    and (datetime.now(UTC) - model.created_at.replace(tzinfo=UTC)).days > REJECT_AFTER_DAYS
+                ):
                     model.status = LanguageModelStatusEnum.REJECTED
-                model.modified_at = datetime.utcnow()
-                logging.info(
-                    f"Model {model.name} ({model.internal_name}) not validated. " f"Setting status to REJECTED."
-                )
-                await post_to_slack(
-                    f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} ({model.internal_name}) "
-                    "not validated. Setting status to REJECTED."
-                )
-    except Exception:
-        # TODO: Implement alerting
+                    model.modified_at = datetime.utcnow()
+                    logging.info(
+                        f"Model {model.name} ({model.internal_name}) not validated after 3 days. "
+                        f"Setting status to REJECTED."
+                    )
+                    await post_to_slack(
+                        f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} ({model.internal_name}) "
+                        "not validated after 3 days. Setting status to REJECTED."
+                    )
+    except Exception as e:
         logging.error(
             f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} ({model.internal_name}) "
-            "validation failed: {str(e)}"
+            f"validation failed: {str(e)}"
         )
         await post_to_slack(
             f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} ({model.internal_name}) "
-            "validation failed: {str(e)}"
+            f"validation failed: {str(e)}"
         )
 
 
