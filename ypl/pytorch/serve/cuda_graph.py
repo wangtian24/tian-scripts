@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from queue import Queue as PyQueue
 from threading import Lock, Thread
@@ -106,6 +107,12 @@ class CudaGraphPoolExecutor:
     def __init__(self, graph_functors: list[CudaGraphFunctor], num_threads: int = 4):
         self.graph_functor_map: dict[tuple[tuple[int, ...], ...], PyQueue[CudaGraphFunctor]] = {}
 
+        try:
+            asyncio.get_running_loop()
+            use_sync_queue = False
+        except RuntimeError:
+            use_sync_queue = True
+
         for graph_functor in graph_functors:
             size_key = graph_functor.get_size_key()
 
@@ -115,7 +122,14 @@ class CudaGraphPoolExecutor:
             self.graph_functor_map[size_key].put(graph_functor)
 
         self.threads = [Thread(target=self.run, daemon=True) for _ in range(num_threads)]
-        self._read_queue: JQueue[tuple[SyncQueue[StrTensorDict | None], StrTensorDict]] = JQueue()
+        self.use_sync_queue = use_sync_queue
+        self._read_jqueue: JQueue[tuple[SyncQueue[StrTensorDict | None], StrTensorDict]] | None = None
+        self._read_pyqueue: PyQueue[tuple[PyQueue[StrTensorDict | None], StrTensorDict]] | None = None
+
+        if use_sync_queue:
+            self._read_pyqueue = PyQueue()
+        else:
+            self._read_jqueue = JQueue()
 
         for thread in self.threads:
             thread.start()
@@ -123,7 +137,12 @@ class CudaGraphPoolExecutor:
     def run(self) -> None:
         """Continuously fetches work from the read queue and processes it."""
         while True:
-            write_queue, input = self._read_queue.sync_q.get()
+            if self.use_sync_queue:
+                assert self._read_pyqueue is not None
+                write_queue, input = self._read_pyqueue.get()
+            else:
+                assert self._read_jqueue is not None
+                write_queue, input = self._read_jqueue.sync_q.get()  # type: ignore
 
             try:
                 size_key = get_size_key(input)
@@ -144,7 +163,14 @@ class CudaGraphPoolExecutor:
 
     async def asubmit(self, input: StrTensorDict) -> StrTensorDict:
         write_queue: JQueue[StrTensorDict | None] = JQueue()
-        await self._read_queue.async_q.put((write_queue.sync_q, input))
+
+        if self.use_sync_queue:
+            assert self._read_pyqueue is not None
+            self._read_pyqueue.put((write_queue.sync_q, input))  # type: ignore
+        else:
+            assert self._read_jqueue is not None
+            await self._read_jqueue.async_q.put((write_queue.sync_q, input))
+
         ret = await write_queue.async_q.get()
 
         if ret is None:
@@ -162,9 +188,16 @@ class CudaGraphPoolExecutor:
             - :py:meth:`.CudaGraphPoolExecutor.run`
             - For how this class is used, see :py:meth:`.CategorizerClassificationModel.categorize`
         """
-        write_queue: JQueue[StrTensorDict | None] = JQueue()
-        self._read_queue.sync_q.put((write_queue.sync_q, input))
-        ret = write_queue.sync_q.get()
+        if self.use_sync_queue:
+            assert self._read_jqueue is not None
+            write_jqueue: JQueue[StrTensorDict | None] = JQueue()
+            self._read_jqueue.sync_q.put((write_jqueue.sync_q, input))
+            ret = write_jqueue.sync_q.get()
+        else:
+            assert self._read_pyqueue is not None
+            write_pyqueue: PyQueue[StrTensorDict | None] = PyQueue()
+            self._read_pyqueue.put((write_pyqueue, input))
+            ret = write_pyqueue.get()
 
         if ret is None:
             raise GraphNotFoundError(f"No graph functor found for input size {get_size_key(input)}")

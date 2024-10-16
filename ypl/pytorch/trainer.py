@@ -1,3 +1,5 @@
+from typing import no_type_check
+
 import torch
 import torch.nn as nn
 import torch.utils.data as tud
@@ -5,9 +7,52 @@ from transformers import Trainer
 
 from ypl.pytorch.data.base import StrTensorDict
 from ypl.pytorch.data.categorizer import CategorizerDataset
+from ypl.pytorch.data.prompting import ResponseLengthDataset
 from ypl.pytorch.data.routing import RoutingDataset
 from ypl.pytorch.model.categorizer import CategorizerClassificationModel
+from ypl.pytorch.model.response_length import ResponseLengthModel
 from ypl.pytorch.model.routing import RoutingModel, RoutingMultilabelClassificationModel
+
+
+class ResponseLengthTrainer(Trainer):  # type: ignore[misc]
+    """Transformers trainer for response length models."""
+
+    def compute_loss(
+        self, model: ResponseLengthModel, inputs: StrTensorDict, return_outputs: bool = False
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+        logits = model(inputs)["logits"]
+        loss_fn = nn.CrossEntropyLoss()
+        loss = loss_fn(logits, inputs["response_lengths"])
+
+        return (loss, logits) if return_outputs else loss
+
+    @no_type_check
+    def evaluate(
+        self,
+        eval_dataset: tud.Dataset | dict[str, tud.Dataset] | None = None,
+        ignore_keys: list[str] | None = None,
+        metric_key_prefix: str = "eval",
+    ) -> dict[str, float]:
+        self.model.eval()
+
+        assert isinstance(
+            eval_dataset, ResponseLengthDataset
+        ), "eval_dataset must be an instance of ResponseLengthDataset"
+        assert isinstance(self.model, ResponseLengthModel), "model must be an instance of ResponseLengthModel"
+
+        accuracy = []
+
+        for example in eval_dataset:
+            bucket = self.model.predict_length(example.prompt)
+            accuracy.append(int(bucket == self.model.bucket_index(example.response_length)))
+            print(
+                accuracy[-1],
+                bucket,
+                self.model.bucket_index(example.response_length),
+                example.prompt[:50].replace("\n", " "),
+            )
+
+        return dict(accuracy=sum(accuracy) / len(accuracy))
 
 
 class RoutingMultilabelTrainer(Trainer):  # type: ignore[misc]
@@ -45,7 +90,7 @@ class RoutingMultilabelTrainer(Trainer):  # type: ignore[misc]
         for example in eval_dataset:  # type: ignore[attr-defined]
             scores = self.model.route_to_models(example.prompt)
             accuracy.append(int(list(scores).index(example.models[0]) == 0))
-            print(accuracy[-1], scores)
+            print(sum(accuracy) / len(accuracy))
 
         return dict(accuracy=sum(accuracy) / len(accuracy))
 

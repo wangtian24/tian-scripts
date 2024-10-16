@@ -1,6 +1,7 @@
 from collections.abc import Callable
-from typing import Any, Generic, Self, TypeVar
+from typing import Any, Generic, Literal, Self, TypeVar
 
+import datasets
 import pandas as pd
 import torch.utils.data as tud
 from transformers import AutoTokenizer
@@ -95,6 +96,11 @@ class TypedDataset(tud.Dataset, Generic[ExampleType]):
         """Apply a transformation function to all examples in the dataset."""
         raise NotImplementedError
 
+    @classmethod
+    def create_default(cls) -> Self:
+        """Create a default dataset instance."""
+        raise NotImplementedError
+
 
 class ListDataset(TypedDataset[ExampleType]):
     """Dataset implementation that stores examples in a list."""
@@ -126,20 +132,81 @@ class PandasDataset(RNGMixin, TypedDataset[ExampleType]):
     """
 
     label_column: str | None = None
+    default_invocation: Literal["parquet", "csv", "hf", "init", ""] = ""
+    default_invocation_args: tuple[Any, ...] = ()
+    default_invocation_kwargs: dict[str, Any] = {}
+    default_split_name: str = "train"
 
-    def __init__(self, df: pd.DataFrame) -> None:
+    def __init__(self, df: pd.DataFrame, post_init: bool = True) -> None:
         self.df = df
+
+        if post_init:
+            self.post_init()
+
+    def post_init(self) -> None:
+        """Post-initialization hook for subclasses to override."""
+        pass
 
     def __len__(self) -> int:
         """Get the number of examples in the dataset."""
         return len(self.df)
 
+    def __init_subclass__(
+        cls,
+        *,
+        default_invocation: Literal["parquet", "csv", "init", "hf", ""] = "",
+        default_split_name: str = "train",
+        default_invocation_args: tuple[Any, ...] = (),
+        default_invocation_kwargs: dict[str, Any] = {},  # noqa: B006
+        **kwargs: Any,
+    ) -> None:
+        super().__init_subclass__(**kwargs)
+        cls.default_invocation = default_invocation
+        cls.default_split_name = default_split_name
+        cls.default_invocation_args = default_invocation_args
+        cls.default_invocation_kwargs = default_invocation_kwargs
+
+    @classmethod
+    def create_default(cls) -> Self:
+        """Create a default dataset instance as defined by the subclass."""
+        match cls.default_invocation:
+            case "parquet":
+                return cls.from_parquet(*cls.default_invocation_args, **cls.default_invocation_kwargs)
+            case "csv":
+                return cls.from_csv(*cls.default_invocation_args, **cls.default_invocation_kwargs)
+            case "init":
+                return cls(*cls.default_invocation_args, **cls.default_invocation_kwargs)
+            case "hf":
+                return cls.from_hf_dataset(
+                    *cls.default_invocation_args,
+                    **cls.default_invocation_kwargs,
+                )[cls.default_split_name]
+            case _:
+                raise ValueError("No default set")
+
+    @classmethod
+    def create_defaults(cls) -> dict[str, Self]:
+        """Create default dataset instances for all splits defined by the subclass."""
+        match cls.default_invocation:
+            case "parquet" | "csv" | "init":
+                return {cls.default_split_name: cls.create_default()}
+            case "hf":
+                return cls.from_hf_dataset(
+                    *cls.default_invocation_args,
+                    **cls.default_invocation_kwargs,
+                )
+            case _:
+                raise ValueError("No default set")
+
     def create_label_map(self) -> dict[str, int]:
         """
-        Creates a mapping from category names to unique integer identifiers.
+        Creates a mapping from category names to unique integer identifiers. Requires the label column to be set.
 
         Returns:
             A dictionary mapping labels to unique integer IDs.
+
+        See Also:
+            - :py:class:`.CategorizerDataset` for an example of a dataset that requires label mapping.
         """
         if self.label_column is None:
             raise ValueError("Label column not set")
@@ -172,8 +239,8 @@ class PandasDataset(RNGMixin, TypedDataset[ExampleType]):
         val.drop(columns=["split"], inplace=True)
 
         return (
-            self.__class__(train),
-            self.__class__(val),
+            self.__class__(train, post_init=False),
+            self.__class__(val, post_init=False),
         )
 
     @classmethod
@@ -189,3 +256,25 @@ class PandasDataset(RNGMixin, TypedDataset[ExampleType]):
             A new PandasDataset instance containing data from the CSV file.
         """
         return cls(pd.read_csv(path, **kwargs))
+
+    @classmethod
+    def from_parquet(cls, path: str, **kwargs: Any) -> Self:
+        """
+        Create a PandasDataset instance from a Parquet file.
+
+        Args:
+            path: The path to the Parquet file.
+            **kwargs: Additional keyword arguments to pass to `pd.read_parquet`.
+        """
+        return cls(pd.read_parquet(path, **kwargs))
+
+    @classmethod
+    def from_hf_dataset(cls, dataset: str, **kwargs: Any) -> dict[str, Self]:
+        """
+        Create PandasDatasets from a Hugging Face dataset, one for each split.
+
+        Args:
+            dataset: The name of the Hugging Face dataset.
+            **kwargs: Additional keyword arguments to pass to `datasets.load_dataset`.
+        """
+        return {k: cls(v.to_pandas()) for k, v in datasets.load_dataset(dataset, **kwargs).items()}

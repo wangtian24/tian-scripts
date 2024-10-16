@@ -94,3 +94,17 @@ class YuppClassificationModel(YuppModel):
         super().__init__()
         self.model_name = model_name
         self.label_map = label_map
+
+
+class YuppBucketingModel(YuppModel):
+    def __init__(self, model_name: str, buckets: list[int]) -> None:
+        super().__init__()
+        self.model_name = model_name
+        self.buckets = buckets
+
+    def bucket_index(self, response_length: int) -> int:
+        for i, bucket in enumerate(self.buckets):
+            if response_length <= bucket:
+                return i
+
+        return len(self.buckets) - 1

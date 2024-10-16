@@ -1,5 +1,4 @@
 import numpy as np
-import pandas as pd
 import torch
 from pydantic import BaseModel
 from transformers import AutoTokenizer
@@ -24,9 +23,6 @@ class CategorizerDataset(PandasDataset[CategorizerTrainingExample]):
     """
 
     label_column: str = "category"
-
-    def __init__(self, df: pd.DataFrame) -> None:
-        super().__init__(df)
 
     def __getitem__(self, index: int) -> CategorizerTrainingExample:
         """

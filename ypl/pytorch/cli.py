@@ -1,3 +1,4 @@
+import ast
 import logging
 
 import click
@@ -5,11 +6,13 @@ from transformers import Trainer, TrainingArguments
 
 from ypl.pytorch.data.base import PandasDataset, TokenizerCollator
 from ypl.pytorch.data.categorizer import CategorizerCollator, CategorizerDataset
+from ypl.pytorch.data.prompting import ResponseLengthCollator, WildChatResponseLengthDataset
 from ypl.pytorch.data.routing import RoutingCollator, RoutingDataset
 from ypl.pytorch.model.base import YuppClassificationModel
 from ypl.pytorch.model.categorizer import CategorizerClassificationModel
+from ypl.pytorch.model.response_length import TransformerResponseLengthModel
 from ypl.pytorch.model.routing import RoutingMultilabelClassificationModel
-from ypl.pytorch.trainer import CategorizerTrainer, RoutingMultilabelTrainer
+from ypl.pytorch.trainer import CategorizerTrainer, ResponseLengthTrainer, RoutingMultilabelTrainer
 
 logging.getLogger().setLevel(logging.INFO)
 
@@ -60,6 +63,72 @@ def do_simple_classification_training(
         train_dataset=train_dataset,
         eval_dataset=val_dataset,
         data_collator=collator_cls(tokenizer=model.tokenizer, label_map=label_map),  # type: ignore[call-arg]
+    )
+
+    try:
+        if load_from is None:
+            trainer.train()
+    except KeyboardInterrupt:
+        logging.info("Keyboard interrupt detected, evaluating model...")
+
+    print(trainer.evaluate(val_dataset))
+    model.save_pretrained(output_folder)
+
+
+@cli.command()
+@click.option("-m", "--model-name", required=False, default="bert-base-uncased", help="Name of the model to train")
+@click.option("--seed", required=False, default=0, help="Random seed")
+@click.option("--training-pct", required=False, default=98, help="Percentage of data to use for training")
+@click.option("--max-steps", required=False, default=1000, help="Maximum number of steps to train for")
+@click.option("-lr", "--learning-rate", required=False, default=5e-5, help="Learning rate")
+@click.option("-bsz", "--batch-size", required=False, default=8, help="Batch size")
+@click.option("-o", "--output-folder", required=False, default="model", help="Output folder")
+@click.option("--load-from", required=False, default=None, help="Path to load model from")
+@click.option(
+    "--buckets",
+    required=False,
+    default="[26, 60, 99, 149, 203, 267, 343, 445, 597, 2609]",
+    help="Buckets to use for response length, specified as a Python list string.",
+    type=str,
+)
+def train_response_length(
+    model_name: str,
+    seed: int,
+    training_pct: int,
+    max_steps: int,
+    learning_rate: float,
+    batch_size: int,
+    output_folder: str,
+    load_from: str | None,
+    buckets: str,
+) -> None:
+    buckets_ = ast.literal_eval(buckets)
+    logging.info("Creating dataset...")
+    dataset = WildChatResponseLengthDataset.create_default()
+
+    dataset.set_seed(seed)
+
+    logging.info("Dataset created, splitting...")
+    train_dataset, val_dataset = dataset.split(percentage=training_pct)
+    model = TransformerResponseLengthModel(model_name, buckets=buckets_)
+    collator = ResponseLengthCollator(tokenizer=model.tokenizer, buckets=buckets_)
+
+    trainer = ResponseLengthTrainer(
+        args=TrainingArguments(
+            output_dir="output",
+            max_steps=max_steps,
+            optim="schedule_free_adamw",
+            per_device_train_batch_size=batch_size,
+            per_device_eval_batch_size=batch_size,
+            learning_rate=learning_rate,
+            logging_steps=10,
+            fp16=True,
+            dataloader_num_workers=8,
+        ),
+        model=model,
+        train_dataset=train_dataset,
+        eval_dataset=val_dataset,
+        data_collator=collator,
     )
 
     try:
