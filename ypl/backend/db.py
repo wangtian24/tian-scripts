@@ -1,3 +1,4 @@
+import uuid
 from collections.abc import Generator
 from contextvars import ContextVar
 from typing import Annotated
@@ -34,6 +35,17 @@ SessionDep = Annotated[Session, Depends(get_db)]
 
 def get_async_engine() -> AsyncEngine:
     if (engine := async_engine_ctx.get()) is None:
-        engine = create_async_engine(str(settings.db_url_async), connect_args={"ssl": settings.db_ssl_mode})
+        engine = create_async_engine(
+            str(settings.db_url_async),
+            pool_pre_ping=True,
+            pool_recycle=1800,
+            connect_args={
+                "ssl": settings.db_ssl_mode,
+                # below properties are to make asyncpg work with pgbouncer in transaction mode. Ref : https://github.com/MagicStack/asyncpg/issues/1058
+                "prepared_statement_name_func": lambda: f"__asyncpg_{uuid.uuid4()}__",
+                "statement_cache_size": 0,
+                "prepared_statement_cache_size": 0,
+            },
+        )
         async_engine_ctx.set(engine)
     return engine
