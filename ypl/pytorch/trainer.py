@@ -3,6 +3,7 @@ from typing import no_type_check
 import torch
 import torch.nn as nn
 import torch.utils.data as tud
+from scipy.stats import spearmanr
 from transformers import Trainer
 
 from ypl.pytorch.data.base import StrTensorDict
@@ -41,18 +42,17 @@ class ResponseLengthTrainer(Trainer):  # type: ignore[misc]
         assert isinstance(self.model, ResponseLengthModel), "model must be an instance of ResponseLengthModel"
 
         accuracy = []
+        preds = []
+        truths = []
 
         for example in eval_dataset:
-            bucket = self.model.predict_length(example.prompt)
-            accuracy.append(int(bucket == self.model.bucket_index(example.response_length)))
-            print(
-                accuracy[-1],
-                bucket,
-                self.model.bucket_index(example.response_length),
-                example.prompt[:50].replace("\n", " "),
-            )
+            truth = self.model.bucket_index(example.response_length)
+            pred = self.model.predict_length(example.prompt)
+            accuracy.append(int(pred == truth))
+            preds.append(pred)
+            truths.append(truth)
 
-        return dict(accuracy=sum(accuracy) / len(accuracy))
+        return dict(accuracy=sum(accuracy) / len(accuracy), rho=spearmanr(truths, preds).correlation)
 
 
 class RoutingMultilabelTrainer(Trainer):  # type: ignore[misc]

@@ -4,9 +4,9 @@ import logging
 import click
 from transformers import Trainer, TrainingArguments
 
-from ypl.pytorch.data.base import PandasDataset, TokenizerCollator
+from ypl.pytorch.data.base import ConcatDataset, PandasDataset, TokenizerCollator
 from ypl.pytorch.data.categorizer import CategorizerCollator, CategorizerDataset
-from ypl.pytorch.data.prompting import ResponseLengthCollator, WildChatResponseLengthDataset
+from ypl.pytorch.data.prompting import ResponseLengthCollator, WildChatResponseLengthDataset, YuppResponseLengthDataset
 from ypl.pytorch.data.routing import RoutingCollator, RoutingDataset
 from ypl.pytorch.model.base import YuppClassificationModel
 from ypl.pytorch.model.categorizer import CategorizerClassificationModel
@@ -76,6 +76,7 @@ def do_simple_classification_training(
 
 
 @cli.command()
+@click.option("-yi", "--yupp-input-file", required=True, help="Path to the Yupp input file")
 @click.option("-m", "--model-name", required=False, default="bert-base-uncased", help="Name of the model to train")
 @click.option("--seed", required=False, default=0, help="Random seed")
 @click.option("--training-pct", required=False, default=98, help="Percentage of data to use for training")
@@ -92,6 +93,7 @@ def do_simple_classification_training(
     type=str,
 )
 def train_response_length(
+    yupp_input_file: str,
     model_name: str,
     seed: int,
     training_pct: int,
@@ -104,12 +106,19 @@ def train_response_length(
 ) -> None:
     buckets_ = ast.literal_eval(buckets)
     logging.info("Creating dataset...")
-    dataset = WildChatResponseLengthDataset.create_default()
+    wc_dataset = WildChatResponseLengthDataset.create_default()
+    yupp_dataset = YuppResponseLengthDataset.from_file(yupp_input_file)
 
-    dataset.set_seed(seed)
+    wc_dataset.set_seed(seed)
+    yupp_dataset.set_seed(seed)
 
-    logging.info("Dataset created, splitting...")
-    train_dataset, val_dataset = dataset.split(percentage=training_pct)
+    logging.info(f"WildChat dataset length: {len(wc_dataset)}")
+    logging.info(f"Yupp dataset length: {len(yupp_dataset)}")
+    logging.info("Splitting datasets...")
+    wc_train_dataset, wc_val_dataset = wc_dataset.split(percentage=training_pct)
+    yupp_train_dataset, yupp_val_dataset = yupp_dataset.split(percentage=training_pct)
+
+    train_dataset = ConcatDataset([wc_train_dataset, yupp_train_dataset])
     model = TransformerResponseLengthModel(model_name, buckets=buckets_)
     collator = ResponseLengthCollator(tokenizer=model.tokenizer, buckets=buckets_)
 
@@ -127,7 +136,6 @@ def train_response_length(
         ),
         model=model,
         train_dataset=train_dataset,
-        eval_dataset=val_dataset,
         data_collator=collator,
     )
 
@@ -137,7 +145,8 @@ def train_response_length(
     except KeyboardInterrupt:
         logging.info("Keyboard interrupt detected, evaluating model...")
 
-    print(trainer.evaluate(val_dataset))
+    print(trainer.evaluate(wc_val_dataset))
+    print(trainer.evaluate(yupp_val_dataset))
     model.save_pretrained(output_folder)
 
 

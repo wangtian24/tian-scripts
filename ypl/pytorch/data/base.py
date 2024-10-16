@@ -278,3 +278,24 @@ class PandasDataset(RNGMixin, TypedDataset[ExampleType]):
             **kwargs: Additional keyword arguments to pass to `datasets.load_dataset`.
         """
         return {k: cls(v.to_pandas()) for k, v in datasets.load_dataset(dataset, **kwargs).items()}
+
+
+class ConcatDataset(PandasDataset[ExampleType]):
+    """Dataset implementation that concatenates multiple datasets."""
+
+    def __init__(self, datasets: list[PandasDataset[ExampleType]]) -> None:
+        self.datasets = datasets
+
+    def __len__(self) -> int:
+        """Get the number of examples in the dataset."""
+        return sum(len(dataset) for dataset in self.datasets)
+
+    def __getitem__(self, index: int) -> ExampleType:
+        """Retrieve an example by its index."""
+        for dataset in self.datasets:
+            if index < len(dataset):
+                return dataset[index]
+
+            index -= len(dataset)
+
+        raise IndexError("Index out of range")
