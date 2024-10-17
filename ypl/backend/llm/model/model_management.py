@@ -15,9 +15,7 @@ from ypl.backend.db import get_async_engine
 from ypl.backend.llm.model.model_onboarding import verify_inference_running
 from ypl.backend.llm.utils import post_to_slack
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from ypl.logger import logger
 
 
 async def async_retry_decorator() -> AsyncRetrying:
@@ -85,7 +83,7 @@ async def validate_specific_active_model(model_id: UUID) -> None:
                     await verify_and_update_model_status(session, model, provider_name, base_url)
                     await session.commit()
                 else:
-                    logging.warning(f"No active model found with id {model_id}")
+                    logger.warning(f"No active model found with id {model_id}")
 
 
 async def verify_and_update_model_status(
@@ -112,13 +110,13 @@ async def verify_and_update_model_status(
                 f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} ({model.internal_name}) "
                 "is not running at the inference endpoint. Please investigate."
             )
-            logging.error(error_message)
+            logger.error(error_message)
             await post_to_slack(f":warning: {error_message}")
-    except Exception:
+    except Exception as e:
         error_message = (
             f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} ({model.internal_name}) "
-            "inference validation failed: {str(e)}"
+            f"inference validation failed: {str(e)}"
         )
-        logging.error(error_message)
+        logger.error(error_message)
         await post_to_slack(f":x: {error_message}")
         # TODO: Implement additional alerting if needed

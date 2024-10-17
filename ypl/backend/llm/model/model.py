@@ -11,9 +11,7 @@ from sqlmodel import Session, select
 from tenacity import after_log, retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 from ypl.backend.db import get_engine
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, LicenseEnum
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from ypl.logger import logger
 
 
 class LanguageModelStruct(BaseModel):

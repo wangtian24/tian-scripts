@@ -26,8 +26,7 @@ from ypl.backend.llm.utils import (
 from ypl.db.chats import Chat, ChatMessage, Eval, EvalType, LanguageCode, MessageType, Turn, User
 from ypl.db.language_models import LanguageModel
 from ypl.db.ratings import OVERALL_CATEGORY_NAME, Category, Rating, RatingHistory
-
-logging.basicConfig(level=logging.INFO)
+from ypl.logger import logger
 
 # Rating of a new model.
 ELO_INIT_RATING = 1000.0
@@ -62,8 +61,6 @@ MIN_NUM_WORKERS = 1
 BATTLES_PER_WORKER = 100000
 
 ConfInterval = tuple[float, float]
-
-logger = logging.getLogger(__name__)
 
 
 def _score_to_elo(
@@ -306,11 +303,11 @@ class Ranker:
                     added += 1
                     counts_by_user[user_email] += 1
                 else:
-                    logging.warning(f"Skipping eval with missing models: model_a={model_a}, model_b={model_b}")
+                    logger.warning(f"Skipping eval with missing models: model_a={model_a}, model_b={model_b}")
 
-            logging.info(f"Added {added} evals to the ranker. Counts per user:")
+            logger.info(f"Added {added} evals to the ranker. Counts per user:")
             for user, count in counts_by_user.items():
-                logging.info(f"- {user}: {count}")
+                logger.info(f"- {user}: {count}")
 
         return added
 
@@ -666,7 +663,7 @@ class ChoixRankerConfIntervals(ChoixRanker, ConfidenceIntervalRankerMixin):
     )
     def to_db(self, category_name: str | None = None, snapshot_timestamp: datetime | None = None) -> None:
         if not self.battles:
-            logging.warning(f"No battles to rank for category '{category_name}'")
+            logger.warning(f"No battles to rank for category '{category_name}'")
             return
         """Save the ratings to the database."""
         if not category_name:
@@ -687,7 +684,7 @@ class ChoixRankerConfIntervals(ChoixRanker, ConfidenceIntervalRankerMixin):
             for model_name, (score, conf_interval) in self.get_ratings_conf_intervals().items():
                 model_id = llm_name_to_id.get(model_name)
                 if not model_id:
-                    logging.warning(f"Model '{model_name}' not found")
+                    logger.warning(f"Model '{model_name}' not found")
                     continue
                 rating_history = RatingHistory(
                     language_model_id=model_id,
@@ -718,7 +715,7 @@ class ChoixRankerConfIntervals(ChoixRanker, ConfidenceIntervalRankerMixin):
                     )
                     session.add(new_rating)
             session.commit()
-            logging.info(f"Saved {len(llm_ids_to_ranking_history)} rating histories to the database.")
+            logger.info(f"Saved {len(llm_ids_to_ranking_history)} rating histories to the database.")
 
     def _get_bootstrap_ratings(self, battles: np.ndarray, num_bootstrap_samples: int) -> list[np.ndarray]:
         # There's some overhead to spinning up workers (these are processes, not threads), so vary the number of workers
