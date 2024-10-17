@@ -1,13 +1,19 @@
+import logging
 from datetime import date, datetime
 from uuid import UUID
 
 from pydantic import BaseModel
 from sqlalchemy import String, cast, func, update
 from sqlalchemy.engine import Result
+from sqlalchemy.exc import DatabaseError, OperationalError
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
+from tenacity import after_log, retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 from ypl.backend.db import get_engine
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, LicenseEnum
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 class LanguageModelStruct(BaseModel):
@@ -26,6 +32,12 @@ class LanguageModelStruct(BaseModel):
     provider_id: UUID | None
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_fixed(0.1),
+    after=after_log(logger, logging.WARNING),
+    retry=retry_if_exception_type((OperationalError, DatabaseError)),
+)
 def create_model(model: LanguageModel) -> UUID:
     if not model.internal_name:
         model.internal_name = model.name
@@ -37,6 +49,12 @@ def create_model(model: LanguageModel) -> UUID:
         return model.language_model_id
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_fixed(0.1),
+    after=after_log(logger, logging.WARNING),
+    retry=retry_if_exception_type((OperationalError, DatabaseError)),
+)
 def get_models(
     name: str | None = None,
     licenses: list[LicenseEnum] | None = None,
@@ -89,6 +107,12 @@ def get_models(
         ]
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_fixed(0.1),
+    after=after_log(logger, logging.WARNING),
+    retry=retry_if_exception_type((OperationalError, DatabaseError)),
+)
 # Only active and inactive models are returned as part of the model details as these
 # have been onboarded and used for ranking in past
 def get_model_details(model_id: str) -> LanguageModelStruct | None:
@@ -113,6 +137,12 @@ def get_model_details(model_id: str) -> LanguageModelStruct | None:
         )
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_fixed(0.1),
+    after=after_log(logger, logging.WARNING),
+    retry=retry_if_exception_type((OperationalError, DatabaseError)),
+)
 def update_model(model_id: str, updated_model: LanguageModel) -> LanguageModelStruct:
     with Session(get_engine()) as session:
         model_data = updated_model.model_dump(exclude_unset=True, exclude={"language_model_id"})
@@ -137,6 +167,12 @@ def update_model(model_id: str, updated_model: LanguageModel) -> LanguageModelSt
         )
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_fixed(0.1),
+    after=after_log(logger, logging.WARNING),
+    retry=retry_if_exception_type((OperationalError, DatabaseError)),
+)
 def delete_model(model_id: str) -> None:
     with Session(get_engine()) as session:
         result: Result = session.execute(

@@ -4,14 +4,29 @@ import os
 from uuid import UUID
 
 # Third-party imports
+from sqlalchemy.exc import DatabaseError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
+from tenacity import after_log, retry_if_exception_type, stop_after_attempt, wait_fixed
+from tenacity.asyncio import AsyncRetrying
 
 # Local imports
 from ypl.backend.db import get_async_engine
 from ypl.backend.llm.model.model_onboarding import verify_inference_running
 from ypl.backend.llm.utils import post_to_slack
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+async def async_retry_decorator() -> AsyncRetrying:
+    return AsyncRetrying(
+        stop=stop_after_attempt(3),
+        wait=wait_fixed(0.1),
+        after=after_log(logger, logging.WARNING),
+        retry=retry_if_exception_type((OperationalError, DatabaseError)),
+    )
 
 
 async def validate_active_onboarded_models() -> None:
@@ -21,23 +36,25 @@ async def validate_active_onboarded_models() -> None:
     This function should be run periodically to check and update the status of active models.
     It queries for active models, verifies them, and logs an error if any validation fails.
     """
-    async with AsyncSession(get_async_engine()) as session:
-        query = (
-            select(LanguageModel, Provider.name.label("provider_name"), Provider.base_api_url.label("base_url"))  # type: ignore
-            .join(Provider, LanguageModel.provider_id == Provider.provider_id)  # type: ignore
-            .where(
-                LanguageModel.status == LanguageModelStatusEnum.ACTIVE,
-                LanguageModel.deleted_at.is_(None),  # type: ignore
-                Provider.is_active.is_(True),  # type: ignore
-                Provider.deleted_at.is_(None),  # type: ignore
-            )
-        )
-        active_models = await session.execute(query)
+    async for attempt in await async_retry_decorator():
+        with attempt:
+            async with AsyncSession(get_async_engine()) as session:
+                query = (
+                    select(LanguageModel, Provider.name.label("provider_name"), Provider.base_api_url.label("base_url"))  # type: ignore
+                    .join(Provider, LanguageModel.provider_id == Provider.provider_id)  # type: ignore
+                    .where(
+                        LanguageModel.status == LanguageModelStatusEnum.ACTIVE,
+                        LanguageModel.deleted_at.is_(None),  # type: ignore
+                        Provider.is_active.is_(True),  # type: ignore
+                        Provider.deleted_at.is_(None),  # type: ignore
+                    )
+                )
+                active_models = await session.execute(query)
 
-        for model, provider_name, base_url in active_models:
-            await verify_and_update_model_status(session, model, provider_name, base_url)
+                for model, provider_name, base_url in active_models:
+                    await verify_and_update_model_status(session, model, provider_name, base_url)
 
-        await session.commit()
+                await session.commit()
 
 
 async def validate_specific_active_model(model_id: UUID) -> None:
@@ -47,26 +64,28 @@ async def validate_specific_active_model(model_id: UUID) -> None:
     This function should be called to check and update the status of a specific active model.
     It queries for the model, verifies it, and logs an error if validation fails.
     """
-    async with AsyncSession(get_async_engine()) as session:
-        query = (
-            select(LanguageModel, Provider.name.label("provider_name"), Provider.base_api_url.label("base_url"))  # type: ignore
-            .join(Provider, LanguageModel.provider_id == Provider.provider_id)  # type: ignore
-            .where(
-                LanguageModel.language_model_id == model_id,
-                LanguageModel.status == LanguageModelStatusEnum.ACTIVE,
-                LanguageModel.deleted_at.is_(None),  # type: ignore
-                Provider.is_active.is_(True),  # type: ignore
-                Provider.deleted_at.is_(None),  # type: ignore
-            )
-        )
-        result = await session.execute(query)
+    async for attempt in await async_retry_decorator():
+        with attempt:
+            async with AsyncSession(get_async_engine()) as session:
+                query = (
+                    select(LanguageModel, Provider.name.label("provider_name"), Provider.base_api_url.label("base_url"))  # type: ignore
+                    .join(Provider, LanguageModel.provider_id == Provider.provider_id)  # type: ignore
+                    .where(
+                        LanguageModel.language_model_id == model_id,
+                        LanguageModel.status == LanguageModelStatusEnum.ACTIVE,
+                        LanguageModel.deleted_at.is_(None),  # type: ignore
+                        Provider.is_active.is_(True),  # type: ignore
+                        Provider.deleted_at.is_(None),  # type: ignore
+                    )
+                )
+                result = await session.execute(query)
 
-        if result:
-            model, provider_name, base_url = result
-            await verify_and_update_model_status(session, model, provider_name, base_url)
-            await session.commit()
-        else:
-            logging.warning(f"No active model found with id {model_id}")
+                if result:
+                    model, provider_name, base_url = result.first()
+                    await verify_and_update_model_status(session, model, provider_name, base_url)
+                    await session.commit()
+                else:
+                    logging.warning(f"No active model found with id {model_id}")
 
 
 async def verify_and_update_model_status(

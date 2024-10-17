@@ -10,8 +10,11 @@ import google.generativeai as genai
 from huggingface_hub import HfApi, InferenceClient, ModelInfo
 from huggingface_hub.utils import HfHubHTTPError
 from openai import OpenAI
+from sqlalchemy.exc import DatabaseError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
+from tenacity import after_log, retry_if_exception_type, stop_after_attempt, wait_fixed
+from tenacity.asyncio import AsyncRetrying
 
 # Local imports
 from ypl.backend.db import get_async_engine
@@ -26,6 +29,18 @@ DOWNLOADS_THRESHOLD = 1000
 LIKES_THRESHOLD = 100
 REJECT_AFTER_DAYS = 3
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+async def async_retry_decorator() -> AsyncRetrying:
+    return AsyncRetrying(
+        stop=stop_after_attempt(3),
+        wait=wait_fixed(0.1),
+        after=after_log(logger, logging.WARNING),
+        retry=retry_if_exception_type((OperationalError, DatabaseError)),
+    )
+
 
 async def verify_onboard_submitted_models() -> None:
     """
@@ -34,21 +49,23 @@ async def verify_onboard_submitted_models() -> None:
     This function should be run periodically to check and update the status of submitted models.
     It queries for submitted models, verifies them, and updates their status accordingly.
     """
-    async with AsyncSession(get_async_engine()) as session:
-        query = (
-            select(LanguageModel, Provider.name.label("provider_name"), Provider.base_api_url.label("base_url"))  # type: ignore
-            .join(Provider, LanguageModel.provider_id == Provider.provider_id)  # type: ignore
-            .where(
-                LanguageModel.status == LanguageModelStatusEnum.SUBMITTED,
-                LanguageModel.deleted_at.is_(None),  # type: ignore
-            )
-        )
-        submitted_models = await session.execute(query)
+    async for attempt in await async_retry_decorator():
+        with attempt:
+            async with AsyncSession(get_async_engine()) as session:
+                query = (
+                    select(LanguageModel, Provider.name.label("provider_name"), Provider.base_api_url.label("base_url"))  # type: ignore
+                    .join(Provider, LanguageModel.provider_id == Provider.provider_id)  # type: ignore
+                    .where(
+                        LanguageModel.status == LanguageModelStatusEnum.SUBMITTED,
+                        LanguageModel.deleted_at.is_(None),  # type: ignore
+                    )
+                )
+                submitted_models = await session.execute(query)
 
-        for model, provider_name, base_url in submitted_models:
-            await verify_and_update_model_status(session, model, provider_name, base_url)
+                for model, provider_name, base_url in submitted_models:
+                    await verify_and_update_model_status(session, model, provider_name, base_url)
 
-        await session.commit()
+                await session.commit()
 
 
 async def verify_onboard_specific_model(model_id: UUID) -> None:
@@ -58,25 +75,27 @@ async def verify_onboard_specific_model(model_id: UUID) -> None:
     This function should be called to check and update the status of a specific model.
     It queries for the model, verifies it, and updates its status accordingly.
     """
-    async with AsyncSession(get_async_engine()) as session:
-        query = (
-            select(LanguageModel, Provider.name.label("provider_name"), Provider.base_api_url.label("base_url"))  # type: ignore
-            .join(Provider, LanguageModel.provider_id == Provider.provider_id)  # type: ignore
-            .where(
-                LanguageModel.language_model_id == model_id,
-                LanguageModel.status == LanguageModelStatusEnum.SUBMITTED,
-                LanguageModel.deleted_at.is_(None),  # type: ignore
-            )
-        )
-        result = await session.execute(query)
-        row = result.first()
+    async for attempt in await async_retry_decorator():
+        with attempt:
+            async with AsyncSession(get_async_engine()) as session:
+                query = (
+                    select(LanguageModel, Provider.name.label("provider_name"), Provider.base_api_url.label("base_url"))  # type: ignore
+                    .join(Provider, LanguageModel.provider_id == Provider.provider_id)  # type: ignore
+                    .where(
+                        LanguageModel.language_model_id == model_id,
+                        LanguageModel.status == LanguageModelStatusEnum.SUBMITTED,
+                        LanguageModel.deleted_at.is_(None),  # type: ignore
+                    )
+                )
+                result = await session.execute(query)
+                row = result.first()
 
-        if row:
-            model, provider_name, base_url = row
-            await verify_and_update_model_status(session, model, provider_name, base_url)
-            await session.commit()
-        else:
-            logging.warning(f"No submitted model found with id {model_id}")
+                if row:
+                    model, provider_name, base_url = row
+                    await verify_and_update_model_status(session, model, provider_name, base_url)
+                    await session.commit()
+                else:
+                    logging.warning(f"No submitted model found with id {model_id}")
 
 
 async def verify_and_update_model_status(
@@ -86,64 +105,74 @@ async def verify_and_update_model_status(
     Verify and update the status of a single model.
 
     Args:
-        session (Session): The database session.
+        session (AsyncSession): The database session.
         model (LanguageModel): The model to verify and update.
         provider_name (str): The name of the provider.
         base_url (str): The base URL for the provider's API.
     """
-    try:
-        is_inference_running = verify_inference_running(model, provider_name, base_url)
+    async for attempt in await async_retry_decorator():
+        with attempt:
+            try:
+                is_inference_running = verify_inference_running(model, provider_name, base_url)
 
-        if is_inference_running:
-            model.status = LanguageModelStatusEnum.ACTIVE
-            model.modified_at = datetime.utcnow()
-            logging.info(f"Model {model.name} ({model.internal_name}) validated successfully " f"and set to ACTIVE.")
-            await post_to_slack(
-                f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} ({model.internal_name}) "
-                "validated successfully and set to ACTIVE."
-            )
-            await post_to_x(
-                f"Environment {os.environ.get('ENVIRONMENT')} - New model {model.name} ({model.internal_name}) "
-                "is now available."
-            )
-        else:
-            is_hf_verified = verify_hf_model(model)
-            if is_hf_verified:
-                model.status = LanguageModelStatusEnum.VERIFIED_PENDING_ACTIVATION
-                model.modified_at = datetime.utcnow()
-                logging.info(
-                    f"Model {model.name} ({model.internal_name}) validated successfully "
-                    f"and set to VERIFIED_PENDING_ACTIVATION."
-                )
-                await post_to_slack(
-                    f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} ({model.internal_name}) "
-                    "validated successfully and set to VERIFIED_PENDING_ACTIVATION."
-                )
-            else:
-                # reject if the model was submitted more than 3 days ago
-                if (
-                    model.created_at
-                    and (datetime.now(UTC) - model.created_at.replace(tzinfo=UTC)).days > REJECT_AFTER_DAYS
-                ):
-                    model.status = LanguageModelStatusEnum.REJECTED
+                if is_inference_running:
+                    model.status = LanguageModelStatusEnum.ACTIVE
                     model.modified_at = datetime.utcnow()
                     logging.info(
-                        f"Model {model.name} ({model.internal_name}) not validated after 3 days. "
-                        f"Setting status to REJECTED."
+                        f"Model {model.name} ({model.internal_name}) validated successfully " f"and set to ACTIVE."
                     )
                     await post_to_slack(
                         f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} ({model.internal_name}) "
-                        "not validated after 3 days. Setting status to REJECTED."
+                        "validated successfully and set to ACTIVE."
                     )
-    except Exception as e:
-        logging.error(
-            f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} ({model.internal_name}) "
-            f"validation failed: {str(e)}"
-        )
-        await post_to_slack(
-            f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} ({model.internal_name}) "
-            f"validation failed: {str(e)}"
-        )
+                    await post_to_x(
+                        f"Environment {os.environ.get('ENVIRONMENT')} - New model {model.name} ({model.internal_name}) "
+                        "is now available."
+                    )
+                else:
+                    is_hf_verified = verify_hf_model(model)
+                    if is_hf_verified:
+                        model.status = LanguageModelStatusEnum.VERIFIED_PENDING_ACTIVATION
+                        model.modified_at = datetime.utcnow()
+                        logging.info(
+                            f"Model {model.name} ({model.internal_name}) validated successfully "
+                            f"and set to VERIFIED_PENDING_ACTIVATION."
+                        )
+                        await post_to_slack(
+                            f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} ({model.internal_name}) "
+                            "validated successfully and set to VERIFIED_PENDING_ACTIVATION."
+                        )
+                    else:
+                        # reject if the model was submitted more than 3 days ago
+                        if (
+                            model.created_at
+                            and (datetime.now(UTC) - model.created_at.replace(tzinfo=UTC)).days > REJECT_AFTER_DAYS
+                        ):
+                            model.status = LanguageModelStatusEnum.REJECTED
+                            model.modified_at = datetime.utcnow()
+                            logging.info(
+                                f"Model {model.name} ({model.internal_name}) not validated after 3 days. "
+                                f"Setting status to REJECTED."
+                            )
+                            await post_to_slack(
+                                f"Environment {os.environ.get('ENVIRONMENT')} - "
+                                f"Model {model.name} ({model.internal_name}) "
+                                "not validated after 3 days. Setting status to REJECTED."
+                            )
+
+                await session.commit()
+
+            except Exception as e:
+                logging.error(
+                    f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} ({model.internal_name}) "
+                    f"validation failed: {str(e)}"
+                )
+                await post_to_slack(
+                    f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} ({model.internal_name}) "
+                    f"validation failed: {str(e)}"
+                )
+                # Re-raise the exception to trigger a retry
+                raise
 
 
 def verify_hf_model(model: LanguageModel) -> bool:
