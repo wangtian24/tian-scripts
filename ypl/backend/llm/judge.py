@@ -1,4 +1,5 @@
 import random
+import re
 from typing import Any, Literal
 
 from langchain_core.language_models import BaseChatModel
@@ -12,6 +13,7 @@ from ypl.backend.prompts import (
     JUDGE_YUPP_CHAT_PROMPT_SPEED_AWARE_TEMPLATE,
     JUDGE_YUPP_CHAT_PROMPT_TEMPLATE,
     JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT_TEMPLATE,
+    RESPONSE_QUALITY_PROMPT_TEMPLATE,
 )
 
 
@@ -91,3 +93,24 @@ class YuppPromptDifficultyLabeler(LLMLabeler[tuple[str, str, str], str]):
     @property
     def error_value(self) -> str:
         return "DUNNO"
+
+
+class YuppQualityLabeler(LLMLabeler[tuple[str, str], int]):
+    def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
+        return RESPONSE_QUALITY_PROMPT_TEMPLATE | llm  # type: ignore
+
+    def _prepare_input(self, input: tuple[str, str]) -> dict[str, Any]:
+        """`input` is a (prompt, response) tuple"""
+        return dict(prompt=input[0], response=input[1])
+
+    def _parse_output(self, output: BaseMessage) -> int:
+        content = str(output.content)
+
+        if m := re.search(r"\{.*?\"score\":\s*(\d+)\}.*", content):
+            return int(m.group(1))
+
+        return self.error_value
+
+    @property
+    def error_value(self) -> int:
+        return -1

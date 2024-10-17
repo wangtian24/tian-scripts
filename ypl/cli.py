@@ -7,6 +7,7 @@ import sys
 from collections import Counter, defaultdict
 from collections.abc import Callable
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import click
@@ -40,6 +41,7 @@ from ypl.backend.llm.judge import (
     SpeedAwareYuppEvaluationLabeler,
     YuppEvaluationLabeler,
     YuppPromptDifficultyLabeler,
+    YuppQualityLabeler,
     choose_llm,
 )
 from ypl.backend.llm.labeler import WildChatRealismLabeler
@@ -583,6 +585,69 @@ def judge_yupp_llm_outputs(
     chat_io = JsonChatIO(output_file)
     chat_io.write_all_chats(chats)
     chat_io.flush()
+
+
+@cli.command(help="Evaluate the quality of LLM generations read in from a JSON file")
+@click.option("-c", "--config", required=True, help="The judge config to use")
+@click.option("--limit", default=200, help="The number of examples to judge")
+@click.option(
+    "-i",
+    "--input-file",
+    type=str,
+    required=True,
+    help='A file containing conversations of [{"content": "...", "role": "..."}, ...] on each line',
+)
+@click.option(
+    "-o",
+    "--output-file",
+    type=str,
+    default=None,
+    help="Defaults to the input file.",
+)
+@click.option(
+    "-j",
+    "--num-parallel",
+    default=4,
+    help="The number of jobs to run in parallel. Optimal value depends on the rate limit and CPU cores.",
+)
+def judge_quality_llm_outputs(input_file: str, output_file: str, limit: int, config: str, num_parallel: int) -> None:
+    lines = Path(input_file).read_text().splitlines()
+    batch = []
+
+    for idx, line in enumerate(lines):
+        if idx >= limit:
+            break
+
+        try:
+            data = json.loads(line)
+            data = [x for x in data if x["role"] in {"user", "assistant"}]
+
+            if len(data) > 1:
+                prompt = next(x["content"] for x in data if x["role"] == "user")
+                response = next(x["content"] for x in data if x["role"] == "assistant")
+                batch.append((prompt, response))
+        except:  # noqa: E722
+            continue
+
+    cfg = JudgeConfig.parse_file(config)
+    llm_info = cfg.llms[0]
+    llm = get_chat_model(llm_info, temperature=0.0)
+    labeler = YuppQualityLabeler(llm, timeout_secs=cfg.timeout)
+    results = asyncio.run(labeler.abatch_label(batch))
+
+    output_file = output_file or input_file
+
+    with Path(output_file).open("w") as f:
+        for data, score in zip(batch, results, strict=True):
+            print(
+                json.dumps(
+                    [
+                        {"content": data[0], "role": "user"},
+                        {"content": data[1], "role": "assistant", "score": score},
+                    ]
+                ),
+                file=f,
+            )
 
 
 @cli.command()

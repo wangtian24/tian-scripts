@@ -331,3 +331,17 @@ e.g., ["model1", ...]. Do not explain. Do not ever put markdown or markup.
 PROMPTS_MODEL_QUALITY_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages(
     [("system", PROMPTS_MODEL_QUALITY_SYS_PROMPT), ("human", PROMPTS_MODEL_QUALITY_USER_PROMPT_SIMPLE)]
 )
+
+RESPONSE_QUALITY_USER_PROMPT = """You are an AI assistant specialized in evaluating the quality of responses to a given prompt. Respond with a score between 0 and 100 indicating the quality, correctness, completeness, and creativity (where appropriate) of the response. Be very stringent and precise; do not easily give out high scores.
+
+The prompt is as follows: {prompt}
+
+<<END PROMPT>>
+
+Response: {response}
+
+<<END RESPONSE>>
+
+Score the response from 0 to 100, where 0 is the worst and 100 is the best. Think carefully and think step by step, but don't write too much. In the final line, return a response {{"score": ...}}."""
+
+RESPONSE_QUALITY_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([("human", RESPONSE_QUALITY_USER_PROMPT)])

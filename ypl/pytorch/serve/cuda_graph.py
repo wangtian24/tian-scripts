@@ -189,15 +189,15 @@ class CudaGraphPoolExecutor:
             - For how this class is used, see :py:meth:`.CategorizerClassificationModel.categorize`
         """
         if self.use_sync_queue:
-            assert self._read_jqueue is not None
-            write_jqueue: JQueue[StrTensorDict | None] = JQueue()
-            self._read_jqueue.sync_q.put((write_jqueue.sync_q, input))
-            ret = write_jqueue.sync_q.get()
-        else:
             assert self._read_pyqueue is not None
             write_pyqueue: PyQueue[StrTensorDict | None] = PyQueue()
             self._read_pyqueue.put((write_pyqueue, input))
             ret = write_pyqueue.get()
+        else:
+            assert self._read_jqueue is not None
+            write_jqueue: JQueue[StrTensorDict | None] = JQueue()
+            self._read_jqueue.sync_q.put((write_jqueue.sync_q, input))
+            ret = write_jqueue.sync_q.get()
 
         if ret is None:
             raise GraphNotFoundError(f"No graph functor found for input size {get_size_key(input)}")
