@@ -25,7 +25,7 @@ class RoutingDataset(PandasDataset[RoutingTrainingExample]):
     def __init__(self, df: pd.DataFrame) -> None:
         super().__init__(df)
 
-    def create_label_map(self) -> dict[str, int]:
+    def create_label_map(self, multilabel: bool = False) -> dict[str, int]:
         """
         Creates a mapping from model names to unique integer identifiers.
 

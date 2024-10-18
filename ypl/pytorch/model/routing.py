@@ -20,7 +20,7 @@ class RoutingModel(YuppClassificationModel):
 class RoutingMultilabelClassificationModel(RoutingModel):
     """Multilabel classification model for routing."""
 
-    def __init__(self, model_name: str, label_map: dict[str, int]):
+    def __init__(self, model_name: str, label_map: dict[str, int], multilabel: bool = False):
         """
         Initialize the multilabel classification model.
 
@@ -33,6 +33,7 @@ class RoutingMultilabelClassificationModel(RoutingModel):
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.model2id = label_map
         self.id2model = {v: k for k, v in label_map.items()}
+        self.multilabel = multilabel
 
     @torch.no_grad()
     def route_to_models(self, prompt: str) -> dict[str, float]:

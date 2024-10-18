@@ -1,3 +1,5 @@
+import ast
+
 import numpy as np
 import torch
 from pydantic import BaseModel
@@ -12,7 +14,7 @@ class CategorizerTrainingExample(BaseModel):
     """
 
     prompt: str
-    category: str
+    category: list[str] | str
     difficulty: int  # an integer between 1 and 10
 
 
@@ -42,9 +44,15 @@ class CategorizerDataset(PandasDataset[CategorizerTrainingExample]):
             return x
 
         row = self.df.iloc[index]
+
+        try:
+            category = ast.literal_eval(row["category"])
+        except:  # noqa: E722
+            category = row["category"]
+
         return CategorizerTrainingExample(
             prompt=row["prompt"],
-            category=row["category"],
+            category=category,
             difficulty=remap(row["difficulty"]),
         )
 
@@ -55,9 +63,10 @@ class CategorizerCollator(TokenizerCollator[CategorizerTrainingExample]):
     maps categories to their corresponding indices.
     """
 
-    def __init__(self, tokenizer: AutoTokenizer, label_map: dict[str, int]) -> None:
+    def __init__(self, tokenizer: AutoTokenizer, label_map: dict[str, int], multilabel: bool = False) -> None:
         super().__init__(tokenizer)
         self.label_map = label_map
+        self.multilabel = multilabel
 
     def collate(self, batch: list[CategorizerTrainingExample]) -> StrTensorDict:
         """
@@ -79,7 +88,19 @@ class CategorizerCollator(TokenizerCollator[CategorizerTrainingExample]):
             return_attention_mask=True,
         ).data
 
-        tokenizer_output["category_labels"] = torch.tensor([self.label_map[example.category] for example in batch])
+        if self.multilabel:
+            category_labels = torch.zeros(len(batch), len(self.label_map))
+
+            for i, example in enumerate(batch):
+                for category in example.category:
+                    category_labels[i, self.label_map[category]] = 1
+
+            tokenizer_output["category_labels"] = category_labels
+        else:
+            tokenizer_output["category_labels"] = torch.tensor(
+                [self.label_map[example.category] for example in batch]  # type: ignore[index]
+            )
+
         tokenizer_output["difficulty_labels"] = torch.tensor([example.difficulty - 1 for example in batch])
 
         return tokenizer_output  # type: ignore

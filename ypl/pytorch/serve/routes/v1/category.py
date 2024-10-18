@@ -25,7 +25,7 @@ get_categorizer_model()  # warm up the model
 
 
 class CategorizeResponse(BaseModel):
-    category: str
+    category: str | list[str]
     difficulty: int
 
 

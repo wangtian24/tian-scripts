@@ -1,5 +1,8 @@
+from collections import defaultdict
 from typing import no_type_check
 
+import pandas as pd
+import sklearn
 import torch
 import torch.nn as nn
 import torch.utils.data as tud
@@ -102,10 +105,18 @@ class CategorizerTrainer(Trainer):  # type: ignore[misc]
         self, model: CategorizerClassificationModel, inputs: StrTensorDict, return_outputs: bool = False
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         logits = model(inputs)["logits"]
-        loss_fn = nn.CrossEntropyLoss(ignore_index=-1)
-        loss = loss_fn(logits[:, :-10], inputs["category_labels"]) + loss_fn(
-            logits[:, -10:], inputs["difficulty_labels"]
-        )
+
+        if model.multilabel:
+            loss_fn_multilabel = nn.BCEWithLogitsLoss()
+            loss_fn_difficulty = nn.CrossEntropyLoss()
+            loss = loss_fn_multilabel(logits[:, :-10], inputs["category_labels"]) + loss_fn_difficulty(
+                logits[:, -10:], inputs["difficulty_labels"]
+            )
+        else:
+            loss_fn = nn.CrossEntropyLoss(ignore_index=-1)
+            loss = loss_fn(logits[:, :-10], inputs["category_labels"]) + loss_fn(
+                logits[:, -10:], inputs["difficulty_labels"]
+            )
 
         return (loss, logits) if return_outputs else loss
 
@@ -114,6 +125,7 @@ class CategorizerTrainer(Trainer):  # type: ignore[misc]
         eval_dataset: tud.Dataset | dict[str, tud.Dataset] | None = None,
         ignore_keys: list[str] | None = None,
         metric_key_prefix: str = "eval",
+        multilabel: bool = False,
     ) -> dict[str, float]:
         self.model.eval()
 
@@ -122,22 +134,30 @@ class CategorizerTrainer(Trainer):  # type: ignore[misc]
             self.model, CategorizerClassificationModel
         ), "model must be an instance of CategorizerClassificationModel"
 
-        cat_accuracy = []
+        cat_metric = defaultdict(list)
         diff_accuracy = []
 
         for example in eval_dataset:  # type: ignore[attr-defined]
             category, difficulty = self.model.categorize(example.prompt)
-            cat_accuracy.append(int(category == example.category))
+
+            if multilabel:
+                assert isinstance(example.category, list) and isinstance(category, list)
+                ohv_enc = pd.get_dummies(list(set(example.category + category)))  # type: ignore[arg-type]
+                cat_metric["f1"].append(
+                    sklearn.metrics.f1_score(
+                        ohv_enc[example.category].values.astype(int).sum(-1),
+                        ohv_enc[category].values.astype(int).sum(-1),
+                        average="micro",
+                    )
+                )
+                cat_metric["exact_match"].append(int(set(category) == set(example.category)))
+            else:
+                cat_metric["accuracy"].append(int(category == example.category))
 
             if example.difficulty != 0:
                 diff_accuracy.append(int(difficulty == example.difficulty))
 
-            try:
-                print(cat_accuracy[-1], diff_accuracy[-1], category, difficulty, example.prompt[:100])
-            except Exception:
-                pass
-
         return dict(
-            cat_accuracy=sum(cat_accuracy) / len(cat_accuracy),
             diff_accuracy=sum(diff_accuracy) / len(diff_accuracy),
+            **{f"cat_{k}": sum(v) / len(v) for k, v in cat_metric.items()},
         )

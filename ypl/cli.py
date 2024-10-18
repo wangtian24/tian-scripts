@@ -40,8 +40,10 @@ from ypl.backend.llm.judge import (
     JudgeConfig,
     SpeedAwareYuppEvaluationLabeler,
     YuppEvaluationLabeler,
+    YuppMultilabelClassifier,
     YuppPromptDifficultyLabeler,
     YuppQualityLabeler,
+    YuppSingleDifficultyLabeler,
     choose_llm,
 )
 from ypl.backend.llm.labeler import WildChatRealismLabeler
@@ -587,7 +589,7 @@ def judge_yupp_llm_outputs(
     chat_io.flush()
 
 
-@cli.command(help="Evaluate the quality of LLM generations read in from a JSON file")
+@cli.command(help="Evaluate the traits of prompts and LLM responses read in from a JSON file")
 @click.option("-c", "--config", required=True, help="The judge config to use")
 @click.option("--limit", default=200, help="The number of examples to judge")
 @click.option(
@@ -607,12 +609,13 @@ def judge_yupp_llm_outputs(
 @click.option(
     "-j",
     "--num-parallel",
-    default=4,
+    default=64,
     help="The number of jobs to run in parallel. Optimal value depends on the rate limit and CPU cores.",
 )
-def judge_quality_llm_outputs(input_file: str, output_file: str, limit: int, config: str, num_parallel: int) -> None:
+def judge_prompt_traits(input_file: str, output_file: str, limit: int, config: str, num_parallel: int) -> None:
     lines = Path(input_file).read_text().splitlines()
     batch = []
+    orig_batch = []
 
     for idx, line in enumerate(lines):
         if idx >= limit:
@@ -623,27 +626,53 @@ def judge_quality_llm_outputs(input_file: str, output_file: str, limit: int, con
             data = [x for x in data if x["role"] in {"user", "assistant"}]
 
             if len(data) > 1:
-                prompt = next(x["content"] for x in data if x["role"] == "user")
-                response = next(x["content"] for x in data if x["role"] == "assistant")
-                batch.append((prompt, response))
+                user_turn = next(x for x in data if x["role"] == "user")
+                asst_turn = next(x for x in data if x["role"] == "assistant")
+                batch.append((user_turn["content"], asst_turn["content"]))
+                orig_batch.append((user_turn, asst_turn))
         except:  # noqa: E722
             continue
 
     cfg = JudgeConfig.parse_file(config)
     llm_info = cfg.llms[0]
     llm = get_chat_model(llm_info, temperature=0.0)
-    labeler = YuppQualityLabeler(llm, timeout_secs=cfg.timeout)
-    results = asyncio.run(labeler.abatch_label(batch))
+    labels_list: list[dict[str, Any]] = [{} for _ in orig_batch]
+
+    if "quality" not in orig_batch[0][1]:
+        logging.info("Labeling quality...")
+        quality_labeler = YuppQualityLabeler(llm, timeout_secs=cfg.timeout)
+        quality_results = asyncio.run(quality_labeler.abatch_label(batch, num_parallel=num_parallel))
+
+        for labels, result in zip(labels_list, quality_results, strict=True):
+            labels["quality"] = result
+
+    if "difficulty" not in orig_batch[0][1]:
+        logging.info("Labeling difficulty...")
+        difficulty_labeler = YuppSingleDifficultyLabeler(llm, timeout_secs=cfg.timeout)
+        difficulty_results = asyncio.run(
+            difficulty_labeler.abatch_label([x[1] for x in batch], num_parallel=num_parallel)
+        )
+
+        for labels, result in zip(labels_list, difficulty_results, strict=True):
+            labels["difficulty"] = result
+
+    if "categories" not in orig_batch[0][1]:
+        logging.info("Labeling categories...")
+        categorizer = YuppMultilabelClassifier(llm, timeout_secs=cfg.timeout)
+        category_results = asyncio.run(categorizer.abatch_label([x[1] for x in batch], num_parallel=num_parallel))
+
+        for labels, cat_result in zip(labels_list, category_results, strict=True):
+            labels["categories"] = cat_result
 
     output_file = output_file or input_file
 
     with Path(output_file).open("w") as f:
-        for data, score in zip(batch, results, strict=True):
+        for (orig_user_turn, orig_asst_turn), data, labels in zip(orig_batch, batch, labels_list, strict=True):
             print(
                 json.dumps(
                     [
-                        {"content": data[0], "role": "user"},
-                        {"content": data[1], "role": "assistant", "score": score},
+                        {**orig_user_turn, "content": data[0], "role": "user"},
+                        {**orig_asst_turn, "content": data[1], "role": "assistant", **labels},
                     ]
                 ),
                 file=f,

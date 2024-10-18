@@ -198,7 +198,7 @@ class PandasDataset(RNGMixin, TypedDataset[ExampleType]):
             case _:
                 raise ValueError("No default set")
 
-    def create_label_map(self) -> dict[str, int]:
+    def create_label_map(self, multilabel: bool = False) -> dict[str, int]:
         """
         Creates a mapping from category names to unique integer identifiers. Requires the label column to be set.
 
@@ -211,8 +211,12 @@ class PandasDataset(RNGMixin, TypedDataset[ExampleType]):
         if self.label_column is None:
             raise ValueError("Label column not set")
 
-        all_categories = self.df[self.label_column].unique().tolist()
-        category_map = {category: i for i, category in enumerate(all_categories)}
+        if multilabel:
+            all_categories_list = [x for labels in self.df[self.label_column].apply(eval) for x in labels]
+            category_map = {category: i for i, category in enumerate(set(all_categories_list))}
+        else:
+            all_categories = self.df[self.label_column].unique().tolist()
+            category_map = {category: i for i, category in enumerate(all_categories)}
 
         return category_map
 

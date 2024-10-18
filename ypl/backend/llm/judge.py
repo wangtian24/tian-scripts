@@ -1,3 +1,4 @@
+import json
 import random
 import re
 from typing import Any, Literal
@@ -13,6 +14,8 @@ from ypl.backend.prompts import (
     JUDGE_YUPP_CHAT_PROMPT_SPEED_AWARE_TEMPLATE,
     JUDGE_YUPP_CHAT_PROMPT_TEMPLATE,
     JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT_TEMPLATE,
+    PROMPT_MULTILABEL_CLASSIFICATION_PROMPT_TEMPLATE,
+    RESPONSE_DIFFICULTY_PROMPT_TEMPLATE,
     RESPONSE_QUALITY_PROMPT_TEMPLATE,
 )
 
@@ -114,3 +117,50 @@ class YuppQualityLabeler(LLMLabeler[tuple[str, str], int]):
     @property
     def error_value(self) -> int:
         return -1
+
+
+class YuppSingleDifficultyLabeler(LLMLabeler[str, int]):
+    """Labels the difficulty of a single prompt without providing a reference, unlike YuppPromptDifficultyLabeler."""
+
+    def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
+        return RESPONSE_DIFFICULTY_PROMPT_TEMPLATE | llm  # type: ignore
+
+    def _prepare_input(self, input: str) -> dict[str, Any]:
+        return dict(prompt=input)
+
+    def _parse_output(self, output: BaseMessage) -> int:
+        content = str(output.content)
+
+        if m := re.search(r"\{.*?\"score\":\s*(\d+)\}.*", content):
+            return int(m.group(1))
+
+        return self.error_value
+
+    @property
+    def error_value(self) -> int:
+        return -1
+
+
+class YuppMultilabelClassifier(LLMLabeler[str, list[str]]):
+    def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
+        return PROMPT_MULTILABEL_CLASSIFICATION_PROMPT_TEMPLATE | llm  # type: ignore
+
+    def _prepare_input(self, input: str) -> dict[str, Any]:
+        return dict(prompt=input)
+
+    def _parse_output(self, output: BaseMessage) -> list[str]:
+        content = str(output.content)
+
+        if m := re.search(r"\{.*?\"categories\":\s*(\[.*?\])\}.*", content):
+            item = json.loads(m.group(1))
+
+            if not isinstance(item, list):
+                return self.error_value
+
+            return item
+
+        return self.error_value
+
+    @property
+    def error_value(self) -> list[str]:
+        return []

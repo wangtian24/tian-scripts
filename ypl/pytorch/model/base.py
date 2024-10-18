@@ -90,10 +90,11 @@ class YuppModel(PyTorchModelHubMixin, DeviceMixin, nn.Module):  # type: ignore[m
 
 
 class YuppClassificationModel(YuppModel):
-    def __init__(self, model_name: str, label_map: dict[str, int]) -> None:
+    def __init__(self, model_name: str, label_map: dict[str, int], multilabel: bool = False) -> None:
         super().__init__()
         self.model_name = model_name
         self.label_map = label_map
+        self.multilabel = multilabel
 
 
 class YuppBucketingModel(YuppModel):
