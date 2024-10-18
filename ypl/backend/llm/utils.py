@@ -152,6 +152,9 @@ async def post_to_slack(message: str) -> None:
     Args:
         message (str): The message to post to Slack.
     """
+    if os.environ.get("ENVIRONMENT") != "production":
+        return
+
     webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
     if not webhook_url:
         logging.warning("SLACK_WEBHOOK_URL environment variable is not set")

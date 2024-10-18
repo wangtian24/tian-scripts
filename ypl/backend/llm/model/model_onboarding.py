@@ -2,6 +2,7 @@
 import logging
 import os
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
 # Third-party imports
@@ -13,7 +14,7 @@ from openai import OpenAI
 from sqlalchemy.exc import DatabaseError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
-from tenacity import after_log, retry_if_exception_type, stop_after_attempt, wait_fixed
+from tenacity import after_log, retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 from tenacity.asyncio import AsyncRetrying
 
 # Local imports
@@ -29,12 +30,14 @@ MMLU_PRO_THRESHOLD = 50
 DOWNLOADS_THRESHOLD = 1000
 LIKES_THRESHOLD = 100
 REJECT_AFTER_DAYS = 3
+MAX_RETRIES = 3
+WAIT_TIME = 5
 
 
 async def async_retry_decorator() -> AsyncRetrying:
     return AsyncRetrying(
-        stop=stop_after_attempt(3),
-        wait=wait_fixed(0.1),
+        stop=stop_after_attempt(MAX_RETRIES),
+        wait=wait_fixed(WAIT_TIME),
         after=after_log(logger, logging.WARNING),
         retry=retry_if_exception_type((OperationalError, DatabaseError)),
     )
@@ -267,47 +270,39 @@ def verify_inference_running(model: LanguageModel, provider_name: str, base_url:
         cleaned_provider_name = standardize_provider_name(provider_name)
 
         if cleaned_provider_name == "anthropic":
-            client_anthropic = anthropic.Anthropic(api_key=api_key)
-            message = client_anthropic.messages.create(
-                model=model.internal_name,
-                max_tokens=1024,
-                messages=[{"role": "user", "content": "What is the capital of Odisha?"}],
-            )
-            if message.content and len(message.content) > 0:
-                logger.info(f"Model {model.internal_name} is running on provider's endpoint.")
-                is_inference_running = True
+            try:
+                is_inference_running = anthropic_api_call(model.internal_name, api_key)
+                if is_inference_running:
+                    logger.info(f"Model {model.internal_name} is running on provider's endpoint.")
+            except Exception as e:
+                logger.error(f"Error calling Anthropic API for model {model.internal_name}: {str(e)}")
 
         elif cleaned_provider_name == "huggingface":
-            client_hf = InferenceClient(token=api_key)
-            messages = [
-                {"role": "user", "content": "Tell me a story"},
-            ]
-            completion = client_hf.chat.completions.create(model=model.internal_name, messages=messages, stream=True)
-
-            for chunk in completion:
-                if chunk.choices[0].delta.content and len(chunk.choices[0].delta.content) > 0:
+            try:
+                is_inference_running = huggingface_api_call(model.internal_name, api_key)
+                if is_inference_running:
                     logger.info(f"Model {model.internal_name} is running on provider's endpoint.")
-                    is_inference_running = True
-                    break
+            except Exception as e:
+                logger.error(f"Error calling Hugging Face API for model {model.internal_name}: {str(e)}")
 
         elif cleaned_provider_name == "google":
-            genai.configure(api_key=api_key)
-            google_model = genai.GenerativeModel(model.internal_name)
-            content = google_model.generate_content("What is the capital of Odisha?")
-
-            if content.text and len(content.text) > 0:
-                logger.info(f"Model {model.internal_name} is running on provider's endpoint.")
-                is_inference_running = True
+            try:
+                content = google_ai_api_call(model.internal_name, api_key)
+                if content.text and len(content.text) > 0:
+                    logger.info(f"Model {model.internal_name} is running on provider's endpoint.")
+                    is_inference_running = True
+            except Exception as e:
+                logger.error(f"Error calling Google AI API for model {model.internal_name}: {str(e)}")
 
         else:
             client_openai = OpenAI(api_key=api_key, base_url=base_url)
-            completion = client_openai.chat.completions.create(
-                model=model.internal_name,
-                messages=[{"role": "user", "content": "What is the capital of Odisha?"}],
-            )
-            if completion.choices[0].message.content and len(completion.choices[0].message.content) > 0:
-                logger.info(f"Model {model.internal_name} is running on provider's endpoint.")
-                is_inference_running = True
+            try:
+                completion = openai_api_call(client_openai, model.internal_name)
+                if completion.choices[0].message.content and len(completion.choices[0].message.content) > 0:
+                    logger.info(f"Model {model.internal_name} is running on provider's endpoint.")
+                    is_inference_running = True
+            except Exception as e:
+                logger.error(f"Error calling OpenAI API for model {model.internal_name}: {str(e)}")
 
         return is_inference_running
     except Exception as e:
@@ -341,3 +336,60 @@ def get_provider_api_key(provider_name: str) -> str:
         raise ValueError(f"API key not found for provider: {provider_name}")
 
     return api_key
+
+
+@retry(
+    stop=stop_after_attempt(MAX_RETRIES),
+    wait=wait_fixed(WAIT_TIME),
+    retry=retry_if_exception_type((Exception, TimeoutError)),
+)
+def openai_api_call(client: OpenAI, model_name: str) -> Any:
+    return client.chat.completions.create(
+        model=model_name,
+        messages=[{"role": "user", "content": "What is the capital of Odisha?"}],
+        timeout=5,
+    )
+
+
+@retry(
+    stop=stop_after_attempt(MAX_RETRIES),
+    wait=wait_fixed(WAIT_TIME),
+    retry=retry_if_exception_type((Exception, TimeoutError)),
+)
+def google_ai_api_call(model_name: str, api_key: str) -> Any:
+    genai.configure(api_key=api_key)
+    google_model = genai.GenerativeModel(model_name)
+    return google_model.generate_content("What is the capital of Odisha?")
+
+
+@retry(
+    stop=stop_after_attempt(MAX_RETRIES),
+    wait=wait_fixed(WAIT_TIME),
+    retry=retry_if_exception_type((Exception, TimeoutError)),
+)
+def huggingface_api_call(model_name: str, api_key: str) -> bool:
+    client_hf = InferenceClient(token=api_key)
+    messages = [
+        {"role": "user", "content": "Tell me a story"},
+    ]
+    completion = client_hf.chat.completions.create(model=model_name, messages=messages, stream=True)
+
+    for chunk in completion:
+        if chunk.choices[0].delta.content and len(chunk.choices[0].delta.content) > 0:
+            return True
+    return False
+
+
+@retry(
+    stop=stop_after_attempt(MAX_RETRIES),
+    wait=wait_fixed(WAIT_TIME),
+    retry=retry_if_exception_type((Exception, TimeoutError)),
+)
+def anthropic_api_call(model_name: str, api_key: str) -> bool:
+    client_anthropic = anthropic.Anthropic(api_key=api_key)
+    message = client_anthropic.messages.create(
+        model=model_name,
+        max_tokens=1024,
+        messages=[{"role": "user", "content": "What is the capital of Odisha?"}],
+    )
+    return bool(message.content and len(message.content) > 0)
