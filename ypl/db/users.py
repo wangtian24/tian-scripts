@@ -8,6 +8,7 @@ from sqlmodel import Field, Relationship
 
 from ypl.db.base import BaseModel
 from ypl.db.point_transactions import PointTransaction
+from ypl.db.rewards import Reward, RewardActionLog
 
 if TYPE_CHECKING:
     from ypl.db.chats import Chat, Eval, Turn
@@ -60,6 +61,8 @@ class User(BaseModel, table=True):
     synthetic_attributes: "SyntheticUserAttributes" = Relationship(back_populates="user", cascade_delete=True)
     backfill_attributes: "SyntheticBackfillAttributes" = Relationship(back_populates="generated_users")
     point_transactions: list[PointTransaction] = Relationship(back_populates="user", cascade_delete=True)
+    reward_action_logs: list["RewardActionLog"] = Relationship(back_populates="user", cascade_delete=True)
+    rewards: list["Reward"] = Relationship(back_populates="user", cascade_delete=True)
 
 
 class SyntheticUserAttributes(BaseModel, table=True):
