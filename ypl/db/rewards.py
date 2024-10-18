@@ -72,7 +72,7 @@ class Reward(BaseModel, table=True):
     reason: str = Field(nullable=False)
 
     # The reward action log ids that are associated with this reward.
-    reward_action_logs: list["RewardActionLog"] = Relationship(back_populates="reward")
+    reward_action_logs: list["RewardActionLog"] = Relationship(back_populates="associated_reward")
 
     # Transaction associated with claiming the reward.
     claim_transaction: "PointTransaction" = Relationship(back_populates="claimed_reward")
