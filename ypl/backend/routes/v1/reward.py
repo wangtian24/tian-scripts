@@ -1,7 +1,16 @@
-from fastapi import APIRouter, HTTPException
+from uuid import UUID
 
-from ypl.backend.llm.reward import RewardCreationResponse, create_reward, create_reward_action_log
-from ypl.db.rewards import RewardActionLog
+from fastapi import APIRouter, HTTPException, Query
+
+from ypl.backend.llm.reward import (
+    RewardClaimedResponse,
+    RewardCreationResponse,
+    RewardUnclaimedResponse,
+    create_reward,
+    create_reward_action_log,
+    process_reward_claim,
+)
+from ypl.db.rewards import RewardActionLog, RewardStatusEnum
 from ypl.logger import logger
 
 router = APIRouter()
@@ -29,4 +38,26 @@ async def record_reward_action(reward_action_log: RewardActionLog) -> RewardCrea
 
     except Exception as e:
         logger.exception("Error recording reward action: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/reward/{reward_id}/claim", response_model=RewardUnclaimedResponse | RewardClaimedResponse)
+async def claim_reward(
+    reward_id: UUID, user_id: str = Query(..., description="The user ID of the user claiming the reward")
+) -> RewardUnclaimedResponse | RewardClaimedResponse:
+    try:
+        reward_claim_struct = await process_reward_claim(reward_id, user_id)
+
+        if reward_claim_struct.status == RewardStatusEnum.UNCLAIMED:
+            return RewardUnclaimedResponse()
+        else:
+            return RewardClaimedResponse(
+                status=reward_claim_struct.status,
+                reason=reward_claim_struct.reason,
+                credit_delta=reward_claim_struct.credit_delta,
+                current_credit_balance=reward_claim_struct.current_credit_balance,
+            )
+
+    except Exception as e:
+        logger.exception("Error claiming reward: %s", str(e))
         raise HTTPException(status_code=500, detail=str(e)) from e
