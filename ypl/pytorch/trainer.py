@@ -1,5 +1,5 @@
 from collections import defaultdict
-from typing import no_type_check
+from typing import Any, no_type_check
 
 import pandas as pd
 import sklearn
@@ -101,13 +101,17 @@ class RoutingMultilabelTrainer(Trainer):  # type: ignore[misc]
 class CategorizerTrainer(Trainer):  # type: ignore[misc]
     """Transformers trainer for categorizer models."""
 
+    def __init__(self, pos_weights: torch.Tensor, *args: Any, **kwargs: Any):
+        super().__init__(*args, **kwargs)
+        self.pos_weights = pos_weights
+
     def compute_loss(
         self, model: CategorizerClassificationModel, inputs: StrTensorDict, return_outputs: bool = False
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         logits = model(inputs)["logits"]
 
         if model.multilabel:
-            loss_fn_multilabel = nn.BCEWithLogitsLoss()
+            loss_fn_multilabel = nn.BCEWithLogitsLoss(pos_weight=self.pos_weights.to(model.device))
             loss_fn_difficulty = nn.CrossEntropyLoss()
             loss = loss_fn_multilabel(logits[:, :-10], inputs["category_labels"]) + loss_fn_difficulty(
                 logits[:, -10:], inputs["difficulty_labels"]

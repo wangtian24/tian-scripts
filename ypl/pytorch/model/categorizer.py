@@ -26,7 +26,7 @@ class CategorizerClassificationModel(TorchAccelerationMixin, CategorizerModel):
         model_name: str,
         label_map: dict[str, int],
         multilabel: bool = False,
-        multilabel_threshold: float = 0.35,
+        multilabel_threshold: float = 0.55,  # seems to work well empirically
     ):
         """
         Initialize the classification model.

@@ -8,7 +8,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 
 from ypl.backend.llm.chat import ModelInfo, get_chat_model
-from ypl.backend.llm.constants import MODEL_DESCRIPTIONS, MODEL_HEURISTICS
+from ypl.backend.llm.constants import DEFAULT_MODEL_HEURISTICS, MODEL_DESCRIPTIONS, MODEL_HEURISTICS
 from ypl.backend.llm.labeler import LLMLabeler
 from ypl.backend.llm.routing.policy import SelectionCriteria
 from ypl.backend.llm.routing.router import ModelProposer, RouterState
@@ -43,11 +43,29 @@ class ZeroShotPromptQualityLabeler(LLMLabeler[str, list[str]]):
 
 
 class RemotePromptCategorizerProposer(ModelProposer):
-    def __init__(self, prompt: str, api_endpoint: str, api_key: str, remove_negative_quality: bool = True) -> None:
+    def __init__(
+        self,
+        prompt: str,
+        api_endpoint: str,
+        api_key: str,
+        skill_deficit_threshold: int = 0,
+        exclude_unknown_models: bool = True,
+    ) -> None:
+        """
+        Args:
+            prompt: The prompt to categorize.
+            api_endpoint: The endpoint of the remote categorizer.
+            api_key: The API key to use for the remote categorizer.
+            skill_deficit_threshold: The skill deficit threshold. Models with `difficulty - skill` less than
+                this threshold are excluded.
+            exclude_unknown_models: Whether to exclude unknown models. If false, mistral-large-latest is assumed to be
+                representative of all unknown models in quality.
+        """
         self.prompt = prompt
         self.api_endpoint = api_endpoint
         self.api_key = api_key
-        self.remove_negative_quality = remove_negative_quality
+        self.skill_deficit_threshold = -skill_deficit_threshold
+        self.exclude_unknown_models = exclude_unknown_models
 
     def _select_models_from_category(
         self, response: dict[str, Any], models_to_select: set[str]
@@ -65,14 +83,14 @@ class RemotePromptCategorizerProposer(ModelProposer):
         logging.info(f"Prompt categorizer response: {response}")
 
         for model in models_to_select:
-            if model not in MODEL_HEURISTICS:
+            if model not in MODEL_HEURISTICS and self.exclude_unknown_models:
                 excluded_models.add(model)
                 continue
 
-            heuristics = MODEL_HEURISTICS[model]
+            heuristics = MODEL_HEURISTICS.get(model, DEFAULT_MODEL_HEURISTICS)
             quality = heuristics.estimate_quality(category, difficulty)
 
-            if self.remove_negative_quality and quality < 0:
+            if quality < self.skill_deficit_threshold:
                 excluded_models.add(model)
                 continue
 

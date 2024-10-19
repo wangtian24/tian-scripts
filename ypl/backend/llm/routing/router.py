@@ -8,7 +8,6 @@ from typing import Any
 import numba
 import numpy as np
 from google.auth import default
-from google.cloud import logging as goog_logging
 from google.cloud import run_v2
 from pydantic import BaseModel
 from sqlmodel import select
@@ -20,11 +19,10 @@ from ypl.backend.llm.chat import adeduce_original_provider, simple_deduce_origin
 from ypl.backend.llm.constants import MODEL_HEURISTICS
 from ypl.backend.llm.ranking import ConfidenceIntervalRankerMixin, Ranker, get_ranker
 from ypl.backend.llm.routing.policy import SelectionCriteria, decayed_random_fraction
+from ypl.backend.llm.routing.router_data_type import RoutingPreference
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
+from ypl.logger import logger
 from ypl.utils import RNGMixin, async_timed_cache
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 
 class RouterState(BaseModel):
@@ -36,16 +34,42 @@ class RouterState(BaseModel):
     selected_models: dict[str, dict[SelectionCriteria, float]] = {}  # models to selection criterias and scores
     excluded_models: set[str] = set()  # models to exclude
     all_models: set[str] = set()  # all models to choose from
+    always_include: bool = False  # override exclusion while combining states
+    always_include_models: set[str] = set()
+
+    def emplaced(self, **kwargs: Any) -> "RouterState":
+        """
+        Creates a new RouterState with the same values as the current state, but with the specified kwargs updated.
+        """
+        return self.model_copy(update=kwargs, deep=True)
 
     def __add__(self, other: "RouterState") -> "RouterState":
         """
-        Merge two RouterStates together, adding the scores of duplicate model-criteria pairs.
+        Merge two RouterStates together, adding the scores of duplicate model-criteria pairs. States with the
+        `always_include` flag set will also include all of their selected models, regardless of whether they
+        are in the excluded sets of either states. The always included models are removed from the excluded
+        sets of the final state.
         """
         merged_selected_models: dict[str, dict[SelectionCriteria, float]] = {}
+        excluded_models = self.excluded_models.union(other.excluded_models)
+        always_included_models = self.always_include_models.union(other.always_include_models)
+
+        if self.always_include:
+            always_included_models.update(self.selected_models.keys())
+
+        if other.always_include:
+            always_included_models.update(other.selected_models.keys())
+
+        excluded_models = excluded_models - always_included_models
 
         for model, criteria_map in chain(other.selected_models.items(), self.selected_models.items()):
-            if model in self.excluded_models or model in other.excluded_models:
+            if model in excluded_models:
                 continue
+
+            try:
+                excluded_models.remove(model)
+            except KeyError:
+                pass
 
             for criteria, score in criteria_map.items():
                 if model not in merged_selected_models:
@@ -58,8 +82,9 @@ class RouterState(BaseModel):
 
         return RouterState(
             selected_models=merged_selected_models,
-            excluded_models=self.excluded_models.union(other.excluded_models),
+            excluded_models=excluded_models,
             all_models=self.all_models.union(other.all_models),
+            always_include_models=always_included_models,
         )
 
     def __sub__(self, other: "RouterState") -> "RouterState":
@@ -179,12 +204,16 @@ class RouterModule(ABC):
     """
 
     _multiplier: float | None = None
+    _always_include: bool | None = None
 
     def select_models(self, state: RouterState | None = None) -> RouterState:
         response = self._select_models(state or RouterState())
 
         if self._multiplier is not None:
             response.multiply_scores(self._multiplier)
+
+        if self._always_include is not None:
+            response.always_include = self._always_include
 
         return response
 
@@ -194,10 +223,18 @@ class RouterModule(ABC):
         if self._multiplier is not None:
             response.multiply_scores(self._multiplier)
 
+        if self._always_include is not None:
+            response.always_include = self._always_include
+
         return response
 
-    def with_multiplier(self, multiplier: float) -> "RouterModule":
-        self._multiplier = multiplier
+    def with_flags(self, *, multiplier: float | None = None, always_include: bool | None = None) -> "RouterModule":
+        if multiplier is not None:
+            self._multiplier = multiplier
+
+        if always_include is not None:
+            self._always_include = always_include
+
         return self
 
     def __or__(self, other: "RouterModule") -> "RouterModule":
@@ -253,7 +290,7 @@ class RouterDecisionLogger(RouterModule):
                     )
                 ),
             )
-            decision.log(structured_output=True)
+            decision.log()
 
         return state
 
@@ -420,6 +457,22 @@ class ModelProposer(RouterModule):
 
 
 class RandomModelProposer(RNGMixin, ModelProposer):
+    def __init__(self, *, models: set[str] | None = None, providers: set[str] | None = None) -> None:
+        self.models = models or set()
+        self.providers = providers or set()
+
+    def _random_select(self, models_to_select: set[str], state: RouterState) -> RouterState:
+        if not models_to_select:
+            return RouterState()
+
+        selected_models = self.get_rng().choice(list(models_to_select), len(models_to_select), replace=False)
+
+        return state.emplaced(
+            selected_models={model: {SelectionCriteria.RANDOM: self.get_rng().random()} for model in selected_models},
+            all_models=state.all_models,
+            excluded_models=state.excluded_models | (state.all_models - set(selected_models)),
+        )
+
     def _propose_models(self, models_to_select: set[str], state: RouterState) -> RouterState:
         """
         Randomly select a set of models to route to.
@@ -429,12 +482,26 @@ class RandomModelProposer(RNGMixin, ModelProposer):
             models_to_select: The set of models to randomly select from.
             state: The state to propose models for.
         """
-        selected_models = self.get_rng().choice(list(models_to_select), len(models_to_select), replace=False)
+        if self.models:
+            models_to_select = models_to_select.intersection(self.models)
 
-        return RouterState(
-            selected_models={model: {SelectionCriteria.RANDOM: self.get_rng().random()} for model in selected_models},
-            excluded_models=state.excluded_models,
-        )
+        if self.providers:
+            models_to_select = {
+                model for model in models_to_select if simple_deduce_original_provider(model) in self.providers
+            }
+
+        return self._random_select(models_to_select, state)
+
+    async def _apropose_models(self, models_to_select: set[str], state: RouterState) -> RouterState:
+        if self.models:
+            models_to_select = models_to_select.intersection(self.models)
+
+        if self.providers:
+            models_to_select = {
+                model for model in models_to_select if (await adeduce_original_provider(model)) in self.providers
+            }
+
+        return self._random_select(models_to_select, state)
 
 
 class ModelFilter(RouterModule):
@@ -504,6 +571,45 @@ class TopK(ModelFilter):
         return state, excluded_models
 
 
+class RandomJitter(RNGMixin, ModelFilter):
+    """Randomly jitters the sum of scores for each selected model."""
+
+    def __init__(
+        self,
+        *,
+        jitter_range: float | None = None,
+        jitter_pct: float | None = None,
+        persist: bool = True,
+    ) -> None:
+        """
+        Creates a new RandomJitter filter.
+
+        Args:
+            jitter_range: The range of the jitter.
+            jitter_pct: The percentage of the sum of scores to jitter as a number between 0 and 1.
+            persist: Whether to persist the models that are excluded from the selection, so that they are never
+                selected again in future routing modules.
+        """
+        super().__init__(persist=persist)
+        self.jitter_range = jitter_range
+        self.jitter_pct = jitter_pct
+
+    def _filter(self, state: RouterState) -> tuple[RouterState, set[str]]:
+        for scores in state.selected_models.values():
+            if self.jitter_range is not None:
+                jitter = self.get_rng().uniform(-self.jitter_range, self.jitter_range) / len(scores)
+            elif self.jitter_pct is not None:
+                jitter = self.get_rng().uniform(-self.jitter_pct, self.jitter_pct)
+                jitter = jitter * sum(scores.values()) / len(scores)
+            else:
+                raise ValueError("Either jitter_range or jitter_pct must be provided")
+
+            for criterion, score in scores.items():
+                scores[criterion] = score + jitter  # this may result in a negative score, which is fine
+
+        return state, set()
+
+
 class MinimumFractionModelProposer(RNGMixin, ModelProposer):
     def __init__(
         self,
@@ -523,7 +629,7 @@ class MinimumFractionModelProposer(RNGMixin, ModelProposer):
 
         selected_models = self.get_rng().choice(models, min(self.num_models, len(models)), replace=False, p=probs)
 
-        return RouterState(
+        return state.emplaced(
             selected_models={model: {SelectionCriteria._MIN_TRAFFIC_FRACTION: 1.0} for model in selected_models},
             excluded_models=state.excluded_models,
         )
@@ -550,13 +656,13 @@ class RandomShuffle(RNGMixin, ModelProposer):
                 for model in models:
                     selected_models[model] = {SelectionCriteria.RANDOM: score}
 
-            return RouterState(
+            return state.emplaced(
                 selected_models=selected_models, excluded_models=state.excluded_models, all_models=set(models_to_select)
             )
         else:
             selected_models = self.get_rng().choice(list(models_to_select), len(models_to_select), replace=False)  # type: ignore
 
-            return RouterState(
+            return state.emplaced(
                 selected_models={model: {SelectionCriteria.RANDOM: 1.0} for model in selected_models},
                 excluded_models=state.excluded_models,
                 all_models=set(models_to_select),
@@ -617,11 +723,10 @@ class EloProposer(RNGMixin, ModelProposer):
 
         max_elo = max(elo_ratings.values(), default=1.0)
 
-        return RouterState(
+        return state.emplaced(
             selected_models={
                 model: {SelectionCriteria.TOP: elo_ratings.get(model, 1.0) / max_elo} for model in selected_models
-            },
-            excluded_models=state.excluded_models,
+            }
         )
 
 
@@ -666,9 +771,8 @@ class ProportionalModelProposer(RNGMixin, ModelProposer):
             )
         )
 
-        return RouterState(
+        return state.emplaced(
             selected_models={model: {SelectionCriteria.PROPORTIONAL: 1.0} for model in chosen_models},
-            excluded_models=state.excluded_models,
             all_models=set(models),
         )
 
@@ -701,12 +805,11 @@ class ConfidenceIntervalWidthModelProposer(ModelProposer):
         sorted_models = sorted(conf_interval_widths.items(), key=lambda x: x[1], reverse=True)
         selected_models = [model for model, _ in sorted_models[: self.num_models]]
 
-        return RouterState(
+        return state.emplaced(
             selected_models={
                 model: {SelectionCriteria.CONF_INTERVAL_WIDTH: 1.0 / (rank + 1)}
                 for rank, model in enumerate(selected_models)
             },
-            excluded_models=state.excluded_models,
             all_models=set(conf_interval_widths.keys()),
         )
 
@@ -750,12 +853,11 @@ class ConfidenceIntervalNumOverlapModelProposer(ModelProposer):
 
         selected_models = [model for _, model in sorted_models][:k]
 
-        return RouterState(
+        return state.emplaced(
             selected_models={
                 model: {SelectionCriteria.CONF_INTERVAL_NUM_OVERLAP: 1.0 / (rank + 1)}
                 for rank, model in enumerate(selected_models)
             },
-            excluded_models=state.excluded_models,
             all_models=set(models),
         )
 
@@ -797,12 +899,11 @@ class ConfidenceIntervalWidthOverlapModelProposer(ModelProposer):
         highest_overlapping_pairs, _ = _fast_compute_all_conf_overlap_diffs(np.array(conf_intervals), num_models)
         sorted_ind = list(dict.fromkeys(highest_overlapping_pairs.flatten()))[:num_models]
 
-        return RouterState(
+        return state.emplaced(
             selected_models={
                 models[i]: {SelectionCriteria.CONF_INTERVAL_PAIR_OVERLAP: 1.0 / (rank + 1)}
                 for rank, i in enumerate(sorted_ind)
             },
-            excluded_models=state.excluded_models,
             all_models=set(models),
         )
 
@@ -821,11 +922,10 @@ class CostModelProposer(ModelProposer):
 
         selected_models = sorted(model_costs, key=lambda x: x[0])
 
-        return RouterState(
+        return state.emplaced(
             selected_models={
                 model: {SelectionCriteria.MIN_SIMPLE_COST: 1 / (cost + 1)} for cost, model in selected_models
             },
-            excluded_models=state.excluded_models,
             all_models=set([x[1] for x in model_costs]),
         )
 
@@ -912,14 +1012,29 @@ class MaxSpeedProposer(ModelProposer):
             for model_name in models_to_select
         ]
 
+        if not model_speeds:
+            return state
+
         max_speed = max(speed for _, speed in model_speeds)
 
-        return RouterState(
+        return state.emplaced(
             selected_models={
                 model_name: {SelectionCriteria.MAX_SPEED: speed / max_speed} for model_name, speed in model_speeds
             },
             all_models=models_to_select,
         )
+
+
+class Exclude(ModelFilter):
+    def __init__(self, models: set[str]):
+        super().__init__(persist=True)
+        self.models = set(models)
+
+    def _filter(self, state: RouterState) -> tuple[RouterState, set[str]]:
+        return state.emplaced(
+            selected_models={k: v for k, v in state.selected_models.items() if k not in self.models},
+            excluded_models=self.models | state.excluded_models,
+        ), self.models
 
 
 class RoutingDecision:
@@ -949,14 +1064,11 @@ class RoutingDecision:
         self.selection_criteria = selection_criteria
         self.additional_metadata = kwargs
 
-    def log(self, structured_output: bool = False) -> None:
+    def log(self) -> None:
         """
         Logs the routing decision with a lot of schema flexibility. Parts of this should eventually be standardized
         once our router models are more concrete. The `additional_metadata` kwargs will be stored under the
         `additional_metadata` field in the log.
-
-        Args:
-            structured_output: Whether to log the decision in a structured format. This requires google-cloud-logging.
         """
         payload = {
             "codebase_version": self.codebase_version,
@@ -967,12 +1079,7 @@ class RoutingDecision:
             "additional_metadata": self.additional_metadata,
         }
 
-        if structured_output and settings.USE_GOOGLE_CLOUD_LOGGING:
-            logging_client = goog_logging.Client()
-            logger = logging_client.logger("routing-decisions")
-            logger.log_struct(payload)
-        else:
-            logging.info(f"Routing decision: {payload}")
+        logger.info(f"Routing decision: {payload}")
 
 
 class ProviderFilter(ModelFilter):
@@ -1034,7 +1141,7 @@ class ProviderFilter(ModelFilter):
 
         excluded_models = state.selected_models.keys() - filtered_models.keys()
 
-        return RouterState(
+        return state.emplaced(
             selected_models=filtered_models,
             all_models=state.all_models,
         ), excluded_models
@@ -1063,10 +1170,7 @@ class ProviderFilter(ModelFilter):
 
         excluded_models = state.selected_models.keys() - filtered_models.keys()
 
-        return RouterState(
-            selected_models=filtered_models,
-            all_models=state.all_models,
-        ), excluded_models
+        return state.emplaced(selected_models=filtered_models), excluded_models
 
 
 def get_router_ranker(ranker: Ranker | None = None) -> tuple[RouterModule, Ranker]:
@@ -1103,27 +1207,71 @@ def get_gcp_cloud_run_uri(service_name: str, region: str) -> str:
     return response.uri
 
 
-def get_prompt_conditional_router(prompt: str, num_models: int) -> RouterModule:
+def get_prompt_conditional_router(
+    prompt: str,
+    num_models: int,
+    routing_preference: RoutingPreference | None = None,
+) -> RouterModule:
     from ypl.backend.llm.routing.prompt_router import RemotePromptCategorizerProposer
 
-    rand_weight = settings.ROUTING_WEIGHTS.get("random", 0.1)
-    prompt_weight = settings.ROUTING_WEIGHTS.get("best_prompt_quality", 0.5)
     endpoint = settings.PYTORCH_SERVE_GCP_URL
     key = settings.X_API_KEY
+    preference = routing_preference or RoutingPreference(turns=[])
 
-    router: RouterModule = (
-        (
-            RandomModelProposer()
-            ^ (
-                RemotePromptCategorizerProposer(prompt, endpoint, key)
-                | MaxSpeedProposer()
-                | (
-                    ProviderFilter(one_per_provider=True) & Passthrough().with_multiplier(0.01)
-                )  # small weight so it only kicks in if not enough selected
-            )
-        ).with_probs(rand_weight, prompt_weight)
-        | TopK(num_models)
-        | RouterDecisionLogger(enabled=settings.ROUTING_DO_LOGGING, prefix="prompt-conditional-router")
+    reputable_proposer = RandomModelProposer(providers={"openai", "google", "anthropic", "azure", "microsoft", "meta"})
+    categorizer_proposer = RemotePromptCategorizerProposer(
+        prompt,
+        endpoint,
+        key,
+        exclude_unknown_models=False,
+        skill_deficit_threshold=1,
     )
+    easy_categorizer_proposer = RemotePromptCategorizerProposer(
+        prompt,
+        endpoint,
+        key,
+        exclude_unknown_models=False,
+        skill_deficit_threshold=2,
+    )
+
+    if not preference.turns:
+        # Construct a first-turn router guaranteeing at least two reputable models, focusing on speed but
+        # also with random jitter.
+        router: RouterModule = (
+            reputable_proposer
+            | categorizer_proposer
+            | MaxSpeedProposer()
+            | RandomJitter(jitter_range=30.0)  # +/- 30 tokens per second
+            | (ProviderFilter(one_per_provider=True) & Passthrough().with_flags(multiplier=0.01))
+            | TopK(num_models)
+            | RouterDecisionLogger(enabled=settings.ROUTING_DO_LOGGING, prefix="first-prompt-conditional-router")
+        )
+    else:
+        # This is the router for all turns after the first; construct it based on the preference
+        # and the branding. If both are bad, we default to one branded and one random. If one branded one is
+        # good, we choose that and use a random model for the other.
+        all_models = set(model for turn in preference.turns for model in turn.models)
+        all_good_models = set(turn.preferred for turn in preference.turns if turn.preferred is not None)
+        all_bad_models = all_models - all_good_models
+
+        router: RouterModule = (  # type: ignore[no-redef]
+            (
+                (RandomModelProposer(models=all_good_models).with_flags(multiplier=1000) | TopK(1)).with_flags(
+                    always_include=True
+                )
+                & (
+                    easy_categorizer_proposer
+                    | Exclude(all_bad_models)
+                    | ProviderFilter(one_per_provider=True)
+                    | MaxSpeedProposer()
+                    | RandomJitter(jitter_range=30.0)  # +/- 30 tokens per second
+                    | TopK(1)
+                ).with_flags(always_include=True)
+                & RandomModelProposer().with_flags(multiplier=0.01, always_include=True)
+            )
+            | (ProviderFilter(one_per_provider=True) & Passthrough().with_flags(multiplier=0.01))
+            | TopK(num_models)
+            | RouterDecisionLogger(enabled=settings.ROUTING_DO_LOGGING, prefix="nonfirst-prompt-conditional-router")
+        )
 
     return router

@@ -683,6 +683,8 @@ MODEL_DESCRIPTIONS = {
     "qwen-max": ("A good model, especially for Mandarin Chinese. Kind of slow."),
 }
 
+DEFAULT_MODEL_HEURISTICS = MODEL_HEURISTICS["mistral-large-latest"]
+
 PROVIDER_KEY_MAPPING = {
     "alibaba": "ALIBABA_API_KEY",
     "anthropic": "ANTHROPIC_API_KEY",

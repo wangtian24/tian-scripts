@@ -45,6 +45,11 @@ def do_simple_classification_training(
     train_dataset, val_dataset = dataset.split(percentage=training_pct)
     label_map = dataset.create_label_map(multilabel=multilabel)
     model = model_cls(model_name=model_name, label_map=label_map, multilabel=multilabel)
+    kwargs = {}
+
+    if multilabel:
+        pos_weights = dataset.compute_label_pos_weights(label_map)  # type: ignore[attr-defined]
+        kwargs["pos_weights"] = pos_weights
 
     if load_from is not None:
         model = model_cls.from_pretrained(load_from)
@@ -64,6 +69,7 @@ def do_simple_classification_training(
         train_dataset=train_dataset,
         eval_dataset=val_dataset,
         data_collator=collator_cls(tokenizer=model.tokenizer, label_map=label_map, multilabel=multilabel),  # type: ignore[call-arg]
+        **kwargs,
     )
 
     try:

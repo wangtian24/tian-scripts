@@ -1,4 +1,5 @@
 import ast
+from collections import Counter
 
 import numpy as np
 import torch
@@ -55,6 +56,42 @@ class CategorizerDataset(PandasDataset[CategorizerTrainingExample]):
             category=category,
             difficulty=remap(row["difficulty"]),
         )
+
+    def compute_label_pos_weights(self, label_map: dict[str, int], p: float = 0.4) -> torch.Tensor:
+        """
+        Computes the positive label weights for the categorizer model on the number of examples per category.
+        Takes an inverse power of the proportion of examples per category to downweight the majority classes.
+        Empirically, using a power of 0.4 works well.
+
+        Args:
+            label_map: Mapping from category names to unique integer IDs.
+            p: The power of the inverse to use.
+
+        Returns:
+            A tensor of positive label weights for use with `BCEWithLogitsLoss`.
+        """
+        label_counts: dict[int, int] = Counter()
+
+        for _, row in self.df.iterrows():
+            try:
+                categories = ast.literal_eval(row["category"])
+            except:  # noqa: E722
+                continue
+
+            if not isinstance(categories, list):  # only for multilabel datasets
+                continue
+
+            for category in categories:
+                label_counts[label_map[category]] += 1
+
+        counts = torch.zeros(len(label_map), dtype=torch.float)
+
+        for label, count in label_counts.items():
+            counts[label] = count
+
+        counts /= counts.sum()  # normalize to sum to 1
+
+        return (1 / counts) ** p  # type: ignore[no-any-return]
 
 
 class CategorizerCollator(TokenizerCollator[CategorizerTrainingExample]):

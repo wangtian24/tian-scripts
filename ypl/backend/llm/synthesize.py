@@ -292,7 +292,7 @@ async def asynthesize_chats(
     user: SyntheticYuppChatUser,
     num_chats: int = 1,
     num_parallel: int = 16,
-    chunk_size: int = 200,
+    chunk_size: int = 1000,
 ) -> list[YuppChatMessageHistory]:
     """Synthesizes multiple chats asynchronously using the given configuration."""
     sem = asyncio.Semaphore(num_parallel)
