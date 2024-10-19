@@ -2,17 +2,16 @@
 
 # Default values point to the GCP Development DB fronted with PgBouncer
 DEFAULT_SRC_HOST="34.85.174.70" #pgbouncer
-DEFAULT_SRC_PORT="6432" #pgbouncer port
+DEFAULT_SRC_PORT="64321" #pgbouncer port
 DEFAULT_SRC_DB="yuppdb"
-DEFAULT_SRC_USER="postgres"
-#DEFAULT_SRC_PASSWORD="" #user input only
+DEFAULT_SRC_USER="be_app_user"
 
 # Default values point to the local development DB
 DEFAULT_DEST_HOST="localhost"
 DEFAULT_DEST_PORT="5432"
 DEFAULT_DEST_DB="yuppdb"
 DEFAULT_DEST_USER="postgres"
-DEFAULT_DEST_PASSWORD="local"
+DEFAULT_DEST_PASSWORD="local" # default pwd for local pg installed through script
 
 # Function to prompt for input with default value
 prompt_with_default() {
@@ -43,7 +42,6 @@ TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 DUMP_FILE="/tmp/db_dump_${TIMESTAMP}.backup"
 
 echo "***********Backing up source database...***********"
-#PGPASSWORD=$SRC_PASSWORD 
 pg_dump -h $SRC_HOST -p $SRC_PORT -U $SRC_USER -d $SRC_DB -F c -b -v -f $DUMP_FILE
 
 if [ $? -ne 0 ]; then
