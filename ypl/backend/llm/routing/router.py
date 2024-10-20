@@ -1,4 +1,5 @@
 import heapq
+import json
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
@@ -21,7 +22,6 @@ from ypl.backend.llm.ranking import ConfidenceIntervalRankerMixin, Ranker, get_r
 from ypl.backend.llm.routing.policy import SelectionCriteria, decayed_random_fraction
 from ypl.backend.llm.routing.router_data_type import RoutingPreference
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
-from ypl.logger import logger
 from ypl.utils import RNGMixin, async_timed_cache
 
 
@@ -1070,7 +1070,7 @@ class RoutingDecision:
         once our router models are more concrete. The `additional_metadata` kwargs will be stored under the
         `additional_metadata` field in the log.
         """
-        payload = {
+        log_dict = {
             "codebase_version": self.codebase_version,
             "prefix": self.prefix,
             "candidate_model_names": self.candidate_model_names,
@@ -1079,7 +1079,7 @@ class RoutingDecision:
             "additional_metadata": self.additional_metadata,
         }
 
-        logger.info(f"Routing decision: {payload}")
+        logging.info(json.dumps(log_dict))
 
 
 class ProviderFilter(ModelFilter):

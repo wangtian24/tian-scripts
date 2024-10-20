@@ -11,7 +11,6 @@ from sqlmodel import Session, select
 from tenacity import after_log, retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 from ypl.backend.db import get_engine
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, LicenseEnum
-from ypl.logger import logger
 
 
 class LanguageModelStruct(BaseModel):
@@ -33,7 +32,7 @@ class LanguageModelStruct(BaseModel):
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_fixed(0.1),
-    after=after_log(logger, logging.WARNING),
+    after=after_log(logging.getLogger(), logging.WARNING),
     retry=retry_if_exception_type((OperationalError, DatabaseError)),
 )
 def create_model(model: LanguageModel) -> UUID:
@@ -50,7 +49,7 @@ def create_model(model: LanguageModel) -> UUID:
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_fixed(0.1),
-    after=after_log(logger, logging.WARNING),
+    after=after_log(logging.getLogger(), logging.WARNING),
     retry=retry_if_exception_type((OperationalError, DatabaseError)),
 )
 def get_models(
@@ -108,7 +107,7 @@ def get_models(
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_fixed(0.1),
-    after=after_log(logger, logging.WARNING),
+    after=after_log(logging.getLogger(), logging.WARNING),
     retry=retry_if_exception_type((OperationalError, DatabaseError)),
 )
 # Only active and inactive models are returned as part of the model details as these
@@ -138,7 +137,7 @@ def get_model_details(model_id: str) -> LanguageModelStruct | None:
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_fixed(0.1),
-    after=after_log(logger, logging.WARNING),
+    after=after_log(logging.getLogger(), logging.WARNING),
     retry=retry_if_exception_type((OperationalError, DatabaseError)),
 )
 def update_model(model_id: str, updated_model: LanguageModel) -> LanguageModelStruct:
@@ -168,7 +167,7 @@ def update_model(model_id: str, updated_model: LanguageModel) -> LanguageModelSt
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_fixed(0.1),
-    after=after_log(logger, logging.WARNING),
+    after=after_log(logging.getLogger(), logging.WARNING),
     retry=retry_if_exception_type((OperationalError, DatabaseError)),
 )
 def delete_model(model_id: str) -> None:

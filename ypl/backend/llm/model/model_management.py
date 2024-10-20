@@ -1,4 +1,5 @@
 # Standard library imports
+import json
 import logging
 import os
 from uuid import UUID
@@ -15,14 +16,13 @@ from ypl.backend.db import get_async_engine
 from ypl.backend.llm.model.model_onboarding import verify_inference_running
 from ypl.backend.llm.utils import post_to_slack
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
-from ypl.logger import logger
 
 
 async def async_retry_decorator() -> AsyncRetrying:
     return AsyncRetrying(
         stop=stop_after_attempt(3),
         wait=wait_fixed(0.1),
-        after=after_log(logger, logging.WARNING),
+        after=after_log(logging.getLogger(), logging.WARNING),
         retry=retry_if_exception_type((OperationalError, DatabaseError)),
     )
 
@@ -48,6 +48,12 @@ async def validate_active_onboarded_models() -> None:
                     )
                 )
                 active_models = await session.execute(query)
+                result = await session.execute(query)
+                active_models = result.all()
+                active_models_count = len(active_models)
+
+                log_dict = {"message": "Active models count", "active_models_count": active_models_count}
+                logging.info(json.dumps(log_dict))
 
                 for model, provider_name, base_url in active_models:
                     await verify_and_update_model_status(session, model, provider_name, base_url)
@@ -83,7 +89,8 @@ async def validate_specific_active_model(model_id: UUID) -> None:
                     await verify_and_update_model_status(session, model, provider_name, base_url)
                     await session.commit()
                 else:
-                    logger.warning(f"No active model found with id {model_id}")
+                    log_dict = {"message": "No active model found", "model_id": model_id}
+                    logging.warning(json.dumps(log_dict))
 
 
 async def verify_and_update_model_status(
@@ -106,17 +113,35 @@ async def verify_and_update_model_status(
             # and set the model to INACTIVE after a certain number of failures
             # model.status = LanguageModelStatusEnum.INACTIVE
             # model.modified_at = datetime.utcnow()
-            error_message = (
+
+            log_dict = {
+                "message": "Model is not running at the inference endpoint",
+                "model_name": model.name,
+                "model_internal_name": model.internal_name,
+                "provider_name": provider_name,
+                "base_url": base_url,
+            }
+            logging.error(json.dumps(log_dict))
+
+            slack_message = (
                 f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} ({model.internal_name}) "
                 "is not running at the inference endpoint. Please investigate."
             )
-            logger.error(error_message)
-            await post_to_slack(f":warning: {error_message}")
+            await post_to_slack(f":warning: {slack_message}")
     except Exception as e:
-        error_message = (
+        log_dict = {
+            "message": "Inference validation failed",
+            "model_name": model.name,
+            "model_internal_name": model.internal_name,
+            "provider_name": provider_name,
+            "base_url": base_url,
+            "error": str(e),
+        }
+        logging.exception(json.dumps(log_dict))
+
+        slack_message = (
             f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} ({model.internal_name}) "
             f"inference validation failed: {str(e)}"
         )
-        logger.error(error_message)
-        await post_to_slack(f":x: {error_message}")
+        await post_to_slack(f":x: {slack_message}")
         # TODO: Implement additional alerting if needed

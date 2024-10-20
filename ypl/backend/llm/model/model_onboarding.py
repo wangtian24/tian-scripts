@@ -1,4 +1,5 @@
 # Standard library imports
+import json
 import logging
 import os
 from datetime import UTC, datetime
@@ -23,7 +24,6 @@ from ypl.backend.llm.chat import standardize_provider_name
 from ypl.backend.llm.constants import PROVIDER_KEY_MAPPING
 from ypl.backend.llm.utils import post_to_slack, post_to_x
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
-from ypl.logger import logger
 
 # Constants
 MMLU_PRO_THRESHOLD = 50
@@ -38,7 +38,7 @@ async def async_retry_decorator() -> AsyncRetrying:
     return AsyncRetrying(
         stop=stop_after_attempt(MAX_RETRIES),
         wait=wait_fixed(WAIT_TIME),
-        after=after_log(logger, logging.WARNING),
+        after=after_log(logging.getLogger(), logging.WARNING),
         retry=retry_if_exception_type((OperationalError, DatabaseError)),
     )
 
@@ -96,7 +96,8 @@ async def verify_onboard_specific_model(model_id: UUID) -> None:
                     await verify_and_update_model_status(session, model, provider_name, base_url)
                     await session.commit()
                 else:
-                    logger.warning(f"No submitted model found with id {model_id}")
+                    log_dict = {"message": f"No submitted model found with id {model_id}", "model_id": model_id}
+                    logging.warning(json.dumps(log_dict))
 
 
 async def verify_and_update_model_status(
@@ -119,30 +120,33 @@ async def verify_and_update_model_status(
                 if is_inference_running:
                     model.status = LanguageModelStatusEnum.ACTIVE
                     model.modified_at = datetime.utcnow()
-                    logger.info(
-                        f"Model {model.name} ({model.internal_name}) validated successfully " f"and set to ACTIVE."
-                    )
-                    await post_to_slack(
-                        f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} ({model.internal_name}) "
+                    log_dict = {
+                        "message": "Model validated successfully and set to ACTIVE",
+                        "model_name": model.name,
+                    }
+                    logging.info(json.dumps(log_dict))
+                    log_message = (
+                        f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} "
                         "validated successfully and set to ACTIVE."
                     )
-                    await post_to_x(
-                        f"Environment {os.environ.get('ENVIRONMENT')} - New model {model.name} ({model.internal_name}) "
-                        "is now available."
-                    )
+                    await post_to_slack(log_message)
+                    await post_to_x(log_message)
                 else:
                     is_hf_verified = verify_hf_model(model)
                     if is_hf_verified:
                         model.status = LanguageModelStatusEnum.VERIFIED_PENDING_ACTIVATION
                         model.modified_at = datetime.utcnow()
-                        logger.info(
-                            f"Model {model.name} ({model.internal_name}) validated successfully "
-                            f"and set to VERIFIED_PENDING_ACTIVATION."
-                        )
-                        await post_to_slack(
-                            f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} ({model.internal_name}) "
+                        log_dict = {
+                            "message": "Model validated successfully and set to VERIFIED_PENDING_ACTIVATION",
+                            "model_name": model.name,
+                        }
+                        logging.info(json.dumps(log_dict))
+                        log_message = (
+                            f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} "
                             "validated successfully and set to VERIFIED_PENDING_ACTIVATION."
                         )
+                        await post_to_slack(log_message)
+                        await post_to_x(log_message)
                     else:
                         # reject if the model was submitted more than 3 days ago
                         if (
@@ -151,26 +155,29 @@ async def verify_and_update_model_status(
                         ):
                             model.status = LanguageModelStatusEnum.REJECTED
                             model.modified_at = datetime.utcnow()
-                            logger.info(
-                                f"Model {model.name} ({model.internal_name}) not validated after 3 days. "
-                                f"Setting status to REJECTED."
-                            )
-                            await post_to_slack(
+                            log_dict = {
+                                "message": "Model not validated after 3 days. Setting status to REJECTED",
+                                "model_name": model.name,
+                            }
+                            logging.info(json.dumps(log_dict))
+                            log_message = (
                                 f"Environment {os.environ.get('ENVIRONMENT')} - "
-                                f"Model {model.name} ({model.internal_name}) "
+                                f"Model {model.name}"
                                 "not validated after 3 days. Setting status to REJECTED."
                             )
+                            await post_to_slack(log_message)
 
                 await session.commit()
 
             except Exception as e:
-                logger.error(
-                    f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} ({model.internal_name}) "
-                    f"validation failed: {str(e)}"
-                )
+                log_dict = {
+                    "message": "Model validation failed",
+                    "model_name": model.name,
+                    "error": str(e),
+                }
+                logging.exception(json.dumps(log_dict))
                 await post_to_slack(
-                    f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} ({model.internal_name}) "
-                    f"validation failed: {str(e)}"
+                    f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} " f"validation failed: {str(e)}"
                 )
                 # Re-raise the exception to trigger a retry
                 raise
@@ -200,20 +207,21 @@ def verify_hf_model(model: LanguageModel) -> bool:
         has_conversational = "conversational" in tags
         has_endpoints_compatible = "endpoints_compatible" in tags
 
-        logger.info(
-            f"Model {model.internal_name} - Tags: "
-            f"text-generation: {has_text_generation}, "
-            f"conversational: {has_conversational}, "
-            f"endpoints_compatible: {has_endpoints_compatible}"
-        )
-
         downloads = model_info.downloads or 0
         likes = model_info.likes or 0
-        logger.info(
-            f"Model {model.internal_name} - Downloads: {downloads}, "
-            f"Likes: {likes}, MMLU-PRO score: {mmlu_pro_score}"
-        )
 
+        log_dict = {
+            "message": "Model characteristics",
+            "model_internal_name": model.internal_name,
+            "tags": tags,
+            "has_text_generation": has_text_generation,
+            "has_conversational": has_conversational,
+            "has_endpoints_compatible": has_endpoints_compatible,
+            "downloads": downloads,
+            "likes": likes,
+            "mmlu_pro_score": mmlu_pro_score,
+        }
+        logging.info(json.dumps(log_dict))
         # Return true if the model has more than 1000 downloads and 100 likes
         # and has the required tags for text-generation, conversational and endpoints_compatible
         is_verified = (
@@ -231,10 +239,20 @@ def verify_hf_model(model: LanguageModel) -> bool:
 
         return is_verified
     except HfHubHTTPError as e:
-        logger.error(f"Error accessing Hugging Face API for model {model.internal_name}: {str(e)}")
+        log_dict = {
+            "message": "Error accessing Hugging Face API for model",
+            "model_internal_name": model.internal_name,
+            "error": str(e),
+        }
+        logging.exception(json.dumps(log_dict))
         return False
     except Exception as e:
-        logger.error(f"Unexpected error verifying model {model.internal_name} on Hugging Face: {str(e)}")
+        log_dict = {
+            "message": "Unexpected error verifying model on Hugging Face",
+            "model_internal_name": model.internal_name,
+            "error": str(e),
+        }
+        logging.exception(json.dumps(log_dict))
         return False
 
 
@@ -273,40 +291,85 @@ def verify_inference_running(model: LanguageModel, provider_name: str, base_url:
             try:
                 is_inference_running = anthropic_api_call(model.internal_name, api_key)
                 if is_inference_running:
-                    logger.info(f"Model {model.internal_name} is running on provider's endpoint.")
+                    log_dict = {
+                        "message": "Model is running on provider's endpoint",
+                        "model_name": model.name,
+                        "cleaned_provider_name": cleaned_provider_name,
+                    }
+                    logging.info(json.dumps(log_dict))
+
             except Exception as e:
-                logger.error(f"Error calling Anthropic API for model {model.internal_name}: {str(e)}")
+                log_dict = {
+                    "message": "Error calling Anthropic API",
+                    "model_name": model.name,
+                    "error": str(e),
+                }
+                logging.exception(json.dumps(log_dict))
 
         elif cleaned_provider_name == "huggingface":
             try:
                 is_inference_running = huggingface_api_call(model.internal_name, api_key)
                 if is_inference_running:
-                    logger.info(f"Model {model.internal_name} is running on provider's endpoint.")
+                    log_dict = {
+                        "message": "Model is running on provider's endpoint",
+                        "model_name": model.name,
+                        "cleaned_provider_name": cleaned_provider_name,
+                    }
+                    logging.info(json.dumps(log_dict))
             except Exception as e:
-                logger.error(f"Error calling Hugging Face API for model {model.internal_name}: {str(e)}")
+                log_dict = {
+                    "message": "Error calling Hugging Face API",
+                    "model_name": model.name,
+                    "error": str(e),
+                }
+                logging.exception(json.dumps(log_dict))
 
         elif cleaned_provider_name == "google":
             try:
                 content = google_ai_api_call(model.internal_name, api_key)
                 if content.text and len(content.text) > 0:
-                    logger.info(f"Model {model.internal_name} is running on provider's endpoint.")
+                    log_dict = {
+                        "message": "Model is running on provider's endpoint",
+                        "model_name": model.name,
+                        "cleaned_provider_name": cleaned_provider_name,
+                    }
+                    logging.info(json.dumps(log_dict))
                     is_inference_running = True
             except Exception as e:
-                logger.error(f"Error calling Google AI API for model {model.internal_name}: {str(e)}")
+                log_dict = {
+                    "message": "Error calling Google AI API",
+                    "model_name": model.name,
+                    "error": str(e),
+                }
+                logging.exception(json.dumps(log_dict))
 
         else:
             client_openai = OpenAI(api_key=api_key, base_url=base_url)
             try:
                 completion = openai_api_call(client_openai, model.internal_name)
                 if completion.choices[0].message.content and len(completion.choices[0].message.content) > 0:
-                    logger.info(f"Model {model.internal_name} is running on provider's endpoint.")
+                    log_dict = {
+                        "message": "Model is running on provider's endpoint",
+                        "model_name": model.name,
+                    }
+                    logging.info(json.dumps(log_dict))
                     is_inference_running = True
             except Exception as e:
-                logger.error(f"Error calling OpenAI API for model {model.internal_name}: {str(e)}")
+                log_dict = {
+                    "message": "Error calling OpenAI API",
+                    "model_name": model.name,
+                    "error": str(e),
+                }
+                logging.exception(json.dumps(log_dict))
 
         return is_inference_running
     except Exception as e:
-        logger.error(f"Unexpected error verifying inference running for model {model.internal_name}: {str(e)}")
+        log_dict = {
+            "message": "Unexpected error verifying inference running for model",
+            "model_internal_name": model.internal_name,
+            "error": str(e),
+        }
+        logging.exception(json.dumps(log_dict))
         return False
 
 
@@ -326,13 +389,28 @@ def get_provider_api_key(provider_name: str) -> str:
     # Remove any blank characters within the provider_name as DB has blank spaces
     cleaned_provider_name = standardize_provider_name(provider_name)
     env_var_name = PROVIDER_KEY_MAPPING.get(cleaned_provider_name)
-    logger.info(f"API key environment variable name for provider {provider_name}: {env_var_name}")
+    log_dict = {
+        "message": "API key environment variable name for provider",
+        "provider_name": provider_name,
+        "env_var_name": env_var_name,
+    }
+    logging.info(json.dumps(log_dict))
 
     if not env_var_name:
+        log_dict = {
+            "message": "Unknown provider name",
+            "provider_name": provider_name,
+        }
+        logging.error(json.dumps(log_dict))
         raise ValueError(f"Unknown provider name: {provider_name}")
 
     api_key = os.environ.get(env_var_name)
     if not api_key:
+        log_dict = {
+            "message": "API key not found for provider",
+            "provider_name": provider_name,
+        }
+        logging.error(json.dumps(log_dict))
         raise ValueError(f"API key not found for provider: {provider_name}")
 
     return api_key

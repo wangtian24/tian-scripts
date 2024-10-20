@@ -122,6 +122,7 @@ jobs:
         echo "ROUTING_USE_PROMPT_CONDITIONAL=${{ github.event.inputs.use_prompt_conditional_routing || 'false' }}" >> .env
         echo "ROUTING_WEIGHTS='{\"random\": 0.1, \"top\": 0.7, \"min_simple_cost\": 0.2}'" >> .env
         echo "ROUTING_GOOD_MODELS_ALWAYS=True" >> .env
+        echo "USE_GOOGLE_CLOUD_LOGGING=True" >> .env
         if [[ "${{ env.ENVIRONMENT }}" == "production" ]]; then
           echo "POSTGRES_USER=${{ secrets.POSTGRES_USER }}" >> .env
           echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_PRODUCTION }}" >> .env
@@ -155,7 +156,6 @@ jobs:
           echo "POSTGRES_HOST=${{ secrets.POSTGRES_HOST_STAGING }}" >> .env
           echo "POSTGRES_DATABASE=${{ secrets.POSTGRES_DATABASE_STAGING }}" >> .env
           echo "POSTGRES_HOST_NON_POOLING=${{ secrets.POSTGRES_HOST_NON_POOLING_STAGING }}" >> .env
-          echo "USE_GOOGLE_CLOUD_LOGGING=True" >> .env
           echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY_STAGING }}" >> .env
           echo "ALIBABA_API_KEY=${{ secrets.ALIBABA_API_KEY_STAGING }}" >> .env
           echo "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY_STAGING }}" >> .env

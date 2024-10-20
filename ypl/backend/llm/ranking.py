@@ -1,4 +1,5 @@
 import concurrent
+import json
 import logging
 from abc import ABC, abstractmethod
 from collections import Counter, defaultdict
@@ -26,7 +27,6 @@ from ypl.backend.llm.utils import (
 from ypl.db.chats import Chat, ChatMessage, Eval, EvalType, LanguageCode, MessageType, Turn, User
 from ypl.db.language_models import LanguageModel
 from ypl.db.ratings import OVERALL_CATEGORY_NAME, Category, Rating, RatingHistory
-from ypl.logger import logger
 
 # Rating of a new model.
 ELO_INIT_RATING = 1000.0
@@ -202,7 +202,7 @@ class Ranker:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_fixed(0.1),
-        after=after_log(logger, logging.WARNING),
+        after=after_log(logging.getLogger(), logging.WARNING),
         retry=retry_if_exception_type((OperationalError, DatabaseError)),
     )
     def add_evals_from_db(
@@ -303,11 +303,19 @@ class Ranker:
                     added += 1
                     counts_by_user[user_email] += 1
                 else:
-                    logger.warning(f"Skipping eval with missing models: model_a={model_a}, model_b={model_b}")
+                    logging.warning(f"Skipping eval with missing models: model_a={model_a}, model_b={model_b}")
 
-            logger.info(f"Added {added} evals to the ranker. Counts per user:")
+            log_dict = {
+                "message": f"Added {added} evals to the ranker. Counts per user:",
+                "counts_by_user": counts_by_user,
+            }
+            logging.info(json.dumps(log_dict))
+
             for user, count in counts_by_user.items():
-                logger.info(f"- {user}: {count}")
+                log_dict = {
+                    "message": f"- {user}: {count}",
+                }
+                logging.info(json.dumps(log_dict))
 
         return added
 
@@ -565,7 +573,7 @@ class ChoixRanker(Ranker):
 
         except IndexError:
             # Choix can fail when there are too few battles.
-            logger.warning("Choix failed; setting all ratings to 0")
+            logging.warning("Choix failed; setting all ratings to 0")
             self.ratings = {model: 0 for model in self.model_ids.keys()}
 
     def leaderboard(self) -> list[RatedModel]:
@@ -658,12 +666,12 @@ class ChoixRankerConfIntervals(ChoixRanker, ConfidenceIntervalRankerMixin):
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_fixed(0.1),
-        after=after_log(logger, logging.WARNING),
+        after=after_log(logging.getLogger(), logging.WARNING),
         retry=retry_if_exception_type((OperationalError, DatabaseError)),
     )
     def to_db(self, category_name: str | None = None, snapshot_timestamp: datetime | None = None) -> None:
         if not self.battles:
-            logger.warning(f"No battles to rank for category '{category_name}'")
+            logging.warning(f"No battles to rank for category '{category_name}'")
             return
         """Save the ratings to the database."""
         if not category_name:
@@ -684,7 +692,7 @@ class ChoixRankerConfIntervals(ChoixRanker, ConfidenceIntervalRankerMixin):
             for model_name, (score, conf_interval) in self.get_ratings_conf_intervals().items():
                 model_id = llm_name_to_id.get(model_name)
                 if not model_id:
-                    logger.warning(f"Model '{model_name}' not found")
+                    logging.warning(f"Model '{model_name}' not found")
                     continue
                 rating_history = RatingHistory(
                     language_model_id=model_id,
@@ -715,7 +723,7 @@ class ChoixRankerConfIntervals(ChoixRanker, ConfidenceIntervalRankerMixin):
                     )
                     session.add(new_rating)
             session.commit()
-            logger.info(f"Saved {len(llm_ids_to_ranking_history)} rating histories to the database.")
+            logging.info(f"Saved {len(llm_ids_to_ranking_history)} rating histories to the database.")
 
     def _get_bootstrap_ratings(self, battles: np.ndarray, num_bootstrap_samples: int) -> list[np.ndarray]:
         # There's some overhead to spinning up workers (these are processes, not threads), so vary the number of workers
@@ -769,7 +777,7 @@ class ChoixRankerConfIntervals(ChoixRanker, ConfidenceIntervalRankerMixin):
             self.convert_to_elo_scale()
         except IndexError:
             # Choix can fail when there are too few battles.
-            logger.warning("Choix failed; setting all ratings to 0")
+            logging.warning("Choix failed; setting all ratings to 0")
             self.ratings = {model: 0 for model in self.model_ids.keys()}
 
 

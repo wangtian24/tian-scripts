@@ -1,17 +1,12 @@
 import logging
+import os
 import re
 
+from google.cloud import logging as google_logging
+from google.cloud.logging.handlers import CloudLoggingHandler
+from google.cloud.logging_v2.handlers.transports.sync import SyncTransport
+
 from ypl.backend.config import settings
-
-
-class RedactingHandler(logging.Handler):
-    def emit(self, record: logging.LogRecord) -> None:
-        try:
-            msg = self.format(record)
-            redacted_msg = redact_sensitive_data(msg)
-            print(redacted_msg)
-        except Exception:
-            self.handleError(record)
 
 
 def redact_sensitive_data(text: str) -> str:
@@ -26,30 +21,35 @@ def redact_sensitive_data(text: str) -> str:
     return redacted
 
 
-def setup_logger() -> logging.Logger:
-    logger = logging.getLogger(__name__)
-    logger.setLevel(logging.INFO)
+class RedactingHandler(CloudLoggingHandler):
+    def emit(self, record: logging.LogRecord) -> None:
+        if isinstance(record.msg, str):
+            record.msg = redact_sensitive_data(record.msg)
+        elif isinstance(record.msg, dict):
+            record.msg = {k: redact_sensitive_data(str(v)) for k, v in record.msg.items()}
 
-    # Remove any existing handlers
-    for handler in logger.handlers[:]:
-        logger.removeHandler(handler)
+        # Handle extra parameters
+        if hasattr(record, "extra"):
+            for k, v in record.extra.items():
+                setattr(record, k, redact_sensitive_data(str(v)))
 
-    # Add our custom redacting handler
-    handler = RedactingHandler()
-    formatter = logging.Formatter("%(levelname)s - %(message)s")
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-
-    # Prevent propagation to root logger
-    logger.propagate = False
-
-    return logger
+        super().emit(record)
 
 
-logger = setup_logger()
+def setup_google_cloud_logging() -> None:
+    try:
+        client = google_logging.Client()
+        handler = RedactingHandler(client, name=os.environ.get("GCP_PROJECT_ID") or "default", transport=SyncTransport)
+
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging.INFO)
+        root_logger.addHandler(handler)
+    except Exception as e:
+        logging.basicConfig(level=logging.INFO)
+        logging.error(f"Google Cloud Logging setup failed: {e}")
+
 
 if settings.USE_GOOGLE_CLOUD_LOGGING:
-    import google.cloud.logging
-
-    client = google.cloud.logging.Client()
-    client.setup_logging()
+    setup_google_cloud_logging()
+else:
+    logging.basicConfig(level=logging.INFO)

@@ -71,6 +71,12 @@ poetry build
 pip install -e .  # editable mode for dev
 ```
 
+## Google Cloud Logging
+
+Google Cloud Logging is disabled by default. To enable it, set `USE_GOOGLE_CLOUD_LOGGING=True` in the `.env` file. In order to do GCP logging from local environment, you need to download the GCP service account key file from 1Password and set the `GOOGLE_APPLICATION_CREDENTIALS` environment variable to the path of the downloaded key file.
+
+In order to redact sensitive data, the `redact_sensitive_data` function is used. If you need to add new sensitive data patterns to redact, you can do so by adding them to the function.
+
 ## Running the service
 
 Start the backend service in any folder containing the `.env` file with:

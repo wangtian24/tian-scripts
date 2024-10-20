@@ -7,13 +7,12 @@ from tenacity import after_log, retry, retry_if_exception_type, stop_after_attem
 
 from ypl.backend.db import get_async_engine
 from ypl.db.users import User
-from ypl.logger import logger
 
 
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_fixed(0.1),
-    after=after_log(logger, logging.WARNING),
+    after=after_log(logging.getLogger(), logging.WARNING),
     retry=retry_if_exception_type((OperationalError, DatabaseError)),
 )
 async def get_user_credit_balance(user_id: str) -> int:

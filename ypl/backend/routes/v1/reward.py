@@ -1,3 +1,5 @@
+import json
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
@@ -11,7 +13,6 @@ from ypl.backend.llm.reward import (
     process_reward_claim,
 )
 from ypl.db.rewards import RewardActionLog, RewardStatusEnum
-from ypl.logger import logger
 
 router = APIRouter()
 
@@ -37,7 +38,11 @@ async def record_reward_action(reward_action_log: RewardActionLog) -> RewardCrea
         return RewardCreationResponse(is_rewarded=should_reward, reward_id=reward_id)
 
     except Exception as e:
-        logger.exception("Error recording reward action: %s", str(e))
+        log_dict = {
+            "message": "Error recording reward action",
+            "error": str(e),
+        }
+        logging.exception(json.dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
@@ -59,5 +64,9 @@ async def claim_reward(
             )
 
     except Exception as e:
-        logger.exception("Error claiming reward: %s", str(e))
+        log_dict = {
+            "message": "Error claiming reward",
+            "error": str(e),
+        }
+        logging.exception(json.dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
