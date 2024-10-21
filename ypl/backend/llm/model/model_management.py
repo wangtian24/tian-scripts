@@ -52,7 +52,7 @@ async def validate_active_onboarded_models() -> None:
                 active_models = result.all()
                 active_models_count = len(active_models)
 
-                log_dict = {"message": "Active models count", "active_models_count": active_models_count}
+                log_dict = {"message": f"Active models count: {active_models_count}"}
                 logging.info(json.dumps(log_dict))
 
                 for model, provider_name, base_url in active_models:
@@ -89,7 +89,7 @@ async def validate_specific_active_model(model_id: UUID) -> None:
                     await verify_and_update_model_status(session, model, provider_name, base_url)
                     await session.commit()
                 else:
-                    log_dict = {"message": "No active model found", "model_id": model_id}
+                    log_dict = {"message": f"No active model found with ID: {model_id}"}
                     logging.warning(json.dumps(log_dict))
 
 
@@ -115,22 +115,21 @@ async def verify_and_update_model_status(
             # model.modified_at = datetime.utcnow()
 
             log_dict = {
-                "message": "Model is not running at the inference endpoint",
+                "message": f"Model {model.name} is not running at the inference endpoint",
                 "model_name": model.name,
-                "model_internal_name": model.internal_name,
                 "provider_name": provider_name,
                 "base_url": base_url,
             }
             logging.error(json.dumps(log_dict))
 
             slack_message = (
-                f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} ({model.internal_name}) "
+                f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} "
                 "is not running at the inference endpoint. Please investigate."
             )
             await post_to_slack(f":warning: {slack_message}")
     except Exception as e:
         log_dict = {
-            "message": "Inference validation failed",
+            "message": f"Inference validation failed for model {model.name}",
             "model_name": model.name,
             "model_internal_name": model.internal_name,
             "provider_name": provider_name,
@@ -140,7 +139,7 @@ async def verify_and_update_model_status(
         logging.exception(json.dumps(log_dict))
 
         slack_message = (
-            f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} ({model.internal_name}) "
+            f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} "
             f"inference validation failed: {str(e)}"
         )
         await post_to_slack(f":x: {slack_message}")

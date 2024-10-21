@@ -293,7 +293,7 @@ def verify_inference_running(model: LanguageModel, provider_name: str, base_url:
                 is_inference_running = anthropic_api_call(model.internal_name, api_key)
                 if is_inference_running:
                     log_dict = {
-                        "message": "Model is running on provider's endpoint",
+                        "message": f"Model {model.name} is running on provider's endpoint",
                         "model_name": model.name,
                         "cleaned_provider_name": cleaned_provider_name,
                     }
@@ -312,7 +312,7 @@ def verify_inference_running(model: LanguageModel, provider_name: str, base_url:
                 is_inference_running = huggingface_api_call(model.internal_name, api_key)
                 if is_inference_running:
                     log_dict = {
-                        "message": "Model is running on provider's endpoint",
+                        "message": f"Model {model.name} is running on provider's endpoint",
                         "model_name": model.name,
                         "cleaned_provider_name": cleaned_provider_name,
                     }
@@ -330,7 +330,7 @@ def verify_inference_running(model: LanguageModel, provider_name: str, base_url:
                 content = google_ai_api_call(model.internal_name, api_key)
                 if content.text and len(content.text) > 0:
                     log_dict = {
-                        "message": "Model is running on provider's endpoint",
+                        "message": f"Model {model.name} is running on provider's endpoint",
                         "model_name": model.name,
                         "cleaned_provider_name": cleaned_provider_name,
                     }
@@ -350,7 +350,7 @@ def verify_inference_running(model: LanguageModel, provider_name: str, base_url:
                 completion = openai_api_call(client_openai, model.internal_name)
                 if completion.choices[0].message.content and len(completion.choices[0].message.content) > 0:
                     log_dict = {
-                        "message": "Model is running on provider's endpoint",
+                        "message": f"Model {model.name} is running on provider's endpoint",
                         "model_name": model.name,
                     }
                     logging.info(json.dumps(log_dict))
@@ -395,7 +395,7 @@ def get_provider_api_key(provider_name: str) -> str:
         "provider_name": provider_name,
         "env_var_name": env_var_name,
     }
-    logging.info(json.dumps(log_dict))
+    logging.debug(json.dumps(log_dict))
 
     if not env_var_name:
         log_dict = {
