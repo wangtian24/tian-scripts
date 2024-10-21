@@ -32,6 +32,7 @@ LIKES_THRESHOLD = 100
 REJECT_AFTER_DAYS = 3
 MAX_RETRIES = 3
 WAIT_TIME = 5
+INFERENCE_TIMEOUT = 60
 
 
 async def async_retry_decorator() -> AsyncRetrying:
@@ -425,7 +426,7 @@ def openai_api_call(client: OpenAI, model_name: str) -> Any:
     return client.chat.completions.create(
         model=model_name,
         messages=[{"role": "user", "content": "What is the capital of Odisha?"}],
-        timeout=5,
+        timeout=INFERENCE_TIMEOUT,
     )
 
 
@@ -437,7 +438,7 @@ def openai_api_call(client: OpenAI, model_name: str) -> Any:
 def google_ai_api_call(model_name: str, api_key: str) -> Any:
     genai.configure(api_key=api_key)
     google_model = genai.GenerativeModel(model_name)
-    return google_model.generate_content("What is the capital of Odisha?")
+    return google_model.generate_content("What is the capital of Odisha?", timeout=INFERENCE_TIMEOUT)
 
 
 @retry(
@@ -450,7 +451,9 @@ def huggingface_api_call(model_name: str, api_key: str) -> bool:
     messages = [
         {"role": "user", "content": "Tell me a story"},
     ]
-    completion = client_hf.chat.completions.create(model=model_name, messages=messages, stream=True)
+    completion = client_hf.chat.completions.create(
+        model=model_name, messages=messages, stream=True, timeout=INFERENCE_TIMEOUT
+    )
 
     for chunk in completion:
         if chunk.choices[0].delta.content and len(chunk.choices[0].delta.content) > 0:
@@ -469,5 +472,6 @@ def anthropic_api_call(model_name: str, api_key: str) -> bool:
         model=model_name,
         max_tokens=1024,
         messages=[{"role": "user", "content": "What is the capital of Odisha?"}],
+        timeout=INFERENCE_TIMEOUT,
     )
     return bool(message.content and len(message.content) > 0)
