@@ -438,7 +438,7 @@ def openai_api_call(client: OpenAI, model_name: str) -> Any:
 def google_ai_api_call(model_name: str, api_key: str) -> Any:
     genai.configure(api_key=api_key)
     google_model = genai.GenerativeModel(model_name)
-    return google_model.generate_content("What is the capital of Odisha?", timeout=INFERENCE_TIMEOUT)
+    return google_model.generate_content("What is the capital of Odisha?")
 
 
 @retry(
