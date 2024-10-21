@@ -4,11 +4,13 @@ from typing import TYPE_CHECKING, TypeVar
 
 from fast_langdetect.ft_detect.infer import get_model_loaded
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import JSON, Column, Text, UniqueConstraint
+from sqlalchemy import ARRAY, JSON, Column, Text, UniqueConstraint
 from sqlalchemy import Enum as SQLAlchemyEnum
+from sqlalchemy.dialects.postgresql import ENUM as PostgresEnum
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlmodel import Field, ForeignKey, Relationship
 
+from ypl.backend.llm.moderation import ModerationReason
 from ypl.db.base import BaseModel
 from ypl.db.language_models import LanguageModel
 from ypl.db.ratings import Category
@@ -239,6 +241,15 @@ class TurnQuality(BaseModel, table=True):
         foreign_key="language_models.language_model_id", nullable=True
     )
     prompt_difficulty_judge_model: "LanguageModel" = Relationship(back_populates="turn_qualities")
+
+    # Whether the prompt is safe according to a moderation model.
+    prompt_is_safe: bool | None = Field(nullable=True)
+    # The model used to moderate the prompt.
+    prompt_moderation_model_name: str | None = Field(nullable=True)
+    # If the prompt is not safe, the reasons for why it is not safe.
+    prompt_unsafe_reasons: list[ModerationReason] | None = Field(
+        sa_column=Column(ARRAY(PostgresEnum(ModerationReason)), nullable=True)
+    )
 
     # The overall quality of the turn.
     quality: float | None = Field(nullable=True)
