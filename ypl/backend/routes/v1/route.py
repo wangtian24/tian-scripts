@@ -19,7 +19,7 @@ async def select_models(
     preference: None | RoutingPreference = Body(default=None, description="List of past outcomes"),  # noqa: B008
 ) -> list[str]:
     if settings.ROUTING_USE_PROMPT_CONDITIONAL:
-        router = get_prompt_conditional_router(prompt, num_models)
+        router = get_prompt_conditional_router(prompt, num_models, preference)
     else:
         router, ranker = get_router_ranker()
 
