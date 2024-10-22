@@ -1,3 +1,4 @@
+import json
 import logging
 from uuid import UUID
 
@@ -13,8 +14,6 @@ from ypl.backend.llm.provider.provider import (
 )
 from ypl.db.language_models import Provider
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
 router = APIRouter()
 
 
@@ -24,7 +23,10 @@ async def create_provider_route(provider: Provider) -> UUID:
         provider_id = await create_provider(provider)
         return provider_id
     except Exception as e:
-        logger.exception("Error creating provider - %s", str(e))
+        log_dict = {
+            "message": f"Error creating provider - {str(e)}",
+        }
+        logging.exception(json.dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
@@ -38,7 +40,10 @@ async def read_providers_route(
         params = locals()
         return await get_providers(**params)
     except Exception as e:
-        logger.exception("Error getting providers - %s", str(e))
+        log_dict = {
+            "message": f"Error getting providers - {str(e)}",
+        }
+        logging.exception(json.dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
@@ -48,7 +53,10 @@ async def read_provider_route(provider_id: UUID) -> ProviderStruct | None:
         provider = await get_provider_details(provider_id)
         return provider
     except Exception as e:
-        logger.exception("Error getting provider - %s", str(e))
+        log_dict = {
+            "message": f"Error getting provider - {str(e)}",
+        }
+        logging.exception(json.dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
@@ -57,7 +65,10 @@ async def update_provider_route(provider_id: UUID, updated_provider: Provider) -
     try:
         return await update_provider(provider_id, updated_provider)
     except Exception as e:
-        logger.exception("Error updating provider - %s", str(e))
+        log_dict = {
+            "message": f"Error updating provider - {str(e)}",
+        }
+        logging.exception(json.dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
@@ -66,5 +77,8 @@ async def delete_provider_route(provider_id: UUID) -> None:
     try:
         await delete_provider(provider_id)
     except Exception as e:
-        logger.exception("Error deleting provider - %s", str(e))
+        log_dict = {
+            "message": f"Error deleting provider - {str(e)}",
+        }
+        logging.exception(json.dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e

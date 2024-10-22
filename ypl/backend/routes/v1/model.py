@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from uuid import UUID
@@ -16,8 +17,6 @@ from ypl.backend.llm.model.model_onboarding import verify_onboard_specific_model
 from ypl.backend.llm.utils import post_to_slack
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, LicenseEnum
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
 router = APIRouter()
 
 
@@ -25,7 +24,10 @@ async def async_verify_onboard_specific_models(model_id: UUID) -> None:
     try:
         await verify_onboard_specific_model(model_id)
     except Exception as e:
-        logger.error(f"Error in verify_onboard_specific_model for model_id {model_id}: {str(e)}")
+        log_dict = {
+            "message": f"Error in verify_onboard_specific_model for model_id {model_id}: {str(e)}",
+        }
+        logging.exception(json.dumps(log_dict))
 
 
 @router.post("/models", response_model=str)
@@ -40,7 +42,10 @@ async def create_model_route(model: LanguageModel, background_tasks: BackgroundT
         )
         return str(model_id)
     except Exception as e:
-        logger.exception("Error creating model - %s", str(e))
+        log_dict = {
+            "message": f"Error creating model - {str(e)}",
+        }
+        logging.exception(json.dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
@@ -57,7 +62,10 @@ async def read_models_route(
         params = locals()
         return get_models(**params)
     except Exception as e:
-        logger.exception("Error getting models - %s", str(e))
+        log_dict = {
+            "message": f"Error getting models - {str(e)}",
+        }
+        logging.exception(json.dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
@@ -67,7 +75,10 @@ async def read_model_route(model_id: str) -> LanguageModelStruct | None:
         model = get_model_details(model_id)
         return model
     except Exception as e:
-        logger.exception("Error getting model - %s", str(e))
+        log_dict = {
+            "message": f"Error getting model - {str(e)}",
+        }
+        logging.exception(json.dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
@@ -76,7 +87,10 @@ async def update_model_route(model_id: str, updated_model: LanguageModel) -> Lan
     try:
         return update_model(model_id, updated_model)
     except Exception as e:
-        logger.exception("Error updating model - %s", str(e))
+        log_dict = {
+            "message": f"Error updating model - {str(e)}",
+        }
+        logging.exception(json.dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
@@ -85,5 +99,8 @@ async def delete_model_route(model_id: str) -> None:
     try:
         delete_model(model_id)
     except Exception as e:
-        logger.exception("Error deleting model - %s", str(e))
+        log_dict = {
+            "message": f"Error deleting model - {str(e)}",
+        }
+        logging.exception(json.dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e

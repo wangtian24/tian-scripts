@@ -1,4 +1,5 @@
 import datetime
+import json
 import logging
 import math
 import os
@@ -157,16 +158,25 @@ async def post_to_slack(message: str) -> None:
 
     webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
     if not webhook_url:
-        logging.warning("SLACK_WEBHOOK_URL environment variable is not set")
+        log_dict = {
+            "message": "SLACK_WEBHOOK_URL environment variable is not set",
+        }
+        logging.warning(json.dumps(log_dict))
         return
 
     try:
         webhook = WebhookClient(webhook_url)
         response = webhook.send(text=message)
         if response.status_code != 200:
-            logging.warning(f"Failed to post message to Slack. Status code: {response.status_code}")
+            log_dict = {
+                "message": f"Failed to post message to Slack. Status code: {response.status_code}",
+            }
+            logging.warning(json.dumps(log_dict))
     except Exception as e:
-        logging.warning(f"Failed to post message to Slack: {str(e)}")
+        log_dict = {
+            "message": f"Failed to post message to Slack: {str(e)}",
+        }
+        logging.exception(json.dumps(log_dict))
 
 
 async def post_to_x(message: str) -> None:
@@ -191,9 +201,13 @@ async def post_to_x(message: str) -> None:
             tweet = datetime.datetime.now(datetime.UTC).isoformat() + " " + "Hello...something magical just happened!"
             client.create_tweet(text=tweet)
         except Exception as e:
-            logging.warning(f"Failed to post message to X: {str(e)}")
+            log_dict = {
+                "message": f"Failed to post message to X: {str(e)}",
+            }
+            logging.exception(json.dumps(log_dict))
     else:
-        logging.warning(
-            "TWITTER_BEARER_TOKEN, TWITTER_CONSUMER_KEY, TWITTER_CONSUMER_SECRET, TWITTER_ACCESS_TOKEN, or "
-            "TWITTER_ACCESS_TOKEN_SECRET environment variable is not set"
-        )
+        log_dict = {
+            "message": "TWITTER_BEARER_TOKEN, TWITTER_CONSUMER_KEY, TWITTER_CONSUMER_SECRET, TWITTER_ACCESS_TOKEN, or "
+            "TWITTER_ACCESS_TOKEN_SECRET environment variable is not set",
+        }
+        logging.warning(json.dumps(log_dict))
