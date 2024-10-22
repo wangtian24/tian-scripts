@@ -3,6 +3,7 @@ import json
 import logging
 import os
 from datetime import UTC, datetime
+from functools import cache
 from typing import Any
 from uuid import UUID
 
@@ -33,6 +34,27 @@ REJECT_AFTER_DAYS = 3
 MAX_RETRIES = 3
 WAIT_TIME = 5
 INFERENCE_TIMEOUT = 60
+
+# Replace the existing client caches with a single cache
+provider_clients: dict[str, Any] = {}
+
+
+@cache
+def get_provider_client(
+    provider_name: str, api_key: str, model_name: str | None = None, base_url: str | None = None
+) -> Any:
+    """Get or create a client for the specified provider."""
+    if provider_name not in provider_clients:
+        if provider_name == "google":
+            genai.configure(api_key=api_key)
+            provider_clients[provider_name] = genai.GenerativeModel(model_name)
+        elif provider_name == "huggingface":
+            provider_clients[provider_name] = InferenceClient(token=api_key)
+        elif provider_name == "anthropic":
+            provider_clients[provider_name] = anthropic.Anthropic(api_key=api_key)
+        else:  # assumes OpenAI and compatible providers
+            provider_clients[provider_name] = OpenAI(api_key=api_key, base_url=base_url)
+    return provider_clients[provider_name]
 
 
 async def async_retry_decorator() -> AsyncRetrying:
@@ -279,95 +301,42 @@ def get_mmlu_pro_score(model_info: ModelInfo) -> float:
 
 def verify_inference_running(model: LanguageModel, provider_name: str, base_url: str) -> bool:
     """
-    Verify if the model is running on PyTorch Serve.
+    Verify if the model is running on the provider's endpoint.
     """
     try:
         is_inference_running = False
-        # TODO: Update this code to ensure non OpenAI providers are supported
         api_key = get_provider_api_key(provider_name)
-
         cleaned_provider_name = standardize_provider_name(provider_name)
 
+        client = get_provider_client(cleaned_provider_name, api_key, model.internal_name, base_url)
+
         if cleaned_provider_name == "anthropic":
-            try:
-                is_inference_running = anthropic_api_call(model.internal_name, api_key)
-                if is_inference_running:
-                    log_dict = {
-                        "message": f"Model {model.name} is running on provider's endpoint",
-                        "model_name": model.name,
-                        "cleaned_provider_name": cleaned_provider_name,
-                    }
-                    logging.info(json.dumps(log_dict))
-
-            except Exception as e:
-                log_dict = {
-                    "message": "Error calling Anthropic API",
-                    "model_name": model.name,
-                    "error": str(e),
-                }
-                logging.exception(json.dumps(log_dict))
-
+            is_inference_running = anthropic_api_call(client, model.internal_name)
         elif cleaned_provider_name == "huggingface":
-            try:
-                is_inference_running = huggingface_api_call(model.internal_name, api_key)
-                if is_inference_running:
-                    log_dict = {
-                        "message": f"Model {model.name} is running on provider's endpoint",
-                        "model_name": model.name,
-                        "cleaned_provider_name": cleaned_provider_name,
-                    }
-                    logging.info(json.dumps(log_dict))
-            except Exception as e:
-                log_dict = {
-                    "message": "Error calling Hugging Face API",
-                    "model_name": model.name,
-                    "error": str(e),
-                }
-                logging.exception(json.dumps(log_dict))
-
+            is_inference_running = huggingface_api_call(client, model.internal_name)
         elif cleaned_provider_name == "google":
-            try:
-                content = google_ai_api_call(model.internal_name, api_key)
-                if content.text and len(content.text) > 0:
-                    log_dict = {
-                        "message": f"Model {model.name} is running on provider's endpoint",
-                        "model_name": model.name,
-                        "cleaned_provider_name": cleaned_provider_name,
-                    }
-                    logging.info(json.dumps(log_dict))
-                    is_inference_running = True
-            except Exception as e:
-                log_dict = {
-                    "message": "Error calling Google AI API",
-                    "model_name": model.name,
-                    "error": str(e),
-                }
-                logging.exception(json.dumps(log_dict))
+            content = google_ai_api_call(client, model.internal_name)
+            is_inference_running = bool(content.text and len(content.text) > 0)
+        else:  # OpenAI and compatible providers
+            completion = openai_api_call(client, model.internal_name)
+            is_inference_running = bool(
+                completion.choices[0].message.content and len(completion.choices[0].message.content) > 0
+            )
 
-        else:
-            client_openai = OpenAI(api_key=api_key, base_url=base_url)
-            try:
-                completion = openai_api_call(client_openai, model.internal_name)
-                if completion.choices[0].message.content and len(completion.choices[0].message.content) > 0:
-                    log_dict = {
-                        "message": f"Model {model.name} is running on provider's endpoint",
-                        "model_name": model.name,
-                    }
-                    logging.info(json.dumps(log_dict))
-                    is_inference_running = True
-            except Exception as e:
-                log_dict = {
-                    "message": "Error calling OpenAI API",
-                    "model_name": model.name,
-                    "error": str(e),
-                }
-                logging.exception(json.dumps(log_dict))
+        if is_inference_running:
+            log_dict = {
+                "message": f"Model {model.name} is running on {cleaned_provider_name} endpoint",
+                "model_name": model.name,
+                "cleaned_provider_name": cleaned_provider_name,
+            }
+            logging.info(json.dumps(log_dict))
 
         return is_inference_running
     except Exception as e:
         log_dict = {
             "message": "Unexpected error verifying inference running for model",
             "model_internal_name": model.internal_name,
+            "provider_name": provider_name,
             "error": str(e),
         }
         logging.exception(json.dumps(log_dict))
@@ -422,7 +391,7 @@ def get_provider_api_key(provider_name: str) -> str:
     wait=wait_fixed(WAIT_TIME),
     retry=retry_if_exception_type((Exception, TimeoutError)),
 )
-def openai_api_call(client: OpenAI, model_name: str) -> Any:
+def openai_api_call(client: Any, model_name: str) -> Any:
     return client.chat.completions.create(
         model=model_name,
         messages=[{"role": "user", "content": "What is the capital of Odisha?"}],
@@ -435,10 +404,8 @@ def openai_api_call(client: OpenAI, model_name: str) -> Any:
     wait=wait_fixed(WAIT_TIME),
     retry=retry_if_exception_type((Exception, TimeoutError)),
 )
-def google_ai_api_call(model_name: str, api_key: str) -> Any:
-    genai.configure(api_key=api_key)
-    google_model = genai.GenerativeModel(model_name)
-    return google_model.generate_content("What is the capital of Odisha?")
+def google_ai_api_call(client: Any, model_name: str) -> Any:
+    return client.generate_content("What is the capital of Odisha?")
 
 
 @retry(
@@ -446,12 +413,11 @@ def google_ai_api_call(model_name: str, api_key: str) -> Any:
     wait=wait_fixed(WAIT_TIME),
     retry=retry_if_exception_type((Exception, TimeoutError)),
 )
-def huggingface_api_call(model_name: str, api_key: str) -> bool:
-    client_hf = InferenceClient(token=api_key)
+def huggingface_api_call(client: Any, model_name: str) -> bool:
     messages = [
         {"role": "user", "content": "Tell me a story"},
     ]
-    completion = client_hf.chat.completions.create(
+    completion = client.chat.completions.create(
         model=model_name, messages=messages, stream=True, timeout=INFERENCE_TIMEOUT
     )
 
@@ -466,9 +432,8 @@ def huggingface_api_call(model_name: str, api_key: str) -> bool:
     wait=wait_fixed(WAIT_TIME),
     retry=retry_if_exception_type((Exception, TimeoutError)),
 )
-def anthropic_api_call(model_name: str, api_key: str) -> bool:
-    client_anthropic = anthropic.Anthropic(api_key=api_key)
-    message = client_anthropic.messages.create(
+def anthropic_api_call(client: Any, model_name: str) -> bool:
+    message = client.messages.create(
         model=model_name,
         max_tokens=1024,
         messages=[{"role": "user", "content": "What is the capital of Odisha?"}],
