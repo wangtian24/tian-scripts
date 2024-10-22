@@ -232,6 +232,9 @@ class Ranker:
         ChatMessage1 = alias(ChatMessage)  # type: ignore
         ChatMessage2 = alias(ChatMessage)  # type: ignore
 
+        with Session(get_engine()) as session:
+            supported_llm_names = session.exec(select(LanguageModel.internal_name)).all()
+
         query = (
             select(
                 Eval.score_1,  # type: ignore
@@ -254,6 +257,8 @@ class Ranker:
                 Eval.eval_type == EvalType.SLIDER_V0,
                 Eval.score_1.is_not(None),  # type: ignore
                 Chat.deleted_at.is_(None),  # type: ignore
+                ChatMessage1.c.assistant_model_name.in_(supported_llm_names),
+                ChatMessage2.c.assistant_model_name.in_(supported_llm_names),
             )
         )
 
