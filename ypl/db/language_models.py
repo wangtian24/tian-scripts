@@ -149,6 +149,18 @@ class LanguageModel(BaseModel, table=True):
         sa_column=Column(Numeric(precision=10, scale=6), nullable=True), default=None
     )
 
+    # Average time in milliseconds to emit the first token
+    first_token_avg_latency_ms: float | None = Field(default=None, nullable=True)
+
+    # P90 time in milliseconds to emit the first token
+    first_token_p90_latency_ms: float | None = Field(default=None, nullable=True)
+
+    # Average tokens per second to write the output tokens
+    output_avg_tps: float | None = Field(default=None, nullable=True)
+
+    # P90 tokens per second to write the output tokens
+    output_p90_tps: float | None = Field(default=None, nullable=True)
+
     # This is the status of the language model. Once a new model is created, its status is SUBMITTED.
     # If the model is rejected, it is not made available to the public and status is set to REJECTED.
     # After the model has been verified by the automatic checks, the status is set to VERIFIED_PENDING_ACTIVATION.

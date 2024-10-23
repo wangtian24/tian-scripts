@@ -5,6 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 
+import ypl.db.all_models  # noqa: F401
 from ypl.backend.llm.model.model import (
     LanguageModelStruct,
     create_model,
@@ -14,6 +15,8 @@ from ypl.backend.llm.model.model import (
     update_model,
 )
 from ypl.backend.llm.model.model_onboarding import verify_onboard_specific_model
+from ypl.backend.llm.routing.route_data_type import InstantaneousLanguageModelStatistics, LanguageModelStatistics
+from ypl.backend.llm.running_statistics import RunningStatisticsTracker
 from ypl.backend.llm.utils import post_to_slack
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, LicenseEnum
 
@@ -101,6 +104,32 @@ async def delete_model_route(model_id: str) -> None:
     except Exception as e:
         log_dict = {
             "message": f"Error deleting model - {str(e)}",
+        }
+        logging.exception(json.dumps(log_dict))
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.patch("/models/{model_id}/running_statistics", response_model=LanguageModelStatistics)
+async def update_model_running_statistics_route(
+    model_id: str, statistics: InstantaneousLanguageModelStatistics
+) -> LanguageModelStatistics:
+    try:
+        return await RunningStatisticsTracker.get_instance().update_statistics(model_id, statistics)
+    except Exception as e:
+        log_dict = {
+            "message": f"Error updating model running statistics - {str(e)}",
+        }
+        logging.exception(json.dumps(log_dict))
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/models/{model_id}/running_statistics", response_model=LanguageModelStatistics)
+async def get_model_running_statistics_route(model_id: str) -> LanguageModelStatistics:
+    try:
+        return await RunningStatisticsTracker.get_instance().get_statistics(model_id)
+    except Exception as e:
+        log_dict = {
+            "message": f"Error getting model running statistics - {str(e)}",
         }
         logging.exception(json.dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e

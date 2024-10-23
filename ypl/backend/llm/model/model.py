@@ -8,9 +8,12 @@ from sqlalchemy.engine import Result
 from sqlalchemy.exc import DatabaseError, OperationalError
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
+from sqlmodel.ext.asyncio.session import AsyncSession
 from tenacity import after_log, retry, retry_if_exception_type, stop_after_attempt, wait_fixed
-from ypl.backend.db import get_engine
+from ypl.backend.db import get_async_engine, get_engine
+from ypl.backend.llm.routing.route_data_type import LanguageModelStatistics
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, LicenseEnum
+from ypl.utils import async_timed_cache
 
 
 class LanguageModelStruct(BaseModel):
@@ -181,3 +184,25 @@ def delete_model(model_id: str) -> None:
         if result.rowcount == 0:  # type: ignore
             raise ValueError(f"Model with id {model_id} not found")
         session.commit()
+
+
+@async_timed_cache(seconds=600)
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_fixed(0.1),
+    after=after_log(logging.getLogger(), logging.WARNING),
+    retry=retry_if_exception_type((OperationalError, DatabaseError)),
+)
+async def get_model_base_statistics(model_id: str) -> LanguageModelStatistics:
+    async with AsyncSession(get_async_engine()) as session:
+        llm = await session.get(LanguageModel, model_id)
+
+        if llm is None:
+            raise ValueError(f"Language model with id {model_id} not found")
+
+        return LanguageModelStatistics(
+            first_token_avg_latency_ms=llm.first_token_avg_latency_ms,
+            first_token_p90_latency_ms=llm.first_token_p90_latency_ms,
+            output_avg_tps=llm.output_avg_tps,
+            output_p90_tps=llm.output_p90_tps,
+        )

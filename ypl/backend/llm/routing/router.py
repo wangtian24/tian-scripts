@@ -20,7 +20,7 @@ from ypl.backend.llm.chat import adeduce_original_provider, simple_deduce_origin
 from ypl.backend.llm.constants import MODEL_HEURISTICS
 from ypl.backend.llm.ranking import ConfidenceIntervalRankerMixin, Ranker, get_ranker
 from ypl.backend.llm.routing.policy import SelectionCriteria, decayed_random_fraction
-from ypl.backend.llm.routing.router_data_type import RoutingPreference
+from ypl.backend.llm.routing.route_data_type import RoutingPreference
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
 from ypl.utils import RNGMixin, async_timed_cache
 
