@@ -12,6 +12,9 @@ from ypl.backend.config import settings
 engine: Engine | None = None
 async_engine: AsyncEngine | None = None
 
+direct_engine: Engine | None = None
+direct_async_engine: AsyncEngine | None = None
+
 
 def get_engine() -> Engine:
     global engine
@@ -48,3 +51,20 @@ def get_async_engine() -> AsyncEngine:
             },
         )
     return async_engine
+
+
+# TODO(arawind): Remove this once we've done the performance testing.
+
+
+def get_direct_engine() -> Engine:
+    global direct_engine
+    if direct_engine is None:
+        direct_engine = create_engine(str(settings.db_url_direct))
+    return direct_engine
+
+
+def get_direct_async_engine() -> AsyncEngine:
+    global direct_async_engine
+    if direct_async_engine is None:
+        direct_async_engine = create_async_engine(str(settings.db_url_direct_async))
+    return direct_async_engine

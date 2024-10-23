@@ -2,6 +2,7 @@ import secrets
 import warnings
 from typing import Annotated, Any, Literal, Self
 
+import sqlalchemy
 from pydantic import (
     AnyUrl,
     BeforeValidator,
@@ -59,6 +60,10 @@ class Settings(BaseSettings):
     POSTGRES_HOST: str = ""
     POSTGRES_HOST_NON_POOLING: str = ""
     POSTGRES_DATABASE: str = ""
+    # For direct DB connection through Cloud SQL Proxy
+    # Ref: https://cloud.google.com/sql/docs/postgres/connect-run#connect
+    # Looks like "/cloudsql/<INSTANCE_CONNECTION_NAME>"
+    CLOUD_SQL_PROXY_INSTANCE_UNIX_SOCKET: str = ""
 
     CACHE_DIR: str = ".cache"
     USE_GOOGLE_CLOUD_LOGGING: bool = False
@@ -103,6 +108,16 @@ class Settings(BaseSettings):
             path=f"{self.POSTGRES_DATABASE}",
         ).unicode_string()
 
+    def _db_url_direct(self, async_mode: bool) -> str:
+        drivername = "postgresql" + ("+asyncpg" if async_mode else "")
+        return sqlalchemy.engine.url.URL.create(
+            drivername=drivername,
+            username=self.POSTGRES_USER,
+            password=self.POSTGRES_PASSWORD,
+            database=self.POSTGRES_DATABASE,
+            query={"host": f"{self.CLOUD_SQL_PROXY_INSTANCE_UNIX_SOCKET}" + ("/.s.PGSQL.5432" if async_mode else "")},
+        ).render_as_string(hide_password=False)
+
     @computed_field  # type: ignore[misc]
     @property
     def db_ssl_mode(self) -> str:
@@ -117,6 +132,16 @@ class Settings(BaseSettings):
     @property
     def db_url_async(self) -> str:
         return self._db_url(async_mode=True)
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def db_url_direct(self) -> str:
+        return self._db_url_direct(async_mode=False)
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def db_url_direct_async(self) -> str:
+        return self._db_url_direct(async_mode=True)
 
     def _check_default_secret(self, var_name: str, value: str | None) -> None:
         if value == DEFAULT_UNSAFE_PASSWORD:

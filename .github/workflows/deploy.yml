@@ -102,11 +102,13 @@ jobs:
           echo "SERVICE_NAME=${{ github.event.inputs.image || 'backend' }}" >> $GITHUB_ENV
           echo "MEMORY=24Gi" >> $GITHUB_ENV
           echo "CPU=6" >> $GITHUB_ENV
+          echo "CLOUD_SQL_CONNECTION_NAME=${{ secrets.CLOUD_SQL_CONNECTION_NAME_PRODUCTION }}" >> $GITHUB_ENV
         else
           echo "ENVIRONMENT=staging" >> $GITHUB_ENV
           echo "SERVICE_NAME=${{ github.event.inputs.image || 'backend' }}-staging" >> $GITHUB_ENV
           echo "MEMORY=24Gi" >> $GITHUB_ENV
           echo "CPU=6" >> $GITHUB_ENV
+          echo "CLOUD_SQL_CONNECTION_NAME=${{ secrets.CLOUD_SQL_CONNECTION_NAME_STAGING }}" >> $GITHUB_ENV
         fi
 
         if [[ "${{ github.event.inputs.image }}" == "backend-pytorch-service" || "${{ github.event.inputs.image }}" == "backend-pytorch-service-bleeding" ]]; then
@@ -135,6 +137,7 @@ jobs:
           echo "POSTGRES_HOST=${{ secrets.POSTGRES_HOST_PRODUCTION }}" >> .env
           echo "POSTGRES_DATABASE=${{ secrets.POSTGRES_DATABASE }}" >> .env
           echo "POSTGRES_HOST_NON_POOLING=${{ secrets.POSTGRES_HOST_NON_POOLING_PRODUCTION }}" >> .env
+          echo "CLOUD_SQL_PROXY_INSTANCE_UNIX_SOCKET=${{ secrets.CLOUD_SQL_PROXY_INSTANCE_UNIX_SOCKET_PRODUCTION }}" >> .env
           echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY_PRODUCTION }}" >> .env
           echo "ALIBABA_API_KEY=${{ secrets.ALIBABA_API_KEY_PRODUCTION }}" >> .env
           echo "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY_PRODUCTION }}" >> .env
@@ -162,6 +165,7 @@ jobs:
           echo "POSTGRES_HOST=${{ secrets.POSTGRES_HOST_STAGING }}" >> .env
           echo "POSTGRES_DATABASE=${{ secrets.POSTGRES_DATABASE_STAGING }}" >> .env
           echo "POSTGRES_HOST_NON_POOLING=${{ secrets.POSTGRES_HOST_NON_POOLING_STAGING }}" >> .env
+          echo "CLOUD_SQL_PROXY_INSTANCE_UNIX_SOCKET=${{ secrets.CLOUD_SQL_PROXY_INSTANCE_UNIX_SOCKET_STAGING }}" >> .env
           echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY_STAGING }}" >> .env
           echo "ALIBABA_API_KEY=${{ secrets.ALIBABA_API_KEY_STAGING }}" >> .env
           echo "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY_STAGING }}" >> .env
@@ -225,6 +229,7 @@ jobs:
             --service-min-instances 1 \
             --args=service \
             --no-cpu-throttling \
+            --add-cloudsql-instances=${{ env.CLOUD_SQL_CONNECTION_NAME }} \
             --command="/app/ypl/pytorch/serve/entrypoint.sh"
         else
           gcloud beta run deploy ${{ env.SERVICE_NAME }} \
@@ -235,6 +240,7 @@ jobs:
             --cpu ${{ env.CPU }} \
             --memory ${{ env.MEMORY }} \
             --args=service \
+            --add-cloudsql-instances=${{ env.CLOUD_SQL_CONNECTION_NAME }} \
             --command="/app/ypl/backend/entrypoint.sh"
         fi
 
