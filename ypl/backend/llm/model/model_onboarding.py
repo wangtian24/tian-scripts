@@ -2,6 +2,7 @@
 import json
 import logging
 import os
+import time
 from datetime import UTC, datetime
 from functools import cache
 from typing import Any
@@ -310,6 +311,7 @@ def verify_inference_running(model: LanguageModel, provider_name: str, base_url:
 
         client = get_provider_client(cleaned_provider_name, api_key, model.internal_name, base_url)
 
+        start_time = time.time()
         if cleaned_provider_name == "anthropic":
             is_inference_running = anthropic_api_call(client, model.internal_name)
         elif cleaned_provider_name == "huggingface":
@@ -322,12 +324,15 @@ def verify_inference_running(model: LanguageModel, provider_name: str, base_url:
             is_inference_running = bool(
                 completion.choices[0].message.content and len(completion.choices[0].message.content) > 0
             )
+        end_time = time.time()
+        latency = round(end_time - start_time, 3)
 
         if is_inference_running:
             log_dict = {
-                "message": f"Model {model.name} is running on {cleaned_provider_name} endpoint",
+                "message": f"Inference running latency for {model.name} - latency: {latency} seconds",
                 "model_name": model.name,
                 "cleaned_provider_name": cleaned_provider_name,
+                "latency": latency,
             }
             logging.info(json.dumps(log_dict))
 
