@@ -21,8 +21,8 @@ def redact_sensitive_data(text: str) -> str:
     return redacted
 
 
-class RedactingHandler(CloudLoggingHandler):
-    def emit(self, record: logging.LogRecord) -> None:
+class RedactingMixin:
+    def redact_record(self, record: logging.LogRecord) -> None:
         if isinstance(record.msg, str):
             record.msg = redact_sensitive_data(record.msg)
         elif isinstance(record.msg, dict):
@@ -33,6 +33,16 @@ class RedactingHandler(CloudLoggingHandler):
             for k, v in record.extra.items():
                 setattr(record, k, redact_sensitive_data(str(v)))
 
+
+class RedactingHandler(RedactingMixin, CloudLoggingHandler):
+    def emit(self, record: logging.LogRecord) -> None:
+        self.redact_record(record)
+        super().emit(record)
+
+
+class RedactingStreamHandler(RedactingMixin, logging.StreamHandler):
+    def emit(self, record: logging.LogRecord) -> None:
+        self.redact_record(record)
         super().emit(record)
 
 
@@ -53,3 +63,6 @@ if settings.USE_GOOGLE_CLOUD_LOGGING:
     setup_google_cloud_logging()
 else:
     logging.basicConfig(level=logging.INFO)
+    handler = RedactingStreamHandler()
+    handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+    logging.getLogger().addHandler(handler)
