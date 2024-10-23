@@ -269,5 +269,15 @@ class TurnQuality(BaseModel, table=True):
     # The overall quality of the turn.
     quality: float | None = Field(nullable=True)
 
+    def get_overall_quality(self) -> float | None:
+        # TODO(carmen): currently assumes all components are on the same scale, update with new scores
+        components = [
+            self.prompt_difficulty,
+            self.prompt_novelty,
+            self.turn_contribution,
+        ]
+        available_components = [c for c in components if c is not None]
+        return sum(available_components) / len(available_components) if available_components else None
+
 
 # TODO(minqi): Add comparison result (fka yupptake).

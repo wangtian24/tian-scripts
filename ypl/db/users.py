@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
@@ -13,6 +13,15 @@ from ypl.db.rewards import Reward, RewardActionLog
 if TYPE_CHECKING:
     from ypl.db.chats import Chat, Eval, Turn
     from ypl.db.language_models import LanguageModel
+
+# The time threshold for considering a user as "new" from user created_at
+# Users signed up within this time are treated as new users
+NEW_USER_THRESHOLD = timedelta(days=3)
+
+# The time threshold for considering a user as "inactive"
+# Users who haven't had activity longer than this are considered inactive
+INACTIVE_USER_THRESHOLD = timedelta(weeks=2)
+
 # The default user is SYSTEM.
 SYSTEM_USER_ID = "SYSTEM"
 
@@ -63,6 +72,20 @@ class User(BaseModel, table=True):
     point_transactions: list[PointTransaction] = Relationship(back_populates="user", cascade_delete=True)
     reward_action_logs: list["RewardActionLog"] = Relationship(back_populates="user", cascade_delete=True)
     rewards: list["Reward"] = Relationship(back_populates="user", cascade_delete=True)
+
+    def is_new_user(self) -> bool:
+        return (datetime.now(UTC) - self.created_at) <= NEW_USER_THRESHOLD  # type: ignore
+
+    def is_inactive_user(self) -> bool:
+        latest_activity_at = self.get_latest_activity()
+        if latest_activity_at is None:
+            return True
+        return (datetime.now(UTC) - latest_activity_at) > INACTIVE_USER_THRESHOLD
+
+    def get_latest_activity(self) -> datetime | None:
+        if not self.turns:
+            return self.created_at
+        return max((turn.created_at for turn in self.turns if turn.created_at is not None), default=self.created_at)
 
 
 class SyntheticUserAttributes(BaseModel, table=True):
