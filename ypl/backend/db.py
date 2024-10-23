@@ -1,6 +1,5 @@
 import uuid
 from collections.abc import Generator
-from contextvars import ContextVar
 from typing import Annotated
 
 from fastapi import Depends
@@ -11,7 +10,7 @@ from sqlmodel import Session, create_engine
 from ypl.backend.config import settings
 
 engine: Engine | None = None
-async_engine_ctx: ContextVar[AsyncEngine | None] = ContextVar("async_engine", default=None)
+async_engine: AsyncEngine | None = None
 
 
 def get_engine() -> Engine:
@@ -34,8 +33,9 @@ SessionDep = Annotated[Session, Depends(get_db)]
 
 
 def get_async_engine() -> AsyncEngine:
-    if (engine := async_engine_ctx.get()) is None:
-        engine = create_async_engine(
+    global async_engine
+    if async_engine is None:
+        async_engine = create_async_engine(
             str(settings.db_url_async),
             pool_pre_ping=True,
             pool_recycle=1800,
@@ -47,5 +47,4 @@ def get_async_engine() -> AsyncEngine:
                 "prepared_statement_cache_size": 0,
             },
         )
-        async_engine_ctx.set(engine)
-    return engine
+    return async_engine
