@@ -169,6 +169,8 @@ class ChatMessage(BaseModel, table=True):
     class Config:
         arbitrary_types_allowed = True
 
+    message_evals: list["MessageEval"] = Relationship(back_populates="message", cascade_delete=True)
+
 
 class EvalType(enum.Enum):
     # Primitive evaluation of two responses where the user distributes 100 points between two responses.
@@ -181,6 +183,18 @@ class EvalType(enum.Enum):
     # User-generated alternative to a Quick Take produced
     # by a model.
     QUICK_TAKE_SUGGESTION_V0 = "quick_take_suggestion_v0"
+
+
+class MessageEval(BaseModel, table=True):
+    __tablename__ = "message_evals"
+
+    message_eval_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
+    message_id: uuid.UUID = Field(foreign_key="chat_messages.message_id", nullable=False)
+    message: ChatMessage = Relationship(back_populates="message_evals")
+    score: float = Field(nullable=True)
+    user_comment: str | None = Field(nullable=True)
+    eval_id: uuid.UUID = Field(foreign_key="evals.eval_id", nullable=False)
+    eval: "Eval" = Relationship(back_populates="message_evals")
 
 
 class Eval(BaseModel, table=True):
@@ -213,6 +227,7 @@ class Eval(BaseModel, table=True):
     score_2: float | None = Field(nullable=True)
     user_comment: str | None = Field(nullable=True)
     judge_model_name: str | None = Field(nullable=True)
+    message_evals: list[MessageEval] = Relationship(back_populates="eval", cascade_delete=True)
 
 
 class TurnQuality(BaseModel, table=True):
