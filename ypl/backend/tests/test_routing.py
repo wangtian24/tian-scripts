@@ -142,7 +142,7 @@ def test_traffic_fraction_routing() -> None:
     models = ["a", "b", "c", "d"]
     router = (
         MinimumFractionModelProposer(2, {"c": 0.3, "d": 0.4}).with_seed(0) ^ RandomModelProposer().with_seed(0)
-    ).with_probs(0.4, 0.6) | TopK(2)
+    ).with_probs(0.4, 0.6).with_seed(0) | TopK(2)
     starting_state = RouterState(all_models=set(models))
     battles = [list(router.select_models(state=starting_state.deepcopy()).get_selected_models()) for _ in range(1000)]
 

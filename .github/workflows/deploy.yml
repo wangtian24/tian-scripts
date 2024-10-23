@@ -28,6 +28,7 @@ on:
         options:
         - backend
         - backend-pytorch-service
+        - backend-pytorch-service-bleeding
       region:
         description: 'Region to deploy to'
         required: true
@@ -44,12 +45,12 @@ on:
       categorizer_model_path:
         description: 'Path to the categorizer model'
         required: true
-        default: 'gs://yupp-models/category-model-base.zip'
+        default: 'gs://yupp-models/category-model-multilabel-base.zip'
         type: string
       pytorch_serve_gcp_url:
         description: 'URL of the PyTorch Serve GCP service'
         required: true
-        default: 'https://backend-pytorch-service-staging-451082535721.us-central1.run.app/api/v1'
+        default: 'https://backend-pytorch-service-bleeding-staging-451082535721.us-central1.run.app/api/v1'
         type: string
 
 
@@ -74,6 +75,11 @@ jobs:
         sudo rm -rf /usr/share/dotnet
         sudo rm -rf /opt/ghc
         sudo rm -rf /usr/local/share/boost
+        sudo swapoff -a
+        sudo rm -f /swapfile
+        sudo apt clean
+        docker rmi $(docker image ls -aq)
+        df -h
 
     - name: Checkout code
       uses: actions/checkout@v4
@@ -103,7 +109,7 @@ jobs:
           echo "CPU=6" >> $GITHUB_ENV
         fi
 
-        if [[ "${{ github.event.inputs.image }}" == "backend-pytorch-service" ]]; then
+        if [[ "${{ github.event.inputs.image }}" == "backend-pytorch-service" || "${{ github.event.inputs.image }}" == "backend-pytorch-service-bleeding" ]]; then
           echo "DOCKERFILE=Dockerfile.pytorch-service" >> $GITHUB_ENV
         else
           echo "DOCKERFILE=Dockerfile" >> $GITHUB_ENV

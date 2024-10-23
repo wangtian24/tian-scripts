@@ -1218,20 +1218,20 @@ def get_prompt_conditional_router(
     key = settings.X_API_KEY
     preference = routing_preference or RoutingPreference(turns=[])
 
-    reputable_proposer = RandomModelProposer(providers={"openai", "google", "anthropic", "azure", "microsoft", "meta"})
+    reputable_proposer = RandomModelProposer(providers=set(settings.ROUTING_REPUTABLE_PROVIDERS))
     categorizer_proposer = RemotePromptCategorizerProposer(
         prompt,
         endpoint,
         key,
         exclude_unknown_models=False,
-        skill_deficit_threshold=1,
+        skill_deficit_threshold=2,
     )
     easy_categorizer_proposer = RemotePromptCategorizerProposer(
         prompt,
         endpoint,
         key,
         exclude_unknown_models=False,
-        skill_deficit_threshold=2,
+        skill_deficit_threshold=4,
     )
 
     if not preference.turns:

@@ -37,7 +37,7 @@ class CategorizerClassificationModel(TorchAccelerationMixin, CategorizerModel):
         """
         super().__init__(model_name=model_name, label_map=label_map, multilabel=multilabel)
         self.category_model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=len(label_map))
-        self.difficulty_model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=10)
+        self.difficulty_model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=20)
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.category2id = label_map
         self.id2category = {v: k for k, v in label_map.items()}

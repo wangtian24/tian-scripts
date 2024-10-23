@@ -208,7 +208,7 @@ def train_routing(
 @click.option("-bsz", "--batch-size", required=False, default=8, help="Batch size")
 @click.option("-o", "--output-folder", required=False, default="model", help="Output folder")
 @click.option("--load-from", required=False, default=None, help="Path to load model from")
-@click.option("--multilabel", required=False, default=False, help="Whether to use multilabel categorization")
+@click.option("--multilabel", required=False, is_flag=True, help="Whether to use multilabel categorization")
 def train_categorizer(
     input_file: str,
     model_name: str,

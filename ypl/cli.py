@@ -612,7 +612,25 @@ def judge_yupp_llm_outputs(
     default=64,
     help="The number of jobs to run in parallel. Optimal value depends on the rate limit and CPU cores.",
 )
-def judge_prompt_traits(input_file: str, output_file: str, limit: int, config: str, num_parallel: int) -> None:
+@click.option("--always-label-difficulty", is_flag=True, help="Always label difficulty")
+@click.option("--always-label-categories", is_flag=True, help="Always label categories")
+@click.option("--always-label-quality", is_flag=True, help="Always label quality")
+@click.option("--no-label-quality", is_flag=True, help="Do not label quality")
+@click.option("--no-label-difficulty", is_flag=True, help="Do not label difficulty")
+@click.option("--no-label-categories", is_flag=True, help="Do not label categories")
+def judge_prompt_traits(
+    input_file: str,
+    output_file: str,
+    limit: int,
+    config: str,
+    num_parallel: int,
+    always_label_difficulty: bool,
+    always_label_categories: bool,
+    always_label_quality: bool,
+    no_label_quality: bool,
+    no_label_difficulty: bool,
+    no_label_categories: bool,
+) -> None:
     lines = Path(input_file).read_text().splitlines()
     batch = []
     orig_batch = []
@@ -638,7 +656,7 @@ def judge_prompt_traits(input_file: str, output_file: str, limit: int, config: s
     llm = get_chat_model(llm_info, temperature=0.0)
     labels_list: list[dict[str, Any]] = [{} for _ in orig_batch]
 
-    if "quality" not in orig_batch[0][1]:
+    if "quality" not in orig_batch[0][1] or always_label_quality and not no_label_quality:
         logging.info("Labeling quality...")
         quality_labeler = YuppQualityLabeler(llm, timeout_secs=cfg.timeout)
         quality_results = asyncio.run(quality_labeler.abatch_label(batch, num_parallel=num_parallel))
@@ -646,7 +664,7 @@ def judge_prompt_traits(input_file: str, output_file: str, limit: int, config: s
         for labels, result in zip(labels_list, quality_results, strict=True):
             labels["quality"] = result
 
-    if "difficulty" not in orig_batch[0][1]:
+    if "difficulty" not in orig_batch[0][1] or always_label_difficulty and not no_label_difficulty:
         logging.info("Labeling difficulty...")
         difficulty_labeler = YuppSingleDifficultyLabeler(llm, timeout_secs=cfg.timeout)
         difficulty_results = asyncio.run(
@@ -656,7 +674,7 @@ def judge_prompt_traits(input_file: str, output_file: str, limit: int, config: s
         for labels, result in zip(labels_list, difficulty_results, strict=True):
             labels["difficulty"] = result
 
-    if "categories" not in orig_batch[0][1]:
+    if "categories" not in orig_batch[0][1] or always_label_categories and not no_label_categories:
         logging.info("Labeling categories...")
         categorizer = YuppMultilabelClassifier(llm, timeout_secs=cfg.timeout)
         category_results = asyncio.run(categorizer.abatch_label([x[1] for x in batch], num_parallel=num_parallel))

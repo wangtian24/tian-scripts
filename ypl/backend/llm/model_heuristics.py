@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from typing import Literal
 
+import numpy as np
 import tiktoken
 from pydantic.v1 import BaseModel as BaseModelV1
 from transformers import AutoTokenizer
@@ -29,7 +30,7 @@ class ModelHeuristics(BaseModelV1):
         else:
             raise ValueError(f"Unsupported tokenizer type: {self.tokenizer_type}")
 
-    def estimate_quality(self, category: str, difficulty: int) -> float:
+    def estimate_quality(self, category: str | list[str], difficulty: int) -> float:
         """
         Estimates the quality of the model in the given category and difficulty.
 
@@ -42,6 +43,9 @@ class ModelHeuristics(BaseModelV1):
           amount the model needs to improve to reach the difficulty and positive values is the amount the model
           exceeds the difficulty.
         """
+        if isinstance(category, list):
+            return float(np.mean([self.estimate_quality(c, difficulty) for c in category]))
+
         c = category.lower()
 
         if c in self.skills:

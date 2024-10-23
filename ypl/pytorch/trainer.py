@@ -93,7 +93,6 @@ class RoutingMultilabelTrainer(Trainer):  # type: ignore[misc]
         for example in eval_dataset:  # type: ignore[attr-defined]
             scores = self.model.route_to_models(example.prompt)
             accuracy.append(int(list(scores).index(example.models[0]) == 0))
-            print(sum(accuracy) / len(accuracy))
 
         return dict(accuracy=sum(accuracy) / len(accuracy))
 
@@ -109,17 +108,18 @@ class CategorizerTrainer(Trainer):  # type: ignore[misc]
         self, model: CategorizerClassificationModel, inputs: StrTensorDict, return_outputs: bool = False
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         logits = model(inputs)["logits"]
+        num_labels = len(model.label_map)
 
         if model.multilabel:
             loss_fn_multilabel = nn.BCEWithLogitsLoss(pos_weight=self.pos_weights.to(model.device))
             loss_fn_difficulty = nn.CrossEntropyLoss()
-            loss = loss_fn_multilabel(logits[:, :-10], inputs["category_labels"]) + loss_fn_difficulty(
-                logits[:, -10:], inputs["difficulty_labels"]
+            loss = loss_fn_multilabel(logits[:, :num_labels], inputs["category_labels"]) + loss_fn_difficulty(
+                logits[:, num_labels:], inputs["difficulty_labels"]
             )
         else:
             loss_fn = nn.CrossEntropyLoss(ignore_index=-1)
-            loss = loss_fn(logits[:, :-10], inputs["category_labels"]) + loss_fn(
-                logits[:, -10:], inputs["difficulty_labels"]
+            loss = loss_fn(logits[:, :num_labels], inputs["category_labels"]) + loss_fn(
+                logits[:, num_labels:], inputs["difficulty_labels"]
             )
 
         return (loss, logits) if return_outputs else loss

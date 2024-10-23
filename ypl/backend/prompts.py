@@ -332,7 +332,8 @@ PROMPTS_MODEL_QUALITY_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages(
     [("system", PROMPTS_MODEL_QUALITY_SYS_PROMPT), ("human", PROMPTS_MODEL_QUALITY_USER_PROMPT_SIMPLE)]
 )
 
-RESPONSE_QUALITY_USER_PROMPT = """Evaluate the quality of AI responses to a given prompt. Respond with a score between 0 and 100 indicating the quality of the response.
+RESPONSE_QUALITY_USER_PROMPT = """Evaluate the correctness of the AI response to a given prompt. Respond with a 0 or a 1 indicating the correctness of the response, with 1 being correct and 0 incorrect.
+If the AI refuses to answer or can't answer, count it as correct.
 
 The prompt is as follows: {prompt}
 
@@ -342,11 +343,11 @@ Response: {response}
 
 <<END RESPONSE>>
 
-Score the response from 0 to 100, where 0 is the worst and 100 is the best. Think step by step, but don't write too much. On the final line, return a response {{"score": ...}}."""
+Return whether the response is correct or not. Think step by step, but don't write too much. On the final line, return a response {{"score": ...}}."""
 
 RESPONSE_QUALITY_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([("human", RESPONSE_QUALITY_USER_PROMPT)])
 
-RESPONSE_DIFFICULTY_USER_PROMPT = """Evaluate the difficulty for an AI to successfully answer a given prompt. Respond with a score between 0 and 100 indicating the difficulty of the task.
+RESPONSE_DIFFICULTY_USER_PROMPT = """Evaluate the difficulty of this prompt for people to solve. Respond with a score between 0 and 100 indicating the difficulty of the task.
 
 The prompt is as follows: {prompt}
 
@@ -357,42 +358,20 @@ Score the difficulty from 0 to 100, where 0 is the easiest and 100 is the hardes
 RESPONSE_DIFFICULTY_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([("human", RESPONSE_DIFFICULTY_USER_PROMPT)])
 
 PROMPT_MULTILABEL_CLASSIFICATION_PROMPT = """You are given the categories below:
-Categories:
 - Opinion
 - Creative Writing
-- Comparison
 - Factual
 - Advice
-- Education
 - Summarization
 - Multilingual
 - Analysis
 - Reasoning
 - Entertainment
-- Computer Science
-- Literature
-- Business
-- Art History
+- Coding
 - Mathematics
-- Statistics
-- Calculus
-- Algebra
-- Geometry
-- Psychology
-- Political Science
-- Physics
-- Medicine
-- Biology
-- Chemistry
-- Engineering
-- Philosophy
-- Economics
-- Law
-- Sociology
-- History
-- Music
-- Art
-- Other
+- Science
+- Small Talk
+- Gibberish
 
 Classify the following prompt into one or more categories. Think step by step, but don't write too much. On the final line, return a JSON response {{"categories": [...]}}.
 

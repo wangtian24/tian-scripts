@@ -74,10 +74,11 @@ class Settings(BaseSettings):
 
     # Whether to use prompt-conditional routing. Defaults to false.
     ROUTING_USE_PROMPT_CONDITIONAL: bool = False
+    ROUTING_REPUTABLE_PROVIDERS: list[str] = ["openai", "google", "anthropic", "azure", "microsoft", "meta"]
     OPENAI_API_KEY_ROUTING: str = ""
 
     # The GCP storage path to the prompt categorizer model.
-    CATEGORIZER_MODEL_PATH: str = "gs://yupp-models/category-model.zip"
+    CATEGORIZER_MODEL_PATH: str = "gs://yupp-models/category-model-multilabel-base.zip"
 
     # PyTorch Serve service settings
     PYTORCH_SERVE_GCP_SERVICE_NAME: str = "backend-pytorch-service"

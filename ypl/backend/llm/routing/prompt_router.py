@@ -8,7 +8,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 
 from ypl.backend.llm.chat import ModelInfo, get_chat_model
-from ypl.backend.llm.constants import DEFAULT_MODEL_HEURISTICS, MODEL_DESCRIPTIONS, MODEL_HEURISTICS
+from ypl.backend.llm.constants import MODEL_DESCRIPTIONS, MODEL_HEURISTICS
 from ypl.backend.llm.labeler import LLMLabeler
 from ypl.backend.llm.routing.policy import SelectionCriteria
 from ypl.backend.llm.routing.router import ModelProposer, RouterState
@@ -87,7 +87,7 @@ class RemotePromptCategorizerProposer(ModelProposer):
                 excluded_models.add(model)
                 continue
 
-            heuristics = MODEL_HEURISTICS.get(model, DEFAULT_MODEL_HEURISTICS)
+            heuristics = MODEL_HEURISTICS[model]  # defaultdict; see constants.py for the default heuristics
             quality = heuristics.estimate_quality(category, difficulty)
 
             if quality < self.skill_deficit_threshold:
