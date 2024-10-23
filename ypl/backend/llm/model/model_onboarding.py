@@ -236,7 +236,7 @@ def verify_hf_model(model: LanguageModel) -> bool:
 
         log_dict = {
             "message": "Model characteristics",
-            "model_internal_name": model.internal_name,
+            "model_name": model.name,
             "tags": tags,
             "has_text_generation": has_text_generation,
             "has_conversational": has_conversational,
@@ -265,7 +265,7 @@ def verify_hf_model(model: LanguageModel) -> bool:
     except HfHubHTTPError as e:
         log_dict = {
             "message": "Error accessing Hugging Face API for model",
-            "model_internal_name": model.internal_name,
+            "model_name": model.name,
             "error": str(e),
         }
         logging.exception(json.dumps(log_dict))
@@ -273,7 +273,7 @@ def verify_hf_model(model: LanguageModel) -> bool:
     except Exception as e:
         log_dict = {
             "message": "Unexpected error verifying model on Hugging Face",
-            "model_internal_name": model.internal_name,
+            "model_name": model.name,
             "error": str(e),
         }
         logging.exception(json.dumps(log_dict))
@@ -340,7 +340,7 @@ def verify_inference_running(model: LanguageModel, provider_name: str, base_url:
     except Exception as e:
         log_dict = {
             "message": "Unexpected error verifying inference running for model",
-            "model_internal_name": model.internal_name,
+            "model_name": model.name,
             "provider_name": provider_name,
             "error": str(e),
         }
