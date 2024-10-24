@@ -424,7 +424,7 @@ class SQLChatIO(YuppChatIO):
                 if chat_message_data["message_type"] == MessageType.ASSISTANT_MESSAGE:
                     eval_data["user_id"] = db_user.user_id
                     eval_data["turn_id"] = db_turn.turn_id
-                    eval_data["eval_type"] = EvalType.SLIDER_V0
+                    eval_data["eval_type"] = EvalType.SELECTION
 
                     if message_idx <= 1:  # two LLMs
                         eval_data[f"message_{message_idx + 1}_id"] = db_chat_message.message_id

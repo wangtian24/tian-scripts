@@ -254,7 +254,7 @@ class Ranker:
             )
             .where(
                 Eval.deleted_at.is_(None),  # type: ignore
-                Eval.eval_type == EvalType.SLIDER_V0,
+                Eval.eval_type.in_(EvalType.SLIDER_V0, EvalType.SELECTION),  # type: ignore
                 Eval.score_1.is_not(None),  # type: ignore
                 Chat.deleted_at.is_(None),  # type: ignore
                 ChatMessage1.c.assistant_model_name.in_(supported_llm_names),
@@ -297,7 +297,7 @@ class Ranker:
             results = session.exec(query).all()
             counts_by_user: dict[str, int] = defaultdict(int)
             for result_a, eval_type, user_email, model_a, model_b in results:
-                if eval_type == EvalType.SLIDER_V0:
+                if eval_type in (EvalType.SLIDER_V0, EvalType.SELECTION):
                     result_a /= 100.0
                 if model_a and model_b:
                     self.update(
