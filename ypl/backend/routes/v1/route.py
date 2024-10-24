@@ -32,11 +32,15 @@ async def select_models(
     return_models = selected_models.get_sorted_selected_models()
     end_time = time.time()
     latency = round(end_time - start_time, 3)
+
     log_dict = {
         "message": f"Select models latency: {latency} seconds",
         "select_models_latency": latency,
     }
-    logging.info(json.dumps(log_dict))
+
+    if settings.ROUTING_DO_LOGGING:
+        logging.info(json.dumps(log_dict))
+
     return return_models
 
 

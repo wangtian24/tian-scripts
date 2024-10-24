@@ -4,7 +4,7 @@ import re
 
 from google.cloud import logging as google_logging
 from google.cloud.logging.handlers import CloudLoggingHandler
-from google.cloud.logging_v2.handlers.transports.sync import SyncTransport
+from google.cloud.logging_v2.handlers.transports.background_thread import BackgroundThreadTransport
 
 from ypl.backend.config import settings
 
@@ -49,7 +49,9 @@ class RedactingStreamHandler(RedactingMixin, logging.StreamHandler):
 def setup_google_cloud_logging() -> None:
     try:
         client = google_logging.Client()
-        handler = RedactingHandler(client, name=os.environ.get("GCP_PROJECT_ID") or "default", transport=SyncTransport)
+        handler = RedactingHandler(
+            client, name=os.environ.get("GCP_PROJECT_ID") or "default", transport=BackgroundThreadTransport
+        )
 
         root_logger = logging.getLogger()
         root_logger.setLevel(logging.INFO)

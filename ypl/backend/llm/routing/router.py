@@ -129,6 +129,14 @@ class RouterState(BaseModel):
             for criteria, score in criteria_map.items():
                 self.selected_models[model][criteria] = score * factor
 
+    def offset_scores(self, offset: float) -> None:
+        """
+        Offset the scores of all selected models by a constant amount.
+        """
+        for model, criteria_map in self.selected_models.items():
+            for criteria, score in criteria_map.items():
+                self.selected_models[model][criteria] = score + offset
+
     def get_model_score_map(self) -> dict[str, float]:
         """
         Return a map of the models to their scores, summed over all criteria.
@@ -205,12 +213,16 @@ class RouterModule(ABC):
 
     _multiplier: float | None = None
     _always_include: bool | None = None
+    _offset: float | None = None
 
     def select_models(self, state: RouterState | None = None) -> RouterState:
         response = self._select_models(state or RouterState())
 
         if self._multiplier is not None:
             response.multiply_scores(self._multiplier)
+
+        if self._offset is not None:
+            response.offset_scores(self._offset)
 
         if self._always_include is not None:
             response.always_include = self._always_include
@@ -228,9 +240,18 @@ class RouterModule(ABC):
 
         return response
 
-    def with_flags(self, *, multiplier: float | None = None, always_include: bool | None = None) -> "RouterModule":
+    def with_flags(
+        self,
+        *,
+        multiplier: float | None = None,
+        always_include: bool | None = None,
+        offset: float | None = None,
+    ) -> "RouterModule":
         if multiplier is not None:
             self._multiplier = multiplier
+
+        if offset is not None:
+            self._offset = offset
 
         if always_include is not None:
             self._always_include = always_include
@@ -276,19 +297,17 @@ class RouterDecisionLogger(RouterModule):
         Log the routing decision.
         """
         if self.enabled:
+            criterias = [
+                (str(criteria), score)
+                for _, criteria_map in state.selected_models.items()
+                for criteria, score in criteria_map.items()
+            ]
+
             decision = RoutingDecision(
                 prefix=self.prefix,
                 candidate_model_names=list(state.all_models),
                 chosen_model_names=list(state.selected_models.keys()),
-                selection_criteria=list(
-                    dict.fromkeys(
-                        [
-                            str(criteria)
-                            for _, criteria_map in state.selected_models.items()
-                            for criteria in criteria_map.keys()
-                        ]
-                    )
-                ),
+                selection_criteria=criterias,
             )
             decision.log()
 
@@ -605,7 +624,7 @@ class RandomJitter(RNGMixin, ModelFilter):
                 raise ValueError("Either jitter_range or jitter_pct must be provided")
 
             for criterion, score in scores.items():
-                scores[criterion] = score + jitter  # this may result in a negative score, which is fine
+                scores[criterion] = max(0, score + jitter)
 
         return state, set()
 
@@ -1043,7 +1062,7 @@ class RoutingDecision:
         prefix: str,
         candidate_model_names: Sequence[str],
         chosen_model_names: Sequence[str],
-        selection_criteria: Sequence[str],
+        selection_criteria: Sequence[tuple[str, float]],
         **kwargs: Any,
     ) -> None:
         """
@@ -1051,8 +1070,8 @@ class RoutingDecision:
             prefix: A prefix to identify the router that made the decision.
             candidate_model_names: The names of the models that were proposed.
             chosen_model_names: The names of the models that were finally chosen. Should be a subset of the above.
-            selection_criteria: The names of the criteria that made the decision. If there are multiple, it means that
-                multiple were involved in building the chosen model list, and they are inseparable.
+            selection_criteria: The names of the criteria and scores that made the decision. If there are multiple,
+                it means that multiple were involved in building the chosen model list, and they are inseparable.
             **kwargs: Additional metadata to log.
         """
         from ypl import __version__
@@ -1164,9 +1183,9 @@ class ProviderFilter(ModelFilter):
             filtered_models = {}
 
             for model in state.get_sorted_selected_models():
-                if (await adeduce_original_provider(model)) not in curr_providers:
+                if (provider := await adeduce_original_provider(model)) not in curr_providers:
                     filtered_models[model] = state.selected_models[model]
-                    curr_providers.add(await adeduce_original_provider(model))
+                    curr_providers.add(provider)
 
         excluded_models = state.selected_models.keys() - filtered_models.keys()
 
@@ -1224,13 +1243,6 @@ def get_prompt_conditional_router(
         endpoint,
         key,
         exclude_unknown_models=False,
-        skill_deficit_threshold=2,
-    )
-    easy_categorizer_proposer = RemotePromptCategorizerProposer(
-        prompt,
-        endpoint,
-        key,
-        exclude_unknown_models=False,
         skill_deficit_threshold=4,
     )
 
@@ -1242,7 +1254,7 @@ def get_prompt_conditional_router(
             | categorizer_proposer
             | MaxSpeedProposer()
             | RandomJitter(jitter_range=30.0)  # +/- 30 tokens per second
-            | (ProviderFilter(one_per_provider=True) & Passthrough().with_flags(multiplier=0.01))
+            | (ProviderFilter(one_per_provider=True) & Passthrough().with_flags(offset=-1000))
             | TopK(num_models)
             | RouterDecisionLogger(enabled=settings.ROUTING_DO_LOGGING, prefix="first-prompt-conditional-router")
         )
@@ -1250,32 +1262,37 @@ def get_prompt_conditional_router(
         # This is the router for all turns after the first; construct it based on the preference
         # and the branding. If both are bad, we default to one branded and one random. If one branded one is
         # good, we choose that and use a random model for the other.
-        all_models = set(model for turn in preference.turns for model in turn.models)
-        all_good_models = set(turn.preferred for turn in preference.turns if turn.preferred is not None)
+        all_good_models = set()
+        all_bad_models = set()
 
         for turn in preference.turns:
-            if turn.preferred is None:
-                for model in turn.models:
-                    all_good_models.discard(model)
+            for model in turn.models:
+                if turn.preferred is None:
+                    all_bad_models.add(model)
+                else:
+                    if model == turn.preferred:
+                        all_good_models.add(model)
+                    else:
+                        all_bad_models.add(model)
 
-        all_bad_models = all_models - all_good_models
+        all_good_models = all_good_models - all_bad_models
 
         router: RouterModule = (  # type: ignore[no-redef]
             (
-                (RandomModelProposer(models=all_good_models).with_flags(multiplier=1000) | TopK(1)).with_flags(
+                (RandomModelProposer(models=all_good_models).with_flags(offset=10000) | TopK(1)).with_flags(
                     always_include=True
                 )
                 & (
-                    easy_categorizer_proposer
+                    categorizer_proposer
                     | Exclude(all_bad_models)
                     | ProviderFilter(one_per_provider=True)
                     | MaxSpeedProposer()
                     | RandomJitter(jitter_range=30.0)  # +/- 30 tokens per second
                     | TopK(1)
                 ).with_flags(always_include=True)
-                & RandomModelProposer().with_flags(multiplier=0.01, always_include=True)
+                & RandomModelProposer().with_flags(offset=-1000, always_include=True)
             )
-            | (ProviderFilter(one_per_provider=True) & Passthrough().with_flags(multiplier=0.01))
+            | (ProviderFilter(one_per_provider=True) & Passthrough().with_flags(offset=-1000))
             | TopK(num_models)
             | RouterDecisionLogger(enabled=settings.ROUTING_DO_LOGGING, prefix="nonfirst-prompt-conditional-router")
         )

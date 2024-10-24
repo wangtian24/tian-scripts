@@ -66,7 +66,7 @@ class Settings(BaseSettings):
     CLOUD_SQL_PROXY_INSTANCE_UNIX_SOCKET: str = ""
 
     CACHE_DIR: str = ".cache"
-    USE_GOOGLE_CLOUD_LOGGING: bool = False
+    USE_GOOGLE_CLOUD_LOGGING: bool = True
 
     ROUTING_GOOD_MODELS_RANK_THRESHOLD: int = 3  # the rank cutoff for what is considered a "good" model for routing
     ROUTING_GOOD_MODELS_ALWAYS: bool = False  # if true, a good model will always be included in the selected models
