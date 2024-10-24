@@ -259,10 +259,10 @@ async def create_reward_action_log(reward_action_log: RewardActionLog) -> Reward
     retry=retry_if_exception_type((OperationalError, DatabaseError)),
 )
 async def create_reward(
-    user_id: str, credit_delta: int, reason: str, reward_action_logs: list[RewardActionLog]
+    user_id: str, credit_delta: int, reason: str, reward_action_logs: list[RewardActionLog], turn_id: UUID | None = None
 ) -> Reward:
     async with AsyncSession(get_async_engine()) as session:
-        reward = Reward(user_id=user_id, credit_delta=credit_delta, reason=reason)
+        reward = Reward(user_id=user_id, credit_delta=credit_delta, reason=reason, turn_id=turn_id)
         async with session.begin():
             session.add(reward)
 

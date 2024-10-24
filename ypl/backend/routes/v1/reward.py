@@ -26,7 +26,8 @@ async def record_reward_action(reward_action_log: RewardActionLog) -> RewardCrea
         updated_reward_action_log = await create_reward_action_log(reward_action_log)
 
         if updated_reward_action_log.action_type == RewardActionEnum.EVALUATION:
-            turn_id = updated_reward_action_log.action_details.get("turn_id")
+            turn_id_str = updated_reward_action_log.action_details.get("turn_id")
+            turn_id = UUID(turn_id_str) if turn_id_str else None
 
         if turn_id is None:
             # Return a random reward 50% of the time if there's no turn ID.
@@ -36,7 +37,7 @@ async def record_reward_action(reward_action_log: RewardActionLog) -> RewardCrea
                 "RANDOM",
             )
         else:
-            should_reward, credit_delta, reason = reward(updated_reward_action_log.user_id, UUID(turn_id))
+            should_reward, credit_delta, reason = reward(updated_reward_action_log.user_id, turn_id)
 
         reward_id = None
         if should_reward:
@@ -45,6 +46,7 @@ async def record_reward_action(reward_action_log: RewardActionLog) -> RewardCrea
                 credit_delta=credit_delta,
                 reason=reason,
                 reward_action_logs=[updated_reward_action_log],
+                turn_id=turn_id,
             )
             reward_id = created_reward.reward_id
 
