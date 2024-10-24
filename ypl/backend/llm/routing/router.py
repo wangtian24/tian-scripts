@@ -1252,6 +1252,12 @@ def get_prompt_conditional_router(
         # good, we choose that and use a random model for the other.
         all_models = set(model for turn in preference.turns for model in turn.models)
         all_good_models = set(turn.preferred for turn in preference.turns if turn.preferred is not None)
+
+        for turn in preference.turns:
+            if turn.preferred is None:
+                for model in turn.models:
+                    all_good_models.discard(model)
+
         all_bad_models = all_models - all_good_models
 
         router: RouterModule = (  # type: ignore[no-redef]
