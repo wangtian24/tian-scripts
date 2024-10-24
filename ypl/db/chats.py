@@ -215,9 +215,11 @@ class Eval(BaseModel, table=True):
     eval_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
     user_id: uuid.UUID = Field(foreign_key="users.user_id", nullable=False, sa_type=Text)
     user: User = Relationship(back_populates="evals")
+    # TODO: Deprecate turn_id and turn.
     turn_id: uuid.UUID = Field(foreign_key="turns.turn_id", nullable=False)
     turn: Turn = Relationship(back_populates="evals")
     eval_type: EvalType = Field(sa_column=Column(SQLAlchemyEnum(EvalType), nullable=False))
+    # TODO: Deprecate message_1_id and message_1.
     message_1_id: uuid.UUID = Field(sa_column=Column(ForeignKey("chat_messages.message_id"), nullable=False))
     message_1: "ChatMessage" = Relationship(
         sa_relationship_kwargs={
@@ -226,7 +228,7 @@ class Eval(BaseModel, table=True):
         },
         back_populates="evals_as_message_1",
     )
-
+    # TODO: Deprecate message_2_id and message_2.
     message_2_id: uuid.UUID | None = Field(sa_column=Column(ForeignKey("chat_messages.message_id"), nullable=True))
     message_2: "ChatMessage" = Relationship(
         sa_relationship_kwargs={
@@ -235,6 +237,7 @@ class Eval(BaseModel, table=True):
         },
         back_populates="evals_as_message_2",
     )
+    # TODO: Deprecate score_1 and score_2.
     score_1: float | None = Field(nullable=True)
     score_2: float | None = Field(nullable=True)
     user_comment: str | None = Field(nullable=True)
