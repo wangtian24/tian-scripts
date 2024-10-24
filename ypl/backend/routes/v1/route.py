@@ -1,6 +1,3 @@
-import json
-import logging
-import time
 from typing import Any
 
 from fastapi import APIRouter, Body, Query
@@ -21,7 +18,6 @@ async def select_models(
     budget: float = Query(default=float("inf"), description="Budget"),
     preference: None | RoutingPreference = Body(default=None, description="List of past outcomes"),  # noqa: B008
 ) -> list[str]:
-    start_time = time.time()
     if settings.ROUTING_USE_PROMPT_CONDITIONAL:
         router = get_prompt_conditional_router(prompt, num_models, preference)
     else:
@@ -30,17 +26,6 @@ async def select_models(
     all_models_state = await RouterState.new_all_models_state()
     selected_models = await router.aselect_models(state=all_models_state)
     return_models = selected_models.get_sorted_selected_models()
-    end_time = time.time()
-    latency = round(end_time - start_time, 3)
-
-    log_dict = {
-        "message": f"Select models latency: {latency} seconds",
-        "select_models_latency": latency,
-    }
-
-    if settings.ROUTING_DO_LOGGING:
-        logging.info(json.dumps(log_dict))
-
     return return_models
 
 
