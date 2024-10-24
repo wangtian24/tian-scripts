@@ -254,7 +254,7 @@ class Ranker:
             )
             .where(
                 Eval.deleted_at.is_(None),  # type: ignore
-                Eval.eval_type.in_(EvalType.SLIDER_V0, EvalType.SELECTION),  # type: ignore
+                Eval.eval_type.in_([EvalType.SLIDER_V0, EvalType.SELECTION]),  # type: ignore
                 Eval.score_1.is_not(None),  # type: ignore
                 Chat.deleted_at.is_(None),  # type: ignore
                 ChatMessage1.c.assistant_model_name.in_(supported_llm_names),
