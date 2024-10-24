@@ -1,5 +1,7 @@
 import json
 import logging
+import math
+import random
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
@@ -11,8 +13,9 @@ from ypl.backend.llm.reward import (
     create_reward,
     create_reward_action_log,
     process_reward_claim,
+    reward,
 )
-from ypl.db.rewards import RewardActionLog, RewardStatusEnum
+from ypl.db.rewards import RewardActionEnum, RewardActionLog, RewardStatusEnum
 
 router = APIRouter()
 
@@ -22,18 +25,28 @@ async def record_reward_action(reward_action_log: RewardActionLog) -> RewardCrea
     try:
         updated_reward_action_log = await create_reward_action_log(reward_action_log)
 
-        # TODO(ocarmieo): Add logic to check if the user should be rewarded.
-        should_reward, credit_delta, reason = True, 10, "THANK_YOU"
+        if updated_reward_action_log.action_type == RewardActionEnum.EVALUATION:
+            turn_id = updated_reward_action_log.action_details.get("turn_id")
+
+        if turn_id is None:
+            # Return a random reward 50% of the time if there's no turn ID.
+            should_reward, credit_delta, reason = (
+                True if random.random() > 0.5 else False,
+                math.ceil(-5 * math.log(1 - random.random())) * 10,
+                "RANDOM",
+            )
+        else:
+            should_reward, credit_delta, reason = reward(updated_reward_action_log.user_id, UUID(turn_id))
 
         reward_id = None
         if should_reward:
-            reward = await create_reward(
+            created_reward = await create_reward(
                 user_id=updated_reward_action_log.user_id,
                 credit_delta=credit_delta,
                 reason=reason,
                 reward_action_logs=[updated_reward_action_log],
             )
-            reward_id = reward.reward_id
+            reward_id = created_reward.reward_id
 
         return RewardCreationResponse(is_rewarded=should_reward, reward_id=reward_id)
 
