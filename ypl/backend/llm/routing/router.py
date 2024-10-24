@@ -208,7 +208,7 @@ class RouterModule(ABC):
     See Also:
     - :py:meth:`.RouterSequentialChain`, :py:meth:`.RouterParallelChain`, :py:meth:`.RouterExclusiveChain`
     - :py:meth:`.RouterState.__add__`, :py:meth:`.RouterState.multiply_scores`
-    - :py:meth:`.RouterDecisionLogger`
+    - :py:meth:`.RoutingDecisionLogger`
     """
 
     _multiplier: float | None = None
@@ -283,14 +283,15 @@ class Passthrough(RouterModule):
         return state
 
 
-class RouterDecisionLogger(RouterModule):
-    def __init__(self, enabled: bool = True, prefix: str = "router") -> None:
+class RoutingDecisionLogger(RouterModule):
+    def __init__(self, enabled: bool = True, prefix: str = "router", metadata: dict[str, Any] | None = None) -> None:
         """
         Args:
             enabled: Whether to log the routing decision.
         """
         self.enabled = enabled
         self.prefix = prefix
+        self.metadata = metadata or {}
 
     def _select_models(self, state: RouterState) -> RouterState:
         """
@@ -308,6 +309,7 @@ class RouterDecisionLogger(RouterModule):
                 candidate_model_names=list(state.all_models),
                 chosen_model_names=list(state.selected_models.keys()),
                 selection_criteria=criterias,
+                **self.metadata,
             )
             decision.log()
 
@@ -1207,7 +1209,7 @@ def get_router_ranker(ranker: Ranker | None = None) -> tuple[RouterModule, Ranke
     if settings.ROUTING_GOOD_MODELS_ALWAYS:
         router = AlwaysGoodModelMetaRouter(ranker, router, num_good=settings.ROUTING_GOOD_MODELS_RANK_THRESHOLD)
 
-    router = router | TopK(2) | RouterDecisionLogger(enabled=settings.ROUTING_DO_LOGGING, prefix="default-router")
+    router = router | TopK(2) | RoutingDecisionLogger(enabled=settings.ROUTING_DO_LOGGING, prefix="default-router")
 
     return router, ranker
 
@@ -1256,7 +1258,7 @@ def get_prompt_conditional_router(
             | RandomJitter(jitter_range=30.0)  # +/- 30 tokens per second
             | (ProviderFilter(one_per_provider=True) & Passthrough().with_flags(offset=-1000))
             | TopK(num_models)
-            | RouterDecisionLogger(enabled=settings.ROUTING_DO_LOGGING, prefix="first-prompt-conditional-router")
+            | RoutingDecisionLogger(enabled=settings.ROUTING_DO_LOGGING, prefix="first-prompt-conditional-router")
         )
     else:
         # This is the router for all turns after the first; construct it based on the preference
@@ -1294,7 +1296,15 @@ def get_prompt_conditional_router(
             )
             | (ProviderFilter(one_per_provider=True) & Passthrough().with_flags(offset=-1000))
             | TopK(num_models)
-            | RouterDecisionLogger(enabled=settings.ROUTING_DO_LOGGING, prefix="nonfirst-prompt-conditional-router")
+            | RoutingDecisionLogger(
+                enabled=settings.ROUTING_DO_LOGGING,
+                prefix="nonfirst-prompt-conditional-router",
+                metadata={
+                    "turns": [t.model_dump() for t in preference.turns],
+                    "all_good_models": list(all_good_models),
+                    "all_bad_models": list(all_bad_models),
+                },
+            )
         )
 
     return router
