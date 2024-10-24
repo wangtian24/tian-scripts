@@ -38,11 +38,20 @@ class RewardTier:
     mean_reward: float
     # List of possible comments to be given for rewards in this tier
     comments: list[str]
+    name: str
 
+
+REWARD_TIER_VERY_LOW = "very_low"
+REWARD_TIER_LOW = "low"
+REWARD_TIER_MEDIUM = "medium"
+REWARD_TIER_HIGH = "high"
+# Users with higher point balances will receive rewards at a lower rate/amount.
+MAX_POINTS = 20000
 
 # Reward tiers: 1-3, 4-7, 8-10
 REWARD_TIERS = {
-    "high": RewardTier(
+    REWARD_TIER_HIGH: RewardTier(
+        name=REWARD_TIER_HIGH,
         quality_threshold=8,
         reward_range=(200, 1000),
         mean_reward=MEAN_EVAL_REWARD * 1.5,
@@ -52,7 +61,8 @@ REWARD_TIERS = {
             "This prompt challenges the model effectively across many aspects.",
         ],
     ),
-    "medium": RewardTier(
+    REWARD_TIER_MEDIUM: RewardTier(
+        name=REWARD_TIER_MEDIUM,
         quality_threshold=4,
         reward_range=(50, 200),
         mean_reward=MEAN_EVAL_REWARD * 1.0,
@@ -62,10 +72,20 @@ REWARD_TIERS = {
             "Try more differentiated prompts for higher reward.",
         ],
     ),
-    "low": RewardTier(
+    REWARD_TIER_LOW: RewardTier(
+        name=REWARD_TIER_LOW,
         quality_threshold=1,
         reward_range=(10, 50),
         mean_reward=MEAN_EVAL_REWARD * 0.5,
+        comments=[
+            "Thank you for participating.",
+        ],
+    ),
+    REWARD_TIER_VERY_LOW: RewardTier(
+        name=REWARD_TIER_VERY_LOW,
+        quality_threshold=10,
+        reward_range=(0, 10),
+        mean_reward=0,
         comments=[
             "Thank you for participating.",
         ],
@@ -94,6 +114,7 @@ class UserTurnReward:
     is_new_user: bool = False
     is_inactive_user: bool = False
     turn_quality_score: float | None = None
+    points: int = 0
 
     def __post_init__(self) -> None:
         self._fetch_data_and_set_flags()
@@ -115,6 +136,7 @@ class UserTurnReward:
 
             self.is_new_user = user.is_new_user()
             self.is_inactive_user = user.is_inactive_user()
+            self.points = user.points
 
             first_turn_id = session.exec(
                 select(Turn.turn_id).where(Turn.creator_user_id == self.user_id).order_by(Turn.created_at)  # type: ignore
@@ -124,50 +146,38 @@ class UserTurnReward:
             self.turn_quality_score = turn_quality.get_overall_quality() if turn_quality else None
 
     def calculate_reward_probability(self) -> float:
+        if self.points > MAX_POINTS:
+            return 0.05
         if self.is_first_turn:
             return 1.0
         base_probability = 0.9 if self.is_new_user or self.is_inactive_user else BASE_REWARD_PROBABILITY
         return min(base_probability * random.uniform(0.8, 1.2), 1.0)
 
+    def get_tier(self) -> RewardTier:
+        if self.points > MAX_POINTS:
+            return REWARD_TIERS[REWARD_TIER_VERY_LOW]
+        if self.turn_quality_score is None:
+            return REWARD_TIERS[REWARD_TIER_MEDIUM]
+        for tier in REWARD_TIERS.values():
+            if self.turn_quality_score >= tier.quality_threshold:
+                return tier
+        return REWARD_TIERS[REWARD_TIER_LOW]
 
-def get_tiered_reward(turn_quality_score: float | None, method: Literal["range", "mean"] = "range") -> int:
-    """
-    Get tiered reward amount based on turn quality score, using either range or mean of reward.
-    """
-    valid_methods = ["range", "mean"]
-    if method not in valid_methods:
-        raise ValueError(f"Invalid method '{method}'. Choose from: {', '.join(valid_methods)}")
-
-    if turn_quality_score is None:
-        tier = REWARD_TIERS["medium"]
+    def get_tiered_reward(self, method: Literal["range", "mean"] = "range") -> int:
+        """
+        Get tiered reward amount based on turn quality score, using either range or mean of reward.
+        """
+        tier = self.get_tier()
         min_value, max_value = tier.reward_range
-        mean_reward = tier.mean_reward
-        return get_reward(min_value=min_value, max_value=max_value) if method == "range" else get_reward(mean_reward)
+        return (
+            get_reward(min_value=min_value, max_value=max_value) if method == "range" else get_reward(tier.mean_reward)
+        )
 
-    for tier in REWARD_TIERS.values():
-        if turn_quality_score >= tier.quality_threshold:
-            if method == "range":
-                return get_reward(min_value=tier.reward_range[0], max_value=tier.reward_range[1])
-            elif method == "mean":
-                return get_reward(tier.mean_reward)
+    def get_reward_comment(self) -> str:
+        if self.turn_quality_score is None:
+            return random.choice(DEFAULT_COMMENTS)
 
-    tier = REWARD_TIERS["low"]
-    return (
-        get_reward(min_value=tier.reward_range[0], max_value=tier.reward_range[1])
-        if method == "range"
-        else get_reward(tier.mean_reward)
-    )
-
-
-def get_reward_comment(turn_quality_score: float | None) -> str:
-    if turn_quality_score is None:
-        return random.choice(DEFAULT_COMMENTS)
-
-    for tier in REWARD_TIERS.values():
-        if turn_quality_score >= tier.quality_threshold:
-            return random.choice(tier.comments)
-
-    return random.choice(REWARD_TIERS["low"].comments)
+        return random.choice(self.get_tier().comments)
 
 
 def get_reward(
@@ -199,12 +209,11 @@ def reward(user_id: str, turn_id: UUID) -> tuple[bool, int, str]:
             - str: A comment or message about the reward.
     """
     user_turn_reward = UserTurnReward(user_id, turn_id)
-    turn_quality_score = user_turn_reward.turn_quality_score
     reward_probability = user_turn_reward.calculate_reward_probability()
 
     should_reward = random.random() < reward_probability
-    reward_amount = get_tiered_reward(turn_quality_score) if should_reward else 0
-    reward_comment = get_reward_comment(turn_quality_score) if should_reward else "Keep engaging for more rewards!"
+    reward_amount = user_turn_reward.get_tiered_reward() if should_reward else 0
+    reward_comment = user_turn_reward.get_reward_comment() if should_reward else "Keep engaging for more rewards!"
 
     return should_reward, reward_amount, reward_comment
 
