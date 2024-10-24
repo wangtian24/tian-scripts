@@ -18,6 +18,7 @@ from ypl.db.users import User
 
 if TYPE_CHECKING:
     from ypl.db.chats import Category
+    from ypl.db.rewards import Reward
 
 
 # A chat can contain multiple conversations.
@@ -63,6 +64,8 @@ class Turn(BaseModel, table=True):
     evals: list["Eval"] = Relationship(back_populates="turn")
 
     turn_quality: "TurnQuality" = Relationship(back_populates="turn")
+
+    rewards: list["Reward"] = Relationship(back_populates="turn")
 
     __table_args__ = (UniqueConstraint("chat_id", "sequence_id", name="uq_chat_sequence"),)
 

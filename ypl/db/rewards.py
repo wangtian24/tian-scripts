@@ -8,6 +8,7 @@ from sqlmodel import Field, Relationship
 from ypl.db.base import BaseModel
 
 if TYPE_CHECKING:
+    from ypl.db.chats import Turn
     from ypl.db.point_transactions import PointTransaction
     from ypl.db.users import User
 
@@ -30,7 +31,7 @@ class RewardActionLog(BaseModel, table=True):
     # Action type to identifier mapping:
     # - "sign_up": "referrer_id"
     # - "prompt": "prompt_id"
-    # - "evaluation": "eval_id"
+    # - "evaluation": "eval_id" and "turn_id"
     action_details: dict[str, str] = Field(default_factory=dict, sa_type=sa.JSON)
 
     # If we reward a user for an action, we store the reward id here.
@@ -76,3 +77,8 @@ class Reward(BaseModel, table=True):
 
     # Transaction associated with claiming the reward.
     claim_transaction: "PointTransaction" = Relationship(back_populates="claimed_reward")
+
+    # The turn ID for which the reward is given.
+    # Only set if the reward is for an evaluation.
+    turn_id: uuid.UUID | None = Field(foreign_key="turns.turn_id", default=None, nullable=True)
+    turn: "Turn" = Relationship(back_populates="rewards")
