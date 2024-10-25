@@ -245,6 +245,7 @@ class Eval(BaseModel, table=True):
     user_comment: str | None = Field(nullable=True)
     judge_model_name: str | None = Field(nullable=True)
     message_evals: list[MessageEval] = Relationship(back_populates="eval", cascade_delete=True)
+    reward_action_logs: list["RewardActionLog"] = Relationship(back_populates="eval")
 
 
 class TurnQuality(BaseModel, table=True):
