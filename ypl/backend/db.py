@@ -19,7 +19,9 @@ direct_async_engine: AsyncEngine | None = None
 def get_engine() -> Engine:
     global engine
     if engine is None:
-        engine = create_engine(str(settings.db_url), connect_args={"sslmode": settings.db_ssl_mode})
+        engine = create_engine(
+            str(settings.db_url), pool_pre_ping=True, pool_recycle=1800, connect_args={"sslmode": settings.db_ssl_mode}
+        )
     return engine
 
 
