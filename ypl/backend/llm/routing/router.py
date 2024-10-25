@@ -144,7 +144,7 @@ class RouterState(BaseModel):
         return {model: sum(criteria_map.values()) for model, criteria_map in self.selected_models.items()}
 
     @classmethod
-    @async_timed_cache(seconds=600)  # Cache for 10 minutes
+    @async_timed_cache(seconds=1)  # Cache for 10 minutes
     async def new_all_models_state(cls) -> "RouterState":
         query = (
             select(LanguageModel.internal_name)
