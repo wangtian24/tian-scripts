@@ -11,8 +11,7 @@ import numpy as np
 from google.auth import default
 from google.cloud import run_v2
 from pydantic import BaseModel
-from sqlmodel import select
-from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlalchemy import text
 
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine
@@ -21,7 +20,6 @@ from ypl.backend.llm.constants import MODEL_HEURISTICS
 from ypl.backend.llm.ranking import ConfidenceIntervalRankerMixin, Ranker, get_ranker
 from ypl.backend.llm.routing.policy import SelectionCriteria, decayed_random_fraction
 from ypl.backend.llm.routing.route_data_type import RoutingPreference
-from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
 from ypl.utils import RNGMixin, async_timed_cache
 
 
@@ -146,24 +144,25 @@ class RouterState(BaseModel):
     @classmethod
     @async_timed_cache(seconds=1)  # Cache for 10 minutes
     async def new_all_models_state(cls) -> "RouterState":
-        query = (
-            select(LanguageModel.internal_name)
-            .distinct()
-            .join(Provider)
-            .where(
-                LanguageModel.deleted_at.is_(None),  # type: ignore
-                LanguageModel.status == LanguageModelStatusEnum.ACTIVE,
-                Provider.deleted_at.is_(None),  # type: ignore
-                Provider.is_active.is_(True),  # type: ignore
-            )
+        sql_query = text(
+            """
+            SELECT internal_name FROM language_models
+                JOIN providers ON language_models.provider_id = providers.provider_id
+            WHERE language_models.deleted_at IS NULL
+                AND language_models.status = 'ACTIVE'
+                AND providers.deleted_at IS NULL
+                AND providers.is_active IS TRUE
+            """
         )
-        async with AsyncSession(get_async_engine()) as session:
-            models = await session.exec(query)
+
+        async with get_async_engine().connect() as conn:
+            model_rows = await conn.execute(sql_query)
+            models = set(row[0] for row in model_rows.fetchall())
 
         return RouterState(
             selected_models={},
             excluded_models=set(),
-            all_models=set(models.all()),
+            all_models=models,
         )
 
 
