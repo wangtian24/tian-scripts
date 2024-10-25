@@ -1,4 +1,5 @@
 import asyncio
+import concurrent.futures
 import functools
 import json
 import logging
@@ -16,7 +17,7 @@ import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 from sqlalchemy import func
-from sqlalchemy.orm import load_only
+from sqlalchemy.orm import load_only, selectinload
 from sqlmodel import Session, select, text
 from tqdm import tqdm
 from tqdm.asyncio import tqdm_asyncio
@@ -49,6 +50,7 @@ from ypl.backend.llm.judge import (
 from ypl.backend.llm.labeler import WildChatRealismLabeler
 from ypl.backend.llm.model.model_management import validate_active_onboarded_models
 from ypl.backend.llm.model.model_onboarding import verify_onboard_submitted_models
+from ypl.backend.llm.moderation import LLAMA_GUARD_3_8B_MODEL_NAME, ModerationReason, moderate
 from ypl.backend.llm.prompt_classifiers import categorize_user_messages
 from ypl.backend.llm.ranking import get_default_ranker
 from ypl.backend.llm.synthesize import SQLChatIO, SynthesizerConfig, SyntheticUserGenerator, asynthesize_chats
@@ -775,6 +777,66 @@ def store_prompt_language(update_all_messages: bool) -> None:
             f"Total messages processed: {total_processed}. "
             f"Total messages failed: {total_failed}."
         )
+
+
+@cli.command()
+@click.option("--moderation-model", default=LLAMA_GUARD_3_8B_MODEL_NAME, help="The moderation model to use")
+@db_cmd
+def add_moderation_flags(moderation_model: str) -> None:
+    """Add moderation flags to all user messages without them."""
+
+    CHUNK_SIZE = 100
+    MAX_MESSAGES_TO_PROCESS = 50000
+
+    def process_message(message_content: str) -> tuple[bool, list[ModerationReason] | None]:
+        moderation_result = moderate(message_content, moderation_model)
+        return moderation_result.safe, moderation_result.reasons
+
+    completed_messages = 0
+    with Session(get_engine()) as session:
+        while True:
+            query = (
+                select(ChatMessage)
+                .join(Turn)
+                .join(TurnQuality, isouter=True)
+                .options(selectinload(ChatMessage.turn).selectinload(Turn.turn_quality))  # type: ignore
+                .where(
+                    (TurnQuality.prompt_is_safe.is_(None) | (TurnQuality.turn_id.is_(None))),  # type: ignore
+                    ChatMessage.message_type == MessageType.USER_MESSAGE,
+                )
+                .limit(CHUNK_SIZE)
+            )
+
+            messages = session.exec(query).all()
+            if not messages:
+                break
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
+                future_to_message = {executor.submit(process_message, message.content): message for message in messages}
+
+                for future in concurrent.futures.as_completed(future_to_message):
+                    message = future_to_message[future]
+                    is_safe, reasons = future.result()
+
+                    turn_quality = message.turn.turn_quality
+                    if turn_quality is None:
+                        turn_quality = TurnQuality(turn_id=message.turn.turn_id)
+                        message.turn.turn_quality = turn_quality
+
+                    turn_quality.prompt_moderation_model_name = moderation_model
+                    turn_quality.prompt_is_safe = is_safe
+                    if reasons:
+                        turn_quality.prompt_unsafe_reasons = reasons
+                        print(turn_quality.prompt_unsafe_reasons, message.message_id, message.content)
+
+            session.commit()
+            completed_messages += len(messages)
+            now = datetime.now().strftime("%H:%M:%S")
+            print(f"Committed {len(messages)} rows (total {completed_messages}) at {now}")
+            if completed_messages >= MAX_MESSAGES_TO_PROCESS:
+                break
+
+    print(f"Finished processing {completed_messages} messages.")
 
 
 if __name__ == "__main__":
