@@ -24,8 +24,10 @@ router = APIRouter()
 async def record_reward_action(reward_action_log: RewardActionLog) -> RewardCreationResponse:
     try:
         updated_reward_action_log = await create_reward_action_log(reward_action_log)
+        turn_id = updated_reward_action_log.turn_id
 
-        if updated_reward_action_log.action_type == RewardActionEnum.EVALUATION:
+        # TODO: Remove this section once the FE sends the turn_id.
+        if turn_id is None and updated_reward_action_log.action_type == RewardActionEnum.EVALUATION:
             turn_id_str = updated_reward_action_log.action_details.get("turn_id")
             turn_id = UUID(turn_id_str) if turn_id_str else None
 

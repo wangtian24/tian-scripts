@@ -8,7 +8,7 @@ from sqlmodel import Field, Relationship
 from ypl.db.base import BaseModel
 
 if TYPE_CHECKING:
-    from ypl.db.chats import Turn
+    from ypl.db.chats import Eval, Turn
     from ypl.db.point_transactions import PointTransaction
     from ypl.db.users import User
 
@@ -28,6 +28,18 @@ class RewardActionLog(BaseModel, table=True):
     user: "User" = Relationship(back_populates="reward_action_logs")
 
     action_type: RewardActionEnum = Field(nullable=False)
+
+    # The turn ID that is associated with this action.
+    # Only set if the action type is "evaluation" or "prompt".
+    turn_id: uuid.UUID | None = Field(foreign_key="turns.turn_id", default=None, nullable=True)
+    turn: "Turn" = Relationship(back_populates="reward_action_logs")
+
+    # The eval ID that is associated with this action.
+    # Only set if the action type is "evaluation".
+    eval_id: uuid.UUID | None = Field(foreign_key="evals.eval_id", default=None, nullable=True)
+    eval: "Eval" = Relationship(back_populates="reward_action_logs")
+
+    # DEPRECATED: Use individual fields like turn_id or eval_id instead.
     # Action type to identifier mapping:
     # - "sign_up": "referrer_id"
     # - "prompt": "prompt_id"

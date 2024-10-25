@@ -18,7 +18,7 @@ from ypl.db.users import User
 
 if TYPE_CHECKING:
     from ypl.db.chats import Category
-    from ypl.db.rewards import Reward
+    from ypl.db.rewards import Reward, RewardActionLog
 
 
 # A chat can contain multiple conversations.
@@ -64,6 +64,8 @@ class Turn(BaseModel, table=True):
     evals: list["Eval"] = Relationship(back_populates="turn")
 
     turn_quality: "TurnQuality" = Relationship(back_populates="turn")
+
+    reward_action_logs: list["RewardActionLog"] = Relationship(back_populates="turn")
 
     rewards: list["Reward"] = Relationship(back_populates="turn")
 
