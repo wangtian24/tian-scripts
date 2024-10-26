@@ -194,6 +194,12 @@ def get_reward(
     return int(round(raw_reward, -1))
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_fixed(0.1),
+    after=after_log(logging.getLogger(), logging.WARNING),
+    retry=retry_if_exception_type((OperationalError, DatabaseError)),
+)
 def reward(user_id: str, turn_id: UUID) -> tuple[bool, int, str]:
     """
     Determine if a user should be rewarded for a turn and calculate the reward amount.
