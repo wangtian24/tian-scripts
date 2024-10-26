@@ -1,8 +1,22 @@
 import time
 from collections.abc import Callable
+from threading import Lock
 from typing import Any, Self, TypeVar, no_type_check
 
 import numpy as np
+
+
+class SingletonMixin:
+    _instance: Self | None = None
+    _instance_lock = Lock()
+
+    @classmethod
+    def get_instance(cls, *args: Any, **kwargs: Any) -> Self:
+        with cls._instance_lock:
+            if cls._instance is None:
+                cls._instance = cls(*args, **kwargs)
+
+        return cls._instance  # type: ignore[return-value]
 
 
 class RNGMixin:

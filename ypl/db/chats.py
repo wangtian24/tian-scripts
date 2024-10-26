@@ -56,6 +56,7 @@ class Turn(BaseModel, table=True):
 
     chat_messages: list["ChatMessage"] = Relationship(
         back_populates="turn",
+        sa_relationship_kwargs={"lazy": "joined"},
     )
 
     creator_user_id: str = Field(foreign_key="users.user_id", nullable=False, sa_type=Text)
@@ -252,8 +253,8 @@ class TurnQuality(BaseModel, table=True):
     __tablename__ = "turn_qualities"
 
     turn_quality_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
-    turn_id: uuid.UUID = Field(foreign_key="turns.turn_id", nullable=False, unique=True)
-    turn: "Turn" = Relationship(back_populates="turn_quality")
+    turn_id: uuid.UUID = Field(foreign_key="turns.turn_id", nullable=False, unique=True, index=True)
+    turn: "Turn" = Relationship(back_populates="turn_quality", sa_relationship_kwargs={"lazy": "joined"})
 
     # The difficulty of the prompt: 1 (easy) to 10 (hard).
     # A difficult prompt requires increased capabilities from the LLM, including domain knowledge,

@@ -1,5 +1,4 @@
 import time
-from functools import cache
 
 from ypl.backend.llm.model.model import get_model_base_statistics
 from ypl.backend.llm.routing.route_data_type import (
@@ -7,9 +6,10 @@ from ypl.backend.llm.routing.route_data_type import (
     LanguageModelStatistics,
     StatisticsHistory,
 )
+from ypl.utils import SingletonMixin
 
 
-class RunningStatisticsTracker:
+class RunningStatisticsTracker(SingletonMixin):
     """
     Keeps track of the running live statistics, namely latency and throughput, for each model, which may display
     variations due to outages, etc.
@@ -64,8 +64,3 @@ class RunningStatisticsTracker:
             return self.statistics[model_id][0].estimate_statistics()
         except KeyError:
             return await get_model_base_statistics(model_id)  # type: ignore[no-any-return]
-
-    @classmethod
-    @cache
-    def get_instance(cls) -> "RunningStatisticsTracker":
-        return cls()
