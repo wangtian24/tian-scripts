@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from itertools import chain
 from typing import Any
 
+import cachetools.func
 import numba
 import numpy as np
 from google.auth import default
@@ -14,13 +15,13 @@ from pydantic import BaseModel
 from sqlalchemy import text
 
 from ypl.backend.config import settings
-from ypl.backend.db import get_async_engine
+from ypl.backend.db import get_engine
 from ypl.backend.llm.chat import adeduce_original_provider, simple_deduce_original_provider
 from ypl.backend.llm.constants import MODEL_HEURISTICS
 from ypl.backend.llm.ranking import ConfidenceIntervalRankerMixin, Ranker, get_ranker
 from ypl.backend.llm.routing.policy import SelectionCriteria, decayed_random_fraction
 from ypl.backend.llm.routing.route_data_type import RoutingPreference
-from ypl.utils import RNGMixin, async_timed_cache
+from ypl.utils import RNGMixin
 
 
 class RouterState(BaseModel):
@@ -142,8 +143,8 @@ class RouterState(BaseModel):
         return {model: sum(criteria_map.values()) for model, criteria_map in self.selected_models.items()}
 
     @classmethod
-    @async_timed_cache(seconds=1)  # Cache for 10 minutes
-    async def new_all_models_state(cls) -> "RouterState":
+    @cachetools.func.ttl_cache(maxsize=128, ttl=10 * 60)  # Cache for 10 minutes
+    def new_all_models_state(cls) -> "RouterState":
         sql_query = text(
             """
             SELECT internal_name FROM language_models
@@ -155,8 +156,8 @@ class RouterState(BaseModel):
             """
         )
 
-        async with get_async_engine().connect() as conn:
-            model_rows = await conn.execute(sql_query)
+        with get_engine().connect() as conn:
+            model_rows = conn.execute(sql_query)
             models = set(row[0] for row in model_rows.fetchall())
 
         return RouterState(
@@ -233,6 +234,9 @@ class RouterModule(ABC):
 
         if self._multiplier is not None:
             response.multiply_scores(self._multiplier)
+
+        if self._offset is not None:
+            response.offset_scores(self._offset)
 
         if self._always_include is not None:
             response.always_include = self._always_include

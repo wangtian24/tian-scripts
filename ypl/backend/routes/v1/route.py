@@ -12,7 +12,7 @@ router = APIRouter()
 
 
 @router.post("/select_models")
-async def select_models(
+def select_models(
     prompt: str = Query(..., description="Prompt"),
     num_models: int = Query(default=2, description="Number of different models to route to"),
     budget: float = Query(default=float("inf"), description="Budget"),
@@ -23,8 +23,8 @@ async def select_models(
     else:
         router, ranker = get_router_ranker()
 
-    all_models_state = await RouterState.new_all_models_state()
-    selected_models = await router.aselect_models(state=all_models_state)
+    all_models_state = RouterState.new_all_models_state()
+    selected_models = router.select_models(state=all_models_state)
     return_models = selected_models.get_sorted_selected_models()
     return return_models
 

@@ -6312,6 +6312,17 @@ shellingham = ">=1.3.0"
 typing-extensions = ">=3.7.4.3"
 
 [[package]]
+name = "types-cachetools"
+version = "5.5.0.20240820"
+description = "Typing stubs for cachetools"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "types-cachetools-5.5.0.20240820.tar.gz", hash = "sha256:b888ab5c1a48116f7799cd5004b18474cd82b5463acb5ffb2db2fc9c7b053bc0"},
+    {file = "types_cachetools-5.5.0.20240820-py3-none-any.whl", hash = "sha256:efb2ed8bf27a4b9d3ed70d33849f536362603a90b8090a328acf0cd42fda82e2"},
+]
+
+[[package]]
 name = "types-pytz"
 version = "2024.2.0.20241003"
 description = "Typing stubs for pytz"
@@ -7027,4 +7038,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.11,<3.12"
-content-hash = "5f4d7f961d248bfea6210543aee3d2818483e7bdd52f6088581c656f15258ed6"
+content-hash = "4a4ca7e376bd101e22afbc0add6dcce3be3a887eee379214005df43ea527f5b3"

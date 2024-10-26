@@ -116,6 +116,7 @@ sqlmodel = "0.0.21"
 tenacity = "8.5.0"
 together = "1.3.2"
 tqdm = "4.66.3"
+types-cachetools = "5.5.0.20240820"
 types-requests = "2.32.0.20240914"
 uvicorn = {version = "0.28.0", extras = ["standard"]}
 asyncpg = "0.29.0"
