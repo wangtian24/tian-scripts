@@ -422,9 +422,7 @@ def huggingface_api_call(client: Any, model_name: str) -> bool:
     messages = [
         {"role": "user", "content": "Tell me a story"},
     ]
-    completion = client.chat.completions.create(
-        model=model_name, messages=messages, stream=True, timeout=INFERENCE_TIMEOUT
-    )
+    completion = client.chat.completions.create(model=model_name, messages=messages, stream=True)
 
     for chunk in completion:
         if chunk.choices[0].delta.content and len(chunk.choices[0].delta.content) > 0:
