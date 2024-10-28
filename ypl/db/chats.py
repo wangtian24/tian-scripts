@@ -94,6 +94,17 @@ class MessageUIStatus(enum.Enum):
     SELECTED = "selected"
 
 
+class AssistantSelectionSource(enum.Enum):
+    # For backwards compatibility.
+    UNKNOWN = "unknown"
+    # The user has selected the model manually.
+    USER_SELECTED = "user_selected"
+    # The model selection was fulfilled by the router.
+    ROUTER_SELECTED = "router_selected"
+    # A default model used for quick take.
+    QUICK_TAKE_DEFAULT = "quick_take_default"
+
+
 LanguageCodeType = TypeVar("LanguageCodeType", bound="LanguageCodeEnum")
 
 
@@ -159,12 +170,22 @@ class ChatMessage(BaseModel, table=True):
     )
     assistant_language_model: "LanguageModel" = Relationship(back_populates="chat_messages")
 
+    # How the assitant language model was chosen.
+    assistant_selection_source: AssistantSelectionSource = Field(
+        sa_column=Column(
+            SQLAlchemyEnum(AssistantSelectionSource),
+            nullable=False,
+            default=AssistantSelectionSource.UNKNOWN,
+            server_default=AssistantSelectionSource.UNKNOWN.name,
+        )
+    )
+
     ui_status: MessageUIStatus = Field(
         sa_column=Column(
             SQLAlchemyEnum(MessageUIStatus),
             nullable=False,
             default=MessageUIStatus.UNKNOWN,
-            server_default=MessageUIStatus.UNKNOWN.value,
+            server_default=MessageUIStatus.UNKNOWN.name,
         )
     )
     # When present, indicates in which order this message should be displayed in relation to
