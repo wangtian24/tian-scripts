@@ -15,8 +15,10 @@ if TYPE_CHECKING:
 
 class RewardActionEnum(Enum):
     SIGN_UP = "sign_up"
+    # Deprecated. Use TURN instead.
     PROMPT = "prompt"
     EVALUATION = "evaluation"
+    TURN = "turn"
 
 
 class RewardActionLog(BaseModel, table=True):
@@ -30,7 +32,7 @@ class RewardActionLog(BaseModel, table=True):
     action_type: RewardActionEnum = Field(nullable=False)
 
     # The turn ID that is associated with this action.
-    # Only set if the action type is "evaluation" or "prompt".
+    # Only set if the action type is "evaluation" or "turn".
     turn_id: uuid.UUID | None = Field(foreign_key="turns.turn_id", default=None, nullable=True)
     turn: "Turn" = Relationship(back_populates="reward_action_logs")
 
@@ -42,7 +44,7 @@ class RewardActionLog(BaseModel, table=True):
     # DEPRECATED: Use individual fields like turn_id or eval_id instead.
     # Action type to identifier mapping:
     # - "sign_up": "referrer_id"
-    # - "prompt": "prompt_id"
+    # - "turn": "turn_id"
     # - "evaluation": "eval_id" and "turn_id"
     action_details: dict[str, str] = Field(default_factory=dict, sa_type=sa.JSON)
 

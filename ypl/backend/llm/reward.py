@@ -225,16 +225,11 @@ def reward(user_id: str, turn_id: UUID) -> tuple[bool, int, str]:
 
 
 @dataclass
-class RewardUnclaimedResponse:
-    status: RewardStatusEnum = RewardStatusEnum.UNCLAIMED
-
-
-@dataclass
 class RewardClaimedResponse:
     reason: str
     credit_delta: int
     current_credit_balance: int
-    status: RewardStatusEnum = RewardStatusEnum.CLAIMED
+    status: RewardStatusEnum
 
 
 class RewardClaimStruct(BaseModel):
