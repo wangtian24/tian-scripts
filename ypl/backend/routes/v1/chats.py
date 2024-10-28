@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 from uuid import UUID
@@ -10,6 +11,7 @@ from ypl.backend.db import get_async_engine
 from ypl.backend.llm.chat import ModelInfo, get_chat_model
 from ypl.backend.llm.constants import ChatProvider
 from ypl.backend.llm.judge import YuppPromptDifficultyLabeler
+from ypl.backend.llm.moderation import amoderate
 from ypl.backend.rw_cache import TurnQualityCache
 from ypl.db.chats import MessageType, TurnQuality
 
@@ -57,13 +59,20 @@ async def label_quality(chat_id: UUID, turn_id: UUID) -> TurnQuality:
     responses += ["", ""]  # ensure at least two responses
 
     try:
-        response_out = await labeler.alabel((prompt,) + tuple(responses[:2]))  # type: ignore[arg-type]
+        response_out, moderation_result = await asyncio.gather(
+            labeler.alabel((prompt,) + tuple(responses[:2])),  # type: ignore[arg-type]
+            amoderate(prompt),
+        )
         prompt_difficulty = int(re.search(r"\"overall\":\s*(\d+)", response_out).group(1))  # type: ignore[union-attr]
     except Exception as e:
         logging.exception(f"Error labeling prompt difficulty: {e} with turn ID {turn_id}")
         raise HTTPException(status_code=500, detail=f"Error labeling prompt difficulty: {e}") from e
 
     tq.prompt_difficulty = prompt_difficulty
+    tq.prompt_is_safe = moderation_result.safe
+    tq.prompt_moderation_model_name = moderation_result.model_name
+    if not moderation_result.safe:
+        tq.prompt_unsafe_reasons = moderation_result.reasons
 
     try:
         cache.write(key=turn_id, value=tq)

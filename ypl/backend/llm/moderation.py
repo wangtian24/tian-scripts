@@ -1,11 +1,13 @@
 import enum
 from dataclasses import dataclass
-from functools import cache
 
-from together import Together
+from together import AsyncTogether, Together
+from together.types import ChatCompletionResponse
 
 LLAMA_GUARD_2_8B_MODEL_NAME = "meta-llama/LlamaGuard-2-8b"
 LLAMA_GUARD_3_8B_MODEL_NAME = "meta-llama/Meta-Llama-Guard-3-8B"
+
+# TODO(YUP-717): migrate to LangChain/LLMLabeler.
 
 
 class ModerationReason(enum.Enum):
@@ -45,11 +47,6 @@ class ModerationReason(enum.Enum):
         return mapping.get(code, cls.OTHER)
 
 
-@cache
-def get_together_client() -> Together:
-    return Together()
-
-
 @dataclass
 class ModerationResult:
     model_name: str | None
@@ -57,15 +54,32 @@ class ModerationResult:
     reasons: list[ModerationReason] | None
 
 
-def moderate(text: str, model_name: str = LLAMA_GUARD_3_8B_MODEL_NAME) -> ModerationResult:
+def _check_model_name(model_name: str) -> None:
     if model_name not in (LLAMA_GUARD_2_8B_MODEL_NAME, LLAMA_GUARD_3_8B_MODEL_NAME):
         raise ValueError(f"Model {model_name} is not supported")
 
-    response = get_together_client().chat.completions.create(
+
+def moderate(text: str, model_name: str = LLAMA_GUARD_3_8B_MODEL_NAME) -> ModerationResult:
+    _check_model_name(model_name)
+    response = Together().chat.completions.create(
         model=model_name,
         messages=[{"role": "user", "content": text}],
         seed=123,
     )
+    return _parse_response(response, model_name)
+
+
+async def amoderate(text: str, model_name: str = LLAMA_GUARD_3_8B_MODEL_NAME) -> ModerationResult:
+    _check_model_name(model_name)
+    response = await AsyncTogether().chat.completions.create(
+        model=model_name,
+        messages=[{"role": "user", "content": text}],
+        seed=123,
+    )
+    return _parse_response(response, model_name)
+
+
+def _parse_response(response: ChatCompletionResponse, model_name: str) -> ModerationResult:
     content = response.choices[0].message.content
     if content == "safe":
         return ModerationResult(safe=True, reasons=None, model_name=model_name)
