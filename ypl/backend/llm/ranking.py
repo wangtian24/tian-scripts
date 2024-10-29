@@ -11,8 +11,9 @@ from typing import Any, ClassVar, Literal
 import choix
 import numpy as np
 import pandas as pd
-from sqlalchemy import alias, func
+from sqlalchemy import func
 from sqlalchemy.exc import DatabaseError, OperationalError
+from sqlalchemy.orm import aliased
 from sqlmodel import Session, select
 from tenacity import after_log, retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
@@ -24,7 +25,7 @@ from ypl.backend.llm.utils import (
     ThresholdCounter,
     fetch_categories_with_descriptions_from_db,
 )
-from ypl.db.chats import Chat, ChatMessage, Eval, EvalType, LanguageCode, MessageType, Turn, User
+from ypl.db.chats import Chat, ChatMessage, Eval, EvalType, LanguageCode, MessageEval, MessageType, Turn, User
 from ypl.db.language_models import LanguageModel
 from ypl.db.ratings import OVERALL_CATEGORY_NAME, Category, Rating, RatingHistory
 
@@ -229,45 +230,35 @@ class Ranker:
         Returns:
             The number of evals added.
         """
-        ChatMessage1 = alias(ChatMessage)  # type: ignore
-        ChatMessage2 = alias(ChatMessage)  # type: ignore
 
         with Session(get_engine()) as session:
             supported_llm_names = session.exec(select(LanguageModel.internal_name)).all()
 
+        Prompt = aliased(ChatMessage)
+
         query = (
-            select(
-                Eval.score_1,  # type: ignore
-                Eval.eval_type,
-                User.email,
-                ChatMessage1.c.assistant_model_name.label("model_a"),
-                ChatMessage2.c.assistant_model_name.label("model_b"),
-            )
-            .join(Eval.user)
-            .join(ChatMessage1, Eval.message_1_id == ChatMessage1.c.message_id)
-            .join(ChatMessage2, Eval.message_2_id == ChatMessage2.c.message_id)
-            .join(Turn, Eval.turn_id == Turn.turn_id)
-            .join(Chat, Turn.chat_id == Chat.chat_id)
+            select(Eval.eval_id, Eval.eval_type, User.email, MessageEval.score, ChatMessage.assistant_model_name)  # type: ignore
+            .join(Eval, Eval.eval_id == MessageEval.eval_id)
+            .join(User, User.user_id == Eval.user_id)
+            .join(ChatMessage, ChatMessage.message_id == MessageEval.message_id)
+            .join(Turn, Turn.turn_id == Eval.turn_id)
+            .join(Chat, Chat.chat_id == Turn.chat_id)
             .join(
-                ChatMessage,
-                (ChatMessage.turn_id == Turn.turn_id) & (ChatMessage.message_type == MessageType.USER_MESSAGE),
+                Prompt,
+                (Prompt.turn_id == Turn.turn_id) & (Prompt.message_type == MessageType.USER_MESSAGE),
             )
             .where(
                 Eval.deleted_at.is_(None),  # type: ignore
                 Eval.eval_type.in_([EvalType.SLIDER_V0, EvalType.SELECTION]),  # type: ignore
-                Eval.score_1.is_not(None),  # type: ignore
+                MessageEval.score.is_not(None),  # type: ignore
                 Chat.deleted_at.is_(None),  # type: ignore
-                ChatMessage1.c.assistant_model_name.in_(supported_llm_names),
-                ChatMessage2.c.assistant_model_name.in_(supported_llm_names),
+                ChatMessage.assistant_model_name.in_(supported_llm_names),  # type: ignore
             )
         )
 
         if category_names and OVERALL_CATEGORY_NAME not in category_names:
-            query = query.join(Category, Category.category_id == ChatMessage.category_id)
+            query = query.join(Category, Category.category_id == Prompt.category_id)
             query = query.where(func.lower(Category.name).in_([name.lower() for name in category_names]))
-
-        if exclude_ties:
-            query = query.where(Eval.score_1 != Eval.score_2)
 
         if from_date is not None:
             query = query.where(Eval.created_at >= from_date)  # type: ignore
@@ -291,36 +282,43 @@ class Ranker:
 
         query = query.order_by(Eval.created_at)
 
-        # Replay evals from the database.
-        added = 0
         with Session(get_engine()) as session:
             results = session.exec(query).all()
-            counts_by_user: dict[str, int] = defaultdict(int)
-            for result_a, eval_type, user_email, model_a, model_b in results:
-                if eval_type in (EvalType.SLIDER_V0, EvalType.SELECTION):
-                    result_a /= 100.0
-                if model_a and model_b:
-                    self.update(
-                        model_a=model_a,
-                        model_b=model_b,
-                        result_a=result_a,
-                    )
-                    added += 1
-                    counts_by_user[user_email] += 1
-                else:
-                    logging.warning(f"Skipping eval with missing models: model_a={model_a}, model_b={model_b}")
 
-            log_dict = {
-                "message": f"Added {added} evals to the ranker. Counts per user:",
-                "counts_by_user": counts_by_user,
-            }
-            logging.info(json.dumps(log_dict))
+        # Group the results by eval_id.
+        evals: dict[str, dict[str, Any]] = defaultdict(lambda: {"scores": defaultdict(float), "email": None})
+        counts_by_user: dict[str, int] = defaultdict(int)
 
-            for user, count in counts_by_user.items():
-                log_dict = {
-                    "message": f"- {user}: {count}",
-                }
-                logging.info(json.dumps(log_dict))
+        for eval_id, eval_type, email, score, assistant_model_name in results:
+            if eval_type in (EvalType.SLIDER_V0, EvalType.SELECTION):
+                score /= 100.0
+            evals[eval_id]["scores"][assistant_model_name] = score
+            evals[eval_id]["email"] = email
+
+        # Replay evals from the database.
+        for eval_id, eval in evals.items():
+            if len(eval["scores"]) != 2:
+                logging.debug(f"Skipping eval {eval_id=} with {len(eval['scores'])} scores: {eval['scores']}")
+                continue
+
+            if exclude_ties and len(set(eval["scores"].values())) == 1:
+                continue
+
+            model_a, model_b = list(eval["scores"].keys())
+            result_a = list(eval["scores"].values())[0]
+            self.update(
+                model_a=model_a,
+                model_b=model_b,
+                result_a=result_a,
+            )
+            counts_by_user[eval["email"]] += 1
+
+        added = sum(counts_by_user.values())
+        log_dict = {
+            "message": f"Added {added} evals to the ranker. Counts per user:",
+            "counts_by_user": counts_by_user,
+        }
+        logging.info(json.dumps(log_dict))
 
         return added
 
