@@ -27,14 +27,14 @@ async def record_reward_action(reward_action_log: RewardActionLog) -> RewardCrea
 
         updated_reward_action_log = await create_reward_action_log(reward_action_log)
 
-        should_reward, credit_delta, reason = reward(updated_reward_action_log.user_id, turn_id)
+        should_reward, credit_delta, comment = reward(updated_reward_action_log.user_id, turn_id)
 
         reward_id = None
         if should_reward:
             created_reward = await create_reward(
                 user_id=updated_reward_action_log.user_id,
                 credit_delta=credit_delta,
-                reason=reason,
+                comment=comment,
                 reward_action_logs=[updated_reward_action_log],
                 turn_id=turn_id,
             )
@@ -60,7 +60,9 @@ async def claim_reward(
 
         return RewardClaimedResponse(
             status=reward_claim_struct.status,
-            reason=reward_claim_struct.reason,
+            comment=reward_claim_struct.comment,
+            # TODO(arawind): Stop populating reason.
+            reason=reward_claim_struct.comment,
             credit_delta=reward_claim_struct.credit_delta,
             current_credit_balance=reward_claim_struct.current_credit_balance,
         )

@@ -226,7 +226,9 @@ def reward(user_id: str, turn_id: UUID) -> tuple[bool, int, str]:
 
 @dataclass
 class RewardClaimedResponse:
+    # TODO(arawind): Stop using reason.
     reason: str
+    comment: str
     credit_delta: int
     current_credit_balance: int
     status: RewardStatusEnum
@@ -234,7 +236,7 @@ class RewardClaimedResponse:
 
 class RewardClaimStruct(BaseModel):
     status: RewardStatusEnum
-    reason: str
+    comment: str
     credit_delta: int
     current_credit_balance: int
 
@@ -260,10 +262,14 @@ async def create_reward_action_log(reward_action_log: RewardActionLog) -> Reward
     retry=retry_if_exception_type((OperationalError, DatabaseError)),
 )
 async def create_reward(
-    user_id: str, credit_delta: int, reason: str, reward_action_logs: list[RewardActionLog], turn_id: UUID | None = None
+    user_id: str,
+    credit_delta: int,
+    comment: str,
+    reward_action_logs: list[RewardActionLog],
+    turn_id: UUID | None = None,
 ) -> Reward:
     async with AsyncSession(get_async_engine()) as session:
-        reward = Reward(user_id=user_id, credit_delta=credit_delta, reason=reason, turn_id=turn_id)
+        reward = Reward(user_id=user_id, credit_delta=credit_delta, reason=comment, turn_id=turn_id)
         async with session.begin():
             session.add(reward)
 
@@ -312,7 +318,7 @@ async def process_reward_claim(reward_id: UUID, user_id: str) -> RewardClaimStru
             if reward.status != RewardStatusEnum.UNCLAIMED:
                 return RewardClaimStruct(
                     status=reward.status,
-                    reason=reward.reason,
+                    comment=reward.reason,
                     credit_delta=reward.credit_delta,
                     current_credit_balance=user.points,
                 )
@@ -350,7 +356,7 @@ async def process_reward_claim(reward_id: UUID, user_id: str) -> RewardClaimStru
 
         return RewardClaimStruct(
             status=reward.status,
-            reason=reward.reason,
+            comment=reward.reason,
             credit_delta=reward.credit_delta,
             current_credit_balance=new_credit_balance,
         )
