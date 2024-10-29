@@ -22,7 +22,7 @@ This guide will help you set up a local PostgreSQL database, dump the source db 
 
 3. **Seed the Local Database:**
    - If Step 2 succeeds, you don't need to run this step as the script would've already run this.
-   - If not, runthe `seed_data_from_source.sh` script to seed the local database with data from the source database.
+   - If not, run the `seed_data_from_source.sh` script to seed the local database with data from the source database.
      ```sh
      ./seed_data_from_source.sh
      ```

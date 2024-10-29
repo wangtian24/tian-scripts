@@ -2,10 +2,11 @@ import logging
 import math
 import random
 import uuid
-from dataclasses import dataclass
-from typing import Literal
+from dataclasses import asdict, dataclass
+from typing import Any, Literal
 from uuid import UUID
 
+from cachetools.func import ttl_cache
 from pydantic import BaseModel
 from sqlalchemy.exc import DatabaseError, OperationalError
 from sqlmodel import Session, select, update
@@ -15,7 +16,14 @@ from tenacity import after_log, retry, retry_if_exception_type, stop_after_attem
 from ypl.backend.db import get_async_engine, get_engine
 from ypl.db.chats import Turn, TurnQuality
 from ypl.db.point_transactions import PointsActionEnum, PointTransaction
-from ypl.db.rewards import Reward, RewardActionLog, RewardStatusEnum
+from ypl.db.rewards import (
+    Reward,
+    RewardActionLog,
+    RewardAmountRule,
+    RewardProbabilityRule,
+    RewardRule,
+    RewardStatusEnum,
+)
 from ypl.db.users import User
 
 logging.basicConfig(level=logging.INFO)
@@ -108,6 +116,22 @@ class RewardCreationResponse:
     credit_delta: int | None = None
 
 
+def get_matching_rule(rules: list[RewardRule], context: dict[str, Any]) -> RewardRule | None:
+    """Get the first matching reward rule in `rules`, given the variables in `context`.
+
+    If no rule matches, return the default rule.
+    If no default rule exists, return None.
+    """
+
+    default_rule = None
+    for rule in rules:
+        if rule.is_default:
+            default_rule = rule
+        if rule.conditions and rule.matches(context):
+            return rule
+    return default_rule
+
+
 @dataclass
 class UserTurnReward:
     user_id: str
@@ -115,7 +139,7 @@ class UserTurnReward:
     is_first_turn: bool = False
     is_new_user: bool = False
     is_inactive_user: bool = False
-    turn_quality_score: float | None = None
+    turn_quality_score: float = -1
     points: int = 0
 
     def __post_init__(self) -> None:
@@ -131,7 +155,7 @@ class UserTurnReward:
             ).first()
 
             if not result:
-                logger.warning(f"No data found for user_id: {self.user_id} and turn_id: {self.turn_id}")
+                logger.warning(f"No data found for turn_id: {self.turn_id}")
                 return
 
             user, turn_quality = result
@@ -145,7 +169,9 @@ class UserTurnReward:
             ).first()
             self.is_first_turn = first_turn_id == self.turn_id
 
-            self.turn_quality_score = turn_quality.get_overall_quality() if turn_quality else None
+            overall_quality = turn_quality.get_overall_quality()
+            if overall_quality is not None:
+                self.turn_quality_score = overall_quality
 
     def calculate_reward_probability(self) -> float:
         if self.points > MAX_POINTS:
@@ -158,12 +184,18 @@ class UserTurnReward:
     def get_tier(self) -> RewardTier:
         if self.points > MAX_POINTS:
             return REWARD_TIERS[REWARD_TIER_VERY_LOW]
-        if self.turn_quality_score is None:
+        if self.turn_quality_score in (None, -1):
             return REWARD_TIERS[REWARD_TIER_MEDIUM]
         for tier in REWARD_TIERS.values():
             if self.turn_quality_score >= tier.quality_threshold:
                 return tier
         return REWARD_TIERS[REWARD_TIER_LOW]
+
+    def get_amount_rule(self) -> RewardAmountRule | None:
+        return get_matching_rule(get_reward_amount_rules(), asdict(self))  # type: ignore
+
+    def get_probability_rule(self) -> RewardProbabilityRule | None:
+        return get_matching_rule(get_reward_probability_rules(), asdict(self))  # type: ignore
 
     def get_tiered_reward(self, method: Literal["range", "mean"] = "range") -> int:
         """
@@ -174,6 +206,24 @@ class UserTurnReward:
         return (
             get_reward(min_value=min_value, max_value=max_value) if method == "range" else get_reward(tier.mean_reward)
         )
+
+    def get_amount(self, method: Literal["range", "mean"] = "range") -> int:
+        rule = self.get_amount_rule()
+        if not rule:
+            logger.warning(f"No reward amount rule found for turn_id: {self.turn_id}")
+            return 0
+        return (
+            get_reward(min_value=rule.min_value, max_value=rule.max_value)
+            if method == "range"
+            else get_reward(rule.mean_value)
+        )
+
+    def get_probability(self) -> float:
+        rule = self.get_probability_rule()
+        if not rule:
+            logger.warning(f"No reward probability rule found for turn_id: {self.turn_id}")
+            return 0
+        return rule.probability
 
     def get_reward_comment(self) -> str:
         if self.turn_quality_score is None:
@@ -362,6 +412,37 @@ async def process_reward_claim(reward_id: UUID, user_id: str) -> RewardClaimStru
             credit_delta=reward.credit_delta,
             current_credit_balance=new_credit_balance,
         )
+
+
+def _get_reward_rules(rule_class: type[RewardAmountRule] | type[RewardProbabilityRule]) -> list[RewardRule]:
+    """Get active reward rules of the specified type, sorted by priority."""
+    with Session(get_engine()) as session:
+        rules = session.exec(
+            select(rule_class)
+            .where(
+                rule_class.is_active.is_(True),  # type: ignore
+                rule_class.deleted_at.is_(None),  # type: ignore
+            )
+            .order_by(rule_class.priority.desc())  # type: ignore
+        ).all()
+
+        num_default_rules = len([r for r in rules if r.is_default])
+        if num_default_rules == 0:
+            logger.error(f"No default {rule_class.__name__} found.")
+        elif num_default_rules > 1:
+            logger.error(f"Multiple default {rule_class.__name__} found.")
+
+        return list(rules)
+
+
+@ttl_cache(ttl=600)  # 10 minute cache
+def get_reward_amount_rules() -> list[RewardRule]:
+    return _get_reward_rules(RewardAmountRule)
+
+
+@ttl_cache(ttl=600)  # 10 minute cache
+def get_reward_probability_rules() -> list[RewardRule]:
+    return _get_reward_rules(RewardProbabilityRule)
 
 
 logging.basicConfig(level=logging.INFO)
