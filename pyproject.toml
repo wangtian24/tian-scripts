@@ -160,7 +160,7 @@ warn_redundant_casts = true  # Warn about redundant casts
 warn_unused_ignores = true  # Warn about unneeded '# type: ignore' comments
 warn_return_any = true  # Warn about returning values of type 'Any' from functions
 ignore_missing_imports = true  # Ignore errors for missing imports
-exclude = ["ypl/db/alembic/", "tmp/", "notebooks/"]
+exclude = ["ypl/db/alembic/", "tmp/", "notebooks/", "ypl/db/oneoffs/"]
 cache_dir = ".mypy_cache"
 
 [tool.pytest.ini_options]
