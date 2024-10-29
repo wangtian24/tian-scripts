@@ -726,6 +726,6 @@ PROVIDER_MODEL_PATTERNS = {
     re.compile(r"^(claude|opus).*$", re.IGNORECASE): "anthropic",
     re.compile(r"^(phi|microsoft).*$", re.IGNORECASE): "azure",
     re.compile(r"^(qwen|alibaba).*$", re.IGNORECASE): "alibaba",
-    re.compile(r"^(meta|llama|codellama).*$", re.IGNORECASE): "meta",
+    re.compile(r"^(meta|codellama).*$", re.IGNORECASE): "meta",
     re.compile(r"^(ai21|jamba).*$", re.IGNORECASE): "ai21",
 }
