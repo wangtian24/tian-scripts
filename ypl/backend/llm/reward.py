@@ -104,6 +104,8 @@ class RewardCreationResponse:
     is_rewarded: bool = False
     # Reward ID for the client to use while claiming the reward.
     reward_id: UUID | None = None
+    comment: str | None = None
+    credit_delta: int | None = None
 
 
 @dataclass

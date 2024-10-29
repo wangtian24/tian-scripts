@@ -29,7 +29,6 @@ async def record_reward_action(reward_action_log: RewardActionLog) -> RewardCrea
 
         should_reward, credit_delta, comment = reward(updated_reward_action_log.user_id, turn_id)
 
-        reward_id = None
         if should_reward:
             created_reward = await create_reward(
                 user_id=updated_reward_action_log.user_id,
@@ -39,8 +38,11 @@ async def record_reward_action(reward_action_log: RewardActionLog) -> RewardCrea
                 turn_id=turn_id,
             )
             reward_id = created_reward.reward_id
+            return RewardCreationResponse(
+                is_rewarded=should_reward, reward_id=reward_id, comment=comment, credit_delta=credit_delta
+            )
 
-        return RewardCreationResponse(is_rewarded=should_reward, reward_id=reward_id)
+        return RewardCreationResponse(is_rewarded=False)
 
     except Exception as e:
         log_dict = {
