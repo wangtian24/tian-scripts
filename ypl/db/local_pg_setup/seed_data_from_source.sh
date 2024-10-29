@@ -36,6 +36,7 @@ DEST_PORT=$(prompt_with_default "Enter destination port" "$DEFAULT_DEST_PORT")
 DEST_DB=$(prompt_with_default "Enter destination database name" "$DEFAULT_DEST_DB")
 DEST_USER=$(prompt_with_default "Enter destination username" "$DEFAULT_DEST_USER")
 DEST_PASSWORD=$(prompt_with_default "Enter destination password" "$DEFAULT_DEST_PASSWORD")
+DROP_DB=$(prompt_with_default "Drop existing ${DEST_HOST}:${DEST_PORT}/${DEST_DB} database? (y/N)" "N")
 
 # Temporary file for the dump
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
@@ -47,6 +48,12 @@ pg_dump -h $SRC_HOST -p $SRC_PORT -U $SRC_USER -d $SRC_DB -F c -b -v -f $DUMP_FI
 if [ $? -ne 0 ]; then
     echo "***********Error: Backup failed***********"
     exit 1
+fi
+
+if [[ $DROP_DB =~ ^[Yy]$ ]]; then
+    echo "***********Dropping existing database...***********"
+    PGPASSWORD=$DEST_PASSWORD dropdb -h $DEST_HOST -p $DEST_PORT -U $DEST_USER $DEST_DB
+    PGPASSWORD=$DEST_PASSWORD createdb -h $DEST_HOST -p $DEST_PORT -U $DEST_USER $DEST_DB
 fi
 
 echo "***********Restoring to destination database...***********"
