@@ -56,50 +56,6 @@ REWARD_TIER_HIGH = "high"
 # Users with higher point balances will receive rewards at a lower rate/amount.
 MAX_POINTS = 20000
 
-# Reward tiers: 1-3, 4-7, 8-10
-REWARD_TIERS = {
-    REWARD_TIER_HIGH: RewardTier(
-        name=REWARD_TIER_HIGH,
-        quality_threshold=8,
-        reward_range=(200, 1000),
-        mean_reward=MEAN_EVAL_REWARD * 1.5,
-        comments=[
-            "This engages the model in a well-rounded, thought-provoking way.",
-            "This prompt is a great conversation starter.",
-            "This prompt challenges the model effectively across many aspects.",
-        ],
-    ),
-    REWARD_TIER_MEDIUM: RewardTier(
-        name=REWARD_TIER_MEDIUM,
-        quality_threshold=4,
-        reward_range=(50, 200),
-        mean_reward=MEAN_EVAL_REWARD * 1.0,
-        comments=[
-            "Try writing a more novel prompt for better rewards.",
-            "Try adding more complexity to future prompts to earn more rewards.",
-            "Try more differentiated prompts for higher reward.",
-        ],
-    ),
-    REWARD_TIER_LOW: RewardTier(
-        name=REWARD_TIER_LOW,
-        quality_threshold=1,
-        reward_range=(10, 50),
-        mean_reward=MEAN_EVAL_REWARD * 0.5,
-        comments=[
-            "Thank you for participating.",
-        ],
-    ),
-    REWARD_TIER_VERY_LOW: RewardTier(
-        name=REWARD_TIER_VERY_LOW,
-        quality_threshold=10,
-        reward_range=(0, 10),
-        mean_reward=0,
-        comments=[
-            "Thank you for participating.",
-        ],
-    ),
-}
-
 DEFAULT_COMMENTS = [
     "Keep it up!",
     "Keep going!",
@@ -141,6 +97,8 @@ class UserTurnReward:
     is_inactive_user: bool = False
     turn_quality_score: float = -1
     points: int = 0
+    amount_rule: RewardAmountRule | None = None
+    probability_rule: RewardProbabilityRule | None = None
 
     def __post_init__(self) -> None:
         self._fetch_data_and_set_flags()
@@ -173,42 +131,17 @@ class UserTurnReward:
             if overall_quality is not None:
                 self.turn_quality_score = overall_quality
 
-    def calculate_reward_probability(self) -> float:
-        if self.points > MAX_POINTS:
-            return 0.05
-        if self.is_first_turn:
-            return 1.0
-        base_probability = 0.9 if self.is_new_user or self.is_inactive_user else BASE_REWARD_PROBABILITY
-        return min(base_probability * random.uniform(0.8, 1.2), 1.0)
+            self.amount_rule = self._get_amount_rule()
+            self.probability_rule = self._get_probability_rule()
 
-    def get_tier(self) -> RewardTier:
-        if self.points > MAX_POINTS:
-            return REWARD_TIERS[REWARD_TIER_VERY_LOW]
-        if self.turn_quality_score in (None, -1):
-            return REWARD_TIERS[REWARD_TIER_MEDIUM]
-        for tier in REWARD_TIERS.values():
-            if self.turn_quality_score >= tier.quality_threshold:
-                return tier
-        return REWARD_TIERS[REWARD_TIER_LOW]
-
-    def get_amount_rule(self) -> RewardAmountRule | None:
+    def _get_amount_rule(self) -> RewardAmountRule | None:
         return get_matching_rule(get_reward_amount_rules(), asdict(self))  # type: ignore
 
-    def get_probability_rule(self) -> RewardProbabilityRule | None:
+    def _get_probability_rule(self) -> RewardProbabilityRule | None:
         return get_matching_rule(get_reward_probability_rules(), asdict(self))  # type: ignore
 
-    def get_tiered_reward(self, method: Literal["range", "mean"] = "range") -> int:
-        """
-        Get tiered reward amount based on turn quality score, using either range or mean of reward.
-        """
-        tier = self.get_tier()
-        min_value, max_value = tier.reward_range
-        return (
-            get_reward(min_value=min_value, max_value=max_value) if method == "range" else get_reward(tier.mean_reward)
-        )
-
     def get_amount(self, method: Literal["range", "mean"] = "range") -> int:
-        rule = self.get_amount_rule()
+        rule = self.amount_rule
         if not rule:
             logger.warning(f"No reward amount rule found for turn_id: {self.turn_id}")
             return 0
@@ -219,7 +152,7 @@ class UserTurnReward:
         )
 
     def get_probability(self) -> float:
-        rule = self.get_probability_rule()
+        rule = self.probability_rule
         if not rule:
             logger.warning(f"No reward probability rule found for turn_id: {self.turn_id}")
             return 0
@@ -229,7 +162,10 @@ class UserTurnReward:
         if self.turn_quality_score is None:
             return random.choice(DEFAULT_COMMENTS)
 
-        return random.choice(self.get_tier().comments)
+        if self.amount_rule is None:
+            return "Keep engaging for more rewards!"
+
+        return random.choice(self.amount_rule.comments)
 
 
 def get_reward(
@@ -252,7 +188,7 @@ def get_reward(
     after=after_log(logging.getLogger(), logging.WARNING),
     retry=retry_if_exception_type((OperationalError, DatabaseError)),
 )
-def reward(user_id: str, turn_id: UUID) -> tuple[bool, int, str]:
+def reward(user_id: str, turn_id: UUID) -> tuple[bool, int, str, RewardAmountRule | None, RewardProbabilityRule | None]:
     """
     Determine if a user should be rewarded for a turn and calculate the reward amount.
 
@@ -267,13 +203,19 @@ def reward(user_id: str, turn_id: UUID) -> tuple[bool, int, str]:
             - str: A comment or message about the reward.
     """
     user_turn_reward = UserTurnReward(user_id, turn_id)
-    reward_probability = user_turn_reward.calculate_reward_probability()
-
+    reward_probability = user_turn_reward.get_probability()
     should_reward = random.random() < reward_probability
-    reward_amount = user_turn_reward.get_tiered_reward() if should_reward else 0
-    reward_comment = user_turn_reward.get_reward_comment() if should_reward else "Keep engaging for more rewards!"
 
-    return should_reward, reward_amount, reward_comment
+    reward_amount = user_turn_reward.get_amount()
+    reward_comment = user_turn_reward.get_reward_comment()
+
+    return (
+        should_reward,
+        reward_amount,
+        reward_comment,
+        user_turn_reward.amount_rule,
+        user_turn_reward.probability_rule,
+    )
 
 
 @dataclass
@@ -319,9 +261,20 @@ async def create_reward(
     comment: str,
     reward_action_logs: list[RewardActionLog],
     turn_id: UUID | None = None,
+    reward_amount_rule: RewardAmountRule | None = None,
+    reward_probability_rule: RewardProbabilityRule | None = None,
 ) -> Reward:
     async with AsyncSession(get_async_engine()) as session:
-        reward = Reward(user_id=user_id, credit_delta=credit_delta, reason=comment, turn_id=turn_id)
+        amount_rule_id = reward_amount_rule.reward_amount_rule_id if reward_amount_rule else None
+        probability_rule_id = reward_probability_rule.reward_probability_rule_id if reward_probability_rule else None
+        reward = Reward(
+            user_id=user_id,
+            credit_delta=credit_delta,
+            reason=comment,
+            turn_id=turn_id,
+            reward_amount_rule_id=amount_rule_id,
+            reward_probability_rule_id=probability_rule_id,
+        )
         async with session.begin():
             session.add(reward)
 

@@ -178,6 +178,8 @@ def create_user_turn_reward(**kwargs: Any) -> UserTurnReward:
     for key, value in kwargs.items():
         if value is not None:
             setattr(user_turn_reward, key, value)
+    user_turn_reward.amount_rule = user_turn_reward._get_amount_rule()
+    user_turn_reward.probability_rule = user_turn_reward._get_probability_rule()
     return user_turn_reward
 
 
@@ -195,21 +197,7 @@ def create_user_turn_reward(**kwargs: Any) -> UserTurnReward:
 def test_tiers(turn_quality_score: float | None, credits: int, expected_tier_name: str) -> None:
     user_turn_reward = create_user_turn_reward(turn_quality_score=turn_quality_score, points=credits)
 
-    tier = user_turn_reward.get_tier()
-    assert tier.name == expected_tier_name
-
-    expected_min, expected_max = tier.reward_range
-    rewards_range = [user_turn_reward.get_tiered_reward(method="range") for _ in range(1000)]
-    assert min(rewards_range) >= expected_min
-    assert max(rewards_range) <= expected_max
-
-    rewards_mean = [user_turn_reward.get_tiered_reward(method="mean") for _ in range(1000)]
-    assert np.mean(rewards_mean) == approx(tier.mean_reward, rel=0.15)
-
-    # Repeat the above for DB-driven rules.
-    # TODO(gm): Remove the first part once we populate the DB with rules.
-
-    rule = user_turn_reward.get_amount_rule()
+    rule = user_turn_reward._get_amount_rule()
     assert rule is not None
     assert rule.name == expected_tier_name
 
@@ -238,13 +226,6 @@ def test_reward_probability(
     user_turn_reward = create_user_turn_reward(
         is_new_user=is_new_user, is_inactive_user=is_inactive_user, is_first_turn=is_first_turn, points=credits
     )
-    print(user_turn_reward)
-
-    probabilities = [user_turn_reward.calculate_reward_probability() for _ in range(1000)]
-    assert np.mean(probabilities) == approx(expected_probability, rel=0.05)
-
-    # Repeat the above for DB-driven rules.
-    # TODO(gm): Remove the first part once we populate the DB with rules.
 
     probabilities = [user_turn_reward.get_probability() for _ in range(1000)]
     assert np.mean(probabilities) == approx(expected_probability, rel=0.05)

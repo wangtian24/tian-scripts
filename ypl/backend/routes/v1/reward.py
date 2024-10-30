@@ -27,7 +27,9 @@ async def record_reward_action(reward_action_log: RewardActionLog) -> RewardCrea
 
         updated_reward_action_log = await create_reward_action_log(reward_action_log)
 
-        should_reward, credit_delta, comment = reward(updated_reward_action_log.user_id, turn_id)
+        should_reward, credit_delta, comment, reward_amount_rule, reward_probability_rule = reward(
+            updated_reward_action_log.user_id, turn_id
+        )
 
         if should_reward:
             created_reward = await create_reward(
@@ -36,6 +38,8 @@ async def record_reward_action(reward_action_log: RewardActionLog) -> RewardCrea
                 comment=comment,
                 reward_action_logs=[updated_reward_action_log],
                 turn_id=turn_id,
+                reward_amount_rule=reward_amount_rule,
+                reward_probability_rule=reward_probability_rule,
             )
             reward_id = created_reward.reward_id
             return RewardCreationResponse(
