@@ -127,7 +127,7 @@ class UserTurnReward:
             ).first()
             self.is_first_turn = first_turn_id == self.turn_id
 
-            overall_quality = turn_quality.get_overall_quality()
+            overall_quality = turn_quality.get_overall_quality() if turn_quality else None
             if overall_quality is not None:
                 self.turn_quality_score = overall_quality
 
