@@ -210,6 +210,7 @@ MODEL_HEURISTICS.update(
             dollars_per_million_output_tokens=60,
             tokenizer_name="gpt-4o",  # approximation
             tokens_per_second=35,
+            can_stream=False,
             skills={
                 "all": 20,
                 "other": 20,
@@ -234,6 +235,7 @@ MODEL_HEURISTICS.update(
             dollars_per_million_output_tokens=12,
             tokenizer_name="gpt-4o",  # approximation
             tokens_per_second=65,
+            can_stream=False,
             skills={
                 "all": 18,
                 "other": 18,

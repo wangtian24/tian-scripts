@@ -12,6 +12,7 @@ class ModelHeuristics(BaseModelV1):
     dollars_per_million_input_tokens: float
     dollars_per_million_output_tokens: float
     tokens_per_second: float = 0.0  # number of tokens output per second
+    can_stream: bool = True  # whether the model supports a streaming api
 
     # categories mapped to highest difficulty (1-10) the model can handle. "all" means general purpose.
     skills: dict[str, float] = {}

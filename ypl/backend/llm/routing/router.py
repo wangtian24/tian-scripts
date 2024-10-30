@@ -1061,6 +1061,16 @@ class Exclude(ModelFilter):
         ), self.models
 
 
+class StreamableModelFilter(Exclude):
+    """
+    Represents a filter of a set of models that support streaming.
+    """
+
+    def __init__(self) -> None:
+        non_streaming_models = {model for model, heuristics in MODEL_HEURISTICS.items() if not heuristics.can_stream}
+        super().__init__(non_streaming_models)
+
+
 class RoutingDecision:
     def __init__(
         self,
@@ -1259,6 +1269,7 @@ def get_prompt_conditional_router(
                 (
                     reputable_proposer
                     | categorizer_proposer
+                    | StreamableModelFilter()
                     | MaxSpeedProposer()
                     | RandomJitter(jitter_range=30.0)  # +/- 30 tokens per second
                     | ProviderFilter(one_per_provider=True)
