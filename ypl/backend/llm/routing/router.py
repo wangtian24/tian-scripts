@@ -1261,11 +1261,10 @@ def get_prompt_conditional_router(
                     | categorizer_proposer
                     | MaxSpeedProposer()
                     | RandomJitter(jitter_range=30.0)  # +/- 30 tokens per second
-                    | ProviderFilter(one_per_provider=True).with_flags(offset=5000)
-                )
-                & reputable_proposer.with_flags(offset=-1000)
+                    | ProviderFilter(one_per_provider=True)
+                ).with_flags(always_include=True, offset=5000)
+                & reputable_proposer.with_flags(offset=-1000, always_include=True)
             )
-            | ProviderFilter(one_per_provider=True)
             | TopK(num_models)
             | RoutingDecisionLogger(enabled=settings.ROUTING_DO_LOGGING, prefix="first-prompt-conditional-router")
         )
@@ -1303,7 +1302,6 @@ def get_prompt_conditional_router(
                 ).with_flags(always_include=True)
                 & RandomModelProposer().with_flags(offset=-1000, always_include=True)
             )
-            | (ProviderFilter(one_per_provider=True).with_flags(offset=10000) & Passthrough().with_flags(offset=-1000))
             | ProviderFilter(one_per_provider=True)
             | TopK(num_models)
             | RoutingDecisionLogger(

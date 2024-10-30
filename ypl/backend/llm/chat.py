@@ -102,7 +102,7 @@ def deduce_original_provider(model: str) -> str:
         c = conn.execute(sql_query, dict(model=model))
         res = c.first() or (None,)
 
-    return res[0] or model  # return model if all else fails  # type: ignore
+    return standardize_provider_name(res[0]) or model  # return model if all else fails  # type: ignore
 
 
 @async_timed_cache(seconds=600)
