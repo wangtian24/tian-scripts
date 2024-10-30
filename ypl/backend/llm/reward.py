@@ -209,6 +209,11 @@ def reward(user_id: str, turn_id: UUID) -> tuple[bool, int, str, RewardAmountRul
     reward_amount = user_turn_reward.get_amount()
     reward_comment = user_turn_reward.get_reward_comment()
 
+    # A safety check to prevent negative or zero credit rewards from being given.
+    if reward_amount <= 0:
+        should_reward = False
+        reward_amount = 0
+
     return (
         should_reward,
         reward_amount,
