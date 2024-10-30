@@ -16,7 +16,7 @@ from sqlalchemy import text
 
 from ypl.backend.config import settings
 from ypl.backend.db import get_engine
-from ypl.backend.llm.chat import adeduce_original_provider, simple_deduce_original_provider
+from ypl.backend.llm.chat import adeduce_original_provider, deduce_original_provider
 from ypl.backend.llm.constants import MODEL_HEURISTICS
 from ypl.backend.llm.ranking import ConfidenceIntervalRankerMixin, Ranker, get_ranker
 from ypl.backend.llm.routing.policy import SelectionCriteria, decayed_random_fraction
@@ -511,7 +511,7 @@ class RandomModelProposer(RNGMixin, ModelProposer):
 
         if self.providers:
             models_to_select = {
-                model for model in models_to_select if simple_deduce_original_provider(model) in self.providers
+                model for model in models_to_select if deduce_original_provider(model) in self.providers
             }
 
         return self._random_select(models_to_select, state)
@@ -1151,17 +1151,17 @@ class ProviderFilter(ModelFilter):
             filtered_models = {
                 model: criteria
                 for model, criteria in state.selected_models.items()
-                if (not self.inverse and simple_deduce_original_provider(model) in self.providers)
-                or (self.inverse and simple_deduce_original_provider(model) not in self.providers)
+                if (not self.inverse and deduce_original_provider(model) in self.providers)
+                or (self.inverse and deduce_original_provider(model) not in self.providers)
             }
 
         if self.one_per_provider:
             filtered_models = {}
 
             for model in state.get_sorted_selected_models():
-                if simple_deduce_original_provider(model) not in curr_providers:
+                if deduce_original_provider(model) not in curr_providers:
                     filtered_models[model] = state.selected_models[model]
-                    curr_providers.add(simple_deduce_original_provider(model))
+                    curr_providers.add(deduce_original_provider(model))
 
         excluded_models = state.selected_models.keys() - filtered_models.keys()
 
@@ -1255,11 +1255,17 @@ def get_prompt_conditional_router(
         # Construct a first-turn router guaranteeing at least two reputable models, focusing on speed but
         # also with random jitter.
         router: RouterModule = (
-            reputable_proposer
-            | categorizer_proposer
-            | MaxSpeedProposer()
-            | RandomJitter(jitter_range=30.0)  # +/- 30 tokens per second
-            | (ProviderFilter(one_per_provider=True) & Passthrough().with_flags(offset=-1000))
+            (
+                (
+                    reputable_proposer
+                    | categorizer_proposer
+                    | MaxSpeedProposer()
+                    | RandomJitter(jitter_range=30.0)  # +/- 30 tokens per second
+                    | ProviderFilter(one_per_provider=True).with_flags(offset=5000)
+                )
+                & reputable_proposer.with_flags(offset=-1000)
+            )
+            | ProviderFilter(one_per_provider=True)
             | TopK(num_models)
             | RoutingDecisionLogger(enabled=settings.ROUTING_DO_LOGGING, prefix="first-prompt-conditional-router")
         )
@@ -1297,7 +1303,8 @@ def get_prompt_conditional_router(
                 ).with_flags(always_include=True)
                 & RandomModelProposer().with_flags(offset=-1000, always_include=True)
             )
-            | (ProviderFilter(one_per_provider=True) & Passthrough().with_flags(offset=-1000))
+            | (ProviderFilter(one_per_provider=True).with_flags(offset=10000) & Passthrough().with_flags(offset=-1000))
+            | ProviderFilter(one_per_provider=True)
             | TopK(num_models)
             | RoutingDecisionLogger(
                 enabled=settings.ROUTING_DO_LOGGING,

@@ -163,8 +163,9 @@ MOCK_PROBABILITY_RULES = [
 
 @fixture(autouse=True)
 def mock_rules() -> Any:
-    with patch("ypl.backend.llm.reward.get_reward_amount_rules", return_value=MOCK_AMOUNT_RULES), patch(
-        "ypl.backend.llm.reward.get_reward_probability_rules", return_value=MOCK_PROBABILITY_RULES
+    with (
+        patch("ypl.backend.llm.reward.get_reward_amount_rules", return_value=MOCK_AMOUNT_RULES),
+        patch("ypl.backend.llm.reward.get_reward_probability_rules", return_value=MOCK_PROBABILITY_RULES),
     ):
         yield
 

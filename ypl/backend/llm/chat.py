@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Generic, TypeVar
 
 import torch
+from cachetools.func import ttl_cache
 from langchain_anthropic import ChatAnthropic
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -17,11 +18,12 @@ from langchain_openai import ChatOpenAI
 from nltk.tokenize import sent_tokenize, word_tokenize
 from pydantic.v1 import SecretStr
 from sentence_transformers import SentenceTransformer
+from sqlalchemy import text
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ypl.backend import prompts
-from ypl.backend.db import get_async_engine
+from ypl.backend.db import get_async_engine, get_engine
 from ypl.backend.llm.constants import ACTIVE_MODELS_BY_PROVIDER, PROVIDER_MODEL_PATTERNS, ChatProvider
 from ypl.backend.llm.utils import combine_short_sentences
 from ypl.db.chats import MessageType
@@ -84,6 +86,23 @@ def simple_deduce_original_provider(model: str) -> str:
             return provider
 
     return model
+
+
+@ttl_cache(ttl=600)  # 10-minute cache
+def deduce_original_provider(model: str) -> str:
+    sql_query = text(
+        """
+        SELECT providers.name FROM language_models
+            JOIN providers ON language_models.provider_id = providers.provider_id
+        WHERE language_models.internal_name = :model
+        """
+    )
+
+    with get_engine().connect() as conn:
+        c = conn.execute(sql_query, dict(model=model))
+        res = c.first() or (None,)
+
+    return res[0] or model  # return model if all else fails  # type: ignore
 
 
 @async_timed_cache(seconds=600)
