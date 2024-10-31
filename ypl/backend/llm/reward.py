@@ -8,6 +8,7 @@ from uuid import UUID
 
 from cachetools.func import ttl_cache
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.exc import DatabaseError, OperationalError
 from sqlmodel import Session, select, update
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -55,9 +56,8 @@ REWARD_TIER_HIGH = "high"
 MAX_POINTS = 20000
 
 DEFAULT_COMMENTS = [
-    "Keep it up!",
-    "Keep going!",
-    "Keep engaging for more rewards!",
+    "Thanks for your input on model responses.",
+    "Keep engaging for more rewards.",
 ]
 
 
@@ -125,13 +125,14 @@ class UserTurnReward:
 
             user, chat_created_at, self.turn_position_in_chat, turn_quality = result
 
-            self.previous_chat_count = len(
-                [
-                    chat
-                    for chat in user.chats
-                    if chat.created_at and chat_created_at and chat.created_at < chat_created_at
-                ]
-            )
+            self.previous_chat_count = session.exec(
+                select(func.count())
+                .select_from(Chat)
+                .where(
+                    Chat.creator_user_id == self.user_id,
+                    Chat.created_at < chat_created_at if chat_created_at is not None else False,  # type: ignore
+                )
+            ).one()
 
             self.is_new_user = user.is_new_user()
             self.is_inactive_user = user.is_inactive_user()
@@ -174,11 +175,8 @@ class UserTurnReward:
         return rule.probability
 
     def get_reward_comment(self) -> str:
-        if self.turn_quality_score in (-1, None):
-            return random.choice(DEFAULT_COMMENTS)
-
         if self.amount_rule is None:
-            return "Keep engaging for more rewards!"
+            return random.choice(DEFAULT_COMMENTS)
 
         return random.choice(self.amount_rule.comments)
 
