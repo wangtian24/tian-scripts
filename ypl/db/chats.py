@@ -310,6 +310,9 @@ class TurnQuality(BaseModel, table=True):
     quality: float | None = Field(nullable=True)
 
     def get_overall_quality(self) -> float | None:
+        if self.prompt_is_safe is False:
+            return 0
+
         # TODO(carmen): currently assumes all components are on the same scale, update with new scores
         components = [
             self.prompt_difficulty,

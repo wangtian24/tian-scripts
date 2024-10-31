@@ -14,7 +14,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from tenacity import after_log, retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 from ypl.backend.db import get_async_engine, get_engine
-from ypl.db.chats import Turn, TurnQuality
+from ypl.db.chats import Chat, Turn, TurnQuality
 from ypl.db.point_transactions import PointsActionEnum, PointTransaction
 from ypl.db.rewards import (
     Reward,
@@ -29,8 +29,6 @@ from ypl.db.users import User
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# The base probability of receiving a reward for a turn
-BASE_REWARD_PROBABILITY = 0.8
 
 # Define mean reward for evals, baseline value for medium tier (method="mean")
 MEAN_EVAL_REWARD = 50
@@ -92,6 +90,8 @@ def get_matching_rule(rules: list[RewardRule], context: dict[str, Any]) -> Rewar
 class UserTurnReward:
     user_id: str
     turn_id: UUID
+    previous_chat_count: int = 0
+    turn_position_in_chat: int = 0
     is_first_turn: bool = False
     is_new_user: bool = False
     is_inactive_user: bool = False
@@ -106,17 +106,32 @@ class UserTurnReward:
     def _fetch_data_and_set_flags(self) -> None:
         with Session(get_engine()) as session:
             result = session.exec(
-                select(User, TurnQuality)
-                .join(Turn, Turn.creator_user_id == User.user_id)  # type: ignore
-                .where(User.user_id == self.user_id, Turn.turn_id == self.turn_id)
-                .join(TurnQuality, TurnQuality.turn_id == Turn.turn_id, isouter=True)  # type: ignore
+                select(
+                    User,
+                    Chat.created_at,
+                    Turn.sequence_id,
+                    TurnQuality,
+                )
+                .join(Chat, Chat.creator_user_id == User.user_id)  # type: ignore
+                .join(Turn)
+                .join(TurnQuality, isouter=True)
+                .where(Turn.turn_id == self.turn_id)
+                .order_by(Chat.created_at)  # type: ignore
             ).first()
 
             if not result:
                 logger.warning(f"No data found for turn_id: {self.turn_id}")
                 return
 
-            user, turn_quality = result
+            user, chat_created_at, self.turn_position_in_chat, turn_quality = result
+
+            self.previous_chat_count = len(
+                [
+                    chat
+                    for chat in user.chats
+                    if chat.created_at and chat_created_at and chat.created_at < chat_created_at
+                ]
+            )
 
             self.is_new_user = user.is_new_user()
             self.is_inactive_user = user.is_inactive_user()
@@ -159,7 +174,7 @@ class UserTurnReward:
         return rule.probability
 
     def get_reward_comment(self) -> str:
-        if self.turn_quality_score is None:
+        if self.turn_quality_score in (-1, None):
             return random.choice(DEFAULT_COMMENTS)
 
         if self.amount_rule is None:

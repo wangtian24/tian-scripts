@@ -114,6 +114,14 @@ class RewardVariables(BaseVariables):  # type: ignore
     def __init__(self, context: dict[str, Any]):
         self.context = context
 
+    @numeric_rule_variable
+    def previous_chat_count(self) -> int | None:
+        return self.context.get("previous_chat_count")
+
+    @numeric_rule_variable
+    def turn_position_in_chat(self) -> int | None:
+        return self.context.get("turn_position_in_chat")
+
     @boolean_rule_variable
     def is_new_user(self) -> bool | None:
         return self.context.get("is_new_user")

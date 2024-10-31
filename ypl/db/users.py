@@ -14,9 +14,8 @@ if TYPE_CHECKING:
     from ypl.db.chats import Chat, Eval, Turn
     from ypl.db.language_models import LanguageModel
 
-# The time threshold for considering a user as "new" from user created_at
-# Users signed up within this time are treated as new users
-NEW_USER_THRESHOLD = timedelta(days=3)
+# The threshold for considering a user as "new" based on the number of chats
+NEW_USER_CHAT_THRESHOLD = 10
 
 # The time threshold for considering a user as "inactive"
 # Users who haven't had activity longer than this are considered inactive
@@ -74,7 +73,7 @@ class User(BaseModel, table=True):
     rewards: list["Reward"] = Relationship(back_populates="user", cascade_delete=True)
 
     def is_new_user(self) -> bool:
-        return (datetime.now(UTC) - self.created_at) <= NEW_USER_THRESHOLD  # type: ignore
+        return len(self.chats) < NEW_USER_CHAT_THRESHOLD
 
     def is_inactive_user(self) -> bool:
         latest_activity_at = self.get_latest_activity()
