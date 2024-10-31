@@ -90,6 +90,10 @@ def simple_deduce_original_provider(model: str) -> str:
 
 @ttl_cache(ttl=600)  # 10-minute cache
 def deduce_original_provider(model: str) -> str:
+    for pattern, provider in PROVIDER_MODEL_PATTERNS.items():
+        if pattern.match(model):
+            return provider
+
     sql_query = text(
         """
         SELECT providers.name FROM language_models
