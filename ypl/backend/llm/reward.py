@@ -14,6 +14,7 @@ from sqlmodel import Session, select, update
 from sqlmodel.ext.asyncio.session import AsyncSession
 from tenacity import after_log, retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
+from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine, get_engine
 from ypl.db.chats import Chat, Turn, TurnQuality
 from ypl.db.point_transactions import PointsActionEnum, PointTransaction
@@ -221,6 +222,11 @@ def reward(user_id: str, turn_id: UUID) -> tuple[bool, int, str, RewardAmountRul
 
     reward_amount = user_turn_reward.get_amount()
     reward_comment = user_turn_reward.get_reward_comment()
+
+    # Override reward amount for local environments
+    if settings.ENVIRONMENT == "local":
+        reward_amount = random.randint(1, 10)
+        should_reward = True
 
     # A safety check to prevent negative or zero credit rewards from being given.
     if reward_amount <= 0:
