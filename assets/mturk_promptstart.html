@@ -1,0 +1,71 @@
+<!-- You must include this JavaScript file -->
+<script src="https://assets.crowd.aws/crowd-html-elements.js"></script>
+
+<!-- For the full list of available Crowd HTML Elements and their input/output documentation,
+      please refer to https://docs.aws.amazon.com/sagemaker/latest/dg/sms-ui-template-reference.html -->
+
+<!-- You must include crowd-form so that your task submits answers to MTurk -->
+<crowd-form answer-format="flatten-objects">
+    <h2>PROMPT: ${prompt}</h2>
+    <h3>Categorize the topic of the PROMPT:</h3>
+    <crowd-radio-group>
+        <crowd-radio-button name="Advice" value="Advice">Advice</crowd-radio-button>
+        <crowd-radio-button name="Analysis" value="Analysis">Analysis</crowd-radio-button>
+        <crowd-radio-button name="Code" value="Code">Code</crowd-radio-button>
+        <crowd-radio-button name="Comparison" value="Comparison">Comparison</crowd-radio-button>
+        <crowd-radio-button name="Creative Writing" value="Creative Writing">Creative Writing</crowd-radio-button>
+        <crowd-radio-button name="Education" value="Education">Education</crowd-radio-button>
+        <crowd-radio-button name="Factual" value="Factual">Factual</crowd-radio-button>
+        <crowd-radio-button name="Math" value="Math">Math</crowd-radio-button>
+        <crowd-radio-button name="Opinion" value="Opinion">Opinion</crowd-radio-button>
+        <crowd-radio-button name="Reasoning" value="Reasoning">Reasoning</crowd-radio-button>
+    </crowd-radio-group>
+
+    <h3>Estimate the difficulty of answering the PROMPT:</h3>
+    <crowd-radio-group>
+        <crowd-radio-button name="expertiseLevelBeginner" value="beginner">Beginner (Grade 5th level): Basic understanding and skills, suitable for early learning stages.</crowd-radio-button>
+        <crowd-radio-button name="expertiseLevelIntermediate" value="intermediate">Intermediate (Grade 12th level): More developed skills and understanding, suitable for high school graduates.</crowd-radio-button>
+        <crowd-radio-button name="expertiseLevelExpert" value="expert">Expert (Master level): Advanced understanding and high-level skills, suitable for someone with extensive education or experience in the field.</crowd-radio-button>
+    </crowd-radio-group>
+	
+	<h3>Read the three AI responses to the prompt:</h3>
+	<div style="width: 100%;">
+	    <pre style="width: 32%; vertical-align: top; display: inline-block; white-space: pre-wrap;">Response 1: ${response1}</pre>
+	    <pre style="width: 32%; vertical-align: top; display: inline-block; white-space: pre-wrap;">Response 2: ${response2}</pre>
+	    <pre style="width: 32%; vertical-align: top; display: inline-block; white-space: pre-wrap;">Response 3: ${response3}</pre>
+	</div>
+	
+	<h3>Are the responses very different?</h3>
+    <crowd-radio-group>
+        <crowd-radio-button name="yes" value="Yes">Yes, they diverge.</crowd-radio-button>
+        <crowd-radio-button name="no" value="No">No, they are quite similar.</crowd-radio-button>
+    </crowd-radio-group>
+	
+	<h3>Rate the quality of <b>RESPONSE 1</b>:</h3>
+    <crowd-radio-group>
+        <crowd-radio-button name="responseQualityPoor" value="poor">Poor Response: Irrelevant, incorrect, or nonsensical; fails to address the prompt.</crowd-radio-button><br>
+        <crowd-radio-button name="responseQualityLow" value="low">Low-quality Response: Partially addresses the prompt but contains significant errors or lacks clarity.</crowd-radio-button><br>
+        <crowd-radio-button name="responseQualityAverage" value="average">Average Response: Adequately addresses the prompt with minor errors or limited depth.</crowd-radio-button><br>
+        <crowd-radio-button name="responseQualityGood" value="good">Good Response: Clear, accurate, and thorough; effectively addresses all aspects of the prompt.</crowd-radio-button><br>
+        <crowd-radio-button name="responseQualityExcellent" value="excellent">Excellent Response: Exceptionally insightful and comprehensive; exceeds expectations in addressing the prompt (by providing additional details, being exceptionally concise, and so on).</crowd-radio-button>
+    </crowd-radio-group>
+    
+    <h3>Rate the quality of <b>RESPONSE 2</b>:</h3>
+    <crowd-radio-group>
+        <crowd-radio-button name="responseQualityPoor" value="poor">Poor Response: Irrelevant, incorrect, or nonsensical; fails to address the prompt.</crowd-radio-button><br>
+        <crowd-radio-button name="responseQualityLow" value="low">Low-quality Response: Partially addresses the prompt but contains significant errors or lacks clarity.</crowd-radio-button><br>
+        <crowd-radio-button name="responseQualityAverage" value="average">Average Response: Adequately addresses the prompt with minor errors or limited depth.</crowd-radio-button><br>
+        <crowd-radio-button name="responseQualityGood" value="good">Good Response: Clear, accurate, and thorough; effectively addresses all aspects of the prompt.</crowd-radio-button><br>
+        <crowd-radio-button name="responseQualityExcellent" value="excellent">Excellent Response: Exceptionally insightful and comprehensive; exceeds expectations in addressing the prompt (by providing additional details, being exceptionally concise, and so on).</crowd-radio-button>
+    </crowd-radio-group>
+    
+    <h3>Rate the quality of <b>RESPONSE 3</b>:</h3>
+    <crowd-radio-group>
+        <crowd-radio-button name="responseQualityPoor" value="poor">Poor Response: Irrelevant, incorrect, or nonsensical; fails to address the prompt.</crowd-radio-button><br>
+        <crowd-radio-button name="responseQualityLow" value="low">Low-quality Response: Partially addresses the prompt but contains significant errors or lacks clarity.</crowd-radio-button><br>
+        <crowd-radio-button name="responseQualityAverage" value="average">Average Response: Adequately addresses the prompt with minor errors or limited depth.</crowd-radio-button><br>
+        <crowd-radio-button name="responseQualityGood" value="good">Good Response: Clear, accurate, and thorough; effectively addresses all aspects of the prompt.</crowd-radio-button><br>
+        <crowd-radio-button name="responseQualityExcellent" value="excellent">Excellent Response: Exceptionally insightful and comprehensive; exceeds expectations in addressing the prompt (by providing additional details, being exceptionally concise, and so on).</crowd-radio-button>
+    </crowd-radio-group>
+	
+</crowd-form>

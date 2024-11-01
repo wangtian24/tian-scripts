@@ -3,6 +3,7 @@ import concurrent.futures
 import functools
 import json
 import logging
+import random
 import re
 import sys
 from collections import Counter, defaultdict
@@ -697,6 +698,54 @@ def judge_prompt_traits(
                 ),
                 file=f,
             )
+
+
+@cli.command()
+@click.option(
+    "-i",
+    "--input-file",
+    type=str,
+    required=True,
+    help="The input file to read from",
+)
+@click.option(
+    "-o",
+    "--output-file",
+    type=str,
+    help="The output file to write to",
+)
+@click.option(
+    "-acp",
+    "--attention-check-proportion",
+    type=float,
+    default=0.1,
+)
+def create_mturk_prompt_quality_data(
+    input_file: str, output_file: str | None, attention_check_proportion: float
+) -> None:
+    df = pd.read_csv(input_file)
+    output_file_ = output_file or input_file
+    categories = list(df.category.unique())
+    attn_rows = []
+
+    for _ in range(int(attention_check_proportion * len(df))):
+        category = random.choice(categories)
+        diff = random.choice(["Beginner", "Intermediate", "Expert"])
+        rating_gen_fn = functools.partial(random.choice, ["Poor", "Good", "Excellent"])
+
+        attn_rows.append(
+            dict(
+                prompt=f"This is a {category} prompt with {diff} difficulty.",
+                response1=f"{rating_gen_fn()} response",
+                response2=f"{rating_gen_fn()} response",
+                response3=f"{rating_gen_fn()} response",
+            )
+        )
+
+    df_new = pd.DataFrame(attn_rows)
+    df = pd.concat((df[["prompt", "response1", "response2", "response3"]], df_new))
+    df = df.sample(frac=1, replace=False)
+    df.to_csv(output_file_, index=False)
 
 
 @cli.command()
