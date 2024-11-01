@@ -10,6 +10,7 @@ from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 from tqdm.asyncio import tqdm_asyncio
 
 from ypl.backend.llm.embedding import cached_get_database
@@ -51,6 +52,11 @@ class LLMLabeler(Generic[InputType, OutputType]):
         """Parses the output of the LLM's `.ainvoke` method. Defaults to calling `_parse_output`."""
         return self._parse_output(output)
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_fixed(0.1),
+        retry=retry_if_exception_type((TimeoutError,)),
+    )
     def label(self, input: InputType) -> OutputType:
         """Labels the input."""
         try:
@@ -62,6 +68,11 @@ class LLMLabeler(Generic[InputType, OutputType]):
             logging.exception(f"Error labeling input {input}: {e}")
             return self.error_value
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_fixed(0.1),
+        retry=retry_if_exception_type((TimeoutError,)),
+    )
     async def alabel(self, input: InputType) -> OutputType:
         """Labels the input asynchronously."""
         try:
