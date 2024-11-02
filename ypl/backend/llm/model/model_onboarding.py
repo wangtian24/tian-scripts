@@ -1,5 +1,4 @@
 # Standard library imports
-import json
 import logging
 import os
 import time
@@ -25,6 +24,7 @@ from ypl.backend.db import get_async_engine
 from ypl.backend.llm.chat import standardize_provider_name
 from ypl.backend.llm.constants import PROVIDER_KEY_MAPPING
 from ypl.backend.llm.utils import post_to_slack, post_to_x
+from ypl.backend.utils.json import json_dumps
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
 
 # Constants
@@ -121,7 +121,7 @@ async def verify_onboard_specific_model(model_id: UUID) -> None:
                     await session.commit()
                 else:
                     log_dict = {"message": f"No submitted model found with id {model_id}", "model_id": model_id}
-                    logging.warning(json.dumps(log_dict))
+                    logging.warning(json_dumps(log_dict))
 
 
 async def verify_and_update_model_status(
@@ -148,7 +148,7 @@ async def verify_and_update_model_status(
                         "message": "Model validated successfully and set to ACTIVE",
                         "model_name": model.name,
                     }
-                    logging.info(json.dumps(log_dict))
+                    logging.info(json_dumps(log_dict))
                     log_message = (
                         f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} "
                         "validated successfully and set to ACTIVE."
@@ -164,7 +164,7 @@ async def verify_and_update_model_status(
                             "message": "Model validated successfully and set to VERIFIED_PENDING_ACTIVATION",
                             "model_name": model.name,
                         }
-                        logging.info(json.dumps(log_dict))
+                        logging.info(json_dumps(log_dict))
                         log_message = (
                             f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} "
                             "validated successfully and set to VERIFIED_PENDING_ACTIVATION."
@@ -183,7 +183,7 @@ async def verify_and_update_model_status(
                                 "message": "Model not validated after 3 days. Setting status to REJECTED",
                                 "model_name": model.name,
                             }
-                            logging.info(json.dumps(log_dict))
+                            logging.info(json_dumps(log_dict))
                             log_message = (
                                 f"Environment {os.environ.get('ENVIRONMENT')} - "
                                 f"Model {model.name}"
@@ -199,7 +199,7 @@ async def verify_and_update_model_status(
                     "model_name": model.name,
                     "error": str(e),
                 }
-                logging.exception(json.dumps(log_dict))
+                logging.exception(json_dumps(log_dict))
                 await post_to_slack(
                     f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} " f"validation failed: {str(e)}"
                 )
@@ -245,7 +245,7 @@ def verify_hf_model(model: LanguageModel) -> bool:
             "likes": likes,
             "mmlu_pro_score": mmlu_pro_score,
         }
-        logging.info(json.dumps(log_dict))
+        logging.info(json_dumps(log_dict))
         # Return true if the model has more than 1000 downloads and 100 likes
         # and has the required tags for text-generation, conversational and endpoints_compatible
         is_verified = (
@@ -268,7 +268,7 @@ def verify_hf_model(model: LanguageModel) -> bool:
             "model_name": model.name,
             "error": str(e),
         }
-        logging.exception(json.dumps(log_dict))
+        logging.exception(json_dumps(log_dict))
         return False
     except Exception as e:
         log_dict = {
@@ -276,7 +276,7 @@ def verify_hf_model(model: LanguageModel) -> bool:
             "model_name": model.name,
             "error": str(e),
         }
-        logging.exception(json.dumps(log_dict))
+        logging.exception(json_dumps(log_dict))
         return False
 
 
@@ -334,7 +334,7 @@ def verify_inference_running(model: LanguageModel, provider_name: str, base_url:
                 "cleaned_provider_name": cleaned_provider_name,
                 "latency": latency,
             }
-            logging.info(json.dumps(log_dict))
+            logging.info(json_dumps(log_dict))
 
         return is_inference_running
     except Exception as e:
@@ -344,7 +344,7 @@ def verify_inference_running(model: LanguageModel, provider_name: str, base_url:
             "provider_name": provider_name,
             "error": str(e),
         }
-        logging.exception(json.dumps(log_dict))
+        logging.exception(json_dumps(log_dict))
         return False
 
 
@@ -369,14 +369,14 @@ def get_provider_api_key(provider_name: str) -> str:
         "provider_name": provider_name,
         "env_var_name": env_var_name,
     }
-    logging.debug(json.dumps(log_dict))
+    logging.debug(json_dumps(log_dict))
 
     if not env_var_name:
         log_dict = {
             "message": "Unknown provider name",
             "provider_name": provider_name,
         }
-        logging.error(json.dumps(log_dict))
+        logging.error(json_dumps(log_dict))
         raise ValueError(f"Unknown provider name: {provider_name}")
 
     api_key = os.environ.get(env_var_name)
@@ -385,7 +385,7 @@ def get_provider_api_key(provider_name: str) -> str:
             "message": "API key not found for provider",
             "provider_name": provider_name,
         }
-        logging.error(json.dumps(log_dict))
+        logging.error(json_dumps(log_dict))
         raise ValueError(f"API key not found for provider: {provider_name}")
 
     return api_key

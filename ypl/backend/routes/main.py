@@ -13,14 +13,18 @@ from ypl.backend.routes.v1 import chat_feed, credit, health, highlight_similar_c
 from ypl.backend.routes.v1 import chats as chats_route
 from ypl.backend.routes.v1 import provider as provider_route
 from ypl.backend.routes.v1 import route as llm_route
-
-logger = logging.getLogger(__name__)
+from ypl.backend.utils.json import json_dumps
 
 
 def log_sql_query(conn, cursor, statement, parameters, context, executemany):  # type: ignore
-    logger.info(f"SQL Query: {statement}")
+    log_dict = {
+        "message": "SQL Query",
+        "statement": statement,
+    }
     if parameters:
-        logger.info(f"Parameters: {parameters}")
+        log_dict["parameters"] = parameters
+
+    logging.info(json_dumps(log_dict))
 
 
 def app_init() -> None:

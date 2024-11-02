@@ -16,6 +16,7 @@ from tenacity import after_log, retry, retry_if_exception_type, stop_after_attem
 
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine, get_engine
+from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import Chat, Turn, TurnQuality
 from ypl.db.point_transactions import PointsActionEnum, PointTransaction
 from ypl.db.rewards import (
@@ -27,10 +28,6 @@ from ypl.db.rewards import (
     RewardStatusEnum,
 )
 from ypl.db.users import User
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 
 # Define mean reward for evals, baseline value for medium tier (method="mean")
 MEAN_EVAL_REWARD = 50
@@ -121,7 +118,11 @@ class UserTurnReward:
             ).first()
 
             if not result:
-                logger.warning(f"No data found for turn_id: {self.turn_id}")
+                log_dict = {
+                    "message": "No data found for turn_id",
+                    "turn_id": str(self.turn_id),
+                }
+                logging.warning(json_dumps(log_dict))
                 return
 
             user, chat_created_at, self.turn_position_in_chat, turn_quality = result
@@ -151,16 +152,26 @@ class UserTurnReward:
             self.amount_rule = self._get_amount_rule()
             self.probability_rule = self._get_probability_rule()
 
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary with UUID fields converted to strings."""
+        d = asdict(self)
+        d["turn_id"] = str(self.turn_id)
+        return d
+
     def _get_amount_rule(self) -> RewardAmountRule | None:
-        return get_matching_rule(get_reward_amount_rules(), asdict(self))  # type: ignore
+        return get_matching_rule(get_reward_amount_rules(), self.to_dict())  # type: ignore
 
     def _get_probability_rule(self) -> RewardProbabilityRule | None:
-        return get_matching_rule(get_reward_probability_rules(), asdict(self))  # type: ignore
+        return get_matching_rule(get_reward_probability_rules(), self.to_dict())  # type: ignore
 
     def get_amount(self, method: Literal["range", "mean"] = "range") -> int:
         rule = self.amount_rule
         if not rule:
-            logger.warning(f"No reward amount rule found for turn_id: {self.turn_id}")
+            log_dict = {
+                "message": "No reward amount rule found for turn_id",
+                "turn_id": self.turn_id,
+            }
+            logging.warning(json_dumps(log_dict))
             return 0
         return (
             get_reward(min_value=rule.min_value, max_value=rule.max_value)
@@ -171,7 +182,11 @@ class UserTurnReward:
     def get_probability(self) -> float:
         rule = self.probability_rule
         if not rule:
-            logger.warning(f"No reward probability rule found for turn_id: {self.turn_id}")
+            log_dict = {
+                "message": "No reward probability rule found for turn_id",
+                "turn_id": str(self.turn_id),
+            }
+            logging.warning(json_dumps(log_dict))
             return 0
         return rule.probability
 
@@ -405,9 +420,17 @@ def _get_reward_rules(rule_class: type[RewardAmountRule] | type[RewardProbabilit
 
         num_default_rules = len([r for r in rules if r.is_default])
         if num_default_rules == 0:
-            logger.error(f"No default {rule_class.__name__} found.")
+            log_dict = {
+                "message": "No default reward rule found.",
+                "rule_class": str(rule_class.__name__),
+            }
+            logging.error(json_dumps(log_dict))
         elif num_default_rules > 1:
-            logger.error(f"Multiple default {rule_class.__name__} found.")
+            log_dict = {
+                "message": "Multiple default reward rules found.",
+                "rule_class": str(rule_class.__name__),
+            }
+            logging.error(json_dumps(log_dict))
 
         return list(rules)
 
@@ -420,7 +443,3 @@ def get_reward_amount_rules() -> list[RewardRule]:
 @ttl_cache(ttl=600)  # 10 minute cache
 def get_reward_probability_rules() -> list[RewardRule]:
     return _get_reward_rules(RewardProbabilityRule)
-
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)

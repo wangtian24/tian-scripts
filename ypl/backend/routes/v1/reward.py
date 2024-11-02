@@ -1,4 +1,3 @@
-import json
 import logging
 from uuid import UUID
 
@@ -12,6 +11,7 @@ from ypl.backend.llm.reward import (
     process_reward_claim,
     reward,
 )
+from ypl.backend.utils.json import json_dumps
 from ypl.db.rewards import RewardActionLog
 
 router = APIRouter()
@@ -53,7 +53,7 @@ async def record_reward_action(reward_action_log: RewardActionLog) -> RewardCrea
             "message": "Error recording reward action",
             "error": str(e),
         }
-        logging.exception(json.dumps(log_dict))
+        logging.exception(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
@@ -78,5 +78,5 @@ async def claim_reward(
             "message": "Error claiming reward",
             "error": str(e),
         }
-        logging.exception(json.dumps(log_dict))
+        logging.exception(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e

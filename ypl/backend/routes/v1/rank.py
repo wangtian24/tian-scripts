@@ -1,4 +1,3 @@
-import json
 import logging
 import time
 from datetime import datetime
@@ -7,6 +6,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 
 from ypl.backend.llm.ranking import RatedModel, get_default_ranker, get_ranker
+from ypl.backend.utils.json import json_dumps
 from ypl.db.ratings import OVERALL_CATEGORY_NAME
 
 router = APIRouter()
@@ -36,13 +36,13 @@ async def leaderboard(
             "message": f"Instarank leaderboard latency: {latency} seconds",
             "instarank_latency": latency,
         }
-        logging.info(json.dumps(log_dict))
+        logging.info(json_dumps(log_dict))
         return ranker.leaderboard()
     except Exception as e:
         log_dict = {
             "message": f"Error updating rankings: {e}",
         }
-        logging.exception(json.dumps(log_dict))
+        logging.exception(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 

@@ -1,4 +1,3 @@
-import json
 import logging
 from uuid import UUID
 
@@ -12,6 +11,7 @@ from ypl.backend.llm.provider.provider import (
     get_providers,
     update_provider,
 )
+from ypl.backend.utils.json import json_dumps
 from ypl.db.language_models import Provider
 
 router = APIRouter()
@@ -26,7 +26,7 @@ async def create_provider_route(provider: Provider) -> UUID:
         log_dict = {
             "message": f"Error creating provider - {str(e)}",
         }
-        logging.exception(json.dumps(log_dict))
+        logging.exception(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
@@ -43,7 +43,7 @@ async def read_providers_route(
         log_dict = {
             "message": f"Error getting providers - {str(e)}",
         }
-        logging.exception(json.dumps(log_dict))
+        logging.exception(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
@@ -56,7 +56,7 @@ async def read_provider_route(provider_id: UUID) -> ProviderStruct | None:
         log_dict = {
             "message": f"Error getting provider - {str(e)}",
         }
-        logging.exception(json.dumps(log_dict))
+        logging.exception(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
@@ -68,7 +68,7 @@ async def update_provider_route(provider_id: UUID, updated_provider: Provider) -
         log_dict = {
             "message": f"Error updating provider - {str(e)}",
         }
-        logging.exception(json.dumps(log_dict))
+        logging.exception(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
@@ -80,5 +80,5 @@ async def delete_provider_route(provider_id: UUID) -> None:
         log_dict = {
             "message": f"Error deleting provider - {str(e)}",
         }
-        logging.exception(json.dumps(log_dict))
+        logging.exception(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e

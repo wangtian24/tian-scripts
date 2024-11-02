@@ -1,5 +1,4 @@
 # Standard library imports
-import json
 import logging
 import os
 from uuid import UUID
@@ -15,6 +14,7 @@ from tenacity.asyncio import AsyncRetrying
 from ypl.backend.db import get_async_engine
 from ypl.backend.llm.model.model_onboarding import verify_inference_running
 from ypl.backend.llm.utils import post_to_slack
+from ypl.backend.utils.json import json_dumps
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
 
 
@@ -53,7 +53,7 @@ async def validate_active_onboarded_models() -> None:
                 active_models_count = len(active_models)
 
                 log_dict = {"message": f"Active models count: {active_models_count}"}
-                logging.info(json.dumps(log_dict))
+                logging.info(json_dumps(log_dict))
 
                 for model, provider_name, base_url in active_models:
                     await verify_and_update_model_status(session, model, provider_name, base_url)
@@ -90,7 +90,7 @@ async def validate_specific_active_model(model_id: UUID) -> None:
                     await session.commit()
                 else:
                     log_dict = {"message": f"No active model found with ID: {model_id}"}
-                    logging.warning(json.dumps(log_dict))
+                    logging.warning(json_dumps(log_dict))
 
 
 async def verify_and_update_model_status(
@@ -120,7 +120,7 @@ async def verify_and_update_model_status(
                 "provider_name": provider_name,
                 "base_url": base_url,
             }
-            logging.error(json.dumps(log_dict))
+            logging.error(json_dumps(log_dict))
 
             slack_message = (
                 f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} "
@@ -136,7 +136,7 @@ async def verify_and_update_model_status(
             "base_url": base_url,
             "error": str(e),
         }
-        logging.exception(json.dumps(log_dict))
+        logging.exception(json_dumps(log_dict))
 
         slack_message = (
             f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} "

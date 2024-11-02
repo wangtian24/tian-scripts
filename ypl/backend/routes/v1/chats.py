@@ -13,6 +13,7 @@ from ypl.backend.llm.constants import ChatProvider
 from ypl.backend.llm.judge import YuppPromptDifficultyLabeler
 from ypl.backend.llm.moderation import amoderate
 from ypl.backend.rw_cache import TurnQualityCache
+from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import MessageType, TurnQuality
 
 router = APIRouter()
@@ -65,7 +66,12 @@ async def label_quality(chat_id: UUID, turn_id: UUID) -> TurnQuality:
         )
         prompt_difficulty = int(re.search(r"\"overall\":\s*(\d+)", response_out).group(1))  # type: ignore[union-attr]
     except Exception as e:
-        logging.exception(f"Error labeling prompt difficulty: {e} with turn ID {turn_id}")
+        log_dict = {
+            "message": "Error labeling prompt difficulty",
+            "turn_id": str(turn_id),
+            "error": str(e),
+        }
+        logging.exception(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=f"Error labeling prompt difficulty: {e}") from e
 
     tq.prompt_difficulty = prompt_difficulty
@@ -77,7 +83,12 @@ async def label_quality(chat_id: UUID, turn_id: UUID) -> TurnQuality:
     try:
         cache.write(key=turn_id, value=tq)
     except Exception as e:
-        logging.exception(f"Error writing turn quality to cache: {e} with turn ID {turn_id}")
+        log_dict = {
+            "message": "Error writing turn quality to cache",
+            "turn_id": str(turn_id),
+            "error": str(e),
+        }
+        logging.exception(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=f"Error writing turn quality to cache: {e}") from e
 
     return tq

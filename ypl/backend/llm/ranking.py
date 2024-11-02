@@ -1,5 +1,4 @@
 import concurrent
-import json
 import logging
 from abc import ABC, abstractmethod
 from collections import Counter, defaultdict
@@ -25,6 +24,7 @@ from ypl.backend.llm.utils import (
     ThresholdCounter,
     fetch_categories_with_descriptions_from_db,
 )
+from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import Chat, ChatMessage, Eval, EvalType, LanguageCode, MessageEval, MessageType, Turn, User
 from ypl.db.language_models import LanguageModel
 from ypl.db.ratings import OVERALL_CATEGORY_NAME, Category, Rating, RatingHistory
@@ -318,7 +318,7 @@ class Ranker:
             "message": f"Added {added} evals to the ranker. Counts per user:",
             "counts_by_user": counts_by_user,
         }
-        logging.info(json.dumps(log_dict))
+        logging.info(json_dumps(log_dict))
 
         return added
 

@@ -1,13 +1,10 @@
-import json
 import logging
 
 from fastapi import APIRouter, HTTPException, Query
 
 from ypl.backend.llm import chat_feed
 from ypl.backend.llm.chat_feed import ChatWithTurns
-
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+from ypl.backend.utils.json import json_dumps
 
 router = APIRouter()
 
@@ -25,5 +22,5 @@ async def get_chat_feed(
             "message": f"Error load chat feed - page : {page} page_size {page_size}",
             "error": str(e),
         }
-        logging.exception(json.dumps(log_dict))
+        logging.exception(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e

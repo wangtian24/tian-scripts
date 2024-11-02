@@ -14,11 +14,7 @@ from ypl.backend.db import Session, get_engine
 from ypl.backend.llm.utils import fetch_categories_with_descriptions_from_db
 from ypl.db.chats import ChatMessage, MessageType
 from ypl.db.ratings import Category, OVERALL_CATEGORY_NAME
-
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
+from ypl.backend.utils.json import json_dumps
 
 client: OpenAI | None = None
 
@@ -107,20 +103,32 @@ def categorize_user_messages(update_all_messages: bool) -> None:
                 message.category = category
                 total_categorized += 1
             else:
-                logger.warning(f"Category '{category_name}' not found for message {message.message_id}")
+                log_dict = {
+                    "message": "Category not found for message",
+                    "category_name": category_name,
+                    "message_id": str(message.message_id),
+                }
+                logging.warning(json_dumps(log_dict))
                 total_uncategorized += 1
 
             # Chunk to prevent commits from failing
             chunk_size = 100
             if (i + 1) % chunk_size == 0:
                 session.commit()
-                logger.info(f"Committed chunk of {chunk_size} messages")
+                log_dict = {
+                    "message": f"Committed chunk of {chunk_size} messages",
+                }
+                logging.info(json_dumps(log_dict))
 
         session.commit()
-        logger.info("Committed final chunk of messages")
+        log_dict = {
+            "message": "Committed final chunk of messages",
+        }
+        logging.info(json_dumps(log_dict))
 
-    logger.info(
-        f"Prompt categorization complete. "
-        f"Total messages categorized: {total_categorized}. "
-        f"Total messages uncategorized: {total_uncategorized}."
-    )
+    log_dict = {
+        "message": "Prompt categorization complete.",
+        "total_categorized": total_categorized,  # type: ignore
+        "total_uncategorized": total_uncategorized,  # type: ignore
+    }
+    logging.info(json_dumps(log_dict))

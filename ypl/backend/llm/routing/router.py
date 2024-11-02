@@ -1,5 +1,4 @@
 import heapq
-import json
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
@@ -21,6 +20,7 @@ from ypl.backend.llm.constants import MODEL_HEURISTICS
 from ypl.backend.llm.ranking import ConfidenceIntervalRankerMixin, Ranker, get_ranker
 from ypl.backend.llm.routing.policy import SelectionCriteria, decayed_random_fraction
 from ypl.backend.llm.routing.route_data_type import RoutingPreference
+from ypl.backend.utils.json import json_dumps
 from ypl.utils import RNGMixin
 
 
@@ -1113,7 +1113,7 @@ class RoutingDecision:
             "additional_metadata": self.additional_metadata,
         }
 
-        logging.info(json.dumps(log_dict))
+        logging.info(json_dumps(log_dict))
 
 
 class ProviderFilter(ModelFilter):

@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 from uuid import UUID
@@ -18,6 +17,7 @@ from ypl.backend.llm.model.model_onboarding import verify_onboard_specific_model
 from ypl.backend.llm.routing.route_data_type import InstantaneousLanguageModelStatistics, LanguageModelStatistics
 from ypl.backend.llm.running_statistics import RunningStatisticsTracker
 from ypl.backend.llm.utils import post_to_slack
+from ypl.backend.utils.json import json_dumps
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, LicenseEnum
 
 router = APIRouter()
@@ -30,7 +30,7 @@ async def async_verify_onboard_specific_models(model_id: UUID) -> None:
         log_dict = {
             "message": f"Error in verify_onboard_specific_model for model_id {model_id}: {str(e)}",
         }
-        logging.exception(json.dumps(log_dict))
+        logging.exception(json_dumps(log_dict))
 
 
 @router.post("/models", response_model=str)
@@ -48,7 +48,7 @@ async def create_model_route(model: LanguageModel, background_tasks: BackgroundT
         log_dict = {
             "message": f"Error creating model - {str(e)}",
         }
-        logging.exception(json.dumps(log_dict))
+        logging.exception(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
@@ -68,7 +68,7 @@ async def read_models_route(
         log_dict = {
             "message": f"Error getting models - {str(e)}",
         }
-        logging.exception(json.dumps(log_dict))
+        logging.exception(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
@@ -81,7 +81,7 @@ async def read_model_route(model_id: str) -> LanguageModelStruct | None:
         log_dict = {
             "message": f"Error getting model - {str(e)}",
         }
-        logging.exception(json.dumps(log_dict))
+        logging.exception(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
@@ -93,7 +93,7 @@ async def update_model_route(model_id: str, updated_model: LanguageModel) -> Lan
         log_dict = {
             "message": f"Error updating model - {str(e)}",
         }
-        logging.exception(json.dumps(log_dict))
+        logging.exception(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
@@ -105,7 +105,7 @@ async def delete_model_route(model_id: str) -> None:
         log_dict = {
             "message": f"Error deleting model - {str(e)}",
         }
-        logging.exception(json.dumps(log_dict))
+        logging.exception(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
@@ -119,7 +119,7 @@ async def update_model_running_statistics_route(
         log_dict = {
             "message": f"Error updating model running statistics - {str(e)}",
         }
-        logging.exception(json.dumps(log_dict))
+        logging.exception(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
@@ -131,5 +131,5 @@ async def get_model_running_statistics_route(model_id: str) -> LanguageModelStat
         log_dict = {
             "message": f"Error getting model running statistics - {str(e)}",
         }
-        logging.exception(json.dumps(log_dict))
+        logging.exception(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e

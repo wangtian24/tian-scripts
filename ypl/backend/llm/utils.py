@@ -1,5 +1,4 @@
 import datetime
-import json
 import logging
 import math
 import os
@@ -13,6 +12,7 @@ from slack_sdk.webhook import WebhookClient
 from sqlmodel import select
 
 from ypl.backend.db import Session, get_engine
+from ypl.backend.utils.json import json_dumps
 from ypl.db.ratings import OVERALL_CATEGORY_NAME, Category
 
 EPSILON = 1e-9
@@ -161,7 +161,7 @@ async def post_to_slack(message: str) -> None:
         log_dict = {
             "message": "SLACK_WEBHOOK_URL environment variable is not set",
         }
-        logging.warning(json.dumps(log_dict))
+        logging.warning(json_dumps(log_dict))
         return
 
     try:
@@ -171,12 +171,12 @@ async def post_to_slack(message: str) -> None:
             log_dict = {
                 "message": f"Failed to post message to Slack. Status code: {response.status_code}",
             }
-            logging.warning(json.dumps(log_dict))
+            logging.warning(json_dumps(log_dict))
     except Exception as e:
         log_dict = {
             "message": f"Failed to post message to Slack: {str(e)}",
         }
-        logging.exception(json.dumps(log_dict))
+        logging.exception(json_dumps(log_dict))
 
 
 async def post_to_x(message: str) -> None:
@@ -204,10 +204,10 @@ async def post_to_x(message: str) -> None:
             log_dict = {
                 "message": f"Failed to post message to X: {str(e)}",
             }
-            logging.exception(json.dumps(log_dict))
+            logging.exception(json_dumps(log_dict))
     else:
         log_dict = {
             "message": "TWITTER_BEARER_TOKEN, TWITTER_CONSUMER_KEY, TWITTER_CONSUMER_SECRET, TWITTER_ACCESS_TOKEN, or "
             "TWITTER_ACCESS_TOKEN_SECRET environment variable is not set",
         }
-        logging.warning(json.dumps(log_dict))
+        logging.warning(json_dumps(log_dict))

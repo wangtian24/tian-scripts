@@ -1,4 +1,3 @@
-import json
 import logging
 
 from fastapi import APIRouter, HTTPException, Query
@@ -10,6 +9,7 @@ from ypl.backend.llm.credit import (
     get_user_credit_balance_direct_sync,
     get_user_credit_balance_sync,
 )
+from ypl.backend.utils.json import json_dumps
 
 router = APIRouter()
 
@@ -27,7 +27,7 @@ async def get_credits_balance(user_id: str = Query(..., description="User ID")) 
             "message": "Error getting credit balance",
             "error": str(e),
         }
-        logging.exception(json.dumps(log_dict))
+        logging.exception(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
@@ -48,7 +48,7 @@ async def get_credits_balance_sync(user_id: str = Query(..., description="User I
             "message": "Error getting credit balance",
             "error": str(e),
         }
-        logging.exception(json.dumps(log_dict))
+        logging.exception(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
@@ -65,7 +65,7 @@ async def get_credits_balance_async_direct(user_id: str = Query(..., description
             "message": "Error getting credit balance",
             "error": str(e),
         }
-        logging.exception(json.dumps(log_dict))
+        logging.exception(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
@@ -82,5 +82,5 @@ async def get_credits_balance_sync_direct(user_id: str = Query(..., description=
             "message": "Error getting credit balance",
             "error": str(e),
         }
-        logging.exception(json.dumps(log_dict))
+        logging.exception(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
