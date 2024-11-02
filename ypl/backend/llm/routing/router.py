@@ -15,7 +15,7 @@ from sqlalchemy import text
 
 from ypl.backend.config import settings
 from ypl.backend.db import get_engine
-from ypl.backend.llm.chat import adeduce_original_provider, deduce_original_provider
+from ypl.backend.llm.chat import adeduce_original_provider, deduce_original_providers
 from ypl.backend.llm.constants import MODEL_HEURISTICS
 from ypl.backend.llm.ranking import ConfidenceIntervalRankerMixin, Ranker, get_ranker
 from ypl.backend.llm.routing.policy import SelectionCriteria, decayed_random_fraction
@@ -510,9 +510,8 @@ class RandomModelProposer(RNGMixin, ModelProposer):
             models_to_select = models_to_select.intersection(self.models)
 
         if self.providers:
-            models_to_select = {
-                model for model in models_to_select if deduce_original_provider(model) in self.providers
-            }
+            provider_map = deduce_original_providers(tuple(models_to_select))
+            models_to_select = {model for model in models_to_select if provider_map[model] in self.providers}
 
         return self._random_select(models_to_select, state)
 
@@ -1156,22 +1155,23 @@ class ProviderFilter(ModelFilter):
 
         filtered_models = state.selected_models
         curr_providers = set()
+        provider_map = deduce_original_providers(tuple(state.selected_models.keys()))
 
         if self.providers:
             filtered_models = {
                 model: criteria
                 for model, criteria in state.selected_models.items()
-                if (not self.inverse and deduce_original_provider(model) in self.providers)
-                or (self.inverse and deduce_original_provider(model) not in self.providers)
+                if (not self.inverse and provider_map[model] in self.providers)
+                or (self.inverse and provider_map[model] not in self.providers)
             }
 
         if self.one_per_provider:
             filtered_models = {}
 
             for model in state.get_sorted_selected_models():
-                if deduce_original_provider(model) not in curr_providers:
+                if provider_map[model] not in curr_providers:
                     filtered_models[model] = state.selected_models[model]
-                    curr_providers.add(deduce_original_provider(model))
+                    curr_providers.add(provider_map[model])
 
         excluded_models = state.selected_models.keys() - filtered_models.keys()
 

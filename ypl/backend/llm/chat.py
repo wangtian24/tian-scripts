@@ -88,6 +88,47 @@ def simple_deduce_original_provider(model: str) -> str:
     return model
 
 
+@ttl_cache(ttl=600)  # 10-min cache
+def deduce_original_providers(models: tuple[str, ...]) -> dict[str, str]:
+    provider_map = {}
+    models_left = set(models)
+
+    for model in models_left.copy():
+        for pattern, provider in PROVIDER_MODEL_PATTERNS.items():
+            if pattern.match(model):
+                provider_map[model] = provider
+                models_left.remove(model)
+
+    if not models_left:
+        # We are done
+        return provider_map
+
+    models_left_ = tuple(models_left)
+
+    sql_query = text(
+        """
+        SELECT providers.name, language_models.internal_name FROM language_models
+            JOIN providers ON language_models.provider_id = providers.provider_id
+        WHERE language_models.internal_name IN :model_names
+        """
+    )
+
+    with get_engine().connect() as conn:
+        c = conn.execute(sql_query, dict(model_names=models_left_))
+        rows = c.fetchall()
+
+        for row in rows:
+            provider, model = row[0], row[1]
+            models_left.remove(model)
+            provider_map[model] = provider
+
+    for model in models_left:
+        # On failure, assume model name is provider name
+        provider_map[model] = model
+
+    return provider_map
+
+
 @ttl_cache(ttl=600)  # 10-minute cache
 def deduce_original_provider(model: str) -> str:
     for pattern, provider in PROVIDER_MODEL_PATTERNS.items():
