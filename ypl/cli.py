@@ -750,6 +750,60 @@ def create_mturk_prompt_quality_data(
 
 @cli.command()
 @click.option(
+    "-i",
+    "--input-file",
+    type=str,
+    required=True,
+    help="The input file to read from",
+)
+@click.option(
+    "-o",
+    "--output-file",
+    type=str,
+    help="The output file to write to",
+)
+def review_mturk_prompt_quality_data(input_file: str, output_file: str | None) -> None:
+    df = pd.read_csv(input_file)
+    output_file_ = output_file or input_file
+    total_workers = set()
+    blocked_workers = set()
+
+    for _, row in df.iterrows():
+        prompt = row["Input.prompt"]
+        total_workers.add(row["WorkerId"])
+
+        if m := re.match(r"This is a (.+?) prompt with (.+?) difficulty.", prompt):
+            category = m.group(1)
+            difficulty = m.group(2)
+
+            if category == "nan" or difficulty == "nan":
+                continue
+
+            category = category.title()
+            cat_response = row[f"Answer.{category}.{category}"]
+            diff_response = row[f"Answer.expertiseLevel{difficulty.capitalize()}.{difficulty.lower()}"]
+
+            if not cat_response or not diff_response:
+                blocked_workers.add(row["WorkerId"])
+
+    c: Counter[str] = Counter()
+
+    for idx, row in df.iterrows():
+        if row["WorkerId"] in blocked_workers:
+            df.loc[idx, "Reject"] = "x"  # type: ignore[index]
+            c["HIT Rejected"] += 1
+        else:
+            df.loc[idx, "Approve"] = "x"  # type: ignore[index]
+
+    df.to_csv(output_file_, index=False)
+
+    print(f"HIT Rejection Rate: {c['HIT Rejected'] / len(df)}")
+    print(f"Worker Rejection Rate: {len(blocked_workers) / len(total_workers)}")
+    print("Workers to ban: ", blocked_workers)
+
+
+@cli.command()
+@click.option(
     "--update-all-messages",
     is_flag=True,
     default=False,
