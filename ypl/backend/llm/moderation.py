@@ -6,6 +6,9 @@ from together.types import ChatCompletionResponse
 
 LLAMA_GUARD_2_8B_MODEL_NAME = "meta-llama/LlamaGuard-2-8b"
 LLAMA_GUARD_3_8B_MODEL_NAME = "meta-llama/Meta-Llama-Guard-3-8B"
+# Llama-guard via Together supports 8192 tokens, including the moderation prompt (added by Together).
+# Add a buffer of 2X as a conservative estimate of the number of characters this may consume.
+LLAMA_GUARD_MAX_INPUT_LEN = 8192 * 2
 
 # TODO(YUP-717): migrate to LangChain/LLMLabeler.
 
@@ -61,6 +64,11 @@ def _check_model_name(model_name: str) -> None:
 
 def moderate(text: str, model_name: str = LLAMA_GUARD_3_8B_MODEL_NAME) -> ModerationResult:
     _check_model_name(model_name)
+    if model_name in (LLAMA_GUARD_2_8B_MODEL_NAME, LLAMA_GUARD_3_8B_MODEL_NAME):
+        if len(text) > LLAMA_GUARD_MAX_INPUT_LEN:
+            text = text[:LLAMA_GUARD_MAX_INPUT_LEN]
+            # Remove the last word in case it was truncated.
+            text = text.rsplit(" ", 1)[0]
     response = Together().chat.completions.create(
         model=model_name,
         messages=[{"role": "user", "content": text}],
