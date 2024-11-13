@@ -1,5 +1,6 @@
 # Yupp LLMs
 
+Multi Intelligence Neural Distribution Service
 
 ## Purpose
 
@@ -29,7 +30,7 @@ The backend for providing services over multiple LLMs.
 
     <details>
     <summary>Sample macOS (click to expand)</summary>
-    
+
     ```sh
     brew install miniforge
     ```
@@ -37,7 +38,7 @@ The backend for providing services over multiple LLMs.
     Warning: copied instructions can get outdated. Please update if you find there is a new or better way.
     </details>
 
-1. In the yupp-llms project directory, run the following command to create the run environment `ys-dev`. This will create a minimal virtual environment.
+1. In the yupp-mind project directory, run the following command to create the run environment `ys-dev`. This will create a minimal virtual environment.
 
 ```sh
 mamba env create -n ys-dev --file envs/dev.yml
@@ -56,7 +57,7 @@ poetry install --no-root
 
 If you get an error about `psycopg2`, installing postgresql fixes it. `brew install postgresql` and then rerun poetry.
 
-Once all the dependencies are installed, make a copy of the sample `.env.copy` environment and fill in the values. You can get the values from 1Password (yupp-llms .env file):
+Once all the dependencies are installed, make a copy of the sample `.env.copy` environment and fill in the values. You can get the values from 1Password (yupp-mind .env file):
 
 ```sh
 cp .env.copy .env
@@ -92,7 +93,7 @@ See [localhost:8000/api/docs](http://localhost:8000/api/docs) for the available 
 The APIs are protected by API key. The key is stored in the Github Secrets (and Vercel Environment Variables), which will be injected as part of Github Actions Workflow. If you want to access the API, you need to set the `X-API-KEY` header with the right key value.
 At the moment, `local` environment is exempt from authentication and is enabled only for other (`staging` and `production`) environments.
 
-If you need to access the APIs from FastAPI Docs, you can add the API key by clicking on `Authorize` button (top right). 
+If you need to access the APIs from FastAPI Docs, you can add the API key by clicking on `Authorize` button (top right).
 
 <img height="400" src="./assets/auth_api_key.png" alt="Authorize API Key">
 
@@ -143,14 +144,14 @@ docker push gcr.io/yupp-llms/backend-base:latest
 
 ### Building and deploying the actual backend image, which depends on the base:
 
-Use the "Run Workflow" button on the [Build and Deploy](https://github.com/yupp-ai/yupp-llms/actions/workflows/deploy.yml) workflow to build and deploy the backend image to staging or production; production will be pushed to llms.yupp.ai:
+Use the "Run Workflow" button on the [Build and Deploy](https://github.com/yupp-ai/yupp-mind/actions/workflows/deploy.yml) workflow to build and deploy the backend image to staging or production; production will be pushed to llms.yupp.ai:
 
 <img height="400" src="./assets/deploy.png" alt="Build and Deploy">
 
 
 ### Rollbacks
 
-If you want to rollback to the previous revision, you can just use the [Rollback to previous revision](https://github.com/yupp-ai/yupp-llms/actions/workflows/rollback.yml) Github workflow.
+If you want to rollback to the previous revision, you can just use the [Rollback to previous revision](https://github.com/yupp-ai/yupp-mind/actions/workflows/rollback.yml) Github workflow.
 
 To roll back to a different version, first list the revisions of the service (use `backend-staging` instead of `backend` to do the same for the staging service):
 
@@ -184,4 +185,4 @@ To add a new periodic task:
 1. Add a command to [cli.py](ypl/cli.py) (ex: `update_ranking()`).
 1. Create a GitHub action for that command with the desired schedule and any arguments to supply (ex: [`.github/workflows/update_ranking.yml`](.github/workflows/update_ranking.yml)).
 
-Periodic tasks will run automatically from the `main` branch, but can also be manually triggered for any branch from [the action page](https://github.com/yupp-ai/yupp-llms/actions/workflows/cronjob.yml).
+Periodic tasks will run automatically from the `main` branch, but can also be manually triggered for any branch from [the action page](https://github.com/yupp-ai/yupp-mind/actions/workflows/cronjob.yml).
