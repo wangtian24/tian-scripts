@@ -1,6 +1,7 @@
 import enum
 from dataclasses import dataclass
 
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 from together import AsyncTogether, Together
 from together.types import ChatCompletionResponse
 
@@ -57,11 +58,19 @@ class ModerationResult:
     reasons: list[ModerationReason] | None
 
 
+DEFAULT_MODERATION_RESULT = ModerationResult(model_name=None, safe=False, reasons=[ModerationReason.OTHER])
+
+
 def _check_model_name(model_name: str) -> None:
     if model_name not in (LLAMA_GUARD_2_8B_MODEL_NAME, LLAMA_GUARD_3_8B_MODEL_NAME):
         raise ValueError(f"Model {model_name} is not supported")
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_fixed(0.1),
+    retry=retry_if_exception_type((TimeoutError,)),
+)
 def moderate(text: str, model_name: str = LLAMA_GUARD_3_8B_MODEL_NAME) -> ModerationResult:
     _check_model_name(model_name)
     if model_name in (LLAMA_GUARD_2_8B_MODEL_NAME, LLAMA_GUARD_3_8B_MODEL_NAME):
@@ -77,6 +86,11 @@ def moderate(text: str, model_name: str = LLAMA_GUARD_3_8B_MODEL_NAME) -> Modera
     return _parse_response(response, model_name)
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_fixed(0.1),
+    retry=retry_if_exception_type((TimeoutError,)),
+)
 async def amoderate(text: str, model_name: str = LLAMA_GUARD_3_8B_MODEL_NAME) -> ModerationResult:
     _check_model_name(model_name)
     response = await AsyncTogether().chat.completions.create(

@@ -19,6 +19,8 @@ from ypl.backend.prompts import (
     RESPONSE_QUALITY_PROMPT_TEMPLATE,
 )
 
+DEFAULT_PROMPT_DIFFICULTY = 4  # Most common value.
+
 
 class JudgeConfig(BaseModelV1):
     llms: list[ModelInfo] = []

@@ -10,8 +10,8 @@ from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine
 from ypl.backend.llm.chat import ModelInfo, get_chat_model
 from ypl.backend.llm.constants import ChatProvider
-from ypl.backend.llm.judge import YuppPromptDifficultyLabeler
-from ypl.backend.llm.moderation import amoderate
+from ypl.backend.llm.judge import DEFAULT_PROMPT_DIFFICULTY, YuppPromptDifficultyLabeler
+from ypl.backend.llm.moderation import DEFAULT_MODERATION_RESULT, amoderate
 from ypl.backend.rw_cache import TurnQualityCache
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import MessageType, TurnQuality
@@ -59,20 +59,31 @@ async def label_quality(chat_id: UUID, turn_id: UUID) -> TurnQuality:
 
     responses += ["", ""]  # ensure at least two responses
 
+    label_task = asyncio.create_task(labeler.alabel((prompt,) + tuple(responses[:2])))  # type: ignore[arg-type]
+    moderate_task = asyncio.create_task(amoderate(prompt))
+
     try:
-        response_out, moderation_result = await asyncio.gather(
-            labeler.alabel((prompt,) + tuple(responses[:2])),  # type: ignore[arg-type]
-            amoderate(prompt),
-        )
-        prompt_difficulty = int(re.search(r"\"overall\":\s*(\d+)", response_out).group(1))  # type: ignore[union-attr]
+        label_response = await label_task
+        prompt_difficulty = int(re.search(r"\"overall\":\s*(\d+)", label_response).group(1))  # type: ignore[union-attr]
     except Exception as e:
         log_dict = {
-            "message": "Error labeling prompt difficulty",
+            "message": "Error labeling prompt difficulty; assigning default value",
             "turn_id": str(turn_id),
             "error": str(e),
         }
-        logging.exception(json_dumps(log_dict))
-        raise HTTPException(status_code=500, detail=f"Error labeling prompt difficulty: {e}") from e
+        logging.warning(json_dumps(log_dict))
+        prompt_difficulty = DEFAULT_PROMPT_DIFFICULTY
+
+    try:
+        moderation_result = await moderate_task
+    except Exception as e:
+        log_dict = {
+            "message": "Error getting moderation result; assigning default value",
+            "turn_id": str(turn_id),
+            "error": str(e),
+        }
+        logging.warning(json_dumps(log_dict))
+        moderation_result = DEFAULT_MODERATION_RESULT
 
     tq.prompt_difficulty = prompt_difficulty
     tq.prompt_is_safe = moderation_result.safe
