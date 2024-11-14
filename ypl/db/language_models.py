@@ -189,6 +189,10 @@ class LanguageModel(BaseModel, table=True):
     provider_id: uuid.UUID | None = Field(foreign_key="providers.provider_id", nullable=True, default=None, index=True)
     provider: "Provider" = Relationship(back_populates="language_models")
 
+    # Model-specific settings, sent to the model provider as part of the request body.
+    # Example settings are `provider.ignore`, used by OpenRouter to ignore certain providers.
+    provider_settings: dict | None = Field(default_factory=dict, sa_type=sa.JSON)
+
     turn_qualities: list["TurnQuality"] = Relationship(back_populates="prompt_difficulty_judge_model")
 
     chat_messages: list["ChatMessage"] = Relationship(back_populates="assistant_language_model")
