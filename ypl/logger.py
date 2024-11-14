@@ -10,6 +10,9 @@ from ypl.backend.config import settings
 
 
 def redact_sensitive_data(text: str) -> str:
+    if settings.ENVIRONMENT == "local":
+        return text
+
     # Email pattern
     email_pattern = r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b"
 
@@ -54,6 +57,7 @@ def setup_google_cloud_logging() -> None:
         )
 
         root_logger = logging.getLogger()
+        root_logger.handlers.clear()
         root_logger.setLevel(logging.INFO)
         root_logger.addHandler(handler)
     except Exception as e:
@@ -64,7 +68,8 @@ def setup_google_cloud_logging() -> None:
 if settings.USE_GOOGLE_CLOUD_LOGGING:
     setup_google_cloud_logging()
 else:
-    logging.basicConfig(level=logging.INFO)
+    root_logger = logging.getLogger()
+    root_logger.handlers.clear()
+    root_logger.setLevel(logging.INFO)
     handler = RedactingStreamHandler()
-    handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
-    logging.getLogger().addHandler(handler)
+    root_logger.addHandler(handler)
