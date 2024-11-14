@@ -1,5 +1,9 @@
 from collections.abc import Callable
-from typing import Generic, ParamSpec, TypedDict, TypeVar
+from typing import Any, Concatenate, Generic, ParamSpec, TypedDict, TypeVar
+
+import numpy as np
+
+from ypl.utils import RNGMixin
 
 InputType = ParamSpec("InputType")
 OutputType = TypeVar("OutputType")
@@ -9,9 +13,12 @@ def register_state(
     *,
     name: str = "",
     entrypoint: bool = False,
+    weight: float = 1.0,
 ) -> Callable[[Callable[InputType, OutputType]], "StatelikeFunction[InputType, OutputType]"]:
     def decorator(fn: Callable[InputType, OutputType]) -> "StatelikeFunction[InputType, OutputType]":
-        return StatelikeFunction(fn=fn, name=name, entrypoint=entrypoint)
+        nonlocal name
+        name = "__entrypoint__" if entrypoint else name or fn.__name__
+        return StatelikeFunction(fn=fn, name=name, entrypoint=entrypoint, weight=weight)
 
     return decorator
 
@@ -23,10 +30,12 @@ class StatelikeFunction(Generic[InputType, OutputType]):
         fn: Callable[InputType, OutputType],
         name: str,
         entrypoint: bool = False,
+        weight: float = 1.0,
     ) -> None:
         self.fn = fn
         self.state_name = name
         self.entrypoint = entrypoint
+        self.weight = weight
 
     def __call__(self, *args: InputType.args, **kwargs: InputType.kwargs) -> OutputType:
         return self.fn(*args, **kwargs)
@@ -36,7 +45,7 @@ class AgentState(TypedDict):
     __current_state__: str
 
 
-class StatefulAgent(Generic[InputType, OutputType]):
+class StatefulAgent(RNGMixin, Generic[InputType, OutputType]):
     """
     A stateful conversational agent composed of statelike functions, each representing a node in a finite-state machine
     for building conversational workflows. Compared with existing codebases such as LangChain's LangGraph and AutoGen,
@@ -44,7 +53,10 @@ class StatefulAgent(Generic[InputType, OutputType]):
 
     Conversational agents should subclass this and implement registered functions using the :py:func:`.register_state`
     decorator. Transitions between nodes (registered functions) must be executed by calling `self.move_to(self.func)`.
-    Each agent can be saved and loaded using `state_dict()` and `load_state_dict()`. The entry point is `begin()`.
+    Each agent can be saved and loaded using `state_dict()` and `load_state_dict()`. Entry points are marked using
+    the `entrypoint` argument to :py:func:`.register_state`. If there are multiple entry points, the agent will randomly
+    choose one to start with, weighted by the `weight` argument. Likewise, if there are multiple functions with the same
+    name, the agent will randomly choose one to execute, weighted by the `weight` argument.
 
     As a complete example,
 
@@ -60,7 +72,7 @@ class StatefulAgent(Generic[InputType, OutputType]):
 
                 return response
 
-            @register_state(name="lookup")
+            @register_state()  # default name is the function name
             def lookup_city(self, user_input: str | None = None) -> str:
                 response = self.llm_with_tool_use.generate(user_input)
 
@@ -108,7 +120,7 @@ class StatefulAgent(Generic[InputType, OutputType]):
     def current_state(self, value: str) -> None:
         self.state["__current_state__"] = value
 
-    def move_to(self, state: StatelikeFunction[InputType, OutputType]) -> None:
+    def move_to(self, state: StatelikeFunction[Concatenate[Any, InputType], OutputType]) -> None:
         if not hasattr(state, "state_name"):
             raise ValueError("Need to register the function using @register_state")
 
@@ -124,13 +136,22 @@ class StatefulAgent(Generic[InputType, OutputType]):
         self.state = state_dict
 
     def get_begin_state(self) -> StatelikeFunction[InputType, OutputType]:
+        entrypoints = []
+        weights = []
+
         for fn_name in dir(self):
             fn = getattr(self, fn_name)
 
             if isinstance(fn, StatelikeFunction) and fn.entrypoint:
-                return fn
+                entrypoints.append(fn)
+                weights.append(fn.weight)
 
-        raise ValueError("Entry point not found")
+        if not entrypoints:
+            raise ValueError("Entry point not found")
+
+        p = np.array(weights) / sum(weights)
+
+        return self.get_rng().choice(entrypoints, p=p)  # type: ignore
 
     def find_current_state(self) -> StatelikeFunction[InputType, OutputType]:
         match self.current_state:
@@ -139,13 +160,22 @@ class StatefulAgent(Generic[InputType, OutputType]):
             case self.END_STATE:
                 raise ValueError("Agent has ended already.")
 
+        fns = []
+        weights = []
+
         for fn_name in dir(self):
             fn = getattr(self, fn_name)
 
             if isinstance(fn, StatelikeFunction) and fn.state_name == self.current_state:
-                return fn
+                fns.append(fn)
+                weights.append(fn.weight)
 
-        raise ValueError("Current state not found")
+        if not fns:
+            raise ValueError("Current state not found")
+
+        p = np.array(weights) / sum(weights)
+
+        return self.get_rng().choice(fns, p=p)  # type: ignore
 
     def __call__(self, *args: InputType.args, **kwargs: InputType.kwargs) -> OutputType:
         return self.find_current_state()(self, *args, **kwargs)  # type: ignore[arg-type]
