@@ -139,6 +139,10 @@ class RewardVariables(BaseVariables):  # type: ignore
         return self.context.get("points")
 
     @numeric_rule_variable
+    def points(self) -> float | None:
+        return self.context.get("points")
+
+    @numeric_rule_variable
     def turn_quality_score(self) -> float | None:
         return self.context.get("turn_quality_score")
 
@@ -174,6 +178,17 @@ class RewardRule(BaseModel, table=False):
             )
         )
 
+    def __eq__(self, other: object) -> bool:
+        """Returns True if all fields except created_at/updated_at/deleted_at are equal."""
+        if not isinstance(other, RewardRule):
+            return False
+
+        return all(
+            getattr(self, attr) == getattr(other, attr)
+            # Ignore created_at/updated_at/deleted_at.
+            for attr in set(RewardRule.model_fields) - set(BaseModel.model_fields)
+        )
+
 
 class RewardProbabilityRule(RewardRule, table=True):
     __tablename__ = "reward_probability_rules"
@@ -184,6 +199,18 @@ class RewardProbabilityRule(RewardRule, table=True):
     probability: float = Field(nullable=False)
 
     rewards: list[Reward] = Relationship(back_populates="reward_probability_rule")
+
+    def __eq__(self, other: object) -> bool:
+        """Returns True if all fields except created_at/updated_at/deleted_at and the primary ID are equal."""
+        if not isinstance(other, RewardProbabilityRule):
+            return False
+
+        return super().__eq__(other) and all(
+            getattr(self, attr) == getattr(other, attr)
+            for attr in set(RewardProbabilityRule.model_fields)
+            - set(RewardRule.model_fields)
+            - {"reward_probability_rule_id"}
+        )
 
 
 class RewardAmountRule(RewardRule, table=True):
@@ -202,3 +229,13 @@ class RewardAmountRule(RewardRule, table=True):
     comments: list[str] = Field(sa_column=sa.Column(sa.ARRAY(sa.String)))
 
     rewards: list[Reward] = Relationship(back_populates="reward_amount_rule")
+
+    def __eq__(self, other: object) -> bool:
+        """Returns True if all fields except created_at/updated_at/deleted_at and the primary ID are equal."""
+        if not isinstance(other, RewardAmountRule):
+            return False
+
+        return super().__eq__(other) and all(
+            getattr(self, attr) == getattr(other, attr)
+            for attr in set(RewardAmountRule.model_fields) - set(RewardRule.model_fields) - {"reward_amount_rule_id"}
+        )

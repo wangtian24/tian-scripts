@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 from typing import Any
 from unittest.mock import patch
 
@@ -229,3 +230,14 @@ def test_reward_probability(
 
     probabilities = [user_turn_reward.get_probability() for _ in range(1000)]
     assert np.mean(probabilities) == approx(expected_probability, rel=0.05)
+
+
+def test_reward_rule_equality() -> None:
+    assert MOCK_AMOUNT_RULES[0] == MOCK_AMOUNT_RULES[0]
+    assert MOCK_PROBABILITY_RULES[0] == MOCK_PROBABILITY_RULES[0]
+    assert MOCK_AMOUNT_RULES[0] != MOCK_AMOUNT_RULES[1]
+    assert MOCK_PROBABILITY_RULES[0] != MOCK_PROBABILITY_RULES[1]
+
+    # Should match even if IDs/timestamps differ.
+    assert MOCK_AMOUNT_RULES[0] == MOCK_AMOUNT_RULES[0].model_copy(update={"reward_amount_rule_id": uuid.uuid4()})
+    assert MOCK_PROBABILITY_RULES[0] == MOCK_PROBABILITY_RULES[0].model_copy(update={"created_at": datetime.now()})

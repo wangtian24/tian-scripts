@@ -16,6 +16,7 @@ import click
 import git
 import numpy as np
 import pandas as pd
+import yaml
 from dotenv import load_dotenv
 from sqlalchemy import func
 from sqlalchemy.orm import load_only, selectinload
@@ -58,6 +59,7 @@ from ypl.backend.llm.synthesize import SQLChatIO, SynthesizerConfig, SyntheticUs
 from ypl.backend.llm.utils import fetch_categories_with_descriptions_from_db
 from ypl.db.chats import Chat, ChatMessage, LanguageCode, MessageType, Turn, TurnQuality
 from ypl.db.language_models import LanguageModel, Provider
+from ypl.db.rewards import RewardAmountRule, RewardProbabilityRule, RewardRule
 
 logging.getLogger().setLevel(logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -940,6 +942,67 @@ def add_moderation_flags(moderation_model: str) -> None:
                 break
 
     print(f"Finished processing {completed_messages} messages.")
+
+
+@cli.command()
+@click.option("--rules-file", default="data/reward_rules.yml", help="The rules file to use")
+@click.option("--dry-run", is_flag=True, default=False, help="Whether to apply the changes")
+@db_cmd
+def refresh_rewards_rules(rules_file: str, dry_run: bool) -> None:
+    """Refresh the rewards rules."""
+
+    with open(rules_file) as f:
+        rules = yaml.safe_load(f)
+
+    new_amount_rules = [RewardAmountRule(**rule) for rule in rules.get("amount_rules", [])]
+    new_probability_rules = [RewardProbabilityRule(**rule) for rule in rules.get("probability_rules", [])]
+
+    with Session(get_engine()) as session:
+        existing_amount_rules = session.exec(select(RewardAmountRule)).all()
+        existing_probability_rules = session.exec(select(RewardProbabilityRule)).all()
+
+    def matching_existing_rule(new_rule: RewardRule, existing_rules: list[RewardRule]) -> RewardRule | None:
+        # Return the first rule that matches the new rule, or None if no match is found.
+        return next((rule for rule in existing_rules if rule == new_rule), None)
+
+    existing_rules_to_keep: list[RewardRule] = []
+    new_rules_to_add: list[RewardRule] = []
+    existing_rules_to_update: list[RewardRule] = []
+
+    for amount_rule in new_amount_rules:
+        matching_rule = matching_existing_rule(amount_rule, existing_amount_rules)  # type: ignore[arg-type]
+        if matching_rule:
+            existing_rules_to_keep.append(matching_rule)
+        else:
+            new_rules_to_add.append(amount_rule)
+
+    for probability_rule in new_probability_rules:
+        matching_rule = matching_existing_rule(probability_rule, existing_probability_rules)  # type: ignore[arg-type]
+        if matching_rule:
+            existing_rules_to_keep.append(matching_rule)
+        else:
+            new_rules_to_add.append(probability_rule)
+
+    for rule in existing_amount_rules:
+        if rule not in existing_rules_to_keep and rule.is_active:
+            # We don't want to delete rules, since they may be associated with past rewards; just set them as inactive.
+            rule.is_active = False
+            existing_rules_to_update.append(rule)
+
+    def names(rules: list[RewardRule]) -> list[str]:
+        return [rule.name for rule in rules]
+
+    print(f"Keeping {len(existing_rules_to_keep)} existing rules: {names(existing_rules_to_keep)}")
+    print(f"Setting {len(existing_rules_to_update)} existing rules as inactive: {names(existing_rules_to_update)}")
+    print(f"Adding {len(new_rules_to_add)} new rules: {names(new_rules_to_add)}")
+
+    if dry_run:
+        print("Dry run, not committing changes.")
+    else:
+        with Session(get_engine()) as session:
+            session.add_all(existing_rules_to_update)
+            session.add_all(new_rules_to_add)
+            session.commit()
 
 
 if __name__ == "__main__":
