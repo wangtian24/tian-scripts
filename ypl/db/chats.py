@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, TypeVar
 
 from fast_langdetect.ft_detect.infer import get_model_loaded
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import ARRAY, JSON, Column, Text, UniqueConstraint
+from sqlalchemy import ARRAY, JSON, Column, Index, Text, UniqueConstraint, text
 from sqlalchemy import Enum as SQLAlchemyEnum
 from sqlalchemy.dialects.postgresql import ENUM as PostgresEnum
 from sqlalchemy.dialects.postgresql import TSVECTOR
@@ -40,6 +40,8 @@ class Chat(BaseModel, table=True):
 
     creator_user_id: str = Field(foreign_key="users.user_id", sa_type=Text)
     creator: User = Relationship(back_populates="chats")
+
+    __table_args__ = (Index("ix_chats_created_at", text("created_at DESC")),)
 
 
 class Turn(BaseModel, table=True):
@@ -130,7 +132,7 @@ class ChatMessage(BaseModel, table=True):
     __tablename__ = "chat_messages"
 
     message_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    turn_id: uuid.UUID = Field(foreign_key="turns.turn_id", nullable=False)
+    turn_id: uuid.UUID = Field(foreign_key="turns.turn_id", nullable=False, index=True)
     turn: Turn = Relationship(back_populates="chat_messages")
     message_type: MessageType = Field(sa_column=Column(SQLAlchemyEnum(MessageType), nullable=False))
     content: str = Field(nullable=False, sa_type=Text)
@@ -225,11 +227,11 @@ class MessageEval(BaseModel, table=True):
     __tablename__ = "message_evals"
 
     message_eval_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
-    message_id: uuid.UUID = Field(foreign_key="chat_messages.message_id", nullable=False)
+    message_id: uuid.UUID = Field(foreign_key="chat_messages.message_id", nullable=False, index=True)
     message: ChatMessage = Relationship(back_populates="message_evals")
     score: float = Field(nullable=True)
     user_comment: str | None = Field(nullable=True)
-    eval_id: uuid.UUID = Field(foreign_key="evals.eval_id", nullable=False)
+    eval_id: uuid.UUID = Field(foreign_key="evals.eval_id", nullable=False, index=True)
     eval: "Eval" = Relationship(back_populates="message_evals")
 
 
