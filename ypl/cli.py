@@ -782,8 +782,8 @@ def review_mturk_prompt_quality_data(input_file: str, output_file: str | None) -
                 continue
 
             category = category.title()
-            cat_response = row[f"Answer.{category}.{category}"]
-            diff_response = row[f"Answer.expertiseLevel{difficulty.capitalize()}.{difficulty.lower()}"]
+            cat_response = row[f"Answer.category.{category}.prompt.{category}"]
+            diff_response = row[f"Answer.expertiseLevel.{difficulty.capitalize()}.prompt.{difficulty.lower()}"]
 
             if not cat_response or not diff_response:
                 blocked_workers.add(row["WorkerId"])
