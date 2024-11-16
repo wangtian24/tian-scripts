@@ -1313,6 +1313,7 @@ def get_prompt_conditional_router(
                 ).with_flags(always_include=True)
                 & RandomModelProposer().with_flags(offset=-1000, always_include=True)
             )
+            | Exclude(all_bad_models)
             | ProviderFilter(one_per_provider=True)
             | TopK(num_models)
             | RoutingDecisionLogger(
