@@ -4,6 +4,7 @@ from typing import Any, cast
 
 import logging
 
+import aiohttp
 from openai import OpenAI
 from pydantic import BaseModel
 from sqlmodel import select
@@ -17,6 +18,32 @@ from ypl.db.ratings import Category, OVERALL_CATEGORY_NAME
 from ypl.backend.utils.json import json_dumps
 
 client: OpenAI | None = None
+
+
+class CategorizerResponse(BaseModel):
+    category: str
+
+
+class PromptCategorizer:
+    async def acategorize(self, user_prompt: str) -> CategorizerResponse:
+        raise NotImplementedError
+
+
+class RemotePromptCategorizer(PromptCategorizer):
+    def __init__(self, api_endpoint: str, api_key: str) -> None:
+        self.api_endpoint = api_endpoint
+        self.api_key = api_key
+
+    async def acategorize(self, user_prompt: str) -> CategorizerResponse:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                self.api_endpoint + "/categorize",
+                json={"prompt": user_prompt},
+                headers={"X-API-KEY": self.api_key},
+            ) as response:
+                json_response = await response.json()
+
+        return CategorizerResponse(category=json_response["category"])
 
 
 def initialize_client(**kwargs: Any) -> OpenAI:

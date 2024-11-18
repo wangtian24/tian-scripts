@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from typing import Any, Concatenate, Generic, ParamSpec, TypedDict, TypeVar
 
 import numpy as np
@@ -31,14 +31,28 @@ class StatelikeFunction(Generic[InputType, OutputType]):
         name: str,
         entrypoint: bool = False,
         weight: float = 1.0,
+        bound_self: Any | None = None,
     ) -> None:
         self.fn = fn
         self.state_name = name
         self.entrypoint = entrypoint
         self.weight = weight
+        self.bound_self = bound_self
 
     def __call__(self, *args: InputType.args, **kwargs: InputType.kwargs) -> OutputType:
-        return self.fn(*args, **kwargs)
+        if self.bound_self is None:
+            return self.fn(*args, **kwargs)
+        else:
+            return self.fn(self.bound_self, *args, **kwargs)
+
+    def __get__(self, instance: Any, owner: Any) -> "StatelikeFunction[InputType, OutputType]":
+        return StatelikeFunction(
+            fn=self.fn,
+            name=self.state_name,
+            entrypoint=self.entrypoint,
+            weight=self.weight,
+            bound_self=instance,
+        )
 
 
 class AgentState(TypedDict):
@@ -120,7 +134,11 @@ class StatefulAgent(RNGMixin, Generic[InputType, OutputType]):
     def current_state(self, value: str) -> None:
         self.state["__current_state__"] = value
 
-    def move_to(self, state: StatelikeFunction[Concatenate[Any, InputType], OutputType]) -> None:
+    def move_to(
+        self,
+        state: StatelikeFunction[Concatenate[Any, InputType], OutputType]
+        | StatelikeFunction[Concatenate[Any, InputType], Coroutine[Any, Any, OutputType]],
+    ) -> None:
         if not hasattr(state, "state_name"):
             raise ValueError("Need to register the function using @register_state")
 
@@ -178,4 +196,7 @@ class StatefulAgent(RNGMixin, Generic[InputType, OutputType]):
         return self.get_rng().choice(fns, p=p)  # type: ignore
 
     def __call__(self, *args: InputType.args, **kwargs: InputType.kwargs) -> OutputType:
-        return self.find_current_state()(self, *args, **kwargs)  # type: ignore[arg-type]
+        return self.find_current_state()(*args, **kwargs)
+
+    async def acall(self, *args: InputType.args, **kwargs: InputType.kwargs) -> OutputType:
+        return await self.find_current_state()(*args, **kwargs)  # type: ignore
