@@ -173,6 +173,9 @@ class LanguageModel(BaseModel, table=True):
         sa_column=Column(sa_Enum(LanguageModelStatusEnum), server_default=LanguageModelStatusEnum.SUBMITTED.name),
     )
 
+    # Whether the model is considered a pro model.
+    is_pro: bool | None = Field(nullable=True, default=None, index=True)
+
     # This is the organization that owns the language model.
     organization_id: uuid.UUID | None = Field(foreign_key="organizations.organization_id", nullable=True, default=None)
     organization: "Organization" = Relationship(back_populates="language_models")
