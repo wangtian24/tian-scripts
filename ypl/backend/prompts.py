@@ -308,6 +308,10 @@ JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages(
     [("human", JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT)]
 )
 
+JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT_SIMPLE_TEMPLATE = ChatPromptTemplate.from_messages(
+    [("human", JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT_SIMPLE)]
+)
+
 PROMPTS_MODEL_QUALITY_SYS_PROMPT = """You are a specialized language model designed to predict the quality of a model's response to a given prompt. You are given
 the following information about the models:
 

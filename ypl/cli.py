@@ -230,8 +230,8 @@ def judge_yupp_prompt_difficulty(
 ) -> None:
     llm = get_chat_model(ModelInfo(provider=provider, model=language_model, api_key=api_key), temperature=0.0)
 
-    async def arun_batch(inputs: list[tuple[str, str, str, str]]) -> list[tuple[str, str]]:
-        async def ajudge_yupp_output(id: str, user_msg: str, llm1_msg: str, llm2_msg: str) -> tuple[str, str]:
+    async def arun_batch(inputs: list[tuple[str, str, str, str]]) -> list[tuple[int, str]]:
+        async def ajudge_yupp_output(id: str, user_msg: str, llm1_msg: str, llm2_msg: str) -> tuple[int, str]:
             async with sem:
                 judge = YuppPromptDifficultyLabeler(llm)
 
@@ -265,22 +265,9 @@ def judge_yupp_prompt_difficulty(
             raise
 
     results = asyncio.run(arun_batch(inputs))
-    prefix, suffix = "```json\n", "\n```"
     with open(output_file, "w") as outf:
         for res in results:
-            judgement_json_str, chat_id = res
-            judgement = None
-            try:
-                judgement = json.loads(judgement_json_str)
-            except json.JSONDecodeError:
-                if not (judgement_json_str.startswith(prefix) and judgement_json_str.endswith(suffix)):
-                    print(f"Can't parse judgement for {chat_id}: {judgement}")
-                    continue
-                try:
-                    judgement = json.loads(judgement_json_str[len(prefix) : len(judgement_json_str) - len(suffix)])
-                except json.JSONDecodeError:
-                    print(f"Can't parse judgement for {chat_id}: {judgement}")
-                    continue
+            judgement, chat_id = res
             outf.write(json.dumps(dict(judgement=judgement, chat_id=chat_id)))
             outf.write("\n")
 

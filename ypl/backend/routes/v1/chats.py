@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import re
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
@@ -10,7 +9,7 @@ from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine
 from ypl.backend.llm.chat import ModelInfo, get_chat_model
 from ypl.backend.llm.constants import ChatProvider
-from ypl.backend.llm.judge import DEFAULT_PROMPT_DIFFICULTY, YuppPromptDifficultyLabeler
+from ypl.backend.llm.judge import DEFAULT_PROMPT_DIFFICULTY, YuppPromptDifficultyLabelerSimple
 from ypl.backend.llm.moderation import DEFAULT_MODERATION_RESULT, amoderate
 from ypl.backend.rw_cache import TurnQualityCache
 from ypl.backend.utils.json import json_dumps
@@ -30,7 +29,7 @@ llm = get_chat_model(
 @router.post("/chats/{chat_id}/turns/{turn_id}:label_quality", response_model=TurnQuality)
 async def label_quality(chat_id: UUID, turn_id: UUID) -> TurnQuality:
     cache = TurnQualityCache.get_instance()
-    labeler = YuppPromptDifficultyLabeler(llm)
+    labeler = YuppPromptDifficultyLabelerSimple(llm)
 
     tq = await cache.aread(turn_id, deep=True)
 
@@ -63,8 +62,7 @@ async def label_quality(chat_id: UUID, turn_id: UUID) -> TurnQuality:
     moderate_task = asyncio.create_task(amoderate(prompt))
 
     try:
-        label_response = await label_task
-        prompt_difficulty = int(re.search(r"\"overall\":\s*(\d+)", label_response).group(1))  # type: ignore[union-attr]
+        prompt_difficulty: int = await label_task
     except Exception as e:
         log_dict = {
             "message": "Error labeling prompt difficulty; assigning default value",

@@ -13,6 +13,7 @@ from ypl.backend.llm.labeler import LLMLabeler
 from ypl.backend.prompts import (
     JUDGE_YUPP_CHAT_PROMPT_SPEED_AWARE_TEMPLATE,
     JUDGE_YUPP_CHAT_PROMPT_TEMPLATE,
+    JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT_SIMPLE_TEMPLATE,
     JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT_TEMPLATE,
     PROMPT_MULTILABEL_CLASSIFICATION_PROMPT_TEMPLATE,
     RESPONSE_DIFFICULTY_PROMPT_TEMPLATE,
@@ -85,19 +86,24 @@ class SpeedAwareYuppEvaluationLabeler(LLMLabeler[tuple[str, str, str, float, flo
         return -1
 
 
-class YuppPromptDifficultyLabeler(LLMLabeler[tuple[str, str, str], str]):
+class YuppPromptDifficultyLabeler(LLMLabeler[tuple[str, str, str], int]):
     def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
         return JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT_TEMPLATE | llm  # type: ignore
 
     def _prepare_input(self, input: tuple[str, str, str]) -> dict[str, Any]:
         return dict(response1=input[1], response2=input[2], user_prompt=input[0])
 
-    def _parse_output(self, output: BaseMessage) -> str:
-        return str(output.content).strip()
+    def _parse_output(self, output: BaseMessage) -> int:
+        return int(re.search(r"\"overall\":\s*(\d+)", str(output.content)).group(1))  # type: ignore
 
     @property
-    def error_value(self) -> str:
-        return "DUNNO"
+    def error_value(self) -> int:
+        return -1
+
+
+class YuppPromptDifficultyLabelerSimple(YuppPromptDifficultyLabeler):
+    def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
+        return JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT_SIMPLE_TEMPLATE | llm  # type: ignore
 
 
 class YuppQualityLabeler(LLMLabeler[tuple[str, str], int]):
