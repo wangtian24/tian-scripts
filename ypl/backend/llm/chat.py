@@ -1,5 +1,5 @@
 import re
-from collections.abc import Generator
+from collections.abc import Generator, Sequence
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Generic, TypeVar
@@ -19,7 +19,7 @@ from nltk.tokenize import sent_tokenize, word_tokenize
 from pydantic.v1 import SecretStr
 from sentence_transformers import SentenceTransformer
 from sqlalchemy import text
-from sqlmodel import select
+from sqlmodel import Session, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ypl.backend import prompts
@@ -86,6 +86,18 @@ def simple_deduce_original_provider(model: str) -> str:
             return provider
 
     return model
+
+
+@ttl_cache(ttl=600)  # 10-min cache
+def get_all_pro_models() -> Sequence[str]:
+    query = select(LanguageModel.internal_name).where(
+        LanguageModel.is_pro.is_(True),  # type: ignore
+        LanguageModel.deleted_at.is_(None),  # type: ignore
+        LanguageModel.status == LanguageModelStatusEnum.ACTIVE,
+    )
+
+    with Session(get_engine()) as session:
+        return session.exec(query).all()
 
 
 @ttl_cache(ttl=600)  # 10-min cache

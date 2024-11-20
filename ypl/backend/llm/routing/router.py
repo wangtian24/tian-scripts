@@ -15,7 +15,7 @@ from sqlalchemy import text
 
 from ypl.backend.config import settings
 from ypl.backend.db import get_engine
-from ypl.backend.llm.chat import adeduce_original_provider, deduce_original_providers
+from ypl.backend.llm.chat import adeduce_original_provider, deduce_original_providers, get_all_pro_models
 from ypl.backend.llm.constants import MODEL_HEURISTICS
 from ypl.backend.llm.ranking import ConfidenceIntervalRankerMixin, Ranker, get_ranker
 from ypl.backend.llm.routing.policy import SelectionCriteria, decayed_random_fraction
@@ -475,6 +475,26 @@ class ModelProposer(RouterModule):
             state: The state to propose models for.
         """
         raise NotImplementedError
+
+    async def _apropose_models(self, models_to_select: set[str], state: RouterState) -> RouterState:
+        return self._propose_models(models_to_select, state)
+
+
+class ProModelProposer(RNGMixin, ModelProposer):
+    def _propose_models(self, models_to_select: set[str], state: RouterState) -> RouterState:
+        if not models_to_select:
+            return RouterState()
+
+        all_pro_models = set(get_all_pro_models())
+        models_to_select = models_to_select.intersection(all_pro_models)
+        models_to_select_ = list(models_to_select)
+        self.get_rng().shuffle(models_to_select_)
+
+        return state.emplaced(
+            selected_models={model: {SelectionCriteria.PRO_MODELS: 1.0} for model in models_to_select_},
+            all_models=state.all_models,
+            excluded_models=state.excluded_models | (state.all_models - set(models_to_select)),
+        )
 
     async def _apropose_models(self, models_to_select: set[str], state: RouterState) -> RouterState:
         return self._propose_models(models_to_select, state)
@@ -1266,7 +1286,8 @@ def get_prompt_conditional_router(
         # also with random jitter.
         router: RouterModule = (
             (
-                (
+                (ProModelProposer() | TopK(1)).with_flags(always_include=True, offset=100000)
+                & (
                     reputable_proposer
                     | categorizer_proposer
                     | StreamableModelFilter()
@@ -1276,6 +1297,7 @@ def get_prompt_conditional_router(
                 ).with_flags(always_include=True, offset=5000)
                 & reputable_proposer.with_flags(offset=-1000, always_include=True)
             )
+            | ProviderFilter(one_per_provider=True)
             | TopK(num_models)
             | RoutingDecisionLogger(enabled=settings.ROUTING_DO_LOGGING, prefix="first-prompt-conditional-router")
         )
@@ -1300,9 +1322,10 @@ def get_prompt_conditional_router(
 
         router: RouterModule = (  # type: ignore[no-redef]
             (
-                (RandomModelProposer(models=all_good_models).with_flags(offset=10000) | TopK(1)).with_flags(
+                (RandomModelProposer(models=all_good_models).with_flags(offset=100000) | TopK(1)).with_flags(
                     always_include=True
                 )
+                & (ProModelProposer() | Exclude(all_bad_models) | TopK(1)).with_flags(always_include=True, offset=10000)
                 & (
                     categorizer_proposer
                     | Exclude(all_bad_models)

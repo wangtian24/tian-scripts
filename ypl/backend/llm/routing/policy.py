@@ -64,4 +64,7 @@ class SelectionCriteria(Enum):
     # Select the models routed by the prompt categorizer
     PROMPT_CATEGORIZER = "prompt_categorizer"
 
+    # Select the pro models
+    PRO_MODELS = "pro_models"
+
     RANDOM = "random"
