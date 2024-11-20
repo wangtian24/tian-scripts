@@ -1,0 +1,45 @@
+swagger: '2.0'
+info:
+  title: amplitude-proxy v1
+  description: API Gateway proxy for Amplitude Analytics
+  version: 1.0.0
+schemes:
+  - https
+produces:
+  - application/json
+paths:
+  /2/httpapi:
+    post:
+      summary: Proxy Amplitude HTTP API V2 events
+      operationId: amplitudeEvent
+      x-google-backend:
+        address: https://api2.amplitude.com/2/httpapi
+        path_translation: CONSTANT_ADDRESS
+      x-google-endpoints-cors:
+        allow-origin: "*"
+        allow-methods: "POST,OPTIONS"
+        allow-headers: "Content-Type,Authorization"
+        expose-headers: "Content-Length,Content-Range"
+        max-age: "3600"
+      responses:
+        '200':
+          description: Event successfully sent to Amplitude
+        '400':
+          description: Invalid request
+        '401':
+          description: Unauthorized
+    options:
+      summary: CORS preflight
+      operationId: corsPreflightAmplitude
+      responses:
+        '200':
+          description: CORS headers
+      x-google-backend:
+        address: https://api2.amplitude.com/2/httpapi
+        path_translation: CONSTANT_ADDRESS
+      x-google-endpoints-cors:
+        allow-origin: "*"
+        allow-methods: "POST,OPTIONS"
+        allow-headers: "Content-Type,Authorization"
+        expose-headers: "Content-Length,Content-Range"
+        max-age: "3600"
