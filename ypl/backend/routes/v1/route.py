@@ -1,3 +1,4 @@
+from enum import Enum
 from typing import Any
 
 from fastapi import APIRouter, Body, Query
@@ -5,6 +6,8 @@ from pydantic import BaseModel
 from tqdm import tqdm
 
 from ypl.backend.config import settings
+from ypl.backend.llm.chat import get_user_message
+from ypl.backend.llm.prompt_selector import CategorizedPromptModifierSelector
 from ypl.backend.llm.ranking import get_ranker
 from ypl.backend.llm.routing.route_data_type import RoutingPreference
 from ypl.backend.llm.routing.router import RouterState, get_prompt_conditional_router, get_router_ranker
@@ -12,8 +15,23 @@ from ypl.backend.llm.routing.router import RouterState, get_prompt_conditional_r
 router = APIRouter()
 
 
-class SelectModelsAndPromptsResponse(BaseModel):
-    models_and_prompts: list[tuple[str, str]]
+class SelectIntent(str, Enum):
+    NEW_CHAT = "new_chat"
+    NEW_TURN = "new_turn"
+    SHOW_ME_MORE = "show_me_more"
+
+
+class SelectModelsV2Request(BaseModel):
+    intent: SelectIntent
+    prompt: str | None = None  # prompt to use for routing
+    num_models: int = 2  # number of models to select
+    required_models: list[str] | None = None  # models selected explicitly by the user
+    turn_id: str | None = None  # turn ID to use for routing
+    preference: None | RoutingPreference = None
+
+
+class SelectModelsV2Response(BaseModel):
+    models: list[tuple[str, str]]  # list of (model, prompt modifier)
 
 
 @router.post("/select_models")
@@ -32,6 +50,23 @@ def select_models(
     selected_models = router.select_models(state=all_models_state)
     return_models = selected_models.get_sorted_selected_models()
     return return_models
+
+
+@router.post("/select_models_plus")
+def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Response:
+    match request.intent:
+        case SelectIntent.NEW_CHAT | SelectIntent.NEW_TURN:
+            assert request.prompt is not None, "prompt is required for NEW_CHAT or NEW_TURN intent"
+            prompt = request.prompt
+        case SelectIntent.SHOW_ME_MORE:
+            assert request.turn_id is not None, "turn_id is required for SHOW_ME_MORE intent"
+            prompt = get_user_message(request.turn_id)
+
+    models = select_models(prompt, request.num_models, float("inf"), request.preference)
+    selector = CategorizedPromptModifierSelector.make_default_from_db()
+    model_mod_map = selector.select_modifiers(models)
+
+    return SelectModelsV2Response(models=[(model, model_mod_map[model]) for model in models])
 
 
 @router.post("/update_ranker")

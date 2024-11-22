@@ -26,7 +26,7 @@ from ypl.backend import prompts
 from ypl.backend.db import get_async_engine, get_engine
 from ypl.backend.llm.constants import ACTIVE_MODELS_BY_PROVIDER, PROVIDER_MODEL_PATTERNS, ChatProvider
 from ypl.backend.llm.utils import combine_short_sentences
-from ypl.db.chats import MessageType
+from ypl.db.chats import ChatMessage, MessageType
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
 from ypl.utils import async_timed_cache
 
@@ -98,6 +98,17 @@ def get_all_pro_models() -> Sequence[str]:
 
     with Session(get_engine()) as session:
         return session.exec(query).all()
+
+
+@ttl_cache(ttl=600)  # 10-min cache
+def get_user_message(turn_id: str) -> str:
+    """Returns the user message for the given turn ID. If no user message is found, returns an empty string."""
+    query = select(ChatMessage.content).where(
+        ChatMessage.turn_id == turn_id, ChatMessage.message_type == MessageType.USER_MESSAGE
+    )
+
+    with Session(get_engine()) as session:
+        return session.exec(query).first() or ""
 
 
 @ttl_cache(ttl=600)  # 10-min cache

@@ -1,4 +1,5 @@
 from collections import defaultdict
+from copy import deepcopy
 from typing import Self
 
 from cachetools.func import ttl_cache
@@ -43,23 +44,24 @@ class CategorizedPromptModifierSelector(RNGMixin, PromptModifierSelector):
             system_prompts: A list of tuples of (category, system prompt modifier).
             model_modifier_history: A dictionary mapping model names to the chosen prompt modifier.
         """
-        self.system_modifiers: dict[str, set[str]] = defaultdict(set)
+        sys_modifiers_dict: dict[str, set[str]] = defaultdict(set)
 
         for category, modifier in system_modifiers:
-            self.system_modifiers[category].add(modifier)
+            sys_modifiers_dict[category].add(modifier)
 
-        if not self.system_modifiers:
-            self.system_modifiers["default"] = {""}
+        if not sys_modifiers_dict:
+            sys_modifiers_dict["default"] = {""}
 
         self.model_modifier_history = model_modifier_history or {}
+        self.system_modifiers = dict(sys_modifiers_dict)
 
     def select_modifiers(self, models: list[str]) -> dict[str, str]:
-        system_modifiers = self.system_modifiers.copy()
+        system_modifiers = deepcopy(self.system_modifiers)
         model_mod_map = {}
 
         for model in models:
             if not system_modifiers:
-                system_modifiers = self.system_modifiers.copy()  # repeat the process
+                system_modifiers = deepcopy(self.system_modifiers)  # repeat the process
 
             try:
                 model_mod_map[model] = self.model_modifier_history[model]
@@ -71,6 +73,9 @@ class CategorizedPromptModifierSelector(RNGMixin, PromptModifierSelector):
             modifier = self.get_rng().choice(list(system_modifiers[cat]))
             model_mod_map[model] = modifier
             system_modifiers[cat].remove(modifier)
+
+            if not system_modifiers[cat]:
+                del system_modifiers[cat]
 
         return model_mod_map
 
