@@ -9,7 +9,7 @@ from pydantic.v1 import BaseModel as BaseModelV1
 
 from ypl.backend.llm.chat import ModelInfo
 from ypl.backend.llm.constants import MODEL_HEURISTICS
-from ypl.backend.llm.labeler import LLMLabeler
+from ypl.backend.llm.labeler import LLMLabeler, OnErrorBehavior
 from ypl.backend.prompts import (
     JUDGE_YUPP_CHAT_PROMPT_SPEED_AWARE_TEMPLATE,
     JUDGE_YUPP_CHAT_PROMPT_TEMPLATE,
@@ -87,6 +87,9 @@ class SpeedAwareYuppEvaluationLabeler(LLMLabeler[tuple[str, str, str, float, flo
 
 
 class YuppPromptDifficultyLabeler(LLMLabeler[tuple[str, str, str], int]):
+    def __init__(self, llm: BaseChatModel, timeout_secs: float = 5.0, on_error: OnErrorBehavior = "raise") -> None:
+        super().__init__(llm, timeout_secs, on_error)
+
     def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
         return JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT_TEMPLATE | llm  # type: ignore
 

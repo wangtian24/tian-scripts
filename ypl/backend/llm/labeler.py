@@ -2,7 +2,7 @@ import asyncio
 import logging
 import random
 from contextvars import ContextVar
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Literal, TypeVar
 
 from datasets import Dataset, load_dataset
 from langchain_community.vectorstores import FAISS
@@ -19,6 +19,10 @@ from ypl.backend.prompts import WILDCHAT_REALISM_PROMPT_TEMPLATE
 logging.basicConfig(level=logging.WARNING)
 InputType = TypeVar("InputType")
 OutputType = TypeVar("OutputType")
+OnErrorBehavior = Literal[
+    "raise",  # Raise the exception to the caller.
+    "use_error_value",  # Swallow the exception and return the defined error_value.
+]
 
 
 class LLMLabeler(Generic[InputType, OutputType]):
@@ -26,10 +30,13 @@ class LLMLabeler(Generic[InputType, OutputType]):
     Represents an LLM that takes in objects of type `InputType` and outputs a label of type `OutputType`.
     """
 
-    def __init__(self, llm: BaseChatModel, timeout_secs: float = 5.0) -> None:
+    def __init__(
+        self, llm: BaseChatModel, timeout_secs: float = 5.0, on_error: OnErrorBehavior = "use_error_value"
+    ) -> None:
         self.llm = self._prepare_llm(llm)
         self.asyncio_context: ContextVar = ContextVar("Coroutine local")
         self.timeout_secs = timeout_secs
+        self.on_error = on_error
 
     @property
     def error_value(self) -> OutputType:
@@ -65,8 +72,11 @@ class LLMLabeler(Generic[InputType, OutputType]):
 
             return self._parse_output(output)
         except Exception as e:
-            logging.exception(f"Error labeling input {input}: {e}")
-            return self.error_value
+            if self.on_error == "raise":
+                raise e
+            else:
+                logging.warning(f"Error labeling input {input}: {e}")
+                return self.error_value
 
     @retry(
         stop=stop_after_attempt(3),
@@ -82,8 +92,11 @@ class LLMLabeler(Generic[InputType, OutputType]):
 
                 return await self._aparse_output(output)
         except Exception as e:
-            logging.exception(f"Error labeling input {input}: {e}")
-            return self.error_value
+            if self.on_error == "raise":
+                raise e
+            else:
+                logging.warning(f"Error labeling input {input}: {e}")
+                return self.error_value
 
     def batch_label(self, inputs: list[InputType]) -> list[OutputType | None]:
         """Labels a batch of inputs."""
