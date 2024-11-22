@@ -38,7 +38,7 @@ class RNGMixin:
                 raise ValueError("Seed already set")
 
             self._seed = seed
-            self.get_rng()
+            self._rng = np.random.RandomState(self._seed)
 
     def with_seed(self, seed: int) -> Self:
         self.set_seed(seed)
