@@ -128,6 +128,36 @@ LanguageCode: type[LanguageCodeEnum] = enum.Enum(  # type: ignore
 )
 
 
+class ModifierCategory(enum.Enum):
+    length = "length"
+    tone = "tone"
+    style = "style"
+    formatting = "formatting"
+    complexity = "complexity"
+    other = "other"
+
+
+class PromptModifier(BaseModel, table=True):
+    __tablename__ = "prompt_modifiers"
+
+    prompt_modifier_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    name: str = Field(index=True)
+    category: ModifierCategory = Field(
+        sa_column=Column(SQLAlchemyEnum(ModifierCategory), server_default=ModifierCategory.other.name)
+    )
+    text: str | None = Field(nullable=True)
+
+
+class PromptModifierAssoc(BaseModel, table=True):
+    __tablename__ = "prompt_modifier_assocs"
+
+    assoc_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    prompt_modifier_id: uuid.UUID = Field(foreign_key="prompt_modifiers.prompt_modifier_id", index=True)
+    chat_message_id: uuid.UUID = Field(foreign_key="chat_messages.message_id", index=True)
+
+    __table_args__ = (UniqueConstraint("prompt_modifier_id", "chat_message_id", name="uq_prompt_modifier_assoc"),)
+
+
 class ChatMessage(BaseModel, table=True):
     __tablename__ = "chat_messages"
 
@@ -193,6 +223,9 @@ class ChatMessage(BaseModel, table=True):
     # When present, indicates in which order this message should be displayed in relation to
     # other messages in the same turn.
     turn_sequence_number: int | None = Field(nullable=True)
+
+    # The prompt modifiers used to generate the message, using the association table.
+    prompt_modifiers: list[PromptModifier] = Relationship(link_model=PromptModifierAssoc)
 
     # Needed for sa_type=JSON
     class Config:

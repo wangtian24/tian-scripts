@@ -1,6 +1,7 @@
 from typing import Any
 
 from fastapi import APIRouter, Body, Query
+from pydantic import BaseModel
 from tqdm import tqdm
 
 from ypl.backend.config import settings
@@ -9,6 +10,10 @@ from ypl.backend.llm.routing.route_data_type import RoutingPreference
 from ypl.backend.llm.routing.router import RouterState, get_prompt_conditional_router, get_router_ranker
 
 router = APIRouter()
+
+
+class SelectModelsAndPromptsResponse(BaseModel):
+    models_and_prompts: list[tuple[str, str]]
 
 
 @router.post("/select_models")

@@ -26,20 +26,34 @@ class RNGMixin:
 
     _rng: np.random.RandomState | None = None
     _seed: int | None = None
+    _lock: Lock = Lock()
 
-    def set_seed(self, seed: int) -> None:
-        if self._seed is not None:
-            raise ValueError("Seed already set")
+    def set_seed(self, seed: int, overwrite_existing: bool = False) -> None:
+        with self._lock:
+            if overwrite_existing:
+                self._seed = None
+                self._rng = None
 
-        self._seed = seed
+            if self._seed is not None:
+                raise ValueError("Seed already set")
+
+            self._seed = seed
+            self.get_rng()
 
     def with_seed(self, seed: int) -> Self:
         self.set_seed(seed)
         return self
 
+    def get_seed(self) -> int:
+        if self._seed is None:
+            raise ValueError("Seed not set")
+
+        return self._seed
+
     def get_rng(self) -> np.random.RandomState:
-        if self._rng is None:
-            self._rng = np.random.RandomState(self._seed)
+        with self._lock:
+            if self._rng is None:
+                self._rng = np.random.RandomState(self._seed)
 
         return self._rng
 
