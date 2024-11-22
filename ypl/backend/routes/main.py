@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends
 from ypl.backend.config import settings
 from ypl.backend.llm.ranking import get_ranker
 from ypl.backend.routes.api_auth import validate_api_key
-from ypl.backend.routes.v1 import chat_feed, credit, health, highlight_similar_content, model, rank, reward
+from ypl.backend.routes.v1 import chat_feed, credit, health, model, rank, reward
 from ypl.backend.routes.v1 import chats as chats_route
 from ypl.backend.routes.v1 import provider as provider_route
 from ypl.backend.routes.v1 import route as llm_route
@@ -41,7 +41,6 @@ def app_init() -> None:
 api_router = APIRouter(dependencies=[Depends(validate_api_key)])
 api_router.include_router(credit.router, prefix="/v1", tags=["credit"])
 api_router.include_router(health.router, prefix="/v1", tags=["health"])
-api_router.include_router(highlight_similar_content.router, prefix="/v1", tags=["highlight"])
 api_router.include_router(llm_route.router, prefix="/v1", tags=["route"])
 api_router.include_router(rank.router, prefix="/v1", tags=["leaderboard"])
 api_router.include_router(reward.router, prefix="/v1", tags=["reward"])
