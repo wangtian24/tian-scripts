@@ -241,7 +241,7 @@ class Ranker:
             .join(Eval, Eval.eval_id == MessageEval.eval_id)
             .join(User, User.user_id == Eval.user_id)
             .join(ChatMessage, ChatMessage.message_id == MessageEval.message_id)
-            .join(Turn, Turn.turn_id == Eval.turn_id)
+            .join(Turn, Turn.turn_id == ChatMessage.turn_id)
             .join(Chat, Chat.chat_id == Turn.chat_id)
             .join(
                 Prompt,

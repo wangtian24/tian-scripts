@@ -8,7 +8,7 @@ from sqlalchemy import ARRAY, JSON, Column, Index, Text, UniqueConstraint, text
 from sqlalchemy import Enum as SQLAlchemyEnum
 from sqlalchemy.dialects.postgresql import ENUM as PostgresEnum
 from sqlalchemy.dialects.postgresql import TSVECTOR
-from sqlmodel import Field, ForeignKey, Relationship
+from sqlmodel import Field, Relationship
 
 from ypl.backend.llm.moderation import ModerationReason
 from ypl.db.base import BaseModel
@@ -63,8 +63,6 @@ class Turn(BaseModel, table=True):
 
     creator_user_id: str = Field(foreign_key="users.user_id", nullable=False, sa_type=Text)
     creator: "User" = Relationship(back_populates="turns")
-
-    evals: list["Eval"] = Relationship(back_populates="turn")
 
     turn_quality: "TurnQuality" = Relationship(back_populates="turn")
 
@@ -170,20 +168,6 @@ class ChatMessage(BaseModel, table=True):
     assistant_model_name: str | None = Field()
     content_tsvector: TSVECTOR | None = Field(default=None, sa_column=Column(TSVECTOR))
     content_pgvector: Vector | None = Field(default=None, sa_column=Column(Vector(1536)))
-    evals_as_message_1: list["Eval"] = Relationship(
-        sa_relationship_kwargs={
-            "foreign_keys": "[Eval.message_1_id]",
-            "primaryjoin": "ChatMessage.message_id == Eval.message_1_id",
-        },
-        back_populates="message_1",
-    )
-    evals_as_message_2: list["Eval"] = Relationship(
-        sa_relationship_kwargs={
-            "foreign_keys": "[Eval.message_2_id]",
-            "primaryjoin": "ChatMessage.message_id == Eval.message_2_id",
-        },
-        back_populates="message_2",
-    )
     category_id: uuid.UUID | None = Field(foreign_key="categories.category_id", nullable=True)
     category: "Category" = Relationship(back_populates="chat_messages")
     language_code: LanguageCode | None = Field(
@@ -274,31 +258,7 @@ class Eval(BaseModel, table=True):
     eval_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
     user_id: uuid.UUID = Field(foreign_key="users.user_id", nullable=False, sa_type=Text)
     user: User = Relationship(back_populates="evals")
-    # TODO: Deprecate turn_id and turn.
-    turn_id: uuid.UUID = Field(foreign_key="turns.turn_id", nullable=False)
-    turn: Turn = Relationship(back_populates="evals")
     eval_type: EvalType = Field(sa_column=Column(SQLAlchemyEnum(EvalType), nullable=False))
-    # TODO: Deprecate message_1_id and message_1.
-    message_1_id: uuid.UUID = Field(sa_column=Column(ForeignKey("chat_messages.message_id"), nullable=False))
-    message_1: "ChatMessage" = Relationship(
-        sa_relationship_kwargs={
-            "foreign_keys": "[Eval.message_1_id]",
-            "primaryjoin": "Eval.message_1_id == ChatMessage.message_id",
-        },
-        back_populates="evals_as_message_1",
-    )
-    # TODO: Deprecate message_2_id and message_2.
-    message_2_id: uuid.UUID | None = Field(sa_column=Column(ForeignKey("chat_messages.message_id"), nullable=True))
-    message_2: "ChatMessage" = Relationship(
-        sa_relationship_kwargs={
-            "foreign_keys": "[Eval.message_2_id]",
-            "primaryjoin": "Eval.message_2_id == ChatMessage.message_id",
-        },
-        back_populates="evals_as_message_2",
-    )
-    # TODO: Deprecate score_1 and score_2.
-    score_1: float | None = Field(nullable=True)
-    score_2: float | None = Field(nullable=True)
     user_comment: str | None = Field(nullable=True)
     judge_model_name: str | None = Field(nullable=True)
     message_evals: list[MessageEval] = Relationship(back_populates="eval", cascade_delete=True)
