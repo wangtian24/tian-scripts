@@ -3,7 +3,9 @@ from collections.abc import Generator, Sequence
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Generic, TypeVar
+from uuid import UUID
 
+import pandas as pd
 from cachetools.func import ttl_cache
 from langchain_anthropic import ChatAnthropic
 from langchain_community.chat_message_histories import ChatMessageHistory
@@ -21,7 +23,8 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ypl.backend.db import get_async_engine, get_engine
 from ypl.backend.llm.constants import ACTIVE_MODELS_BY_PROVIDER, PROVIDER_MODEL_PATTERNS, ChatProvider
-from ypl.db.chats import ChatMessage, MessageType
+from ypl.backend.llm.routing.route_data_type import PreferredModel, RoutingPreference
+from ypl.db.chats import Chat, ChatMessage, MessageType
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
 from ypl.utils import async_timed_cache
 
@@ -99,11 +102,87 @@ def get_all_pro_models() -> Sequence[str]:
 def get_user_message(turn_id: str) -> str:
     """Returns the user message for the given turn ID. If no user message is found, returns an empty string."""
     query = select(ChatMessage.content).where(
-        ChatMessage.turn_id == turn_id, ChatMessage.message_type == MessageType.USER_MESSAGE
+        ChatMessage.turn_id == UUID(turn_id), ChatMessage.message_type == MessageType.USER_MESSAGE
     )
 
     with Session(get_engine()) as session:
         return session.exec(query).first() or ""
+
+
+def get_preferences(chat_id: str) -> RoutingPreference:
+    """Returns the preferences for the given chat ID."""
+    sql_query = text(
+        """
+        SELECT cm.assistant_model_name, t.turn_id, e.eval_type, me.score FROM turns t
+            JOIN chat_messages cm ON cm.turn_id = t.turn_id
+            LEFT JOIN message_evals me ON me.message_id = cm.message_id
+            LEFT JOIN evals e ON e.eval_id = me.eval_id
+        WHERE t.chat_id = :chat_id AND cm.message_type = 'ASSISTANT_MESSAGE'
+        ORDER BY cm.created_at DESC
+        LIMIT 100
+        """
+    )
+
+    with get_engine().connect() as conn:
+        c = conn.execute(sql_query, dict(chat_id=chat_id))
+        rows = c.fetchall()
+
+    df_rows = []
+
+    for row in reversed(rows):  # reverse to get the oldest turn first
+        model_name, turn_id, eval_type, score = row
+        df_rows.append(
+            dict(
+                model_name=model_name,
+                turn_id=turn_id,
+                eval_type=eval_type,
+                score=score,
+            )
+        )
+
+    if not df_rows:
+        return RoutingPreference(turns=[])
+
+    df = pd.DataFrame(df_rows)
+    preferred_models_list = []
+
+    for _, gdf in df.groupby("turn_id"):
+        evaluated_models = gdf[gdf["eval_type"].isin(["SELECTION", "ALL_BAD"])]["model_name"].tolist()
+
+        if not evaluated_models:
+            continue
+
+        all_models = gdf["model_name"].tolist()
+        preferred_models = gdf[(gdf["eval_type"] == "SELECTION") & (gdf["score"] == 100.0)]["model_name"].tolist()
+        preferred_model = preferred_models[0] if preferred_models else None
+        preferred_models_list.append(PreferredModel(models=all_models, preferred=preferred_model))
+
+    return RoutingPreference(turns=preferred_models_list)
+
+
+def get_shown_models(turn_id: str) -> list[str]:
+    """Returns the models shown to the user for the given turn ID."""
+    query = (
+        select(ChatMessage.assistant_model_name)
+        .where(ChatMessage.turn_id == UUID(turn_id), ChatMessage.message_type == MessageType.ASSISTANT_MESSAGE)
+        .distinct()
+    )
+
+    with Session(get_engine()) as session:
+        return session.exec(query).all()  # type: ignore[return-value]
+
+
+def get_chat(chat_id: str) -> Chat:
+    """Returns the chat for the given chat ID."""
+    query = select(Chat).where(Chat.chat_id == chat_id)
+
+    with Session(get_engine()) as session:
+        chat = session.exec(query).first()
+
+        if chat is None:
+            raise ValueError(f"Chat not found for chat_id: {chat_id}")
+
+        return chat
 
 
 @ttl_cache(ttl=600)  # 10-min cache

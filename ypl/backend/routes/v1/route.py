@@ -5,12 +5,11 @@ from fastapi import APIRouter, Body, Query
 from pydantic import BaseModel
 from tqdm import tqdm
 
-from ypl.backend.config import settings
-from ypl.backend.llm.chat import get_user_message
+from ypl.backend.llm.chat import get_preferences, get_shown_models, get_user_message
 from ypl.backend.llm.prompt_selector import CategorizedPromptModifierSelector
 from ypl.backend.llm.ranking import get_ranker
-from ypl.backend.llm.routing.route_data_type import RoutingPreference
-from ypl.backend.llm.routing.router import RouterState, get_prompt_conditional_router, get_router_ranker
+from ypl.backend.llm.routing.route_data_type import PreferredModel, RoutingPreference
+from ypl.backend.llm.routing.router import RouterState, get_prompt_conditional_router
 
 router = APIRouter()
 
@@ -26,8 +25,9 @@ class SelectModelsV2Request(BaseModel):
     prompt: str | None = None  # prompt to use for routing
     num_models: int = 2  # number of models to select
     required_models: list[str] | None = None  # models selected explicitly by the user
+    chat_id: str | None = None  # chat ID to use for routing
     turn_id: str | None = None  # turn ID to use for routing
-    preference: None | RoutingPreference = None
+    modifier_history: dict[str, str] | None = None  # modifier history to use for routing
 
 
 class SelectModelsV2Response(BaseModel):
@@ -41,11 +41,7 @@ def select_models(
     budget: float = Query(default=float("inf"), description="Budget"),
     preference: None | RoutingPreference = Body(default=None, description="List of past outcomes"),  # noqa: B008
 ) -> list[str]:
-    if settings.ROUTING_USE_PROMPT_CONDITIONAL:
-        router = get_prompt_conditional_router(prompt, num_models, preference)
-    else:
-        router, ranker = get_router_ranker()
-
+    router = get_prompt_conditional_router(prompt, num_models, preference)
     all_models_state = RouterState.new_all_models_state()
     selected_models = router.select_models(state=all_models_state)
     return_models = selected_models.get_sorted_selected_models()
@@ -62,8 +58,30 @@ def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Response
             assert request.turn_id is not None, "turn_id is required for SHOW_ME_MORE intent"
             prompt = get_user_message(request.turn_id)
 
-    models = select_models(prompt, request.num_models, float("inf"), request.preference)
+    match request.intent:
+        case SelectIntent.NEW_TURN | SelectIntent.SHOW_ME_MORE:
+            preference = get_preferences(request.chat_id)  # type: ignore[arg-type]
+        case _:
+            preference = RoutingPreference(turns=[])
+
+    if request.intent == SelectIntent.SHOW_ME_MORE:
+        shown_models = get_shown_models(request.turn_id)  # type: ignore[arg-type]
+
+        if preference.turns is None:
+            preference.turns = []
+
+        preference.turns.append(PreferredModel(models=shown_models, preferred=None))
+
+    if not request.required_models or len(request.required_models) < request.num_models:
+        models = select_models(prompt, request.num_models, float("inf"), preference)
+    else:
+        models = request.required_models
+
+    if request.required_models:
+        models = (request.required_models + models)[: request.num_models]
+
     selector = CategorizedPromptModifierSelector.make_default_from_db()
+    selector.model_modifier_history = request.modifier_history or {}
     model_mod_map = selector.select_modifiers(models)
 
     return SelectModelsV2Response(models=[(model, model_mod_map[model]) for model in models])
