@@ -139,6 +139,8 @@ jobs:
           echo "POSTGRES_HOST_NON_POOLING=${{ secrets.POSTGRES_HOST_NON_POOLING_PRODUCTION }}" >> .env
           echo "CLOUD_SQL_PROXY_INSTANCE_UNIX_SOCKET=${{ secrets.CLOUD_SQL_PROXY_INSTANCE_UNIX_SOCKET_PRODUCTION }}" >> .env
           echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY_PRODUCTION }}" >> .env
+          echo "AMPLITUDE_API_KEY=${{ secrets.AMPLITUDE_API_KEY_PRODUCTION }}" >> .env
+          echo "AMPLITUDE_API_SECRET=${{ secrets.AMPLITUDE_API_SECRET_PRODUCTION }}" >> .env
           echo "ALIBABA_API_KEY=${{ secrets.ALIBABA_API_KEY_PRODUCTION }}" >> .env
           echo "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY_PRODUCTION }}" >> .env
           echo "ANYSCALE_API_KEY=${{ secrets.ANYSCALE_API_KEY_PRODUCTION }}" >> .env

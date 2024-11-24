@@ -1,0 +1,14 @@
+name: Post Amplitude Metrics
+
+on:
+  schedule:
+    - cron: '0 16 * * *'  # 8:00 AM PST (16:00 UTC)
+  workflow_dispatch:
+
+jobs:
+  post_amplitude_metrics_production:
+    uses: ./.github/workflows/cronjob.yml
+    with:
+      command: post-amplitude-metrics
+      environment: production
+    secrets: inherit 

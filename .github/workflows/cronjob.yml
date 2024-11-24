@@ -30,6 +30,7 @@ on:
           - update-ranking-all-categories
           - verify-submitted-models
           - validate-active-models
+          - post-amplitude-metrics
       args:
         description: 'Arguments for the CLI command'
         required: false

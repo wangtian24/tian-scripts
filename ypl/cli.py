@@ -57,6 +57,7 @@ from ypl.backend.llm.prompt_classifiers import categorize_user_messages
 from ypl.backend.llm.ranking import get_default_ranker
 from ypl.backend.llm.synthesize import SQLChatIO, SynthesizerConfig, SyntheticUserGenerator, asynthesize_chats
 from ypl.backend.llm.utils import fetch_categories_with_descriptions_from_db
+from ypl.backend.utils.amplitude_analytics import post_amplitude_metrics_to_slack
 from ypl.db.chats import Chat, ChatMessage, LanguageCode, MessageType, Turn, TurnQuality
 from ypl.db.language_models import LanguageModel, Provider
 from ypl.db.rewards import RewardAmountRule, RewardProbabilityRule, RewardRule
@@ -816,6 +817,13 @@ def verify_submitted_models() -> None:
 def validate_active_models() -> None:
     """Validate active language models."""
     asyncio.run(validate_active_onboarded_models())
+
+
+@cli.command()
+@db_cmd
+def post_amplitude_metrics() -> None:
+    """Fetch metrics from Amplitude and post to Slack."""
+    asyncio.run(post_amplitude_metrics_to_slack())
 
 
 @cli.command()
