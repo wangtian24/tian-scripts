@@ -320,7 +320,7 @@ def verify_inference_running(model: LanguageModel, provider_name: str, base_url:
             content = google_ai_api_call(client, model.internal_name)
             is_inference_running = bool(content.text and len(content.text) > 0)
         else:  # OpenAI and compatible providers
-            completion = openai_api_call(client, model.internal_name)
+            completion = openai_api_call(client, model.internal_name, model.provider_settings)
             is_inference_running = bool(
                 completion.choices[0].message.content and len(completion.choices[0].message.content) > 0
             )
@@ -396,11 +396,16 @@ def get_provider_api_key(provider_name: str) -> str:
     wait=wait_fixed(WAIT_TIME),
     retry=retry_if_exception_type((Exception, TimeoutError)),
 )
-def openai_api_call(client: Any, model_name: str) -> Any:
+def openai_api_call(client: Any, model_name: str, extra_body: dict[str, Any] | None = None) -> Any:
+    """
+    extra_body is used to pass additional parameters to the API call.
+    E.g. for OpenRouter, we send provider.ignore to ignore a list of providers.
+    """
     return client.chat.completions.create(
         model=model_name,
         messages=[{"role": "user", "content": "What is the capital of Odisha?"}],
         timeout=INFERENCE_TIMEOUT,
+        extra_body=extra_body,
     )
 
 
