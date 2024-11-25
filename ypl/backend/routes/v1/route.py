@@ -9,7 +9,10 @@ from ypl.backend.llm.chat import get_preferences, get_shown_models, get_user_mes
 from ypl.backend.llm.prompt_selector import CategorizedPromptModifierSelector
 from ypl.backend.llm.ranking import get_ranker
 from ypl.backend.llm.routing.route_data_type import PreferredModel, RoutingPreference
-from ypl.backend.llm.routing.router import RouterState, get_prompt_conditional_router
+from ypl.backend.llm.routing.router import (
+    RouterState,
+    get_simple_pro_router,
+)
 
 router = APIRouter()
 
@@ -41,7 +44,7 @@ def select_models(
     budget: float = Query(default=float("inf"), description="Budget"),
     preference: None | RoutingPreference = Body(default=None, description="List of past outcomes"),  # noqa: B008
 ) -> list[str]:
-    router = get_prompt_conditional_router(prompt, num_models, preference)
+    router = get_simple_pro_router(prompt, num_models, preference)
     all_models_state = RouterState.new_all_models_state()
     selected_models = router.select_models(state=all_models_state)
     return_models = selected_models.get_sorted_selected_models()

@@ -1351,3 +1351,87 @@ def get_prompt_conditional_router(
         )
 
     return router
+
+
+def get_simple_pro_router(
+    prompt: str,
+    num_models: int,
+    routing_preference: RoutingPreference | None = None,
+) -> RouterModule:
+    preference = routing_preference or RoutingPreference(turns=[])
+    reputable_proposer = RandomModelProposer(providers=set(settings.ROUTING_REPUTABLE_PROVIDERS))
+
+    if not preference.turns:
+        # Construct a first-turn router guaranteeing at least one pro model and one reputable model.
+        router: RouterModule = (
+            (
+                (ProModelProposer() | TopK(1)).with_flags(always_include=True, offset=100000)
+                & (
+                    reputable_proposer
+                    | StreamableModelFilter()
+                    | MaxSpeedProposer()
+                    | RandomJitter(jitter_range=30.0)  # +/- 30 tokens per second
+                    | ProviderFilter(one_per_provider=True)
+                ).with_flags(always_include=True, offset=5000)
+            )
+            | ProviderFilter(one_per_provider=True)
+            | TopK(num_models)
+            | RoutingDecisionLogger(enabled=settings.ROUTING_DO_LOGGING, prefix="first-prompt-simple-pro-router")
+        )
+    else:
+        # This is the router for all turns after the first; construct it based on the preference
+        # and the branding. If both are bad, we default to one branded and one random. If one branded one is
+        # good, we choose that and use a random model for the other.
+        all_good_models = set()
+        all_bad_models = set()
+
+        for turn in preference.turns:
+            for model in turn.models:
+                if turn.preferred is None:
+                    all_bad_models.add(model)
+                else:
+                    if model == turn.preferred:
+                        all_good_models.add(model)
+                    else:
+                        all_bad_models.add(model)
+
+        all_good_models = all_good_models - all_bad_models
+
+        router: RouterModule = (  # type: ignore[no-redef]
+            (
+                (RandomModelProposer(models=all_good_models).with_flags(offset=100000) | TopK(1)).with_flags(
+                    always_include=True
+                )
+                & (
+                    (ProModelProposer() | Exclude(all_bad_models) | TopK(1)).with_flags(
+                        always_include=True, offset=10000
+                    )
+                    ^ (
+                        reputable_proposer
+                        | StreamableModelFilter()
+                        | MaxSpeedProposer()
+                        | RandomJitter(jitter_range=30.0)  # +/- 30 tokens per second
+                        | ProviderFilter(one_per_provider=True)
+                    ).with_flags(always_include=True, offset=10000)
+                    ^ RandomModelProposer().with_flags(offset=-1000, always_include=True)
+                ).with_probs(
+                    settings.ROUTING_WEIGHTS.get("pro", 0.5),
+                    settings.ROUTING_WEIGHTS.get("reputable", 0.25),
+                    settings.ROUTING_WEIGHTS.get("random", 0.25),
+                )
+            )
+            | Exclude(all_bad_models)
+            | ProviderFilter(one_per_provider=True)
+            | TopK(num_models)
+            | RoutingDecisionLogger(
+                enabled=settings.ROUTING_DO_LOGGING,
+                prefix="nonfirst-prompt-simple-pro-router",
+                metadata={
+                    "turns": [t.model_dump() for t in preference.turns],
+                    "all_good_models": list(all_good_models),
+                    "all_bad_models": list(all_bad_models),
+                },
+            )
+        )
+
+    return router
