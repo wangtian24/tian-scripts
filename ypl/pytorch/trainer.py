@@ -1,4 +1,4 @@
-from collections import defaultdict
+from collections import Counter, defaultdict
 from typing import Any, no_type_check
 
 import pandas as pd
@@ -13,7 +13,7 @@ from ypl.pytorch.data.base import StrTensorDict
 from ypl.pytorch.data.categorizer import CategorizerDataset
 from ypl.pytorch.data.prompting import ResponseLengthDataset
 from ypl.pytorch.data.routing import RoutingDataset
-from ypl.pytorch.model.categorizer import CategorizerClassificationModel
+from ypl.pytorch.model.categorizer import OnlinePromptClassifierModel, PromptTopicDifficultyModel
 from ypl.pytorch.model.response_length import ResponseLengthModel
 from ypl.pytorch.model.routing import RoutingModel, RoutingMultilabelClassificationModel
 
@@ -56,6 +56,54 @@ class ResponseLengthTrainer(Trainer):  # type: ignore[misc]
             truths.append(truth)
 
         return dict(accuracy=sum(accuracy) / len(accuracy), rho=spearmanr(truths, preds).correlation)
+
+
+class OnlineClassifierTrainer(Trainer):  # type: ignore[misc]
+    """Transformers trainer for online classifier models."""
+
+    def compute_loss(
+        self, model: OnlinePromptClassifierModel, inputs: StrTensorDict, return_outputs: bool = False
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+        logits = model(inputs)["logits"]
+        loss_fn = nn.CrossEntropyLoss()
+        loss = loss_fn(logits, inputs["category_labels"])
+
+        return (loss, logits) if return_outputs else loss
+
+    @no_type_check
+    def evaluate(
+        self,
+        eval_dataset: tud.Dataset | dict[str, tud.Dataset] | None = None,
+        multilabel: bool = False,
+        ignore_keys: list[str] | None = None,
+        metric_key_prefix: str = "eval",
+    ) -> dict[str, float]:
+        self.model.eval()
+
+        assert isinstance(eval_dataset, CategorizerDataset), "eval_dataset must be an instance of CategorizerDataset"
+        assert isinstance(
+            self.model, OnlinePromptClassifierModel
+        ), "model must be an instance of OnlinePromptClassifierModel"
+
+        accuracy = []
+        conf_mat: Counter[tuple[int, int]] = Counter()
+        label_map = dict(online=0, offline=1)
+
+        for example in eval_dataset:
+            truth = label_map[example.category]
+            pred = label_map[self.model.categorize(example.prompt)]
+
+            accuracy.append(int(pred == truth))
+            conf_mat[(truth, pred)] += 1
+
+        return dict(
+            accuracy=sum(accuracy) / len(accuracy),
+            conf_mat=conf_mat,
+            tpr=conf_mat[(1, 1)] / (conf_mat[(1, 1)] + conf_mat[(1, 0)] + 1),
+            fpr=conf_mat[(0, 1)] / (conf_mat[(0, 1)] + conf_mat[(0, 0)] + 1),
+            fnr=conf_mat[(0, 0)] / (conf_mat[(1, 0)] + conf_mat[(1, 1)] + 1),
+            tnr=conf_mat[(0, 0)] / (conf_mat[(0, 0)] + conf_mat[(0, 1)] + 1),
+        )
 
 
 class RoutingMultilabelTrainer(Trainer):  # type: ignore[misc]
@@ -105,7 +153,7 @@ class CategorizerTrainer(Trainer):  # type: ignore[misc]
         self.pos_weights = pos_weights
 
     def compute_loss(
-        self, model: CategorizerClassificationModel, inputs: StrTensorDict, return_outputs: bool = False
+        self, model: PromptTopicDifficultyModel, inputs: StrTensorDict, return_outputs: bool = False
     ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         logits = model(inputs)["logits"]
         num_labels = len(model.label_map)
@@ -135,8 +183,8 @@ class CategorizerTrainer(Trainer):  # type: ignore[misc]
 
         assert isinstance(eval_dataset, CategorizerDataset), "eval_dataset must be an instance of CategorizerDataset"
         assert isinstance(
-            self.model, CategorizerClassificationModel
-        ), "model must be an instance of CategorizerClassificationModel"
+            self.model, PromptTopicDifficultyModel
+        ), "model must be an instance of PromptTopicDifficultyModel"
 
         cat_metric = defaultdict(list)
         diff_accuracy = []

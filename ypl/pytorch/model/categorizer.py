@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any
+from typing import Any, Generic, TypeVar
 
 import torch
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
@@ -9,16 +9,18 @@ from ypl.pytorch.model.base import YuppClassificationModel
 from ypl.pytorch.torch_utils import TorchAccelerationMixin
 from ypl.utils import dict_extract
 
+OutputType = TypeVar("OutputType")
 
-class CategorizerModel(YuppClassificationModel):
+
+class CategorizerModel(YuppClassificationModel, Generic[OutputType]):
     """Abstract base class for categorizer models."""
 
-    def categorize(self, prompt: str) -> tuple[str, int] | tuple[list[str], int]:
-        """Returns a tuple of the category and difficulty of the prompt."""
+    def categorize(self, prompt: str) -> OutputType:
+        """Returns an output label of the prompt."""
         raise NotImplementedError
 
 
-class CategorizerClassificationModel(TorchAccelerationMixin, CategorizerModel):
+class HFCategorizerModel(TorchAccelerationMixin, CategorizerModel[OutputType]):
     """Classification model for categorizer."""
 
     def __init__(
@@ -36,15 +38,19 @@ class CategorizerClassificationModel(TorchAccelerationMixin, CategorizerModel):
             label_map: Mapping from category names to unique integer IDs.
         """
         super().__init__(model_name=model_name, label_map=label_map, multilabel=multilabel)
-        self.category_model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=len(label_map))
-        self.difficulty_model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=20)
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.category2id = label_map
         self.id2category = {v: k for k, v in label_map.items()}
         self.multilabel_threshold = multilabel_threshold
 
+    def postprocess_single_label_output(self, outputs: torch.Tensor) -> OutputType:
+        raise NotImplementedError
+
+    def postprocess_multilabel_output(self, outputs: torch.Tensor) -> OutputType:
+        raise NotImplementedError
+
     @torch.no_grad()
-    async def acategorize(self, prompt: str) -> tuple[str, int] | tuple[list[str], int]:
+    async def acategorize(self, prompt: str) -> OutputType:
         self.eval()
         input_ids = self.to_alike(
             self.tokenizer.encode(
@@ -70,26 +76,17 @@ class CategorizerClassificationModel(TorchAccelerationMixin, CategorizerModel):
                 outputs = (await self.acuda_graph_forward(dict(input_ids=input_ids, attention_mask=attention_mask)))[
                     "logits"
                 ]
-
-            category_outputs = outputs[:, : len(self.category2id)]
-            difficulty_outputs = outputs[:, len(self.category2id) :]
         else:
-            category_outputs = self.category_model(input_ids, attention_mask=attention_mask).logits.squeeze()
-            difficulty_outputs = self.difficulty_model(input_ids, attention_mask=attention_mask).logits.squeeze()
+            outputs = self(dict(input_ids=input_ids, attention_mask=attention_mask))["logits"]
 
-        if self.multilabel:
-            category_ids = category_outputs.sigmoid().squeeze().tolist()
-            category_ids = [i for i, v in enumerate(category_ids) if v > self.multilabel_threshold]
-
-            return [self.id2category[i] for i in category_ids], difficulty_outputs.squeeze().argmax().item() + 1
-        else:
-            category_id = category_outputs.argmax().item()
-            difficulty_id = difficulty_outputs.argmax().item()
-
-            return self.id2category[category_id], difficulty_id + 1
+        return (
+            self.postprocess_multilabel_output(outputs)
+            if self.multilabel
+            else self.postprocess_single_label_output(outputs)
+        )
 
     @torch.no_grad()
-    def categorize(self, prompt: str) -> tuple[str, int] | tuple[list[str], int]:
+    def categorize(self, prompt: str) -> OutputType:
         self.eval()
         input_ids = self.to_alike(
             self.tokenizer.encode(
@@ -114,22 +111,14 @@ class CategorizerClassificationModel(TorchAccelerationMixin, CategorizerModel):
             else:
                 outputs = self.cuda_graph_forward(dict(input_ids=input_ids, attention_mask=attention_mask))["logits"]
 
-            category_outputs = outputs[:, : len(self.category2id)]
-            difficulty_outputs = outputs[:, len(self.category2id) :]
         else:
-            category_outputs = self.category_model(input_ids, attention_mask=attention_mask).logits.squeeze()
-            difficulty_outputs = self.difficulty_model(input_ids, attention_mask=attention_mask).logits.squeeze()
+            outputs = self(dict(input_ids=input_ids, attention_mask=attention_mask))["logits"]
 
-        if self.multilabel:
-            category_ids = category_outputs.squeeze().sigmoid().tolist()
-            category_ids = [i for i, v in enumerate(category_ids) if v > self.multilabel_threshold]
-
-            return [self.id2category[i] for i in category_ids], difficulty_outputs.squeeze().argmax().item() + 1
-        else:
-            category_id = category_outputs.argmax().item()
-            difficulty_id = difficulty_outputs.argmax().item()
-
-            return self.id2category[category_id], difficulty_id + 1
+        return (
+            self.postprocess_multilabel_output(outputs)
+            if self.multilabel
+            else self.postprocess_single_label_output(outputs)
+        )
 
     @property
     def _warmup_inputs(self) -> list[StrTensorDict]:
@@ -153,10 +142,41 @@ class CategorizerClassificationModel(TorchAccelerationMixin, CategorizerModel):
 
     def forward(self, batch: StrTensorDict) -> StrTensorDict:
         """Perform a forward pass through the model to obtain logits."""
-        clogs = self.category_model(**dict_extract(batch, {"input_ids", "attention_mask"})).logits
-        dlogs = self.difficulty_model(**dict_extract(batch, {"input_ids", "attention_mask"})).logits
+        raise NotImplementedError
 
-        return dict(logits=torch.cat([clogs, dlogs], dim=-1))
+    def _save_pretrained(self, save_directory: str) -> None:
+        raise NotImplementedError
+
+    @classmethod
+    def _from_pretrained(cls, *, model_id: str, **kwargs: Any) -> "HFCategorizerModel":
+        raise NotImplementedError
+
+
+class PromptTopicDifficultyModel(HFCategorizerModel[tuple[str, int] | tuple[list[str], int]]):
+    """Classification model for categorizer."""
+
+    def __init__(self, model_name: str, label_map: dict[str, int], **kwargs: Any) -> None:
+        super().__init__(model_name, label_map, **kwargs)
+        self.category_model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=len(label_map))
+        self.difficulty_model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=20)
+
+    def postprocess_multilabel_output(self, outputs: torch.Tensor) -> tuple[list[str], int]:
+        category_outputs = outputs[:, : len(self.category2id)]
+        difficulty_outputs = outputs[:, len(self.category2id) :]
+
+        category_ids = category_outputs.sigmoid().squeeze().tolist()
+        category_ids = [i for i, v in enumerate(category_ids) if v > self.multilabel_threshold]
+
+        return [self.id2category[i] for i in category_ids], int(difficulty_outputs.squeeze().argmax().item() + 1)
+
+    def postprocess_single_label_output(self, outputs: torch.Tensor) -> tuple[str, int]:
+        category_outputs = outputs[:, : len(self.category2id)]
+        difficulty_outputs = outputs[:, len(self.category2id) :]
+
+        category_id = int(category_outputs.argmax().item())
+        difficulty_id = int(difficulty_outputs.argmax().item())
+
+        return self.id2category[category_id], difficulty_id + 1
 
     def _save_pretrained(self, save_directory: str) -> None:
         Path(save_directory, "base_model").write_text(self.category_model.config._name_or_path)
@@ -166,7 +186,7 @@ class CategorizerClassificationModel(TorchAccelerationMixin, CategorizerModel):
         torch.save(self.category2id, Path(save_directory) / "category_map.pt")
 
     @classmethod
-    def _from_pretrained(cls, *, model_id: str, **kwargs: Any) -> "CategorizerClassificationModel":
+    def _from_pretrained(cls, *, model_id: str, **kwargs: Any) -> "PromptTopicDifficultyModel":
         base_model_id = Path(model_id, "base_model").read_text()
         category_map = torch.load(Path(model_id) / "category_map.pt")
 
@@ -180,3 +200,39 @@ class CategorizerClassificationModel(TorchAccelerationMixin, CategorizerModel):
         model.difficulty_model.load_state_dict(torch.load(Path(model_id) / "difficulty_model.bin"))
 
         return model
+
+    def forward(self, batch: StrTensorDict) -> StrTensorDict:
+        clogs = self.category_model(**dict_extract(batch, {"input_ids", "attention_mask"})).logits
+        dlogs = self.difficulty_model(**dict_extract(batch, {"input_ids", "attention_mask"})).logits
+
+        return dict(logits=torch.cat([clogs, dlogs], dim=-1))
+
+
+class OnlinePromptClassifierModel(HFCategorizerModel[str]):
+    """Classification model for categorizer."""
+
+    def __init__(self, model_name: str, label_map: dict[str, int], **kwargs: Any) -> None:
+        super().__init__(model_name, label_map, **kwargs)
+        self.model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=len(label_map))
+
+    def postprocess_single_label_output(self, outputs: torch.Tensor) -> str:
+        category_id = int(outputs.argmax().item())
+        return self.id2category[category_id]
+
+    def _save_pretrained(self, save_directory: str) -> None:
+        Path(save_directory, "base_model").write_text(self.model.config._name_or_path)
+        torch.save(self.model.state_dict(), Path(save_directory) / "model.bin")
+        torch.save(self.category2id, Path(save_directory) / "category_map.pt")
+
+    @classmethod
+    def _from_pretrained(cls, *, model_id: str, **kwargs: Any) -> "OnlinePromptClassifierModel":
+        base_model_id = Path(model_id, "base_model").read_text()
+        category_map = torch.load(Path(model_id) / "category_map.pt")
+
+        model = cls(base_model_id, category_map)
+        model.model.load_state_dict(torch.load(Path(model_id) / "model.bin"))
+
+        return model
+
+    def forward(self, batch: StrTensorDict) -> StrTensorDict:
+        return dict(logits=self.model(**dict_extract(batch, {"input_ids", "attention_mask"})).logits)

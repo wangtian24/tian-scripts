@@ -44,6 +44,7 @@ from ypl.backend.llm.judge import (
     SpeedAwareYuppEvaluationLabeler,
     YuppEvaluationLabeler,
     YuppMultilabelClassifier,
+    YuppOnlinePromptLabeler,
     YuppPromptDifficultyLabeler,
     YuppQualityLabeler,
     YuppSingleDifficultyLabeler,
@@ -312,6 +313,38 @@ def store_prompt_difficulty(input_path: str, provider: str, language_model: str)
                 session.commit()
                 print(f"Committed {i} rows")
         session.commit()
+
+
+@cli.command()
+@click.option("-i", "--input-path", required=True, help="The path to the input CSV file")
+@click.option("-o", "--output-path", help="The path to the output CSV file", default=None)
+@click_provider_option("--provider", help="LLM provider")
+@click.option("--api-key", help="API key", required=True)
+@click.option("-lm", "--language-model", default="gpt-4o-mini", help="The LLM to use")
+@click.option("-j", "--num-parallel", default=16, help="The number of jobs to run in parallel", type=int)
+@click.option("-lim", "--limit", default=None, help="The number of prompts to label", type=int)
+def label_yupp_online_prompts(
+    input_path: str,
+    output_path: str | None,
+    provider: str,
+    api_key: str,
+    language_model: str,
+    num_parallel: int,
+    limit: int | None,
+) -> None:
+    llm = get_chat_model(ModelInfo(provider=provider, model=language_model, api_key=api_key), temperature=0.0)
+    judge = YuppOnlinePromptLabeler(llm)
+
+    output_path = output_path or input_path
+    df = pd.read_csv(input_path)
+    limit_ = limit or len(df)
+
+    # Needs -1 because .loc includes the endpoint in the slice
+    df.loc[: limit_ - 1, "is_online"] = [
+        ["offline", "online"][int(x)]  # type: ignore[arg-type]
+        for x in asyncio.run(judge.abatch_label(df.loc[: limit_ - 1, "prompt"].tolist(), num_parallel=num_parallel))
+    ]
+    df.to_csv(output_path, index=False)
 
 
 @cli.command()

@@ -9,10 +9,15 @@ from ypl.pytorch.data.categorizer import CategorizerCollator, CategorizerDataset
 from ypl.pytorch.data.prompting import ResponseLengthCollator, WildChatResponseLengthDataset, YuppResponseLengthDataset
 from ypl.pytorch.data.routing import RoutingCollator, RoutingDataset
 from ypl.pytorch.model.base import YuppClassificationModel
-from ypl.pytorch.model.categorizer import CategorizerClassificationModel
+from ypl.pytorch.model.categorizer import OnlinePromptClassifierModel, PromptTopicDifficultyModel
 from ypl.pytorch.model.response_length import TransformerResponseLengthModel
 from ypl.pytorch.model.routing import RoutingMultilabelClassificationModel
-from ypl.pytorch.trainer import CategorizerTrainer, ResponseLengthTrainer, RoutingMultilabelTrainer
+from ypl.pytorch.trainer import (
+    CategorizerTrainer,
+    OnlineClassifierTrainer,
+    ResponseLengthTrainer,
+    RoutingMultilabelTrainer,
+)
 
 logging.getLogger().setLevel(logging.INFO)
 
@@ -38,8 +43,9 @@ def do_simple_classification_training(
     output_folder: str,
     load_from: str | None,
     multilabel: bool = False,
+    sep: str = "\t",
 ) -> None:
-    dataset = dataset_cls.from_csv(input_file, sep="\t")
+    dataset = dataset_cls.from_csv(input_file, sep=sep)
     dataset.set_seed(seed)
 
     train_dataset, val_dataset = dataset.split(percentage=training_pct)
@@ -169,6 +175,46 @@ def train_response_length(
 @click.option("-bsz", "--batch-size", required=False, default=8, help="Batch size")
 @click.option("-o", "--output-folder", required=False, default="model", help="Output folder")
 @click.option("--load-from", required=False, default=None, help="Path to load model from")
+def train_online_classifier(
+    input_file: str,
+    model_name: str,
+    seed: int,
+    training_pct: int,
+    max_steps: int,
+    learning_rate: float,
+    batch_size: int,
+    output_folder: str,
+    load_from: str | None,
+) -> None:
+    """Train a routing online query classifier model."""
+    do_simple_classification_training(
+        dataset_cls=CategorizerDataset,
+        collator_cls=CategorizerCollator,
+        model_cls=OnlinePromptClassifierModel,
+        trainer_cls=OnlineClassifierTrainer,
+        input_file=input_file,
+        model_name=model_name,
+        seed=seed,
+        training_pct=training_pct,
+        max_steps=max_steps,
+        learning_rate=learning_rate,
+        batch_size=batch_size,
+        output_folder=output_folder,
+        load_from=load_from,
+        sep=",",
+    )
+
+
+@cli.command()
+@click.option("-i", "--input-file", required=True, help="Path to the input TSV file")
+@click.option("-m", "--model-name", required=False, default="bert-base-uncased", help="Name of the model to train")
+@click.option("--seed", required=False, default=0, help="Random seed")
+@click.option("--training-pct", required=False, default=90, help="Percentage of data to use for training")
+@click.option("--max-steps", required=False, default=1000, help="Maximum number of steps to train for")
+@click.option("-lr", "--learning-rate", required=False, default=5e-5, help="Learning rate")
+@click.option("-bsz", "--batch-size", required=False, default=8, help="Batch size")
+@click.option("-o", "--output-folder", required=False, default="model", help="Output folder")
+@click.option("--load-from", required=False, default=None, help="Path to load model from")
 def train_routing(
     input_file: str,
     model_name: str,
@@ -180,7 +226,7 @@ def train_routing(
     output_folder: str,
     load_from: str | None,
 ) -> None:
-    """Train a routing model."""
+    """Train a routing multilabel classification model."""
     do_simple_classification_training(
         dataset_cls=RoutingDataset,
         collator_cls=RoutingCollator,
@@ -221,11 +267,11 @@ def train_categorizer(
     load_from: str | None,
     multilabel: bool,
 ) -> None:
-    """Train a routing model."""
+    """Train a routing categorizer model."""
     do_simple_classification_training(
         dataset_cls=CategorizerDataset,
         collator_cls=CategorizerCollator,
-        model_cls=CategorizerClassificationModel,
+        model_cls=PromptTopicDifficultyModel,
         trainer_cls=CategorizerTrainer,
         input_file=input_file,
         model_name=model_name,

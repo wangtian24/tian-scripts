@@ -5,17 +5,17 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from ypl.backend.config import settings
-from ypl.pytorch.model.categorizer import CategorizerClassificationModel
+from ypl.pytorch.model.categorizer import PromptTopicDifficultyModel
 
 router = APIRouter()
 logger = logging.getLogger()
 
 
 @cache
-def get_categorizer_model() -> CategorizerClassificationModel:
+def get_categorizer_model() -> PromptTopicDifficultyModel:
     logger.info(settings.CATEGORIZER_MODEL_PATH)
 
-    categorizer_model = CategorizerClassificationModel.from_gcp_zip(settings.CATEGORIZER_MODEL_PATH)
+    categorizer_model = PromptTopicDifficultyModel.from_gcp_zip(settings.CATEGORIZER_MODEL_PATH)
     categorizer_model.cuda()
     categorizer_model.eval()
     categorizer_model.half()

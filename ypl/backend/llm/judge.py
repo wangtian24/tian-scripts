@@ -13,6 +13,7 @@ from ypl.backend.llm.labeler import LLMLabeler, OnErrorBehavior
 from ypl.backend.prompts import (
     JUDGE_YUPP_CHAT_PROMPT_SPEED_AWARE_TEMPLATE,
     JUDGE_YUPP_CHAT_PROMPT_TEMPLATE,
+    JUDGE_YUPP_ONLINE_PROMPT_TEMPLATE,
     JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT_SIMPLE_TEMPLATE,
     JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT_TEMPLATE,
     PROMPT_MULTILABEL_CLASSIFICATION_PROMPT_TEMPLATE,
@@ -150,6 +151,21 @@ class YuppSingleDifficultyLabeler(LLMLabeler[str, int]):
     @property
     def error_value(self) -> int:
         return -1
+
+
+class YuppOnlinePromptLabeler(LLMLabeler[str, bool]):
+    def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
+        return JUDGE_YUPP_ONLINE_PROMPT_TEMPLATE | llm  # type: ignore
+
+    def _prepare_input(self, input: str) -> dict[str, Any]:
+        return dict(prompt=input)
+
+    def _parse_output(self, output: BaseMessage) -> bool:
+        return "true" in str(output.content)
+
+    @property
+    def error_value(self) -> bool:
+        return False
 
 
 class YuppMultilabelClassifier(LLMLabeler[str, list[str]]):

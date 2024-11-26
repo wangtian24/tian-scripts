@@ -16,7 +16,7 @@ class CategorizerTrainingExample(BaseModel):
 
     prompt: str
     category: list[str] | str
-    difficulty: int  # an integer between 1 and 10
+    difficulty: int | None = None  # an integer between 1 and 10
 
 
 class CategorizerDataset(PandasDataset[CategorizerTrainingExample]):
@@ -51,10 +51,13 @@ class CategorizerDataset(PandasDataset[CategorizerTrainingExample]):
         except:  # noqa: E722
             category = row["category"]
 
+        category = category if isinstance(category, str | list) else ""
+        prompt = row["prompt"] if isinstance(row["prompt"], str) else ""
+
         return CategorizerTrainingExample(
-            prompt=row["prompt"],
+            prompt=prompt,
             category=category,
-            difficulty=remap(row["difficulty"]),
+            difficulty=remap(row["difficulty"]) if "difficulty" in row else None,
         )
 
     def compute_label_pos_weights(self, label_map: dict[str, int], p: float = 0.4) -> torch.Tensor:
@@ -138,6 +141,12 @@ class CategorizerCollator(TokenizerCollator[CategorizerTrainingExample]):
                 [self.label_map[example.category] for example in batch]  # type: ignore[index]
             )
 
-        tokenizer_output["difficulty_labels"] = torch.tensor([example.difficulty - 1 for example in batch])
+        if all(example.difficulty is not None for example in batch):
+            tokenizer_output["difficulty_labels"] = torch.tensor(
+                [
+                    example.difficulty - 1  # type: ignore[operator]
+                    for example in batch
+                ]
+            )
 
         return tokenizer_output  # type: ignore

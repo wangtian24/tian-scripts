@@ -3,12 +3,12 @@ import time
 
 from tqdm import trange
 
-from ypl.pytorch.model.categorizer import CategorizerClassificationModel
+from ypl.pytorch.model.categorizer import PromptTopicDifficultyModel
 
 
 def test_categorizer_cuda_graph() -> None:
     random.seed(0)
-    model = CategorizerClassificationModel("roberta-base", label_map=dict(a=0, b=1, c=2)).cuda()
+    model = PromptTopicDifficultyModel("roberta-base", label_map=dict(a=0, b=1, c=2)).cuda()
 
     # Normal
     a = time.time()
@@ -29,7 +29,7 @@ def test_categorizer_cuda_graph() -> None:
     dynamo_time = time.time() - a
 
     # CUDA graphs
-    model = CategorizerClassificationModel("roberta-base", label_map=dict(a=0, b=1, c=2)).cuda()
+    model = PromptTopicDifficultyModel("roberta-base", label_map=dict(a=0, b=1, c=2)).cuda()
     model.compile_cuda_graphs()
 
     a = time.time()
