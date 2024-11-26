@@ -63,6 +63,8 @@ class Turn(BaseModel, table=True):
         sa_relationship_kwargs={"lazy": "joined"},
     )
 
+    evals: list["Eval"] = Relationship(back_populates="turn")
+
     creator_user_id: str = Field(foreign_key="users.user_id", nullable=False, sa_type=Text)
     creator: "User" = Relationship(back_populates="turns")
 
@@ -259,6 +261,8 @@ class Eval(BaseModel, table=True):
 
     eval_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
     user_id: uuid.UUID = Field(foreign_key="users.user_id", nullable=False, sa_type=Text)
+    turn_id: uuid.UUID = Field(foreign_key="turns.turn_id", nullable=True, index=True)
+    turn: Turn = Relationship(back_populates="evals")
     user: User = Relationship(back_populates="evals")
     eval_type: EvalType = Field(sa_column=Column(SQLAlchemyEnum(EvalType), nullable=False))
     user_comment: str | None = Field(nullable=True)
