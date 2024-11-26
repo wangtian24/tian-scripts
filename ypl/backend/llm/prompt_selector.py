@@ -16,7 +16,7 @@ class PromptModifierSelector:
     Selects a set of prompt modifiers for a given list of models.
     """
 
-    def select_modifiers(self, models: list[str]) -> dict[str, str]:
+    def select_modifiers(self, models: list[str]) -> dict[str, tuple[str, str]]:
         """
         Selects a set of prompt modifiers for a given list of models.
 
@@ -24,7 +24,7 @@ class PromptModifierSelector:
             models: A list of model names.
 
         Returns:
-            A dictionary mapping each model name to a prompt modifier.
+            A dictionary mapping each model name to (ID, prompt modifier).
         """
         raise NotImplementedError
 
@@ -36,26 +36,26 @@ class CategorizedPromptModifierSelector(RNGMixin, PromptModifierSelector):
 
     def __init__(
         self,
-        system_modifiers: list[tuple[str, str]],
-        model_modifier_history: dict[str, str] | None = None,
+        system_modifiers: list[tuple[str, str, str]],
+        model_modifier_history: dict[str, tuple[str, str]] | None = None,
     ) -> None:
         """
         Args:
-            system_prompts: A list of tuples of (category, system prompt modifier).
+            system_prompts: A list of tuples of (category, prompt modifier ID, system prompt modifier).
             model_modifier_history: A dictionary mapping model names to the chosen prompt modifier.
         """
-        sys_modifiers_dict: dict[str, set[str]] = defaultdict(set)
+        sys_modifiers_dict: dict[str, set[tuple[str, str]]] = defaultdict(set)
 
-        for category, modifier in system_modifiers:
-            sys_modifiers_dict[category].add(modifier)
+        for category, modifier_id, modifier in system_modifiers:
+            sys_modifiers_dict[category].add((modifier_id, modifier))
 
         if not sys_modifiers_dict:
-            sys_modifiers_dict["default"] = {""}
+            sys_modifiers_dict["default"] = {("", "")}
 
         self.model_modifier_history = model_modifier_history or {}
         self.system_modifiers = dict(sys_modifiers_dict)
 
-    def select_modifiers(self, models: list[str]) -> dict[str, str]:
+    def select_modifiers(self, models: list[str]) -> dict[str, tuple[str, str]]:
         system_modifiers = deepcopy(self.system_modifiers)
         model_mod_map = {}
 
@@ -69,8 +69,10 @@ class CategorizedPromptModifierSelector(RNGMixin, PromptModifierSelector):
             except KeyError:
                 pass
 
-            cat = self.get_rng().choice(list(system_modifiers.keys()))
-            modifier = self.get_rng().choice(list(system_modifiers[cat]))
+            cat_idx = self.get_rng().randint(0, len(system_modifiers.keys()))
+            cat = list(system_modifiers.keys())[cat_idx]
+            modifier_idx = self.get_rng().randint(0, len(system_modifiers[cat]))
+            modifier = list(system_modifiers[cat])[modifier_idx]
             model_mod_map[model] = modifier
             system_modifiers[cat].remove(modifier)
 
@@ -83,17 +85,17 @@ class CategorizedPromptModifierSelector(RNGMixin, PromptModifierSelector):
     def make_default(cls) -> Self:
         return cls(
             [
-                ("length", "Limit the response to 50 words or fewer."),
-                ("length", "Provide a detailed explanation, with step-by-step instructions if applicable."),
-                ("tone", "Use a conversational, friendly tone."),
-                ("tone", "Maintain a neutral and professional tone."),
-                ("tone", "Use a humorous and light-hearted tone."),
-                ("complexity", "Respond as if talking to a high-school student."),
-                ("complexity", "Respond as if talking to a college graduate."),
-                ("complexity", "Respond as if talking to a 5-year-old child."),
-                ("formatting", "Use bullet points and numbered lists."),
-                ("formatting", "Use markdown with bullet points in hierarchical form."),
-                ("formatting", "Write in highly structured prose."),
+                ("length", "", "Limit the response to 50 words or fewer."),
+                ("length", "", "Provide a detailed explanation, with step-by-step instructions if applicable."),
+                ("tone", "", "Use a conversational, friendly tone."),
+                ("tone", "", "Maintain a neutral and professional tone."),
+                ("tone", "", "Use a humorous and light-hearted tone."),
+                ("complexity", "", "Respond as if talking to a high-school student."),
+                ("complexity", "", "Respond as if talking to a college graduate."),
+                ("complexity", "", "Respond as if talking to a 5-year-old child."),
+                ("formatting", "", "Use bullet points and numbered lists."),
+                ("formatting", "", "Use markdown with bullet points in hierarchical form."),
+                ("formatting", "", "Write in highly structured prose."),
             ]
         )
 
@@ -105,4 +107,10 @@ class CategorizedPromptModifierSelector(RNGMixin, PromptModifierSelector):
         with Session(get_engine()) as session:
             modifiers = session.exec(query).all()  # type: ignore[call-overload]
 
-        return cls([(modifier.category, modifier.text) for modifier in modifiers if modifier.text is not None])
+        return cls(
+            [
+                (modifier.category, str(modifier.prompt_modifier_id), modifier.text)
+                for modifier in modifiers
+                if modifier.text is not None
+            ]
+        )

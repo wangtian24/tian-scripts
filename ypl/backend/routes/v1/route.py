@@ -30,11 +30,11 @@ class SelectModelsV2Request(BaseModel):
     required_models: list[str] | None = None  # models selected explicitly by the user
     chat_id: str | None = None  # chat ID to use for routing
     turn_id: str | None = None  # turn ID to use for routing
-    modifier_history: dict[str, str] | None = None  # modifier history to use for routing
+    modifier_history: dict[str, tuple[str, str]] | None = None  # modifier history to use for routing
 
 
 class SelectModelsV2Response(BaseModel):
-    models: list[tuple[str, str]]  # list of (model, prompt modifier)
+    models: list[tuple[str, tuple[str, str]]]  # list of (model, (prompt modifier ID , prompt modifier))
 
 
 @router.post("/select_models")
