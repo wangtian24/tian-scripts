@@ -118,12 +118,12 @@ MOCK_PROBABILITY_RULES = [
     ),
     RewardProbabilityRule(
         reward_probability_rule_id=uuid.uuid4(),
-        name="first_turn",
+        name="first_eval",
         priority=250,
         conditions={
             "all": [
                 {
-                    "name": "is_first_turn",
+                    "name": "is_first_eval",
                     "operator": "is_true",
                     "value": True,
                 }
@@ -212,7 +212,7 @@ def test_tiers(turn_quality_score: float | None, credits: int, expected_tier_nam
 
 
 @mark.parametrize(
-    "is_new_user, is_inactive_user, is_first_turn, credits, expected_probability",
+    "is_new_user, is_inactive_user, is_first_eval, credits, expected_probability",
     [
         (True, False, False, 100, 0.9),
         (False, True, False, 100, 0.9),
@@ -222,10 +222,10 @@ def test_tiers(turn_quality_score: float | None, credits: int, expected_tier_nam
     ],
 )
 def test_reward_probability(
-    is_new_user: bool, is_inactive_user: bool, is_first_turn: bool, credits: int, expected_probability: float
+    is_new_user: bool, is_inactive_user: bool, is_first_eval: bool, credits: int, expected_probability: float
 ) -> None:
     user_turn_reward = create_user_turn_reward(
-        is_new_user=is_new_user, is_inactive_user=is_inactive_user, is_first_turn=is_first_turn, points=credits
+        is_new_user=is_new_user, is_inactive_user=is_inactive_user, is_first_eval=is_first_eval, points=credits
     )
 
     probabilities = [user_turn_reward.get_probability() for _ in range(1000)]

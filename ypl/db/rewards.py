@@ -119,8 +119,18 @@ class RewardVariables(BaseVariables):  # type: ignore
         return self.context.get("previous_chat_count")
 
     @numeric_rule_variable
+    def previous_eval_count_in_chat(self) -> int | None:
+        return self.context.get("previous_eval_count_in_chat")
+
+    # TODO(carmen): Deprecate turn_position_in_chat.
+    @numeric_rule_variable
     def turn_position_in_chat(self) -> int | None:
         return self.context.get("turn_position_in_chat")
+
+    # TODO(carmen): Deprecate is_first_turn.
+    @boolean_rule_variable
+    def is_first_turn(self) -> bool | None:
+        return self.context.get("is_first_turn")
 
     @boolean_rule_variable
     def is_new_user(self) -> bool | None:
@@ -131,8 +141,8 @@ class RewardVariables(BaseVariables):  # type: ignore
         return self.context.get("is_inactive_user")
 
     @boolean_rule_variable
-    def is_first_turn(self) -> bool | None:
-        return self.context.get("is_first_turn")
+    def is_first_eval(self) -> bool | None:
+        return self.context.get("is_first_eval")
 
     @numeric_rule_variable
     def credits(self) -> float | None:

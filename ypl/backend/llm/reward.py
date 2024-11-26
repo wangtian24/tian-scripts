@@ -18,7 +18,7 @@ from tenacity import after_log, retry, retry_if_exception_type, stop_after_attem
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine, get_engine
 from ypl.backend.utils.json import json_dumps
-from ypl.db.chats import Chat, Turn, TurnQuality
+from ypl.db.chats import Chat, Eval, Turn, TurnQuality
 from ypl.db.point_transactions import PointsActionEnum, PointTransaction
 from ypl.db.rewards import (
     Reward,
@@ -89,9 +89,12 @@ def get_matching_rule(rules: list[RewardRule], context: dict[str, Any]) -> Rewar
 class UserTurnReward:
     user_id: str
     turn_id: UUID
-    previous_chat_count: int = 0
+    # TODO(carmen): Deprecate turn_position_in_chat and is_first_turn.
     turn_position_in_chat: int = 0
     is_first_turn: bool = False
+    previous_chat_count: int = 0
+    previous_eval_count_in_chat: int = 0
+    is_first_eval: bool = False
     is_new_user: bool = False
     is_inactive_user: bool = False
     turn_quality_score: float = -1
@@ -108,50 +111,75 @@ class UserTurnReward:
     def _fetch_data_and_set_flags(self) -> None:
         with Session(get_engine()) as session:
             result = session.exec(
-                select(
-                    User,
-                    Chat.created_at,
-                    Turn.sequence_id,
-                    TurnQuality,
-                )
-                .join(Chat, Chat.creator_user_id == User.user_id)  # type: ignore
+                select(User, Chat.chat_id, Chat.created_at, Turn.created_at, Turn.sequence_id, TurnQuality)  # type: ignore
+                .join(Chat, Chat.creator_user_id == User.user_id)
                 .join(Turn)
                 .join(TurnQuality, isouter=True)
                 .where(Turn.turn_id == self.turn_id)
-                .order_by(Chat.created_at)  # type: ignore
+                .order_by(Chat.created_at)
             ).first()
 
             if not result:
-                log_dict = {
-                    "message": "No data found for turn_id",
-                    "turn_id": str(self.turn_id),
-                }
-                logging.warning(json_dumps(log_dict))
+                logging.warning(
+                    json_dumps(
+                        {
+                            "message": "No data found for turn_id",
+                            "turn_id": str(self.turn_id),
+                        }
+                    )
+                )
                 return
 
-            user, chat_created_at, self.turn_position_in_chat, turn_quality = result
+            # TODO(carmen): Deprecate turn_position_in_chat
+            user, chat_id, chat_created_at, turn_created_at, self.turn_position_in_chat, turn_quality = result
+
+            self.is_new_user = user.is_new_user()
+            self.is_inactive_user = user.is_inactive_user()
+            self.points = user.points
+
+            self.is_first_eval = not session.exec(
+                select(
+                    func.exists(
+                        select(1)
+                        .select_from(Eval)
+                        .join(Turn)
+                        .where(
+                            Eval.user_id == self.user_id,
+                            Turn.created_at < turn_created_at,
+                        )
+                    )
+                )
+            ).one()
+
+            self.previous_eval_count_in_chat = session.exec(
+                select(func.count())
+                .select_from(Eval)
+                .join(Turn)
+                .where(
+                    Turn.chat_id == chat_id,
+                    Eval.user_id == self.user_id,
+                    Turn.created_at < turn_created_at,
+                )
+            ).one()
 
             self.previous_chat_count = session.exec(
                 select(func.count())
                 .select_from(Chat)
                 .where(
                     Chat.creator_user_id == self.user_id,
-                    Chat.created_at < chat_created_at if chat_created_at is not None else False,  # type: ignore
+                    Chat.created_at < (chat_created_at if chat_created_at else None),
                 )
             ).one()
 
-            self.is_new_user = user.is_new_user()
-            self.is_inactive_user = user.is_inactive_user()
-            self.points = user.points
-
+            # TODO(carmen): Deprecate is_first_turn.
             first_turn_id = session.exec(
                 select(Turn.turn_id).where(Turn.creator_user_id == self.user_id).order_by(Turn.created_at)  # type: ignore
             ).first()
             self.is_first_turn = first_turn_id == self.turn_id
 
-            overall_quality = turn_quality.get_overall_quality() if turn_quality else None
-            if overall_quality is not None:
-                self.turn_quality_score = overall_quality
+            # Set turn quality if available
+            if turn_quality:
+                self.turn_quality_score = turn_quality.get_overall_quality() or -1
 
             self.amount_rule = self._get_amount_rule()
             self.probability_rule = self._get_probability_rule()
