@@ -261,7 +261,7 @@ class Eval(BaseModel, table=True):
 
     eval_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
     user_id: uuid.UUID = Field(foreign_key="users.user_id", nullable=False, sa_type=Text)
-    turn_id: uuid.UUID = Field(foreign_key="turns.turn_id", nullable=True, index=True)
+    turn_id: uuid.UUID = Field(foreign_key="turns.turn_id", nullable=False, index=True)
     turn: Turn = Relationship(back_populates="evals")
     user: User = Relationship(back_populates="evals")
     eval_type: EvalType = Field(sa_column=Column(SQLAlchemyEnum(EvalType), nullable=False))
