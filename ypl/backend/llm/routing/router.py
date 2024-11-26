@@ -1413,12 +1413,13 @@ def get_simple_pro_router(
                         | RandomJitter(jitter_range=30.0)  # +/- 30 tokens per second
                         | ProviderFilter(one_per_provider=True)
                     ).with_flags(always_include=True, offset=10000)
-                    ^ RandomModelProposer().with_flags(offset=-1000, always_include=True)
+                    ^ RandomModelProposer().with_flags(offset=10000, always_include=True)
                 ).with_probs(
                     settings.ROUTING_WEIGHTS.get("pro", 0.5),
                     settings.ROUTING_WEIGHTS.get("reputable", 0.25),
                     settings.ROUTING_WEIGHTS.get("random", 0.25),
                 )
+                & RandomModelProposer().with_flags(offset=-1000, always_include=True)
             )
             | Exclude(all_bad_models)
             | ProviderFilter(one_per_provider=True)
