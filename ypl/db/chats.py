@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, TypeVar
 
 from fast_langdetect.ft_detect.infer import get_model_loaded
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import ARRAY, JSON, Column, Index, Text, UniqueConstraint, text
+from sqlalchemy import ARRAY, JSON, Boolean, Column, Index, Text, UniqueConstraint, text
 from sqlalchemy import Enum as SQLAlchemyEnum
 from sqlalchemy.dialects.postgresql import ENUM as PostgresEnum
 from sqlalchemy.dialects.postgresql import TSVECTOR
@@ -37,6 +37,8 @@ class Chat(BaseModel, table=True):
 
     # Whether the chat is public, which makes it visible in the feed.
     is_public: bool = Field(default=False, nullable=False)
+    # Whether the chat is pinned by the user
+    is_pinned: bool = Field(sa_column=Column(Boolean, nullable=False, server_default=text("false")))
 
     creator_user_id: str = Field(foreign_key="users.user_id", sa_type=Text)
     creator: User = Relationship(back_populates="chats")
