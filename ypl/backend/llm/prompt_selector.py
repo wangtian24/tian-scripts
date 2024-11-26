@@ -105,7 +105,7 @@ class CategorizedPromptModifierSelector(RNGMixin, PromptModifierSelector):
         query = select(PromptModifier)
 
         with Session(get_engine()) as session:
-            modifiers = session.exec(query).all()  # type: ignore[call-overload]
+            modifiers = session.exec(query).scalars().all()  # type: ignore[call-overload]
 
         return cls(
             [
