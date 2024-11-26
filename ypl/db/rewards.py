@@ -146,6 +146,18 @@ class RewardVariables(BaseVariables):  # type: ignore
     def turn_quality_score(self) -> float | None:
         return self.context.get("turn_quality_score")
 
+    @numeric_rule_variable
+    def points_last_day(self) -> float | None:
+        return self.context.get("points_last_day")
+
+    @numeric_rule_variable
+    def points_last_week(self) -> float | None:
+        return self.context.get("points_last_week")
+
+    @numeric_rule_variable
+    def points_last_month(self) -> float | None:
+        return self.context.get("points_last_month")
+
 
 class RewardRule(BaseModel, table=False):
     __abstract__ = True

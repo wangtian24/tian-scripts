@@ -3,6 +3,7 @@ import math
 import random
 import uuid
 from dataclasses import asdict, dataclass
+from datetime import datetime, timedelta
 from typing import Any, Literal
 from uuid import UUID
 
@@ -97,6 +98,9 @@ class UserTurnReward:
     points: int = 0
     amount_rule: RewardAmountRule | None = None
     probability_rule: RewardProbabilityRule | None = None
+    points_last_day: int = 0
+    points_last_week: int = 0
+    points_last_month: int = 0
 
     def __post_init__(self) -> None:
         self._fetch_data_and_set_flags()
@@ -151,6 +155,21 @@ class UserTurnReward:
 
             self.amount_rule = self._get_amount_rule()
             self.probability_rule = self._get_probability_rule()
+
+            self.points_last_day = self._get_reward_points(session, timedelta(days=1))
+            self.points_last_week = self._get_reward_points(session, timedelta(days=7))
+            self.points_last_month = self._get_reward_points(session, timedelta(days=30))
+
+    def _get_reward_points(self, session: Session, delta: timedelta) -> int:
+        result: int | None = session.exec(
+            select(func.sum(PointTransaction.point_delta)).where(
+                PointTransaction.user_id == self.user_id,
+                PointTransaction.deleted_at.is_(None),  # type: ignore
+                PointTransaction.action_type == PointsActionEnum.REWARD,
+                PointTransaction.created_at > (datetime.now() - delta),  # type: ignore
+            )
+        ).one()
+        return result or 0
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary with UUID fields converted to strings."""
