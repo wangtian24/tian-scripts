@@ -2,17 +2,10 @@ name: Validate Active Models
 
 on:
   schedule:
-    - cron: '30 4 * * *'  # 10:00 AM IST (4:30 AM UTC)
+    - cron: '30 2,9,16 * * *'  # 8:00 AM, 3:00 PM, 10:00 PM IST
   workflow_dispatch:
 
 jobs:
-  validate_active_models_staging:
-    uses: ./.github/workflows/cronjob.yml
-    with:
-      command: validate-active-models
-      environment: staging
-    secrets: inherit
-
   validate_active_models_production:
     uses: ./.github/workflows/cronjob.yml
     with:
