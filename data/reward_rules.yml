@@ -45,12 +45,12 @@ amount_rules:
     comments:
       - "Thank you for participating."
 
-  - name: over_50k_points_all_time_low_reward
+  - name: over_50k_points_last_month_low_reward
     priority: 400
     is_active: true
     conditions:
       all:
-        - name: points
+        - name: points_last_month
           operator: greater_than
           value: 50000
     min_value: 0
@@ -98,12 +98,12 @@ probability_rules:
           value: 0
     probability: 0.0
 
-  - name: over_50k_points_all_time_low_probability
+  - name: over_50k_points_last_month_low_probability
     priority: 300
     is_active: true
     conditions:
       all:
-        - name: points
+        - name: points_last_month
           operator: greater_than
           value: 50000
     probability: 0.05
