@@ -1309,6 +1309,9 @@ def get_prompt_conditional_router(
         all_bad_models = set()
 
         for turn in preference.turns:
+            if not turn.has_evaluation:
+                continue
+
             for model in turn.models:
                 if turn.preferred is None:
                     all_bad_models.add(model)
@@ -1386,6 +1389,9 @@ def get_simple_pro_router(
         all_bad_models = set()
 
         for turn in preference.turns:
+            if not turn.has_evaluation:
+                continue
+
             for model in turn.models:
                 if turn.preferred is None:
                     all_bad_models.add(model)

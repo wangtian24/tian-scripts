@@ -150,6 +150,9 @@ def get_preferences(chat_id: str) -> RoutingPreference:
         evaluated_models = gdf[gdf["eval_type"].isin(["SELECTION", "ALL_BAD"])]["model_name"].tolist()
 
         if not evaluated_models:
+            preferred_models_list.append(
+                PreferredModel(models=gdf["model_name"].tolist(), preferred=None, has_evaluation=False)
+            )
             continue
 
         all_models = gdf["model_name"].tolist()

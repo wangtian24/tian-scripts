@@ -75,7 +75,9 @@ def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Response
 
         preference.turns.append(PreferredModel(models=shown_models, preferred=None))
 
-    if not request.required_models or len(request.required_models) < request.num_models:
+    if request.intent == SelectIntent.NEW_TURN and preference.turns and not preference.turns[-1].has_evaluation:
+        models = preference.turns[-1].models
+    elif not request.required_models or len(request.required_models) < request.num_models:
         models = select_models(prompt, request.num_models, float("inf"), preference)
     else:
         models = request.required_models

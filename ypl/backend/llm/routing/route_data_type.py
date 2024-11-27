@@ -144,6 +144,7 @@ class StatisticsHistory(BaseModel):
 class PreferredModel(BaseModel):
     models: list[str] = Field(description="List of models presented to the user for a given turn.")
     preferred: str | None = Field(description="Which model was preferred by the user, or None if all are bad")
+    has_evaluation: bool = True
 
 
 class RoutingPreference(BaseModel):
