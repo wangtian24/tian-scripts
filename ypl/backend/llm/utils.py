@@ -146,26 +146,27 @@ def fetch_categories_with_descriptions_from_db() -> dict[str, str | None]:
         return {name: description for name, description in categories}
 
 
-async def post_to_slack(message: str) -> None:
+async def post_to_slack(message: str, webhook_url: str | None = None) -> None:
     """
     Post a message to a Slack channel using a webhook URL.
 
     Args:
         message (str): The message to post to Slack.
+        webhook_url (str | None): Optional webhook URL. If not provided, uses the URL from environment variables.
     """
     if os.environ.get("ENVIRONMENT") != "production":
         return
 
-    webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
-    if not webhook_url:
+    url_to_use = webhook_url or os.environ.get("SLACK_WEBHOOK_URL")
+    if not url_to_use:
         log_dict = {
-            "message": "SLACK_WEBHOOK_URL environment variable is not set",
+            "message": "No webhook URL provided and SLACK_WEBHOOK_URL environment variable is not set",
         }
         logging.warning(json_dumps(log_dict))
         return
 
     try:
-        webhook = WebhookClient(webhook_url)
+        webhook = WebhookClient(url_to_use)
         response = webhook.send(text=message)
         if response.status_code != 200:
             log_dict = {

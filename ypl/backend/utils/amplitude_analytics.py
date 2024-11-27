@@ -100,7 +100,8 @@ async def post_amplitude_metrics_to_slack() -> None:
                 message += f"• {chart_info['description']}: Failed to fetch, "
 
         logging.info(json_dumps(log_dict))
-        await post_to_slack(message)
+        analytics_webhook_url = os.environ.get("ANALYTICS_SLACK_WEBHOOK_URL")
+        await post_to_slack(message, analytics_webhook_url)
 
     except Exception as e:
         error_message = f"⚠️ Failed to fetch Amplitude metrics: {e}"
