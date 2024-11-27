@@ -1,19 +1,27 @@
 import asyncio
 import logging
+from datetime import datetime
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, validator
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine
 from ypl.backend.llm.chat import ModelInfo, get_chat_model
 from ypl.backend.llm.constants import ChatProvider
-from ypl.backend.llm.judge import DEFAULT_PROMPT_DIFFICULTY, YuppPromptDifficultyLabelerSimple
+from ypl.backend.llm.judge import (
+    DEFAULT_PROMPT_DIFFICULTY,
+    YuppPromptDifficultyLabelerSimple,
+)
 from ypl.backend.llm.moderation import DEFAULT_MODERATION_RESULT, amoderate
 from ypl.backend.rw_cache import TurnQualityCache
 from ypl.backend.utils.json import json_dumps
-from ypl.db.chats import MessageType, TurnQuality
+from ypl.db.chats import Chat, MessageType, TurnQuality
 
 router = APIRouter()
 llm = get_chat_model(
@@ -24,6 +32,8 @@ llm = get_chat_model(
     ),
     temperature=0.0,
 )
+
+MAX_PINNED_CHATS = 10
 
 
 @router.post("/chats/{chat_id}/turns/{turn_id}:label_quality", response_model=TurnQuality)
@@ -112,3 +122,148 @@ async def get_quality(chat_id: UUID, turn_id: UUID) -> TurnQuality:
         raise HTTPException(status_code=404, detail="Turn quality not found")
 
     return tq
+
+
+@router.get("/chats/pinned", response_model=list[Chat])
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=5))
+async def get_user_pinned_chats(
+    user_id: Annotated[str, Query(title="The ID of the user", required=True)],
+) -> list[Chat]:
+    """
+    Get pinned chats for a user.
+
+    Args:
+        user_id (UUID): The UUID of the user
+
+    Returns:
+        list[Chat]: List of pinned Chat objects, ordered by creation date descending
+    """
+    try:
+        async with AsyncSession(get_async_engine()) as session:
+            query = (
+                select(Chat)
+                .where(Chat.creator_user_id == user_id)  # type: ignore[arg-type]
+                .where(Chat.deleted_at.is_(None))  # type: ignore
+                .where(Chat.is_pinned.is_(True))  # type: ignore
+                .order_by(Chat.created_at.desc())  # type: ignore
+                .limit(MAX_PINNED_CHATS)
+            )
+
+            result = await session.execute(query)
+            chats = result.scalars().all()
+            session.expunge_all()
+            return list(chats)
+
+    except Exception as e:
+        log_dict = {
+            "message": "Failed to fetch pinned chats",
+            "user_id": str(user_id),
+            "error": str(e),
+        }
+        logging.exception(json_dumps(log_dict))
+        raise HTTPException(status_code=500, detail="Failed to fetch pinned chats") from e
+
+
+class ChatResponse(BaseModel):
+    """Response model for chat listing."""
+
+    chats: list[Chat]
+    has_more: bool
+
+
+class GetChatsParams(BaseModel):
+    """Parameters for fetching chat history."""
+
+    user_id: Annotated[str, Query(title="The ID of the user", required=True)]
+    last_chat_time: Annotated[
+        datetime | None,
+        Query(
+            title="Timestamp of the last chat seen",
+            description="Must be provided together with last_chat_id",
+            default=None,
+        ),
+    ]
+    last_chat_id: Annotated[
+        UUID | None,
+        Query(
+            title="ID of the last chat seen", description="Must be provided together with last_chat_time", default=None
+        ),
+    ]
+    page_size: Annotated[
+        int,
+        Query(title="Number of records to fetch", description="Number of chats to return per page", default=50, ge=1),
+    ]
+
+    @validator("user_id")
+    def validate_user_id(cls, v: str) -> str:
+        """Ensure user_id is not empty."""
+        if not v or not v.strip():
+            raise ValueError("user_id is required and cannot be empty")
+        return v.strip()
+
+    @validator("last_chat_id")
+    def validate_last_chat_pair(cls, v: UUID | None, values: dict) -> UUID | None:
+        """Ensure both chat values are provided if one is provided."""
+        has_time = values.get("last_chat_time") is not None
+        has_id = v is not None
+
+        if has_time != has_id:
+            raise ValueError(
+                "Invalid pagination parameters: "
+                "last_chat_time and last_chat_id must either both be provided or both be None. "
+                f"Received: last_chat_time={'present' if has_time else 'missing'}, "
+                f"last_chat_id={'present' if has_id else 'missing'}"
+            )
+        return v
+
+
+@router.get("/chats", response_model=ChatResponse)
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=5))
+async def get_user_chats(params: Annotated[GetChatsParams, Depends()]) -> ChatResponse:
+    """
+    Get non-deleted chats for a user with pagination for infinite scroll.
+
+    If no last chat time or id is provided, returns the most recent chats.
+
+    Args:
+        params: Validated parameters for fetching chats.
+
+    Returns:
+        ChatResponse: List of chats and pagination info.
+
+    Raises:
+        HTTPException: If there's an error fetching chats.
+    """
+    try:
+        async with AsyncSession(get_async_engine()) as session:
+            query = (
+                select(Chat)
+                .where(Chat.creator_user_id == params.user_id)  # type: ignore[arg-type]
+                .where(Chat.deleted_at.is_(None))  # type: ignore
+            )
+
+            # Only apply filtering if both parameters are provided
+            if params.last_chat_time and params.last_chat_id:
+                query = query.where(
+                    (Chat.created_at, Chat.chat_id) < (params.last_chat_time, params.last_chat_id)  # type: ignore
+                )
+
+            query = query.order_by(Chat.created_at.desc(), Chat.chat_id.desc()).limit(params.page_size + 1)  # type: ignore
+
+            result = await session.execute(query)
+            chats = result.scalars().all()
+            session.expunge_all()
+
+            has_more = len(chats) > params.page_size
+            result_chats = list(chats[: params.page_size])
+
+            return ChatResponse(chats=result_chats, has_more=has_more)
+
+    except Exception as e:
+        log_dict = {
+            "message": "Failed to fetch chat history",
+            "params": params.dict(),
+            "error": str(e),
+        }
+        logging.exception(json_dumps(log_dict))
+        raise HTTPException(status_code=500, detail={"message": "Failed to fetch chat history", "error": str(e)}) from e
