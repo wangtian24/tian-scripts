@@ -70,4 +70,4 @@ jobs:
         fi
 
     - name: Refresh rules
-      run: poetry run python -m ypl.cli refresh-rewards-rules --dry-run
+      run: poetry run python -m ypl.cli refresh-rewards-rules ${{ github.ref == 'refs/heads/main' || '--dry-run' }}

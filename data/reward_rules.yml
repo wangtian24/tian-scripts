@@ -45,16 +45,44 @@ amount_rules:
     comments:
       - "Thank you for participating."
 
-  - name: very_low
+  - name: over_50k_points_all_time_low_reward
     priority: 400
     is_active: true
     conditions:
       all:
-        - name: credits
+        - name: points
           operator: greater_than
-          value: 25000
+          value: 50000
     min_value: 0
-    max_value: 10
+    max_value: 20
+    mean_value: 0
+    comments:
+      - "Thank you for participating."
+
+  - name: over_10k_points_last_week_low_reward
+    priority: 500
+    is_active: true
+    conditions:
+      all:
+        - name: points_last_week
+          operator: greater_than
+          value: 10000
+    min_value: 0
+    max_value: 20
+    mean_value: 0
+    comments:
+      - "Thank you for participating."
+
+  - name: over_3k_points_last_24_hours_low_reward
+    priority: 500
+    is_active: true
+    conditions:
+      all:
+        - name: points_last_day
+          operator: greater_than
+          value: 3000
+    min_value: 0
+    max_value: 20
     mean_value: 0
     comments:
       - "Thank you for participating."
@@ -70,14 +98,34 @@ probability_rules:
           value: 0
     probability: 0.0
 
-  - name: high_credits
+  - name: over_50k_points_all_time_low_probability
     priority: 300
     is_active: true
     conditions:
       all:
-        - name: credits
+        - name: points
           operator: greater_than
-          value: 25000
+          value: 50000
+    probability: 0.05
+
+  - name: over_10k_points_last_week_low_probability
+    priority: 400
+    is_active: true
+    conditions:
+      all:
+        - name: points_last_week
+          operator: greater_than
+          value: 10000
+    probability: 0.05
+
+  - name: over_3k_points_last_24_hours_low_probability
+    priority: 400
+    is_active: true
+    conditions:
+      all:
+        - name: points_last_day
+          operator: greater_than
+          value: 3000
     probability: 0.05
 
   - name: first_turn
@@ -252,4 +300,3 @@ probability_rules:
           operator: greater_than
           value: 0
     probability: 0.8
-
