@@ -235,3 +235,39 @@ class Organization(BaseModel, table=True):
     organization_name: str = Field(default=None, index=True, unique=True)
 
     language_models: list[LanguageModel] = Relationship(back_populates="organization")
+
+
+class RoutingAction(Enum):
+    ACCEPT = "ACCEPT"
+    REJECT = "REJECT"
+    NOOP = "NOOP"
+
+    def opposite(self) -> "RoutingAction":
+        return RoutingAction.REJECT if self == RoutingAction.ACCEPT else RoutingAction.ACCEPT
+
+    def noop(self) -> bool:
+        return self == RoutingAction.NOOP
+
+
+# Rules that govern how to route to various models, roughly based on iptables.
+class RoutingRule(BaseModel, table=True):
+    __tablename__ = "routing_rules"
+
+    routing_rule_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+
+    # Whether the rule is active and should be applied.
+    is_active: bool = Field(default=True, nullable=False)
+
+    # The z-index of the rule, used to resolve conflicts. Higher values take precedence.
+    z_index: int = Field(default=0)
+
+    # The category of the source prompt of the form "category" or "*"
+    source_category: str = Field(nullable=False, index=True)
+
+    # A destination of the form "provider/model_name", "provider/*", or "*"
+    destination: str = Field(nullable=False, index=True)
+
+    # The destination policy
+    target: RoutingAction = Field(default=RoutingAction.ACCEPT)
+
+    __table_args__ = (UniqueConstraint("source_category", "destination", name="uq_cat_dest"),)
