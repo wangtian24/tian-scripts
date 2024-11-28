@@ -63,7 +63,7 @@ env:
 permissions:
   contents: write  # Permission required for pushing new tags.
   packages: read
-  
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -249,10 +249,15 @@ jobs:
 
     - name: Tag commit
       run: |
+        TAG_NAME=latest-${{ github.event.inputs.environment || 'staging' }}
+        PR_TITLES=$(git log $TAG_NAME..HEAD --pretty=format:"* %s (%al)")  # Get changes from last tag.
+        echo "PR_TITLES<<EOF" >> $GITHUB_ENV
+        echo "$PR_TITLES" >> $GITHUB_ENV
+        echo "EOF" >> $GITHUB_ENV
         git config user.name 'github-actions[bot]'
         git config user.email 'github-actions[bot]@users.noreply.github.com'
-        git tag -f latest-${{ github.event.inputs.environment || 'staging' }} ${{ github.sha }}
-        git push origin latest-${{ github.event.inputs.environment || 'staging' }} --force
+        git tag -f $TAG_NAME ${{ github.sha }}
+        git push origin $TAG_NAME --force
 
     - name: Post to Slack for Production Deployment
       if: env.ENVIRONMENT == 'production'
@@ -266,7 +271,7 @@ jobs:
                 "type": "section",
                 "text": {
                   "type": "mrkdwn",
-                  "text": "New backend service version deployed to production"
+                  "text": "New backend service version deployed to production\nChanges since last deployment:\n${{ env.PR_TITLES || '* No changes to report' }}"
                 }
               }
             ]
