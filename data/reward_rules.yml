@@ -7,9 +7,9 @@ amount_rules:
         - name: turn_quality_score
           operator: greater_than_or_equal_to
           value: 8
-    min_value: 1000
+    min_value: 500
     max_value: 5000
-    mean_value: 1500
+    mean_value: 600
     comments:
       - "Nice prompt."
       - "Great conversation starter."
@@ -23,9 +23,9 @@ amount_rules:
         - name: turn_quality_score
           operator: greater_than_or_equal_to
           value: 4
-    min_value: 400
-    max_value: 1000
-    mean_value: 450
+    min_value: 300
+    max_value: 2000
+    mean_value: 350
     comments:
       - "Thanks for your input on model responses."
       - "Keep engaging for more rewards."
@@ -40,8 +40,8 @@ amount_rules:
           operator: greater_than_or_equal_to
           value: 0
     min_value: 100
-    max_value: 400
-    mean_value: 150
+    max_value: 200
+    mean_value: 120
     comments:
       - "Thank you for participating."
 
@@ -128,12 +128,12 @@ probability_rules:
           value: 3000
     probability: 0.05
 
-  - name: first_turn
+  - name: first_eval
     priority: 250
     is_active: true
     conditions:
       all:
-        - name: is_first_turn
+        - name: is_first_eval
           operator: is_true
           value: true
     probability: 1.0
@@ -151,7 +151,7 @@ probability_rules:
           value: true
     probability: 0.9
 
-  - name: first_chat_turn_1
+  - name: first_chat_eval_1
     priority: 99
     is_active: true
     conditions:
@@ -159,12 +159,12 @@ probability_rules:
         - name: previous_chat_count
           operator: equal_to
           value: 0
-        - name: turn_position_in_chat
+        - name: previous_eval_count_in_chat
           operator: equal_to
           value: 0
     probability: 0.9
 
-  - name: first_chat_turn_2
+  - name: first_chat_eval_2
     priority: 98
     is_active: true
     conditions:
@@ -172,12 +172,12 @@ probability_rules:
         - name: previous_chat_count
           operator: equal_to
           value: 0
-        - name: turn_position_in_chat
+        - name: previous_eval_count_in_chat
           operator: equal_to
           value: 1
     probability: 0.7
 
-  - name: first_chat_turn_3
+  - name: first_chat_eval_3
     priority: 97
     is_active: true
     conditions:
@@ -185,12 +185,12 @@ probability_rules:
         - name: previous_chat_count
           operator: equal_to
           value: 0
-        - name: turn_position_in_chat
+        - name: previous_eval_count_in_chat
           operator: equal_to
           value: 2
     probability: 0.5
 
-  - name: first_chat_turn_4
+  - name: first_chat_eval_4
     priority: 96
     is_active: true
     conditions:
@@ -198,11 +198,12 @@ probability_rules:
         - name: previous_chat_count
           operator: equal_to
           value: 0
-        - name: turn_position_in_chat
+        - name: previous_eval_count_in_chat
           operator: equal_to
           value: 3
     probability: 0.4
-  - name: first_chat_turn_5
+
+  - name: first_chat_eval_5
     priority: 95
     is_active: true
     conditions:
@@ -210,12 +211,12 @@ probability_rules:
         - name: previous_chat_count
           operator: equal_to
           value: 0
-        - name: turn_position_in_chat
+        - name: previous_eval_count_in_chat
           operator: equal_to
           value: 4
     probability: 0.3
 
-  - name: early_chat_turn_1
+  - name: early_chat_eval_1
     priority: 94
     is_active: true
     conditions:
@@ -223,12 +224,12 @@ probability_rules:
         - name: previous_chat_count
           operator: less_than
           value: 5
-        - name: turn_position_in_chat
+        - name: previous_eval_count_in_chat
           operator: equal_to
           value: 0
     probability: 0.9
 
-  - name: early_chat_turn_2
+  - name: early_chat_eval_2
     priority: 93
     is_active: true
     conditions:
@@ -236,12 +237,12 @@ probability_rules:
         - name: previous_chat_count
           operator: less_than
           value: 5
-        - name: turn_position_in_chat
+        - name: previous_eval_count_in_chat
           operator: equal_to
           value: 1
     probability: 0.8
 
-  - name: early_chat_turn_3
+  - name: early_chat_eval_3
     priority: 92
     is_active: true
     conditions:
@@ -249,12 +250,12 @@ probability_rules:
         - name: previous_chat_count
           operator: less_than
           value: 5
-        - name: turn_position_in_chat
+        - name: previous_eval_count_in_chat
           operator: equal_to
           value: 2
     probability: 0.8
 
-  - name: early_chat_turn_4
+  - name: early_chat_eval_4
     priority: 91
     is_active: true
     conditions:
@@ -262,12 +263,12 @@ probability_rules:
         - name: previous_chat_count
           operator: less_than
           value: 5
-        - name: turn_position_in_chat
+        - name: previous_eval_count_in_chat
           operator: equal_to
           value: 3
     probability: 0.7
 
-  - name: early_chat_turn_5
+  - name: early_chat_eval_5
     priority: 90
     is_active: true
     conditions:
@@ -275,7 +276,7 @@ probability_rules:
         - name: previous_chat_count
           operator: less_than
           value: 5
-        - name: turn_position_in_chat
+        - name: previous_eval_count_in_chat
           operator: equal_to
           value: 4
     probability: 0.7
@@ -299,4 +300,4 @@ probability_rules:
         - name: credits
           operator: greater_than
           value: 0
-    probability: 0.8
+    probability: 0.5  # can increase this in staging for testing purposes
