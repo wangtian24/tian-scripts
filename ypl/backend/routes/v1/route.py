@@ -1,3 +1,4 @@
+import asyncio
 from enum import Enum
 from typing import Any
 
@@ -6,7 +7,7 @@ from pydantic import BaseModel
 from tqdm import tqdm
 
 from ypl.backend.llm.chat import get_preferences, get_shown_models, get_user_message
-from ypl.backend.llm.prompt_selector import CategorizedPromptModifierSelector
+from ypl.backend.llm.prompt_selector import CategorizedPromptModifierSelector, get_modifiers_by_model, store_modifiers
 from ypl.backend.llm.ranking import get_ranker
 from ypl.backend.llm.routing.route_data_type import PreferredModel, RoutingPreference
 from ypl.backend.llm.routing.router import (
@@ -30,11 +31,10 @@ class SelectModelsV2Request(BaseModel):
     required_models: list[str] | None = None  # models selected explicitly by the user
     chat_id: str | None = None  # chat ID to use for routing
     turn_id: str | None = None  # turn ID to use for routing
-    modifier_history: dict[str, tuple[str, str]] | None = None  # modifier history to use for routing
 
 
 class SelectModelsV2Response(BaseModel):
-    models: list[tuple[str, tuple[str, str]]]  # list of (model, (prompt modifier ID , prompt modifier))
+    models: list[tuple[str, list[tuple[str, str]]]]  # list of (model, list[(prompt modifier ID, prompt modifier)])
 
 
 @router.post("/select_models")
@@ -86,10 +86,17 @@ def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Response
         models = (request.required_models + models)[: request.num_models]
 
     selector = CategorizedPromptModifierSelector.make_default_from_db()
-    selector.model_modifier_history = request.modifier_history or {}
-    model_mod_map = selector.select_modifiers(models)
 
-    return SelectModelsV2Response(models=[(model, model_mod_map[model]) for model in models])
+    if request.chat_id:
+        modifier_history = get_modifiers_by_model(request.chat_id)
+    else:
+        modifier_history = {}
+    prompt_modifiers = selector.select_modifiers(models, modifier_history)
+
+    if request.turn_id:
+        asyncio.run(store_modifiers(request.turn_id, prompt_modifiers))
+
+    return SelectModelsV2Response(models=[(model, prompt_modifiers[model]) for model in models])
 
 
 @router.post("/update_ranker")

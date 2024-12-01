@@ -54,5 +54,5 @@ class CustomJSONEncoder(json.JSONEncoder):
         return super().default(obj)
 
 
-def json_dumps(obj: Any) -> str:
-    return json.dumps(obj, cls=CustomJSONEncoder)
+def json_dumps(obj: Any, **kwargs: Any) -> str:
+    return json.dumps(obj, cls=CustomJSONEncoder, **kwargs)

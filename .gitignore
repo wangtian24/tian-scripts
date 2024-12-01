@@ -174,3 +174,5 @@ tmp/
 .DS_Store
 
 yupp-llms-*.json
+
+notebooks/cache

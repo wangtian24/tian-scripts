@@ -147,7 +147,7 @@ class PromptModifier(BaseModel, table=True):
     category: ModifierCategory = Field(
         sa_column=Column(SQLAlchemyEnum(ModifierCategory), server_default=ModifierCategory.other.name)
     )
-    text: str | None = Field(nullable=True)
+    text: str = Field(nullable=False)
 
 
 class PromptModifierAssoc(BaseModel, table=True):
