@@ -1,9 +1,11 @@
 from collections import Counter
 from typing import Any
+from unittest.mock import Mock, patch
 
 import numpy as np
 from pytest import approx, mark
 
+from ypl.backend.config import settings
 from ypl.backend.llm.ranking import Battle, ChoixRanker, ChoixRankerConfIntervals, EloRanker
 from ypl.backend.llm.routing.policy import (
     exponential_decay,
@@ -19,8 +21,11 @@ from ypl.backend.llm.routing.router import (
     TopK,
     _fast_compute_all_conf_overlap_diffs,
     _fast_compute_all_num_intersections,
+    get_simple_pro_router,
 )
 from ypl.backend.tests.utils import get_battles
+
+settings.ROUTING_DO_LOGGING = False
 
 
 def _check_list_len_distribution(lst: list[Any], expected: dict[int, Any]) -> None:
@@ -252,3 +257,28 @@ def test_fast_compute_all_conf_overlap_diffs() -> None:
     inds, vals = _fast_compute_all_conf_overlap_diffs(intervals, k=100)
     assert inds.tolist() == [[0, 1]]
     assert vals.tolist() == approx([0.0])
+
+
+@patch("ypl.backend.llm.routing.router.get_all_pro_models")
+@patch("ypl.backend.llm.routing.router.deduce_original_providers")
+def test_simple_pro_router_different_models(mock_deduce_providers: Mock, mock_get_all_pro_models: Mock) -> None:
+    pro_models = {"pro1", "pro2", "pro3", "pro4"}
+    mock_get_all_pro_models.return_value = pro_models
+
+    models = {"model1", "model2"}
+    reputable_providers = {"pro1", "pro2", "pro3", "model1"}
+    all_models = models | pro_models
+    state = RouterState(all_models=all_models)
+    # Just make a provider for each model named after the model.
+    mock_deduce_providers.return_value = {model: model for model in all_models}
+
+    all_selected_models = set()
+    for _ in range(30):
+        router = get_simple_pro_router(prompt="", num_models=2, reputable_providers=reputable_providers)
+        selected_models = router.select_models(state=state).get_sorted_selected_models()
+        assert len(selected_models) == 2
+        assert (selected_models[0] in reputable_providers) or (selected_models[1] in reputable_providers)
+        assert selected_models[0] != selected_models[1]
+        all_selected_models.update(selected_models)
+    # Over all iterations, all reputable or pro models should be selected at least once.
+    assert all_selected_models == reputable_providers | pro_models

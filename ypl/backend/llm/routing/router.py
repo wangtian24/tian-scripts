@@ -1360,9 +1360,10 @@ def get_simple_pro_router(
     prompt: str,
     num_models: int,
     routing_preference: RoutingPreference | None = None,
+    reputable_providers: set[str] | None = None,
 ) -> RouterModule:
     preference = routing_preference or RoutingPreference(turns=[])
-    reputable_proposer = RandomModelProposer(providers=set(settings.ROUTING_REPUTABLE_PROVIDERS))
+    reputable_proposer = RandomModelProposer(providers=reputable_providers or set(settings.ROUTING_REPUTABLE_PROVIDERS))
 
     if not preference.turns:
         # Construct a first-turn router guaranteeing at least one pro model and one reputable model.
