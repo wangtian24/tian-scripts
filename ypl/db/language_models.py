@@ -5,7 +5,7 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
-from sqlalchemy import BigInteger, Column, Numeric, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, Column, Integer, Numeric, UniqueConstraint
 from sqlalchemy import Enum as sa_Enum
 from sqlmodel import Field, Relationship
 
@@ -256,10 +256,10 @@ class RoutingRule(BaseModel, table=True):
     routing_rule_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
 
     # Whether the rule is active and should be applied.
-    is_active: bool = Field(default=True, nullable=False)
+    is_active: bool = Field(sa_column=Column(Boolean(), server_default="TRUE", nullable=False))
 
     # The z-index of the rule, used to resolve conflicts. Higher values take precedence.
-    z_index: int = Field(default=0)
+    z_index: int = Field(sa_column=Column(Integer(), server_default="0"))
 
     # The category of the source prompt of the form "category" or "*"
     source_category: str = Field(nullable=False, index=True)
@@ -269,5 +269,9 @@ class RoutingRule(BaseModel, table=True):
 
     # The destination policy
     target: RoutingAction = Field(default=RoutingAction.ACCEPT)
+
+    # The probability of this rule being applied; (probability * 100)% of the time, this rule is
+    # applied; otherwise, the next matching rule is applied.
+    probability: float = Field(default=1.0, sa_column=Column(Numeric(precision=10, scale=6), server_default="1.0"))
 
     __table_args__ = (UniqueConstraint("source_category", "destination", name="uq_cat_dest"),)

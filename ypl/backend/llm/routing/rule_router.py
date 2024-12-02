@@ -41,7 +41,11 @@ class RoutingTable(RNGMixin):
             RoutingAction.REJECT: set(),
         }
 
-        all_rules = self.rules_cat_map["*"] + self.rules_cat_map[category]
+        all_rules = self.rules_cat_map["*"]
+
+        if category != "*":
+            all_rules.extend(self.rules_cat_map[category])
+
         all_rules.sort(key=lambda x: x.z_index, reverse=True)
 
         for rule in all_rules:
@@ -67,6 +71,7 @@ class RoutingTable(RNGMixin):
                     matched
                     and model not in accept_reject_map[rule.target]
                     and model not in accept_reject_map[rule.target.opposite()]
+                    and self.get_rng().random() <= rule.probability
                 ):
                     accept_reject_map[rule.target].add((model, rule.z_index))
                     candidate_models.remove(model)

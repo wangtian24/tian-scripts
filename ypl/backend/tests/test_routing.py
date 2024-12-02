@@ -349,3 +349,25 @@ def test_routing_table(mock_deduce_providers: Mock) -> None:
     # Accept no-op model2 (score of 0), and model1-1 and model1-2 with score 1k.
     assert accept_map == {"model1-1": approx(1000.0), "model1-2": approx(1000.0), "model2": approx(0.0)}
     assert rejected_models == {"model3"}
+
+    # Test that the probability is respected.
+    routing_table = RoutingTable(
+        [
+            RoutingRule(
+                source_category="*",
+                destination="provider1/model2",
+                target=RoutingAction.REJECT,
+                z_index=10,
+                probability=0.5,
+            )
+        ]
+    ).with_seed(0)
+
+    reject_count = 0
+
+    for _ in range(100):
+        accept_map, rejected_models = routing_table.apply("*", {"model1-1", "model1-2", "model2", "model3"})
+        reject_count += len(rejected_models)
+
+    # With 50% probability, model2 should be rejected 50% of the time.
+    assert reject_count / 100 == approx(0.5, rel=0.1)
