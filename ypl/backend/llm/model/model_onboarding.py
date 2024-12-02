@@ -35,6 +35,7 @@ REJECT_AFTER_DAYS = 3
 MAX_RETRIES = 3
 WAIT_TIME = 5
 INFERENCE_TIMEOUT = 60
+INFERENCE_VERIFICATION_PROMPT = "What is the capital of Odisha?"
 
 # Replace the existing client caches with a single cache
 provider_clients: dict[str, Any] = {}
@@ -403,7 +404,7 @@ def openai_api_call(client: Any, model_name: str, extra_body: dict[str, Any] | N
     """
     return client.chat.completions.create(
         model=model_name,
-        messages=[{"role": "user", "content": "What is the capital of Odisha?"}],
+        messages=[{"role": "user", "content": INFERENCE_VERIFICATION_PROMPT}],
         timeout=INFERENCE_TIMEOUT,
         extra_body=extra_body,
     )
@@ -415,7 +416,7 @@ def openai_api_call(client: Any, model_name: str, extra_body: dict[str, Any] | N
     retry=retry_if_exception_type((Exception, TimeoutError)),
 )
 def google_ai_api_call(client: Any, model_name: str) -> Any:
-    return client.generate_content("What is the capital of Odisha?")
+    return client.generate_content(INFERENCE_VERIFICATION_PROMPT)
 
 
 @retry(
@@ -425,7 +426,7 @@ def google_ai_api_call(client: Any, model_name: str) -> Any:
 )
 def huggingface_api_call(client: Any, model_name: str) -> bool:
     messages = [
-        {"role": "user", "content": "Tell me a story"},
+        {"role": "user", "content": INFERENCE_VERIFICATION_PROMPT},
     ]
     completion = client.chat.completions.create(model=model_name, messages=messages, stream=True)
 
@@ -444,7 +445,7 @@ def anthropic_api_call(client: Any, model_name: str) -> bool:
     message = client.messages.create(
         model=model_name,
         max_tokens=1024,
-        messages=[{"role": "user", "content": "What is the capital of Odisha?"}],
+        messages=[{"role": "user", "content": INFERENCE_VERIFICATION_PROMPT}],
         timeout=INFERENCE_TIMEOUT,
     )
     return bool(message.content and len(message.content) > 0)
