@@ -67,4 +67,7 @@ class SelectionCriteria(Enum):
     # Select the pro models
     PRO_MODELS = "pro_models"
 
+    # Select the models routed by the routing rules
+    ROUTING_RULES = "routing_rules"
+
     RANDOM = "random"

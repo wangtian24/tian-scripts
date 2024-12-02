@@ -5,6 +5,7 @@ import os
 from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import cache
+from typing import TypeVar
 
 import numpy as np
 import tweepy
@@ -213,3 +214,13 @@ async def post_to_x(message: str) -> None:
             "TWITTER_ACCESS_TOKEN_SECRET environment variable is not set",
         }
         logging.warning(json_dumps(log_dict))
+
+
+T = TypeVar("T")
+V = TypeVar("V")
+
+
+def dict_shuffled(d: dict[T, V], rng: np.random.RandomState | None = None) -> dict[T, V]:
+    """Returns a shuffled copy of the dictionary."""
+    rng_ = np.random.RandomState() if rng is None else rng
+    return dict(sorted(d.items(), key=lambda _: rng_.random()))

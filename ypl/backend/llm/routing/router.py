@@ -17,6 +17,7 @@ from ypl.backend.config import settings
 from ypl.backend.db import get_engine
 from ypl.backend.llm.chat import adeduce_original_provider, deduce_original_providers, get_all_pro_models
 from ypl.backend.llm.constants import MODEL_HEURISTICS
+from ypl.backend.llm.prompt_classifiers import RemotePromptCategorizer
 from ypl.backend.llm.ranking import ConfidenceIntervalRankerMixin, Ranker, get_ranker
 from ypl.backend.llm.routing.policy import SelectionCriteria, decayed_random_fraction
 from ypl.backend.llm.routing.route_data_type import RoutingPreference
@@ -1362,14 +1363,22 @@ def get_simple_pro_router(
     routing_preference: RoutingPreference | None = None,
     reputable_providers: set[str] | None = None,
 ) -> RouterModule:
+    from ypl.backend.llm.routing.rule_router import RoutingRuleFilter, RoutingRuleProposer
+
     preference = routing_preference or RoutingPreference(turns=[])
     reputable_proposer = RandomModelProposer(providers=reputable_providers or set(settings.ROUTING_REPUTABLE_PROVIDERS))
+    categorizer = RemotePromptCategorizer(settings.PYTORCH_SERVE_GCP_URL, settings.X_API_KEY)
+    category = categorizer.categorize(prompt).category
+    rule_proposer = RoutingRuleProposer(category)
+    rule_filter = RoutingRuleFilter(category)
 
     if not preference.turns:
         # Construct a first-turn router guaranteeing at least one pro model and one reputable model.
         router: RouterModule = (
-            (
-                (ProModelProposer() | TopK(1)).with_flags(always_include=True, offset=100000)
+            rule_filter
+            | (
+                (rule_proposer.with_flags(always_include=True, multiplier=100000) | RandomJitter(jitter_range=1))
+                & (ProModelProposer() | TopK(1)).with_flags(always_include=True, offset=100000)
                 & (
                     reputable_proposer
                     | StreamableModelFilter()
@@ -1405,10 +1414,12 @@ def get_simple_pro_router(
         all_good_models = all_good_models - all_bad_models
 
         router: RouterModule = (  # type: ignore[no-redef]
-            (
-                (RandomModelProposer(models=all_good_models).with_flags(offset=100000) | TopK(1)).with_flags(
+            rule_filter
+            | (
+                (RandomModelProposer(models=all_good_models).with_flags(offset=10000000) | TopK(1)).with_flags(
                     always_include=True
                 )
+                & (rule_proposer.with_flags(always_include=True, multiplier=10000) | RandomJitter(jitter_range=1))
                 & (
                     (ProModelProposer() | Exclude(all_bad_models) | TopK(1)).with_flags(
                         always_include=True, offset=10000

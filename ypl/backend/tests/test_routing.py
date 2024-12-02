@@ -6,6 +6,7 @@ import numpy as np
 from pytest import approx, mark
 
 from ypl.backend.config import settings
+from ypl.backend.llm.prompt_classifiers import CategorizerResponse
 from ypl.backend.llm.ranking import Battle, ChoixRanker, ChoixRankerConfIntervals, EloRanker
 from ypl.backend.llm.routing.policy import (
     exponential_decay,
@@ -23,7 +24,9 @@ from ypl.backend.llm.routing.router import (
     _fast_compute_all_num_intersections,
     get_simple_pro_router,
 )
+from ypl.backend.llm.routing.rule_router import RoutingTable
 from ypl.backend.tests.utils import get_battles
+from ypl.db.language_models import RoutingAction, RoutingRule
 
 settings.ROUTING_DO_LOGGING = False
 
@@ -261,7 +264,18 @@ def test_fast_compute_all_conf_overlap_diffs() -> None:
 
 @patch("ypl.backend.llm.routing.router.get_all_pro_models")
 @patch("ypl.backend.llm.routing.router.deduce_original_providers")
-def test_simple_pro_router_different_models(mock_deduce_providers: Mock, mock_get_all_pro_models: Mock) -> None:
+@patch("ypl.backend.llm.routing.rule_router.deduce_original_providers")
+@patch("ypl.backend.llm.routing.router.RemotePromptCategorizer")
+@patch("ypl.backend.llm.routing.rule_router.get_routing_table")
+def test_simple_pro_router_different_models(
+    mock_routing_table: Mock,
+    mock_prompt_categorizer: Mock,
+    mock_deduce_providers1: Mock,
+    mock_deduce_providers2: Mock,
+    mock_get_all_pro_models: Mock,
+) -> None:
+    mock_routing_table.return_value = RoutingTable([])
+    mock_prompt_categorizer.categorize.return_value = CategorizerResponse(category="advice")
     pro_models = {"pro1", "pro2", "pro3", "pro4"}
     mock_get_all_pro_models.return_value = pro_models
 
@@ -270,7 +284,8 @@ def test_simple_pro_router_different_models(mock_deduce_providers: Mock, mock_ge
     all_models = models | pro_models
     state = RouterState(all_models=all_models)
     # Just make a provider for each model named after the model.
-    mock_deduce_providers.return_value = {model: model for model in all_models}
+    mock_deduce_providers1.return_value = {model: model for model in all_models}
+    mock_deduce_providers2.return_value = {model: model for model in all_models}
 
     all_selected_models = set()
     for _ in range(30):
@@ -282,3 +297,55 @@ def test_simple_pro_router_different_models(mock_deduce_providers: Mock, mock_ge
         all_selected_models.update(selected_models)
     # Over all iterations, all reputable or pro models should be selected at least once.
     assert all_selected_models == reputable_providers | pro_models
+
+
+@patch("ypl.backend.llm.routing.rule_router.deduce_original_providers")
+def test_routing_table(mock_deduce_providers: Mock) -> None:
+    mock_deduce_providers.return_value = {
+        "model1": "provider1",
+        "model2": "provider1",
+        "model3": "provider2",
+    }
+
+    # Two categories, the catch-all "*" and "advice".
+    routing_table = RoutingTable(
+        [
+            RoutingRule(source_category="*", destination="provider1/model1", target=RoutingAction.ACCEPT, z_index=1000),
+            RoutingRule(source_category="*", destination="provider1/*", target=RoutingAction.REJECT, z_index=10),
+            RoutingRule(source_category="advice", destination="provider2/*", target=RoutingAction.ACCEPT, z_index=200),
+            RoutingRule(source_category="advice", destination="provider1/*", target=RoutingAction.REJECT, z_index=100),
+        ]
+    )
+
+    # Accept 1 and 3; reject 2
+    accept_map, rejected_models = routing_table.apply("*", {"model1", "model2", "model3"})
+    assert accept_map == {"model1": approx(1000.0), "model3": approx(0.0)}
+    assert rejected_models == {"model2"}
+
+    # Accept 1 with score 1k and 3 with score 200; reject 2
+    accept_map, rejected_models = routing_table.apply("advice", {"model1", "model2", "model3"})
+    assert accept_map == {"model1": approx(1000.0), "model3": approx(200.0)}
+    assert rejected_models == {"model2"}
+
+    # One category with a globbed model name
+    mock_deduce_providers.return_value = {
+        "model1-1": "provider1",
+        "model1-2": "provider1",
+        "model2": "provider1",
+        "model3": "provider2",
+    }
+
+    routing_table = RoutingTable(
+        [
+            RoutingRule(
+                source_category="*", destination="provider1/model1*", target=RoutingAction.ACCEPT, z_index=1000
+            ),
+            RoutingRule(source_category="*", destination="provider2/model3", target=RoutingAction.REJECT, z_index=10),
+        ]
+    )
+
+    accept_map, rejected_models = routing_table.apply("*", {"model1-1", "model1-2", "model2", "model3"})
+
+    # Accept no-op model2 (score of 0), and model1-1 and model1-2 with score 1k.
+    assert accept_map == {"model1-1": approx(1000.0), "model1-2": approx(1000.0), "model2": approx(0.0)}
+    assert rejected_models == {"model3"}

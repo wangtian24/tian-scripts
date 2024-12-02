@@ -3,13 +3,13 @@ import logging
 from typing import Any
 
 import aiohttp
-import requests
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 
 from ypl.backend.llm.chat import ModelInfo, get_chat_model
 from ypl.backend.llm.constants import MODEL_DESCRIPTIONS, MODEL_HEURISTICS
 from ypl.backend.llm.labeler import LLMLabeler
+from ypl.backend.llm.prompt_classifiers import RemotePromptCategorizer
 from ypl.backend.llm.routing.policy import SelectionCriteria
 from ypl.backend.llm.routing.router import ModelProposer, RouterState
 from ypl.backend.prompts import PROMPTS_MODEL_QUALITY_PROMPT_TEMPLATE
@@ -99,13 +99,10 @@ class RemotePromptCategorizerProposer(ModelProposer):
         return sorted(models, key=lambda x: x[0], reverse=True), excluded_models
 
     def _propose_models(self, models_to_select: set[str], state: RouterState) -> RouterState:
-        response = requests.post(
-            self.api_endpoint + "/categorize",
-            json={"prompt": self.prompt},
-            headers={"X-API-KEY": self.api_key},
-        ).json()
+        categorizer = RemotePromptCategorizer(self.api_endpoint, self.api_key)
+        response = categorizer.categorize(self.prompt)
 
-        return self._propose_models_from_category(response, models_to_select)
+        return self._propose_models_from_category(dict(category=response.category), models_to_select)
 
     def _propose_models_from_category(self, response: dict[str, Any], models_to_select: set[str]) -> RouterState:
         selected_models, excluded_models = self._select_models_from_category(response, models_to_select)

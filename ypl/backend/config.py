@@ -83,7 +83,7 @@ class Settings(BaseSettings):
     OPENAI_API_KEY_ROUTING: str = ""
 
     # The GCP storage path to the prompt categorizer model.
-    CATEGORIZER_MODEL_PATH: str = "gs://yupp-models/category-model-multilabel-base.zip"
+    CATEGORIZER_MODEL_PATH: str = "gs://yupp-models/online-classifier-base.zip"
 
     # PyTorch Serve service settings
     PYTORCH_SERVE_GCP_SERVICE_NAME: str = "backend-pytorch-service"

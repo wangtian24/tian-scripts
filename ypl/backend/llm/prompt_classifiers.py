@@ -7,6 +7,7 @@ import logging
 import aiohttp
 from openai import OpenAI
 from pydantic import BaseModel
+import requests
 from sqlmodel import select
 from tenacity import retry, stop_after_attempt, wait_random_exponential
 
@@ -28,6 +29,9 @@ class PromptCategorizer:
     async def acategorize(self, user_prompt: str) -> CategorizerResponse:
         raise NotImplementedError
 
+    def categorize(self, user_prompt: str) -> CategorizerResponse:
+        raise NotImplementedError
+
 
 class RemotePromptCategorizer(PromptCategorizer):
     def __init__(self, api_endpoint: str, api_key: str) -> None:
@@ -44,6 +48,15 @@ class RemotePromptCategorizer(PromptCategorizer):
                 json_response = await response.json()
 
         return CategorizerResponse(category=json_response["category"])
+
+    def categorize(self, user_prompt: str) -> CategorizerResponse:
+        return CategorizerResponse(
+            category=requests.post(
+                self.api_endpoint + "/categorize",
+                json={"prompt": user_prompt},
+                headers={"X-API-KEY": self.api_key},
+            ).json()["category"]
+        )
 
 
 def initialize_client(**kwargs: Any) -> OpenAI:
