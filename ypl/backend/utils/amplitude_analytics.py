@@ -19,14 +19,15 @@ class ChartInfo(TypedDict):
 AMPLITUDE_CHARTS: Final[dict[str, ChartInfo]] = {
     "users": {"id": "t2bandy1", "description": "users"},
     "conversations": {"id": "ifpv0bg1", "description": "conversations"},
+    "unique_number_of_models": {"id": "czeomci2", "description": "unique number of models"},
+    "unique_number_of_model_responses": {"id": "x5h3txne", "description": "unique number of model responses"},
+    "number_of_streaming_complete_events": {"id": "4tmavajd", "description": "streaming completes"},
     "prefs": {"id": "ht7fo2h7", "description": "prefs"},
     "scratchcards": {"id": "yxihkyvd", "description": "scratchcards"},
     "credits": {"id": "hqa0es1y", "description": "credits given"},
     "feedbacks": {"id": "ezl4kq8l", "description": "app feedbacks"},
     "turns": {"id": "cmqeokju", "description": "turns"},
     "show_more": {"id": "wycwc81n", "description": "show more"},
-    "unique_number_of_models": {"id": "czeomci2", "description": "unique number of models"},
-    "unique_number_of_model_responses": {"id": "x5h3txne", "description": "unique number of model responses"},
 }
 
 
