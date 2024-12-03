@@ -196,7 +196,7 @@ class CategorizedPromptModifierSelector(RNGMixin):
                         (
                             ModifierCategory.complexity,
                             "complexity_high_school",
-                            "Respond as if talking to a high-school student.",
+                            "Respond as if talking to a high school student.",
                         ),
                         (
                             ModifierCategory.complexity,
