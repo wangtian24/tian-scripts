@@ -1,7 +1,9 @@
 import heapq
 import logging
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from collections.abc import Sequence
+from datetime import datetime, timedelta
 from itertools import chain
 from typing import Any
 
@@ -11,7 +13,8 @@ import numpy as np
 from google.auth import default
 from google.cloud import run_v2
 from pydantic import BaseModel
-from sqlalchemy import text
+from sqlalchemy import func, text
+from sqlmodel import Session, select
 
 from ypl.backend.config import settings
 from ypl.backend.db import get_engine
@@ -22,6 +25,7 @@ from ypl.backend.llm.ranking import ConfidenceIntervalRankerMixin, Ranker, get_r
 from ypl.backend.llm.routing.policy import SelectionCriteria, decayed_random_fraction
 from ypl.backend.llm.routing.route_data_type import RoutingPreference
 from ypl.backend.utils.json import json_dumps
+from ypl.db.language_models import LanguageModel, LanguageModelResponseStatus, LanguageModelResponseStatusEnum
 from ypl.utils import RNGMixin
 
 
@@ -284,6 +288,16 @@ class Passthrough(RouterModule):
         return state
 
     async def _aselect_models(self, state: RouterState) -> RouterState:
+        return state
+
+
+class ConsoleDebugPrinter(RouterModule):
+    def _select_models(self, state: RouterState) -> RouterState:
+        print(state)
+        return state
+
+    async def _aselect_models(self, state: RouterState) -> RouterState:
+        print(state)
         return state
 
 
@@ -1357,6 +1371,66 @@ def get_prompt_conditional_router(
     return router
 
 
+class HighErrorRateFilter(RNGMixin, ModelFilter):
+    """
+    Filters out models with a high error rate. If the error rate exceeds the soft threshold, the model is still
+    considered for selection but only half the time. If the error rate exceeds the hard threshold, the model is
+    excluded entirely for the duration of the time window.
+    """
+
+    def __init__(
+        self,
+        soft_threshold: float = 0.025,
+        hard_threshold: float = 0.05,
+        time_window: timedelta = timedelta(hours=6),
+        soft_reject_prob: float = 0.5,
+    ):
+        super().__init__(persist=True)
+        self.soft_threshold = settings.ROUTING_ERROR_FILTER_SOFT_THRESHOLD or soft_threshold
+        self.hard_threshold = settings.ROUTING_ERROR_FILTER_HARD_THRESHOLD or hard_threshold
+        self.soft_reject_prob = settings.ROUTING_ERROR_FILTER_SOFT_REJECT_PROB or soft_reject_prob
+        self.time_window = time_window
+
+    @cachetools.func.ttl_cache(ttl=60 * 5)  # 5 minutes
+    def _get_error_rates(self) -> dict[str, float]:
+        model_error_map: defaultdict[str, defaultdict[str, int]] = defaultdict(lambda: defaultdict(int))
+
+        with Session(get_engine()) as session:
+            ret = session.exec(
+                select(
+                    LanguageModel.internal_name,
+                    LanguageModelResponseStatus.status_type,
+                    func.count(LanguageModelResponseStatus.status_type),  # type: ignore[arg-type]
+                )
+                .where(
+                    LanguageModelResponseStatus.created_at > datetime.now() - self.time_window,  # type: ignore
+                )
+                .join(LanguageModel)
+                .group_by(LanguageModel.internal_name, LanguageModelResponseStatus.status_type)
+            ).all()
+
+        for model_internal_name, status_type, error_count in ret:
+            model_error_map[model_internal_name][status_type] = error_count
+
+        return {
+            model_internal_name: sum(v for c, v in error_counts.items() if c != LanguageModelResponseStatusEnum.OK)
+            / sum(error_counts.values())
+            for model_internal_name, error_counts in model_error_map.items()
+        }
+
+    def _filter(self, state: RouterState) -> tuple[RouterState, set[str]]:
+        error_rates = self._get_error_rates()
+
+        rejected_models = {
+            model
+            for model in state.selected_models
+            if (error_rates.get(model, 0) > self.soft_threshold and self.get_rng().random() < self.soft_reject_prob)
+            or error_rates.get(model, 0) > self.hard_threshold
+        }
+
+        return Exclude(rejected_models)._filter(state)
+
+
 def get_simple_pro_router(
     prompt: str,
     num_models: int,
@@ -1371,6 +1445,7 @@ def get_simple_pro_router(
     category = categorizer.categorize(prompt).category
     rule_proposer = RoutingRuleProposer(category)
     rule_filter = RoutingRuleFilter(category)
+    error_filter = HighErrorRateFilter()
 
     if not preference.turns:
         # Construct a first-turn router guaranteeing at least one pro model and one reputable model.
@@ -1378,15 +1453,17 @@ def get_simple_pro_router(
             rule_filter
             | (
                 (rule_proposer.with_flags(always_include=True, multiplier=100000) | RandomJitter(jitter_range=1))
-                & (ProModelProposer() | TopK(1)).with_flags(always_include=True, offset=100000)
+                & (ProModelProposer() | error_filter | TopK(1)).with_flags(always_include=True, offset=100000)
                 & (
                     reputable_proposer
+                    | error_filter
                     | StreamableModelFilter()
                     | MaxSpeedProposer()
                     | RandomJitter(jitter_range=30.0)  # +/- 30 tokens per second
                     | ProviderFilter(one_per_provider=True)
                 ).with_flags(always_include=True, offset=5000)
             )
+            | error_filter
             | ProviderFilter(one_per_provider=True)
             | TopK(num_models)
             | RoutingDecisionLogger(enabled=settings.ROUTING_DO_LOGGING, prefix="first-prompt-simple-pro-router")
@@ -1416,17 +1493,20 @@ def get_simple_pro_router(
         router: RouterModule = (  # type: ignore[no-redef]
             rule_filter
             | (
-                (RandomModelProposer(models=all_good_models).with_flags(offset=10000000) | TopK(1)).with_flags(
-                    always_include=True
-                )
-                & (rule_proposer.with_flags(always_include=True, multiplier=10000) | RandomJitter(jitter_range=1))
+                (RandomModelProposer(models=all_good_models) | error_filter | TopK(1)).with_flags(always_include=True)
                 & (
-                    (ProModelProposer() | Exclude(all_bad_models) | TopK(1)).with_flags(
+                    rule_proposer.with_flags(always_include=True, multiplier=10000)
+                    | error_filter
+                    | RandomJitter(jitter_range=1)
+                )
+                & (
+                    (ProModelProposer() | Exclude(all_bad_models) | error_filter | TopK(1)).with_flags(
                         always_include=True, offset=10000
                     )
                     ^ (
                         reputable_proposer
                         | StreamableModelFilter()
+                        | error_filter
                         | MaxSpeedProposer()
                         | RandomJitter(jitter_range=30.0)  # +/- 30 tokens per second
                         | ProviderFilter(one_per_provider=True)
@@ -1439,6 +1519,7 @@ def get_simple_pro_router(
                 )
                 & RandomModelProposer().with_flags(offset=-1000, always_include=True)
             )
+            | error_filter
             | Exclude(all_bad_models)
             | ProviderFilter(one_per_provider=True)
             | TopK(num_models)

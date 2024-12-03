@@ -275,3 +275,31 @@ class RoutingRule(BaseModel, table=True):
     probability: float = Field(default=1.0, sa_column=Column(Numeric(precision=10, scale=6), server_default="1.0"))
 
     __table_args__ = (UniqueConstraint("source_category", "destination", name="uq_cat_dest"),)
+
+
+class LanguageModelResponseStatusEnum(str, Enum):
+    OK = "OK"
+    SLOW_RESPONSE = "SLOW_RESPONSE"
+    TIMEOUT = "TIMEOUT"
+    CONNECTION_REFUSED = "CONNECTION_REFUSED"
+    STREAMING_INTERRUPTED = "STREAMING_INTERRUPTED"
+    OTHER = "OTHER"
+
+
+class LanguageModelResponseStatus(BaseModel, table=True):
+    __tablename__ = "language_model_response_statuses"
+
+    language_model_response_status_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    language_model_id: uuid.UUID = Field(foreign_key="language_models.language_model_id", nullable=False)
+    http_response_code: int | None = Field(sa_column=Column(Integer(), nullable=True))
+
+    status_type: LanguageModelResponseStatusEnum = Field(
+        sa_column=Column(
+            sa_Enum(LanguageModelResponseStatusEnum),
+            nullable=False,
+            server_default=LanguageModelResponseStatusEnum.OTHER.name,
+            index=True,
+        )
+    )
+
+    status_message: str | None = Field(sa_column=Column(sa.TEXT(), nullable=True))

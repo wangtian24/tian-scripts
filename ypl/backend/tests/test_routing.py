@@ -262,6 +262,7 @@ def test_fast_compute_all_conf_overlap_diffs() -> None:
     assert vals.tolist() == approx([0.0])
 
 
+@patch("ypl.backend.llm.routing.router.HighErrorRateFilter.select_models")
 @patch("ypl.backend.llm.routing.router.get_all_pro_models")
 @patch("ypl.backend.llm.routing.router.deduce_original_providers")
 @patch("ypl.backend.llm.routing.rule_router.deduce_original_providers")
@@ -273,6 +274,7 @@ def test_simple_pro_router_different_models(
     mock_deduce_providers1: Mock,
     mock_deduce_providers2: Mock,
     mock_get_all_pro_models: Mock,
+    mock_error_filter: Mock,
 ) -> None:
     mock_routing_table.return_value = RoutingTable([])
     mock_prompt_categorizer.categorize.return_value = CategorizerResponse(category="advice")
@@ -286,6 +288,7 @@ def test_simple_pro_router_different_models(
     # Just make a provider for each model named after the model.
     mock_deduce_providers1.return_value = {model: model for model in all_models}
     mock_deduce_providers2.return_value = {model: model for model in all_models}
+    mock_error_filter.side_effect = lambda state: state
 
     all_selected_models = set()
     for _ in range(30):
@@ -369,5 +372,5 @@ def test_routing_table(mock_deduce_providers: Mock) -> None:
         accept_map, rejected_models = routing_table.apply("*", {"model1-1", "model1-2", "model2", "model3"})
         reject_count += len(rejected_models)
 
-    # With 50% probability, model2 should be rejected 50% of the time.
+    # With 50% probability, model2 should be rejected.
     assert reject_count / 100 == approx(0.5, rel=0.1)

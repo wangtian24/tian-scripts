@@ -3,8 +3,10 @@ import os
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
+from pydantic import BaseModel
 
 import ypl.db.all_models  # noqa: F401
+from ypl.backend.llm.error_logger import DatabaseLanguageModelErrorLogger, DefaultLanguageModelErrorLogger
 from ypl.backend.llm.model.model import (
     LanguageModelStruct,
     create_model,
@@ -18,7 +20,13 @@ from ypl.backend.llm.routing.route_data_type import InstantaneousLanguageModelSt
 from ypl.backend.llm.running_statistics import RunningStatisticsTracker
 from ypl.backend.llm.utils import post_to_slack
 from ypl.backend.utils.json import json_dumps
-from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, LicenseEnum
+from ypl.db.language_models import (
+    LanguageModel,
+    LanguageModelResponseStatus,
+    LanguageModelResponseStatusEnum,
+    LanguageModelStatusEnum,
+    LicenseEnum,
+)
 
 router = APIRouter()
 
@@ -132,4 +140,26 @@ async def get_model_running_statistics_route(model_id: str) -> LanguageModelStat
             "message": f"Error getting model running statistics - {str(e)}",
         }
         logging.exception(json_dumps(log_dict))
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+class LanguageModelErrorPayload(BaseModel):
+    error_type: LanguageModelResponseStatusEnum
+    error_message: str | None = None
+    http_response_code: int | None = None
+
+
+@router.post("/models/{model_id}/errors", response_model=None)
+def log_model_error_route(model_id: str, payload: LanguageModelErrorPayload) -> None:
+    try:
+        error = LanguageModelResponseStatus(
+            language_model_id=model_id,
+            **payload.model_dump(),
+        )
+        DefaultLanguageModelErrorLogger().log(error)
+        DatabaseLanguageModelErrorLogger().log(error)
+    except Exception as e:
+        log_dict = {"message": f"Error logging model error - {str(e)}"}
+        logging.exception(json_dumps(log_dict))
+
         raise HTTPException(status_code=500, detail=str(e)) from e
