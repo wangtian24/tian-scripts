@@ -263,6 +263,7 @@ def test_fast_compute_all_conf_overlap_diffs() -> None:
 
 
 @patch("ypl.backend.llm.routing.router.HighErrorRateFilter.select_models")
+@patch("ypl.backend.llm.routing.router.get_all_strong_models")
 @patch("ypl.backend.llm.routing.router.get_all_pro_models")
 @patch("ypl.backend.llm.routing.router.deduce_original_providers")
 @patch("ypl.backend.llm.routing.rule_router.deduce_original_providers")
@@ -274,6 +275,7 @@ def test_simple_pro_router_different_models(
     mock_deduce_providers1: Mock,
     mock_deduce_providers2: Mock,
     mock_get_all_pro_models: Mock,
+    mock_get_all_strong_models: Mock,
     mock_error_filter: Mock,
 ) -> None:
     mock_routing_table.return_value = RoutingTable([])
@@ -288,6 +290,7 @@ def test_simple_pro_router_different_models(
     # Just make a provider for each model named after the model.
     mock_deduce_providers1.return_value = {model: model for model in all_models}
     mock_deduce_providers2.return_value = {model: model for model in all_models}
+    mock_get_all_strong_models.return_value = {"pro1", "pro2", "pro3", "model1"}
     mock_error_filter.side_effect = lambda state: state
 
     all_selected_models = set()
@@ -298,6 +301,7 @@ def test_simple_pro_router_different_models(
         assert (selected_models[0] in reputable_providers) or (selected_models[1] in reputable_providers)
         assert selected_models[0] != selected_models[1]
         all_selected_models.update(selected_models)
+
     # Over all iterations, all reputable or pro models should be selected at least once.
     assert all_selected_models == reputable_providers | pro_models
 

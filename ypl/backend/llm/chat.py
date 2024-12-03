@@ -99,6 +99,18 @@ def get_all_pro_models() -> Sequence[str]:
 
 
 @ttl_cache(ttl=600)  # 10-min cache
+def get_all_strong_models() -> Sequence[str]:
+    query = select(LanguageModel.internal_name).where(
+        LanguageModel.is_strong.is_(True),  # type: ignore
+        LanguageModel.deleted_at.is_(None),  # type: ignore
+        LanguageModel.status == LanguageModelStatusEnum.ACTIVE,
+    )
+
+    with Session(get_engine()) as session:
+        return session.exec(query).all()
+
+
+@ttl_cache(ttl=600)  # 10-min cache
 def get_user_message(turn_id: str) -> str:
     """Returns the user message for the given turn ID. If no user message is found, returns an empty string."""
     query = select(ChatMessage.content).where(

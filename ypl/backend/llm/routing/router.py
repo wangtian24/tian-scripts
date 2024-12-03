@@ -18,7 +18,12 @@ from sqlmodel import Session, select
 
 from ypl.backend.config import settings
 from ypl.backend.db import get_engine
-from ypl.backend.llm.chat import adeduce_original_provider, deduce_original_providers, get_all_pro_models
+from ypl.backend.llm.chat import (
+    adeduce_original_provider,
+    deduce_original_providers,
+    get_all_pro_models,
+    get_all_strong_models,
+)
 from ypl.backend.llm.constants import MODEL_HEURISTICS
 from ypl.backend.llm.prompt_classifiers import RemotePromptCategorizer
 from ypl.backend.llm.ranking import ConfidenceIntervalRankerMixin, Ranker, get_ranker
@@ -507,6 +512,26 @@ class ProModelProposer(RNGMixin, ModelProposer):
 
         return state.emplaced(
             selected_models={model: {SelectionCriteria.PRO_MODELS: 1.0} for model in models_to_select_},
+            all_models=state.all_models,
+            excluded_models=state.excluded_models | (state.all_models - set(models_to_select)),
+        )
+
+    async def _apropose_models(self, models_to_select: set[str], state: RouterState) -> RouterState:
+        return self._propose_models(models_to_select, state)
+
+
+class StrongModelProposer(RNGMixin, ModelProposer):
+    def _propose_models(self, models_to_select: set[str], state: RouterState) -> RouterState:
+        if not models_to_select:
+            return RouterState()
+
+        all_strong_models = set(get_all_strong_models())
+        models_to_select = models_to_select.intersection(all_strong_models)
+        models_to_select_ = list(models_to_select)
+        self.get_rng().shuffle(models_to_select_)
+
+        return state.emplaced(
+            selected_models={model: {SelectionCriteria.STRONG_MODELS: 1.0} for model in models_to_select_},
             all_models=state.all_models,
             excluded_models=state.excluded_models | (state.all_models - set(models_to_select)),
         )
@@ -1457,6 +1482,7 @@ def get_simple_pro_router(
             | (
                 (rule_proposer.with_flags(always_include=True, multiplier=100000) | RandomJitter(jitter_range=1))
                 & (ProModelProposer() | error_filter | TopK(1)).with_flags(always_include=True, offset=100000)
+                & (StrongModelProposer() | error_filter | TopK(1)).with_flags(always_include=True, offset=50000)
                 & (
                     reputable_proposer
                     | error_filter
