@@ -41,7 +41,7 @@ class RoutingTable(RNGMixin):
             RoutingAction.REJECT: set(),
         }
 
-        all_rules = self.rules_cat_map["*"]
+        all_rules = deepcopy(self.rules_cat_map["*"])
 
         if category != "*":
             all_rules.extend(self.rules_cat_map[category])
