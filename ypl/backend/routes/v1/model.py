@@ -6,7 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from pydantic import BaseModel
 
 import ypl.db.all_models  # noqa: F401
-from ypl.backend.llm.error_logger import DatabaseLanguageModelErrorLogger, DefaultLanguageModelErrorLogger
+from ypl.backend.llm.error_logger import DatabaseLanguageModelStatusLogger, DefaultLanguageModelStatusLogger
 from ypl.backend.llm.model.model import (
     LanguageModelStruct,
     create_model,
@@ -143,23 +143,23 @@ async def get_model_running_statistics_route(model_id: str) -> LanguageModelStat
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-class LanguageModelErrorPayload(BaseModel):
-    error_type: LanguageModelResponseStatusEnum
-    error_message: str | None = None
+class LanguageModelStatusPayload(BaseModel):
+    status_type: LanguageModelResponseStatusEnum
+    status_message: str | None = None
     http_response_code: int | None = None
 
 
-@router.post("/models/{model_id}/errors", response_model=None)
-def log_model_error_route(model_id: str, payload: LanguageModelErrorPayload) -> None:
+@router.post("/models/{model_id}/statuses", response_model=None)
+def log_model_status_route(model_id: str, payload: LanguageModelStatusPayload) -> None:
     try:
-        error = LanguageModelResponseStatus(
+        status = LanguageModelResponseStatus(
             language_model_id=model_id,
             **payload.model_dump(),
         )
-        DefaultLanguageModelErrorLogger().log(error)
-        DatabaseLanguageModelErrorLogger().log(error)
+        DefaultLanguageModelStatusLogger().log(status)
+        DatabaseLanguageModelStatusLogger().log(status)
     except Exception as e:
-        log_dict = {"message": f"Error logging model error - {str(e)}"}
+        log_dict = {"message": f"Error logging model status - {str(e)}"}
         logging.exception(json_dumps(log_dict))
 
         raise HTTPException(status_code=500, detail=str(e)) from e
