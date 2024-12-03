@@ -1384,12 +1384,14 @@ class HighErrorRateFilter(RNGMixin, ModelFilter):
         hard_threshold: float = 0.05,
         time_window: timedelta = timedelta(hours=6),
         soft_reject_prob: float = 0.5,
+        min_count: int = 10,
     ):
         super().__init__(persist=True)
         self.soft_threshold = settings.ROUTING_ERROR_FILTER_SOFT_THRESHOLD or soft_threshold
         self.hard_threshold = settings.ROUTING_ERROR_FILTER_HARD_THRESHOLD or hard_threshold
         self.soft_reject_prob = settings.ROUTING_ERROR_FILTER_SOFT_REJECT_PROB or soft_reject_prob
         self.time_window = time_window
+        self.min_count = min_count
 
     @cachetools.func.ttl_cache(ttl=60 * 5)  # 5 minutes
     def _get_error_rates(self) -> dict[str, float]:
@@ -1416,6 +1418,7 @@ class HighErrorRateFilter(RNGMixin, ModelFilter):
             model_internal_name: sum(v for c, v in error_counts.items() if c != LanguageModelResponseStatusEnum.OK)
             / sum(error_counts.values())
             for model_internal_name, error_counts in model_error_map.items()
+            if sum(error_counts.values()) >= self.min_count
         }
 
     def _filter(self, state: RouterState) -> tuple[RouterState, set[str]]:
