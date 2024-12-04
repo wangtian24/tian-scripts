@@ -5,9 +5,8 @@ from typing import Any, Self
 from cachetools.func import ttl_cache
 from sqlalchemy import select
 from sqlmodel import Session
-from sqlmodel.ext.asyncio.session import AsyncSession
 
-from ypl.backend.db import get_async_engine, get_engine
+from ypl.backend.db import get_engine
 from ypl.db.chats import ChatMessage, ModifierCategory, PromptModifier, PromptModifierAssoc, Turn
 from ypl.db.language_models import LanguageModel
 from ypl.utils import RNGMixin
@@ -57,15 +56,15 @@ def get_modifiers_by_model(chat_id: str) -> dict[str, list[str]]:
         return dict(modifiers_by_model)
 
 
-async def store_modifiers(turn_id: str, modifiers: dict[str, list[tuple[str, str]]]) -> None:
+def store_modifiers(turn_id: str, modifiers: dict[str, list[tuple[str, str]]]) -> None:
     """Stores the prompt modifiers for a given turn in the DB."""
-    async with AsyncSession(get_async_engine()) as session:
+    with Session(get_engine()) as session:
         query = (
             select(ChatMessage.message_id, LanguageModel.internal_name)  # type: ignore
             .join(LanguageModel, ChatMessage.assistant_language_model_id == LanguageModel.language_model_id)
             .where(ChatMessage.turn_id == turn_id)
         )
-        results = (await session.exec(query)).all()
+        results = session.exec(query).all()
         message_models = {str(message_id): model_name for message_id, model_name in results}
 
         assocs = []
@@ -77,7 +76,7 @@ async def store_modifiers(turn_id: str, modifiers: dict[str, list[tuple[str, str
 
         if assocs:
             session.add_all(assocs)
-            await session.commit()
+            session.commit()
 
 
 class CategorizedPromptModifierSelector(RNGMixin):

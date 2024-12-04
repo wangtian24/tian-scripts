@@ -3,9 +3,10 @@ import logging
 import math
 import os
 from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import cache
-from typing import TypeVar
+from typing import Any, TypeVar
 
 import numpy as np
 import tweepy
@@ -15,6 +16,7 @@ from sqlmodel import select
 from ypl.backend.db import Session, get_engine
 from ypl.backend.utils.json import json_dumps
 from ypl.db.ratings import OVERALL_CATEGORY_NAME, Category
+from ypl.utils import SingletonMixin
 
 EPSILON = 1e-9
 
@@ -224,3 +226,10 @@ def dict_shuffled(d: dict[T, V], rng: np.random.RandomState | None = None) -> di
     """Returns a shuffled copy of the dictionary."""
     rng_ = np.random.RandomState() if rng is None else rng
     return dict(sorted(d.items(), key=lambda _: rng_.random()))
+
+
+class GlobalThreadPoolExecutor(SingletonMixin, ThreadPoolExecutor):
+    """A global thread pool executor."""
+
+    def __init__(self, max_workers: int = 8, **kwargs: Any) -> None:
+        super().__init__(max_workers=max_workers, **kwargs)

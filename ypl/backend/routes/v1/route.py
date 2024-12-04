@@ -1,4 +1,3 @@
-import asyncio
 from enum import Enum
 from typing import Any
 
@@ -14,6 +13,7 @@ from ypl.backend.llm.routing.router import (
     RouterState,
     get_simple_pro_router,
 )
+from ypl.backend.llm.utils import GlobalThreadPoolExecutor
 
 router = APIRouter()
 
@@ -108,7 +108,7 @@ def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Response
     prompt_modifiers = selector.select_modifiers(models, modifier_history)
 
     if request.turn_id:
-        asyncio.run(store_modifiers(request.turn_id, prompt_modifiers))
+        GlobalThreadPoolExecutor.get_instance().submit(store_modifiers, request.turn_id, prompt_modifiers)
 
     return SelectModelsV2Response(models=[(model, prompt_modifiers.get(model, [])) for model in models])
 
