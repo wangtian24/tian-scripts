@@ -269,7 +269,7 @@ def test_fast_compute_all_conf_overlap_diffs() -> None:
 @patch("ypl.backend.llm.routing.rule_router.deduce_original_providers")
 @patch("ypl.backend.llm.routing.router.RemotePromptCategorizer")
 @patch("ypl.backend.llm.routing.rule_router.get_routing_table")
-def test_simple_pro_router_different_models(
+def test_simple_pro_router(
     mock_routing_table: Mock,
     mock_prompt_categorizer: Mock,
     mock_deduce_providers1: Mock,
@@ -278,6 +278,7 @@ def test_simple_pro_router_different_models(
     mock_get_all_strong_models: Mock,
     mock_error_filter: Mock,
 ) -> None:
+    # Test that we get different models
     mock_routing_table.return_value = RoutingTable([])
     mock_prompt_categorizer.categorize.return_value = CategorizerResponse(category="advice")
     pro_models = {"pro1", "pro2", "pro3", "pro4"}
@@ -304,6 +305,21 @@ def test_simple_pro_router_different_models(
 
     # Over all iterations, all reputable or pro models should be selected at least once.
     assert all_selected_models == reputable_providers | pro_models
+
+    # Test that we get the same models if we specify them.
+    for _ in range(10):
+        router = get_simple_pro_router(
+            prompt="", num_models=2, reputable_providers=reputable_providers, user_selected_models=["model1", "model2"]
+        )
+        selected_models = router.select_models(state=state).get_sorted_selected_models()
+        assert selected_models == ["model1", "model2"]
+
+    for _ in range(10):
+        router = get_simple_pro_router(
+            prompt="", num_models=1, reputable_providers=reputable_providers, user_selected_models=["model1"]
+        )
+        selected_models = router.select_models(state=state).get_sorted_selected_models()
+        assert "model1" in selected_models
 
 
 @patch("ypl.backend.llm.routing.rule_router.deduce_original_providers")

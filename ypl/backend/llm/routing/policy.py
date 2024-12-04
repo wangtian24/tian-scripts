@@ -73,4 +73,7 @@ class SelectionCriteria(Enum):
     # Select the models routed by the routing rules
     ROUTING_RULES = "routing_rules"
 
+    # Select the models injected by the user or some process
+    INJECT = "inject"
+
     RANDOM = "random"

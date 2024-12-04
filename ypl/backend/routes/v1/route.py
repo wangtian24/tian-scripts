@@ -53,6 +53,20 @@ def select_models(
 
 @router.post("/select_models_plus")
 def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Response:
+    def select_models_() -> list[str]:
+        num_models = request.num_models
+        router = get_simple_pro_router(
+            prompt,
+            num_models,
+            preference,
+            user_selected_models=request.required_models if request.required_models else None,
+        )
+        all_models_state = RouterState.new_all_models_state()
+        selected_models = router.select_models(state=all_models_state)
+        return_models = selected_models.get_sorted_selected_models()
+
+        return return_models
+
     match request.intent:
         case SelectIntent.NEW_CHAT | SelectIntent.NEW_TURN:
             assert request.prompt is not None, "prompt is required for NEW_CHAT or NEW_TURN intent"
@@ -78,7 +92,7 @@ def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Response
     if request.intent == SelectIntent.NEW_TURN and preference.turns and not preference.turns[-1].has_evaluation:
         models = preference.turns[-1].models
     elif not request.required_models or len(request.required_models) < request.num_models:
-        models = select_models(prompt, request.num_models, float("inf"), preference)
+        models = select_models_()
     else:
         models = request.required_models
 

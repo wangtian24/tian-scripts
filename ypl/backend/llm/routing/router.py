@@ -693,6 +693,21 @@ class RandomJitter(RNGMixin, ModelFilter):
         return state, set()
 
 
+class Inject(ModelFilter):
+    def __init__(self, models: list[str], *, score: float = 1) -> None:
+        super().__init__(persist=True)
+        self.models = models
+        self.score = score
+
+    def _filter(self, state: RouterState) -> tuple[RouterState, set[str]]:
+        return state.emplaced(
+            selected_models={
+                **state.selected_models,
+                **{model: {SelectionCriteria.INJECT: self.score - idx} for idx, model in enumerate(self.models)},
+            },
+        ), set()
+
+
 class MinimumFractionModelProposer(RNGMixin, ModelProposer):
     def __init__(
         self,
@@ -1464,6 +1479,7 @@ def get_simple_pro_router(
     num_models: int,
     routing_preference: RoutingPreference | None = None,
     reputable_providers: set[str] | None = None,
+    user_selected_models: list[str] | None = None,
 ) -> RouterModule:
     from ypl.backend.llm.routing.rule_router import RoutingRuleFilter, RoutingRuleProposer
 
@@ -1495,6 +1511,7 @@ def get_simple_pro_router(
                 ).with_flags(always_include=True, offset=5000)
             )
             | error_filter
+            | Inject(user_selected_models or [], score=10000000)
             | ProviderFilter(one_per_provider=True)
             | TopK(num_models)
             | RoutingDecisionLogger(enabled=settings.ROUTING_DO_LOGGING, prefix="first-prompt-simple-pro-router")
