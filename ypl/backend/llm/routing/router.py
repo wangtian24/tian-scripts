@@ -1474,6 +1474,8 @@ def get_simple_pro_router(
     rule_proposer = RoutingRuleProposer(category)
     rule_filter = RoutingRuleFilter(category)
     error_filter = HighErrorRateFilter()
+    pro_proposer = ProModelProposer()
+    num_pro = int(pro_proposer.get_rng().random() * 2 + 1)
 
     if not preference.turns:
         # Construct a first-turn router guaranteeing at least one pro model and one reputable model.
@@ -1481,7 +1483,7 @@ def get_simple_pro_router(
             rule_filter
             | (
                 (rule_proposer.with_flags(always_include=True, multiplier=100000) | RandomJitter(jitter_range=1))
-                & (ProModelProposer() | error_filter | TopK(1)).with_flags(always_include=True, offset=100000)
+                & (pro_proposer | error_filter | TopK(num_pro)).with_flags(always_include=True, offset=100000)
                 & (StrongModelProposer() | error_filter | TopK(1)).with_flags(always_include=True, offset=50000)
                 & (
                     reputable_proposer
