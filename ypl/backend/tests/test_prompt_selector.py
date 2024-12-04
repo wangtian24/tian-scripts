@@ -17,6 +17,7 @@ def test_select_modifiers() -> None:
             same_categories_all_models=True,
             modify_all_models=True,
             reuse_previous_modifiers=True,
+            modify_last_model=False,
         )
     )
     selector.set_seed(123, overwrite_existing=True)
@@ -70,9 +71,18 @@ def test_select_modifiers() -> None:
         modifiers = selector.select_modifiers(models, history)
         # Every time, only one model should be modified.
         assert len(modifiers) == 1
-        randomly_modified_models.add(list(modifiers.keys())[0])
+        randomly_modified_models.add(next(iter(modifiers.keys())))
     # But every model should be modified at least once.
     assert len(randomly_modified_models) == len(models)
+
+    selector.policy.modify_last_model = True
+    randomly_modified_models = set()
+    for _ in range(20):
+        modifiers = selector.select_modifiers(models, history)
+        # The same model should be modified each time.
+        assert len(modifiers) == 1
+        randomly_modified_models.add(next(iter(modifiers.keys())))
+    assert len(randomly_modified_models) == 1
 
     selector.policy.modify_all_models = True
     selector.policy.same_categories_all_models = True

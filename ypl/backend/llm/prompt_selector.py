@@ -15,17 +15,24 @@ from ypl.utils import RNGMixin
 
 @dataclass
 class PromptModifierPolicy:
+    # How many categories are modified per model.
     num_categories_to_modify: int
+    # Whether to use the same modified categories for all models.
     same_categories_all_models: bool
+    # Whether to modify all models or just one.
     modify_all_models: bool
+    # Whether to reuse existing modifiers for a model.
     reuse_previous_modifiers: bool
+    # Whether to modify the last unmodified model or a random one.
+    modify_last_model: bool
 
 
 DEFAULT_PROMPT_MODIFIER_POLICY = PromptModifierPolicy(
     num_categories_to_modify=1,
     same_categories_all_models=True,
-    modify_all_models=True,
+    modify_all_models=False,
     reuse_previous_modifiers=True,
+    modify_last_model=True,
 )
 
 
@@ -137,8 +144,12 @@ class CategorizedPromptModifierSelector(RNGMixin):
         if self.policy.modify_all_models:
             models_to_modify = unmodified_models
         else:
-            # Choose a random unmodified model to modify.
-            models_to_modify = [self.get_rng().choice(list(unmodified_models))]
+            if self.policy.modify_last_model:
+                # Modify just the last unmodified model.
+                models_to_modify = [unmodified_models[-1]]
+            else:
+                # Modify a random unmodified model.
+                models_to_modify = [self.get_rng().choice(unmodified_models)]
 
         # Select the modifier categories and modifiers to apply to each model.
         categories_to_modify = []
