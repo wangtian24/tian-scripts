@@ -264,7 +264,9 @@ def get_reward(
     after=after_log(logging.getLogger(), logging.WARNING),
     retry=retry_if_exception_type((OperationalError, DatabaseError)),
 )
-def reward(user_id: str, turn_id: UUID) -> tuple[bool, int, str, RewardAmountRule | None, RewardProbabilityRule | None]:
+def turn_based_reward(
+    user_id: str, turn_id: UUID
+) -> tuple[bool, int, str, RewardAmountRule | None, RewardProbabilityRule | None]:
     """
     Determine if a user should be rewarded for a turn and calculate the reward amount.
 
@@ -301,6 +303,43 @@ def reward(user_id: str, turn_id: UUID) -> tuple[bool, int, str, RewardAmountRul
         reward_comment,
         user_turn_reward.amount_rule,
         user_turn_reward.probability_rule,
+    )
+
+
+def feedback_based_reward(user_id: str) -> tuple[bool, int, str, RewardAmountRule | None, RewardProbabilityRule | None]:
+    """
+    Determine if a user should be rewarded for feedback and calculate the reward amount.
+    Uses a normally distributed random variable between 1000-2000 (rounded to nearest 10).
+
+    Args:
+        user_id (str): The ID of the user.
+
+    Returns:
+        tuple[bool, int, str]: A tuple containing:
+            - bool: Whether the user should be rewarded (True) or not (False).
+            - int: The reward amount (in points). 0 if not rewarded.
+            - str: A comment or message about the reward.
+    """
+    # Always reward feedback
+    should_reward = True
+
+    # Generate normally distributed random number between 1000-2000
+    lower_bound = 1000
+    upper_bound = 2000
+    mean = (lower_bound + upper_bound) / 2
+    std_dev = (upper_bound - mean) / 3
+
+    reward_amount = int(round(random.gauss(mean, std_dev), -1))
+    reward_amount = max(lower_bound, min(upper_bound, reward_amount))
+
+    reward_comment = f"Feedback based reward: {reward_amount} credits."
+
+    return (
+        should_reward,
+        reward_amount,
+        reward_comment,
+        None,  # No specific amount rule for feedback for now
+        None,  # No specific probability rule for feedback for now
     )
 
 
@@ -363,10 +402,15 @@ async def create_reward(
         )
         async with session.begin():
             session.add(reward)
+            await session.flush()  # Ensure reward_id is available
 
+            # Fetch fresh copies of reward action logs
             for reward_action_log in reward_action_logs:
-                reward_action_log.associated_reward_id = reward.reward_id
-                session.add(reward_action_log)
+                # Get a fresh copy from the database
+                fresh_log = await session.get(RewardActionLog, reward_action_log.reward_action_log_id)
+                if fresh_log:
+                    fresh_log.associated_reward_id = reward.reward_id
+                    session.add(fresh_log)
 
         await session.refresh(reward)
         return reward
