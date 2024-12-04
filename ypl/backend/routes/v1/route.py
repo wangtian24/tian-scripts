@@ -96,8 +96,7 @@ def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Response
     else:
         models = request.required_models
 
-    if request.required_models:
-        models = (request.required_models + models)[: request.num_models]
+    models = models[: request.num_models]
 
     selector = CategorizedPromptModifierSelector.make_default_from_db()
 
