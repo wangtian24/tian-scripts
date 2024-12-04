@@ -1,3 +1,4 @@
+import enum
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
@@ -36,6 +37,7 @@ class User(BaseModel, table=True):
 
     user_id: str = Field(primary_key=True, nullable=False, sa_type=sa.Text)
     name: str | None = Field(default=None, sa_type=sa.Text)
+    discord_id: str | None = Field(default=None, nullable=True, sa_type=sa.Text)
 
     # Forcing the pre-convention constraint name for backwards compatibility.
     email: str = Field(sa_column=Column("email", sa.Text, nullable=False))
@@ -168,3 +170,23 @@ class VerificationToken(BaseModel, table=True):
     identifier: str = Field(primary_key=True, nullable=False, sa_type=sa.Text)
     token: str = Field(primary_key=True, nullable=False, sa_type=sa.Text)
     expires: datetime = Field(nullable=False)
+
+
+class WaitlistStatus(enum.Enum):
+    ALLOWED = "ALLOWED"
+    DENIED = "DENIED"
+    PENDING = "PENDING"
+
+
+class WaitlistedUser(BaseModel, table=True):
+    """Represents users who have signed up for the waitlist."""
+
+    __tablename__ = "waitlisted_users"
+    waitlisted_user_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
+    email: str = Field(sa_column=Column("email", sa.Text, nullable=False, unique=True, index=True))
+    status: WaitlistStatus = Field(
+        default=WaitlistStatus.PENDING,
+        sa_column=Column(sa.Enum(WaitlistStatus), nullable=False, server_default=WaitlistStatus.PENDING.value),
+    )
+    referrer_id: str | None = Field(foreign_key="users.user_id", nullable=True)
+    comment: str | None = Field(default=None, sa_type=sa.Text)
