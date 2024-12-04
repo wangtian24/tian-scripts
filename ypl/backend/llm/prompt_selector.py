@@ -140,6 +140,9 @@ class CategorizedPromptModifierSelector(RNGMixin):
         else:
             unmodified_models = models
 
+        if not unmodified_models:
+            return self._to_modifier_history(modifiers_by_model)
+
         # Select which models to modify.
         if self.policy.modify_all_models:
             models_to_modify = unmodified_models
@@ -165,6 +168,9 @@ class CategorizedPromptModifierSelector(RNGMixin):
             num_new_categories = self.policy.num_categories_to_modify - len(categories_to_modify)
             categories_to_modify.extend(self.get_rng().choice(unused_categories, num_new_categories, replace=False))
 
+        if not categories_to_modify:
+            return self._to_modifier_history(modifiers_by_model)
+
         # Select the modifiers to apply to each model.
         already_used_modifiers = set()
         for model in models_to_modify:
@@ -183,8 +189,14 @@ class CategorizedPromptModifierSelector(RNGMixin):
             modifiers_by_model[model] = modifiers
 
         # Return just the modifier IDs and texts.
+        return self._to_modifier_history(modifiers_by_model)
+
+    @classmethod
+    def _to_modifier_history(
+        cls, modifiers_by_model: dict[str, list[PromptModifier]]
+    ) -> dict[str, list[tuple[str, str]]]:
         return {
-            model: [(str(modifier.prompt_modifier_id), modifier.text) for modifier in modifiers]
+            model: list(set([(str(modifier.prompt_modifier_id), modifier.text) for modifier in modifiers]))
             for model, modifiers in modifiers_by_model.items()
         }
 

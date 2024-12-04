@@ -96,7 +96,7 @@ def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Response
     if request.turn_id:
         asyncio.run(store_modifiers(request.turn_id, prompt_modifiers))
 
-    return SelectModelsV2Response(models=[(model, prompt_modifiers[model]) for model in models])
+    return SelectModelsV2Response(models=[(model, prompt_modifiers.get(model, [])) for model in models])
 
 
 @router.post("/update_ranker")
