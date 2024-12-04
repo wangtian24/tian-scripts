@@ -21,6 +21,7 @@ class RewardActionEnum(Enum):
     PROMPT = "prompt"
     EVALUATION = "evaluation"
     TURN = "turn"
+    FEEDBACK = "feedback"
 
 
 class RewardActionLog(BaseModel, table=True):
