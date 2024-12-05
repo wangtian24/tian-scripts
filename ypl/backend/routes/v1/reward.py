@@ -91,6 +91,7 @@ async def handle_qt_eval_reward(reward_action_log: RewardActionLog) -> RewardCre
     existing_log = await get_reward_action_log_by_user_and_turn(
         user_id=reward_action_log.user_id,
         turn_id=turn_id,
+        action_type=RewardActionEnum.QT_EVAL.name,
     )
 
     # do not reward the user for multiple QT eval actions in a single turn

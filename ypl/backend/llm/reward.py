@@ -561,14 +561,16 @@ def get_reward_probability_rules() -> list[RewardRule]:
     return _get_reward_rules(RewardProbabilityRule)
 
 
-async def get_reward_action_log_by_user_and_turn(user_id: str, turn_id: uuid.UUID) -> RewardActionLog | None:
+async def get_reward_action_log_by_user_and_turn(
+    user_id: str, turn_id: uuid.UUID, action_type: str
+) -> RewardActionLog | None:
     """
     Get reward action log entry for a specific user and turn
 
     Args:
         user_id: The ID of the user
         turn_id: The ID of the turn
-
+        action_type: The type of the action
     Returns:
         RewardActionLog if found, None otherwise
     """
@@ -577,6 +579,7 @@ async def get_reward_action_log_by_user_and_turn(user_id: str, turn_id: uuid.UUI
             and_(
                 RewardActionLog.user_id == user_id,  # type: ignore
                 RewardActionLog.turn_id == turn_id,  # type: ignore
+                RewardActionLog.action_type == action_type,  # type: ignore
                 RewardActionLog.deleted_at.is_(None),  # type: ignore
             )
         )
