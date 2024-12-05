@@ -158,7 +158,7 @@ def get_preferences(chat_id: str) -> RoutingPreference:
     df = pd.DataFrame(df_rows)
     preferred_models_list = []
 
-    for _, gdf in df.groupby("turn_id"):
+    for _, gdf in df.groupby("turn_id", sort=False):
         evaluated_models = gdf[gdf["eval_type"].isin(["SELECTION", "ALL_BAD"])]["model_name"].tolist()
 
         if not evaluated_models:
