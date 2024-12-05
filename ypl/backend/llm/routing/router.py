@@ -1541,7 +1541,10 @@ def get_simple_pro_router(
         router: RouterModule = (  # type: ignore[no-redef]
             rule_filter
             | (
-                (RandomModelProposer(models=all_good_models) | error_filter | TopK(1)).with_flags(always_include=True)
+                (RandomModelProposer(models=all_good_models) | error_filter | TopK(1)).with_flags(
+                    always_include=True,
+                    offset=10000000,
+                )
                 & (
                     rule_proposer.with_flags(always_include=True, multiplier=10000)
                     | error_filter
