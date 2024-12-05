@@ -1,7 +1,34 @@
-from sqlalchemy import Connection, delete
+from datetime import datetime
+
+from sqlalchemy import Connection, delete, select, update
 from sqlmodel import Session
 
 from ypl.db.chats import PromptModifier
+
+
+def _add_prompt_modifiers(connection: Connection, modifiers: list[tuple[str, str, str]]) -> None:
+    with Session(connection) as session:
+        for category, name, text in modifiers:
+            # Check if modifier already exists
+            existing_id = session.exec(
+                select(PromptModifier.prompt_modifier_id).where(
+                    PromptModifier.category == category, PromptModifier.name == name
+                )
+            ).fetchone()
+
+            if existing_id:
+                # Undelete if it exists
+                session.exec(
+                    update(PromptModifier)
+                    .where(PromptModifier.prompt_modifier_id == existing_id[0])
+                    .values(deleted_at=None)
+                )
+                continue
+
+            prompt_modifier = PromptModifier(category=category, name=name, text=text)
+            session.add(prompt_modifier)
+
+        session.commit()
 
 
 def add_initial_prompt_modifiers(connection: Connection) -> None:
@@ -39,14 +66,40 @@ def add_initial_prompt_modifiers(connection: Connection) -> None:
         ),
     ]
 
-    with Session(connection) as session:
-        for category, name, text in modifiers:
-            prompt_modifier = PromptModifier(category=category, name=name, text=text)
-            session.add(prompt_modifier)
-        print(f"Adding {len(session.new)} prompt modifiers")
-        session.commit()
+    _add_prompt_modifiers(connection, modifiers)
+
+
+def add_simplified_prompt_modifiers(connection: Connection) -> None:
+    """Add simplified prompt modifiers to the database."""
+
+    modifiers = [
+        (
+            "style",
+            "style_concise",
+            "Be as concise as possible; try to limit the response to 50 words or fewer.",
+        ),
+        (
+            "style",
+            "style_explanatory",
+            "Make your response educational, providing examples and explanations as needed.",
+        ),
+        (
+            "style",
+            "style_formal",
+            "Provide a clear and well-structured response, with a formal tone.",
+        ),
+    ]
+
+    _add_prompt_modifiers(connection, modifiers)
 
 
 def remove_prompt_modifiers(connection: Connection) -> None:
     with Session(connection) as session:
         session.exec(delete(PromptModifier))
+
+
+def soft_remove_prompt_modifiers(connection: Connection) -> None:
+    """Mark all prompt modifiers as deleted."""
+    now = datetime.now()
+    with Session(connection) as session:
+        session.exec(update(PromptModifier).where(PromptModifier.deleted_at.is_(None)).values(deleted_at=now))
