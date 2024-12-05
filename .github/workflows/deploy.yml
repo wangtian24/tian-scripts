@@ -250,8 +250,8 @@ jobs:
     - name: Run migrations
       if: env.ENVIRONMENT == 'staging'
       run: |
-        pip install alembic psycopg2-binary sqlalchemy alembic-postgresql-enum sqlmodel sqlalchemy
-        alembic upgrade head
+        poetry install --no-cache --no-dev
+        poetry run alembic upgrade head
 
     - name: Tag commit
       run: |
