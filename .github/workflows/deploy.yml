@@ -250,7 +250,7 @@ jobs:
     - name: Run migrations
       if: env.ENVIRONMENT == 'staging'
       run: |
-        cd ypl/db/alembic
+        pip install alembic psycopg2-binary sqlalchemy alembic-postgresql-enum sqlmodel sqlalchemy
         alembic upgrade head
 
     - name: Tag commit
