@@ -33,7 +33,7 @@ class RewardActionLog(BaseModel, table=True):
     user_id: str = Field(foreign_key="users.user_id", nullable=False, index=True)
     user: "User" = Relationship(back_populates="reward_action_logs")
 
-    action_type: RewardActionEnum = Field(nullable=False)
+    action_type: RewardActionEnum = Field(nullable=False, index=True)
 
     # The turn ID that is associated with this action.
     # Only set if the action type is "evaluation" or "turn".
