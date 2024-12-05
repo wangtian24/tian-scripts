@@ -121,11 +121,11 @@ def get_user_message(turn_id: str) -> str:
         return session.exec(query).first() or ""
 
 
-def get_preferences(chat_id: str) -> RoutingPreference:
-    """Returns the preferences for the given chat ID."""
+def get_preferences(chat_id: str) -> tuple[RoutingPreference, list[str]]:
+    """Returns the preferences and user-selected models for the given chat ID."""
     sql_query = text(
         """
-        SELECT cm.assistant_model_name, t.turn_id, e.eval_type, me.score FROM turns t
+        SELECT cm.assistant_model_name, t.turn_id, e.eval_type, me.score, cm.assistant_selection_source FROM turns t
             JOIN chat_messages cm ON cm.turn_id = t.turn_id
             LEFT JOIN message_evals me ON me.message_id = cm.message_id
             LEFT JOIN evals e ON e.eval_id = me.eval_id
@@ -142,23 +142,25 @@ def get_preferences(chat_id: str) -> RoutingPreference:
     df_rows = []
 
     for row in reversed(rows):  # reverse to get the oldest turn first
-        model_name, turn_id, eval_type, score = row
+        model_name, turn_id, eval_type, score, selection_src = row
         df_rows.append(
             dict(
                 model_name=model_name,
                 turn_id=turn_id,
                 eval_type=eval_type,
                 score=score,
+                selection_src=selection_src,
             )
         )
 
     if not df_rows:
-        return RoutingPreference(turns=[])
+        return RoutingPreference(turns=[]), []
 
     df = pd.DataFrame(df_rows)
     preferred_models_list = []
 
     for _, gdf in df.groupby("turn_id", sort=False):
+        gdf = gdf[gdf["selection_src"] == "ROUTER_SELECTED"]
         evaluated_models = gdf[gdf["eval_type"].isin(["SELECTION", "ALL_BAD"])]["model_name"].tolist()
 
         if not evaluated_models:
@@ -172,7 +174,9 @@ def get_preferences(chat_id: str) -> RoutingPreference:
         preferred_model = preferred_models[0] if preferred_models else None
         preferred_models_list.append(PreferredModel(models=all_models, preferred=preferred_model))
 
-    return RoutingPreference(turns=preferred_models_list)
+    user_selected_models = list(dict.fromkeys(df[df["selection_src"] == "USER_SELECTED"]["model_name"].tolist()))
+
+    return RoutingPreference(turns=preferred_models_list), user_selected_models
 
 
 def get_shown_models(turn_id: str) -> list[str]:

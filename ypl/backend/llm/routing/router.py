@@ -1572,6 +1572,7 @@ def get_simple_pro_router(
             )
             | error_filter
             | Exclude(all_bad_models)
+            | Inject(user_selected_models or [], score=100000000)
             | ProviderFilter(one_per_provider=True)
             | TopK(num_models)
             | RoutingDecisionLogger(
@@ -1581,6 +1582,7 @@ def get_simple_pro_router(
                     "turns": [t.model_dump() for t in preference.turns],
                     "all_good_models": list(all_good_models),
                     "all_bad_models": list(all_bad_models),
+                    "user_selected_models": user_selected_models or [],
                 },
             )
         )

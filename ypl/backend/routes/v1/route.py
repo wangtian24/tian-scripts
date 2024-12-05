@@ -77,7 +77,8 @@ def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Response
 
     match request.intent:
         case SelectIntent.NEW_TURN | SelectIntent.SHOW_ME_MORE:
-            preference = get_preferences(request.chat_id)  # type: ignore[arg-type]
+            preference, user_selected_models = get_preferences(request.chat_id)  # type: ignore[arg-type]
+            request.required_models = list(dict.fromkeys((request.required_models or []) + user_selected_models))
         case _:
             preference = RoutingPreference(turns=[])
 
@@ -90,7 +91,7 @@ def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Response
         preference.turns.append(PreferredModel(models=shown_models, preferred=None))
 
     if request.intent == SelectIntent.NEW_TURN and preference.turns and not preference.turns[-1].has_evaluation:
-        models = preference.turns[-1].models
+        models = list(dict.fromkeys(preference.turns[-1].models + (request.required_models or [])))
     elif not request.required_models or len(request.required_models) < request.num_models:
         models = select_models_()
     else:
