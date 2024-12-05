@@ -128,29 +128,6 @@ probability_rules:
           value: 3000
     probability: 0.05
 
-  - name: first_eval
-    priority: 250
-    is_active: true
-    conditions:
-      all:
-        - name: is_first_eval
-          operator: is_true
-          value: true
-    probability: 1.0
-
-  - name: new_or_inactive_user
-    priority: 150
-    is_active: true
-    conditions:
-      any:
-        - name: is_new_user
-          operator: is_true
-          value: true
-        - name: is_inactive_user
-          operator: is_true
-          value: true
-    probability: 0.9
-
   - name: first_chat_eval_1
     priority: 99
     is_active: true

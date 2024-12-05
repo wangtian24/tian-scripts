@@ -1011,7 +1011,8 @@ def refresh_rewards_rules(rules_file: str, dry_run: bool) -> None:
         else:
             new_rules_to_add.append(probability_rule)
 
-    for rule in existing_amount_rules:
+    all_existing_rules = list(existing_amount_rules) + list(existing_probability_rules)
+    for rule in all_existing_rules:
         if rule not in existing_rules_to_keep and rule.is_active:
             # We don't want to delete rules, since they may be associated with past rewards; just set them as inactive.
             rule.is_active = False
