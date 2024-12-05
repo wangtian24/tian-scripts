@@ -20,6 +20,7 @@ class RewardActionEnum(Enum):
     # Deprecated. Use TURN instead.
     PROMPT = "prompt"
     EVALUATION = "evaluation"
+    QT_EVAL = "qt_eval"
     TURN = "turn"
     FEEDBACK = "feedback"
 
