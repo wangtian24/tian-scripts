@@ -28,12 +28,14 @@ class RewardActionEnum(Enum):
 class RewardActionLog(BaseModel, table=True):
     __tablename__ = "reward_action_logs"
 
+    __table_args__ = (sa.Index("ix_reward_action_logs_user_turn", "user_id", "turn_id"),)
+
     reward_action_log_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
 
     user_id: str = Field(foreign_key="users.user_id", nullable=False, index=True)
     user: "User" = Relationship(back_populates="reward_action_logs")
 
-    action_type: RewardActionEnum = Field(nullable=False, index=True)
+    action_type: RewardActionEnum = Field(nullable=False)
 
     # The turn ID that is associated with this action.
     # Only set if the action type is "evaluation" or "turn".
