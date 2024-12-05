@@ -247,6 +247,12 @@ jobs:
             --command="/app/ypl/backend/entrypoint.sh"
         fi
 
+    - name: Run migrations
+      if: env.ENVIRONMENT == 'staging'
+      run: |
+        cd ypl/db/alembic
+        alembic upgrade head
+
     - name: Tag commit
       run: |
         git fetch --tags
