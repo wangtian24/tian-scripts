@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from uuid import UUID
 
@@ -38,14 +39,14 @@ async def handle_feedback_reward(reward_action_log: RewardActionLog) -> RewardCr
             reward_probability_rule=reward_probability_rule,
         )
 
-        # process reward claim always for feedback-based rewards as users will not do a scratchcard for kabini release
         # TODO post kabini release, we should send scratchcards and not automatically claim rewards
-        reward_claim_struct = await process_reward_claim(created_reward.reward_id, updated_reward_action_log.user_id)
+        # Create task for process_reward_claim but don't await it
+        asyncio.create_task(process_reward_claim(created_reward.reward_id, updated_reward_action_log.user_id))
 
         return RewardCreationResponse(
             is_rewarded=True,
             reward_id=created_reward.reward_id,
-            comment=reward_claim_struct.comment,
+            comment=comment,
             credit_delta=credit_delta,
         )
 
@@ -114,14 +115,14 @@ async def handle_qt_eval_reward(reward_action_log: RewardActionLog) -> RewardCre
             reward_probability_rule=reward_probability_rule,
         )
 
-        # process reward claim always for QT Eval rewards as users will not do a scratchcard for kabini release
         # TODO post kabini release, we should send scratchcards and not automatically claim rewards
-        reward_claim_struct = await process_reward_claim(created_reward.reward_id, updated_reward_action_log.user_id)
+        # Create task for process_reward_claim but don't await it
+        asyncio.create_task(process_reward_claim(created_reward.reward_id, updated_reward_action_log.user_id))
 
         return RewardCreationResponse(
             is_rewarded=True,
             reward_id=created_reward.reward_id,
-            comment=reward_claim_struct.comment,
+            comment=comment,
             credit_delta=credit_delta,
         )
 
