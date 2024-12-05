@@ -9,7 +9,7 @@ from uuid import UUID
 
 from cachetools.func import ttl_cache
 from pydantic import BaseModel
-from sqlalchemy import func
+from sqlalchemy import and_, func
 from sqlalchemy.exc import DatabaseError, OperationalError
 from sqlmodel import Session, select, update
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -32,6 +32,10 @@ from ypl.db.users import User
 
 # Define mean reward for evals, baseline value for medium tier (method="mean")
 MEAN_EVAL_REWARD = 50
+FEEDBACK_REWARD_LOWER_BOUND = 1000
+FEEDBACK_REWARD_UPPER_BOUND = 2000
+QT_EVAL_REWARD_LOWER_BOUND = 0
+QT_EVAL_REWARD_UPPER_BOUND = 300
 
 
 @dataclass
@@ -306,32 +310,33 @@ def turn_based_reward(
     )
 
 
-def feedback_based_reward(user_id: str) -> tuple[bool, int, str, RewardAmountRule | None, RewardProbabilityRule | None]:
+def generate_bounded_reward(lower_bound: int, upper_bound: int) -> int:
     """
-    Determine if a user should be rewarded for feedback and calculate the reward amount.
-    Uses a normally distributed random variable between 1000-2000 (rounded to nearest 10).
+    Generate a normally distributed random reward amount between lower and upper bounds.
 
     Args:
-        user_id (str): The ID of the user.
+        lower_bound (int): Minimum reward amount
+        upper_bound (int): Maximum reward amount
 
     Returns:
-        tuple[bool, int, str]: A tuple containing:
-            - bool: Whether the user should be rewarded (True) or not (False).
-            - int: The reward amount (in points). 0 if not rewarded.
-            - str: A comment or message about the reward.
+        int: The generated reward amount, rounded to nearest 10
     """
-    # Always reward feedback
-    should_reward = True
-
-    # Generate normally distributed random number between 1000-2000
-    lower_bound = 1000
-    upper_bound = 2000
     mean = (lower_bound + upper_bound) / 2
     std_dev = (upper_bound - mean) / 3
 
     reward_amount = int(round(random.gauss(mean, std_dev), -1))
-    reward_amount = max(lower_bound, min(upper_bound, reward_amount))
+    return max(lower_bound, min(upper_bound, reward_amount))
 
+
+def feedback_based_reward(user_id: str) -> tuple[bool, int, str, RewardAmountRule | None, RewardProbabilityRule | None]:
+    """
+    Determine if a user should be rewarded for feedback and calculate the reward amount.
+    Uses a normally distributed random variable between 1000-2000 (rounded to nearest 10).
+    """
+    should_reward = True
+    reward_amount = generate_bounded_reward(
+        lower_bound=FEEDBACK_REWARD_LOWER_BOUND, upper_bound=FEEDBACK_REWARD_UPPER_BOUND
+    )
     reward_comment = f"Feedback based reward: {reward_amount} credits."
 
     return (
@@ -340,6 +345,26 @@ def feedback_based_reward(user_id: str) -> tuple[bool, int, str, RewardAmountRul
         reward_comment,
         None,  # No specific amount rule for feedback for now
         None,  # No specific probability rule for feedback for now
+    )
+
+
+def qt_eval_reward(user_id: str) -> tuple[bool, int, str, RewardAmountRule | None, RewardProbabilityRule | None]:
+    """
+    Determine if a user should be rewarded for QT evaluation and calculate the reward amount.
+    Uses a normally distributed random variable between 0-300 (rounded to nearest 10).
+    """
+    should_reward = True
+    reward_amount = generate_bounded_reward(
+        lower_bound=QT_EVAL_REWARD_LOWER_BOUND, upper_bound=QT_EVAL_REWARD_UPPER_BOUND
+    )
+    reward_comment = f"QT Eval reward: {reward_amount} credits."
+
+    return (
+        should_reward,
+        reward_amount,
+        reward_comment,
+        None,  # No specific amount rule for QT eval for now
+        None,  # No specific probability rule for QT eval for now
     )
 
 
@@ -534,3 +559,26 @@ def get_reward_amount_rules() -> list[RewardRule]:
 @ttl_cache(ttl=600)  # 10 minute cache
 def get_reward_probability_rules() -> list[RewardRule]:
     return _get_reward_rules(RewardProbabilityRule)
+
+
+async def get_reward_action_log_by_user_and_turn(user_id: str, turn_id: uuid.UUID) -> RewardActionLog | None:
+    """
+    Get reward action log entry for a specific user and turn
+
+    Args:
+        user_id: The ID of the user
+        turn_id: The ID of the turn
+
+    Returns:
+        RewardActionLog if found, None otherwise
+    """
+    async with AsyncSession(get_async_engine()) as session:
+        query = select(RewardActionLog).where(
+            and_(
+                RewardActionLog.user_id == user_id,  # type: ignore
+                RewardActionLog.turn_id == turn_id,  # type: ignore
+                RewardActionLog.deleted_at.is_(None),  # type: ignore
+            )
+        )
+        result = await session.exec(query)
+        return result.one_or_none()

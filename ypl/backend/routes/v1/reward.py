@@ -9,7 +9,9 @@ from ypl.backend.llm.reward import (
     create_reward,
     create_reward_action_log,
     feedback_based_reward,
+    get_reward_action_log_by_user_and_turn,
     process_reward_claim,
+    qt_eval_reward,
     turn_based_reward,
 )
 from ypl.backend.utils.json import json_dumps
@@ -79,11 +81,59 @@ async def handle_turn_reward(reward_action_log: RewardActionLog) -> RewardCreati
     return RewardCreationResponse(is_rewarded=False)
 
 
+async def handle_qt_eval_reward(reward_action_log: RewardActionLog) -> RewardCreationResponse:
+    """Handle QT (Quick Take) evaluation reward processing."""
+    turn_id = reward_action_log.turn_id
+    if turn_id is None:
+        raise HTTPException(status_code=400, detail="Turn ID is required for QT eval actions")
+
+    # Check if an entry already exists for this user and turn
+    existing_log = await get_reward_action_log_by_user_and_turn(
+        user_id=reward_action_log.user_id,
+        turn_id=turn_id,
+    )
+
+    # do not reward the user for multiple QT eval actions in a single turn
+    if existing_log:
+        return RewardCreationResponse(is_rewarded=False)
+
+    updated_reward_action_log = await create_reward_action_log(reward_action_log)
+    should_reward, credit_delta, comment, reward_amount_rule, reward_probability_rule = qt_eval_reward(
+        updated_reward_action_log.user_id
+    )
+
+    if should_reward:
+        created_reward = await create_reward(
+            user_id=updated_reward_action_log.user_id,
+            credit_delta=credit_delta,
+            comment=comment,
+            reward_action_logs=[updated_reward_action_log],
+            turn_id=turn_id,
+            reward_amount_rule=reward_amount_rule,
+            reward_probability_rule=reward_probability_rule,
+        )
+
+        # process reward claim always for QT Eval rewards as users will not do a scratchcard for kabini release
+        # TODO post kabini release, we should send scratchcards and not automatically claim rewards
+        reward_claim_struct = await process_reward_claim(created_reward.reward_id, updated_reward_action_log.user_id)
+
+        return RewardCreationResponse(
+            is_rewarded=True,
+            reward_id=created_reward.reward_id,
+            comment=reward_claim_struct.comment,
+            credit_delta=credit_delta,
+        )
+
+    return RewardCreationResponse(is_rewarded=False)
+
+
 @router.post("/rewards/record-action", response_model=RewardCreationResponse)
 async def record_reward_action(reward_action_log: RewardActionLog) -> RewardCreationResponse:
     try:
         if reward_action_log.action_type == RewardActionEnum.FEEDBACK.name:
             return await handle_feedback_reward(reward_action_log)
+        elif reward_action_log.action_type == RewardActionEnum.QT_EVAL.name:
+            return await handle_qt_eval_reward(reward_action_log)
         else:
             return await handle_turn_reward(reward_action_log)
 
