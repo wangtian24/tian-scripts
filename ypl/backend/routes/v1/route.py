@@ -53,13 +53,13 @@ def select_models(
 
 @router.post("/select_models_plus")
 def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Response:
-    def select_models_() -> list[str]:
+    def select_models_(required_models: list[str] | None = None) -> list[str]:
         num_models = request.num_models
         router = get_simple_pro_router(
             prompt,
             num_models,
             preference,
-            user_selected_models=request.required_models if request.required_models else None,
+            user_selected_models=required_models,
         )
         all_models_state = RouterState.new_all_models_state()
         selected_models = router.select_models(state=all_models_state)
@@ -92,13 +92,13 @@ def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Response
 
     if request.intent == SelectIntent.NEW_TURN and preference.turns and not preference.turns[-1].has_evaluation:
         models = list(dict.fromkeys(preference.turns[-1].models + (request.required_models or [])))
-    elif not request.required_models or len(request.required_models) < request.num_models:
-        models = select_models_()
     else:
-        models = request.required_models
+        models = request.required_models or []
+
+    if len(models) < request.num_models:
+        models = select_models_(required_models=models)
 
     models = models[: request.num_models]
-
     selector = CategorizedPromptModifierSelector.make_default_from_db()
 
     if request.chat_id:
