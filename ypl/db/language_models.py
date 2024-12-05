@@ -99,6 +99,14 @@ class LicenseEnum(Enum):
     other = "Other"
 
 
+class LanguageModelLicense(BaseModel, table=True):
+    __tablename__ = "language_model_licenses"
+
+    language_model_license_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    name: str = Field(index=True, nullable=False, unique=True)
+    models: list["LanguageModel"] = Relationship(back_populates="language_model_license")
+
+
 class LanguageModel(BaseModel, table=True):
     __tablename__ = "language_models"
 
@@ -200,6 +208,11 @@ class LanguageModel(BaseModel, table=True):
     turn_qualities: list["TurnQuality"] = Relationship(back_populates="prompt_difficulty_judge_model")
 
     chat_messages: list["ChatMessage"] = Relationship(back_populates="assistant_language_model")
+
+    language_model_license_id: uuid.UUID | None = Field(
+        foreign_key="language_model_licenses.language_model_license_id", nullable=True, default=None
+    )
+    language_model_license: LanguageModelLicense = Relationship(back_populates="models")
 
 
 # Provider is a service that can be used to access a model, e.g. OpenAI, Anthropic, Together AI, etc.
