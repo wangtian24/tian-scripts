@@ -247,6 +247,12 @@ jobs:
             --command="/app/ypl/backend/entrypoint.sh"
         fi
 
+    - name: Setup Python
+      if: env.ENVIRONMENT == 'staging'
+      uses: actions/setup-python@v5
+      with:
+        python-version: 3.11
+
     - name: Run migrations
       if: env.ENVIRONMENT == 'staging'
       run: |
