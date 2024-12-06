@@ -18,6 +18,9 @@ if TYPE_CHECKING:
 # The threshold for considering a user as "new" based on the number of chats
 NEW_USER_CHAT_THRESHOLD = 10
 
+# The number of credits given to a user when they sign up.
+SIGNUP_CREDITS = 500
+
 # The time threshold for considering a user as "inactive"
 # Users who haven't had activity longer than this are considered inactive
 INACTIVE_USER_THRESHOLD = timedelta(weeks=2)
@@ -45,7 +48,9 @@ class User(BaseModel, table=True):
 
     email_verified: datetime | None = Field(default=None)
     image: str | None = Field(default=None, sa_type=sa.Text)
-    points: int = Field(default=10000, sa_column=Column(sa.Integer, server_default="10000", nullable=False))
+    points: int = Field(
+        default=SIGNUP_CREDITS, sa_column=Column(sa.Integer, server_default=str(SIGNUP_CREDITS), nullable=False)
+    )
 
     backfill_job_id: uuid.UUID | None = Field(
         foreign_key="synthetic_backfill_attributes.id",
