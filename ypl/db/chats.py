@@ -1,13 +1,13 @@
 import enum
 import uuid
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from fast_langdetect.ft_detect.infer import get_model_loaded
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import ARRAY, JSON, Boolean, Column, Index, Text, UniqueConstraint, text
 from sqlalchemy import Enum as SQLAlchemyEnum
 from sqlalchemy.dialects.postgresql import ENUM as PostgresEnum
-from sqlalchemy.dialects.postgresql import TSVECTOR
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlmodel import Field, Relationship
 
 from ypl.backend.llm.moderation import ModerationReason
@@ -220,6 +220,8 @@ class ChatMessage(BaseModel, table=True):
         arbitrary_types_allowed = True
 
     message_evals: list["MessageEval"] = Relationship(back_populates="message", cascade_delete=True)
+
+    annotations: dict[str, Any] = Field(default_factory=dict, sa_type=JSONB, nullable=True)
 
 
 class EvalType(enum.Enum):
