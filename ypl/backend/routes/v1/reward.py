@@ -56,9 +56,17 @@ async def handle_turn_reward(reward_action_log: RewardActionLog) -> RewardCreati
 
 async def handle_feedback_reward(reward_action_log: RewardActionLog) -> RewardCreationResponse:
     """Handle feedback-based reward processing."""
+
+    # check if an out of range reward value has been passed in action details
+    # This is to ensure that incase frontend decided the reward, it is within the bounds
+    if reward_action_log.action_details and "reward_amount" in reward_action_log.action_details:
+        reward_amount = float(reward_action_log.action_details["reward_amount"])
+    else:
+        reward_amount = None
+
     updated_reward_action_log = await create_reward_action_log(reward_action_log)
     should_reward, credit_delta, comment, reward_amount_rule, reward_probability_rule = feedback_based_reward(
-        updated_reward_action_log.user_id
+        updated_reward_action_log.user_id, reward_amount
     )
 
     if should_reward:
@@ -100,6 +108,12 @@ async def handle_qt_eval_reward(reward_action_log: RewardActionLog) -> RewardCre
     if turn_id is None:
         raise HTTPException(status_code=400, detail="Turn ID is required for QT eval actions")
 
+    # check if an out of range reward value has been passed in action details
+    if reward_action_log.action_details and "reward_amount" in reward_action_log.action_details:
+        reward_amount = float(reward_action_log.action_details["reward_amount"])
+    else:
+        reward_amount = None
+
     # Check if an entry already exists for this user and turn
     existing_log = await get_reward_action_log_by_user_and_turn(
         user_id=reward_action_log.user_id,
@@ -113,7 +127,7 @@ async def handle_qt_eval_reward(reward_action_log: RewardActionLog) -> RewardCre
 
     updated_reward_action_log = await create_reward_action_log(reward_action_log)
     should_reward, credit_delta, comment, reward_amount_rule, reward_probability_rule = qt_eval_reward(
-        updated_reward_action_log.user_id
+        updated_reward_action_log.user_id, reward_amount
     )
 
     if should_reward:
@@ -162,6 +176,8 @@ async def record_reward_action(reward_action_log: RewardActionLog) -> RewardCrea
     except Exception as e:
         log_dict = {
             "message": "Error recording reward action",
+            "user_id": reward_action_log.user_id,
+            "reward_action_log": reward_action_log,
             "error": str(e),
         }
         logging.exception(json_dumps(log_dict))
