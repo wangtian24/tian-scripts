@@ -252,6 +252,8 @@ class CategorizedPromptModifierSelector(RNGMixin):
     def make_default_from_db(cls, **kwargs: Any) -> Self:
         with Session(get_engine()) as session:
             return cls(
-                system_modifiers=list(session.scalars(select(PromptModifier)).all()),
+                system_modifiers=list(
+                    session.scalars(select(PromptModifier).where(PromptModifier.deleted_at.is_(None))).all()  # type: ignore
+                ),
                 **kwargs,
             )
