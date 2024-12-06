@@ -4,6 +4,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
 
+from ypl.backend.llm.chat import get_turn_id_from_message_id
 from ypl.backend.llm.reward import (
     RewardClaimedResponse,
     RewardCreationResponse,
@@ -104,12 +105,18 @@ async def handle_feedback_reward(reward_action_log: RewardActionLog) -> RewardCr
 
 async def handle_qt_eval_reward(reward_action_log: RewardActionLog) -> RewardCreationResponse:
     """Handle QT (Quick Take) evaluation reward processing."""
-    turn_id = reward_action_log.turn_id
+    # Check for message_id in action_details
+    if not reward_action_log.action_details or "message_id" not in reward_action_log.action_details:
+        raise HTTPException(status_code=400, detail="Message ID is required in action_details for QT eval actions")
+
+    message_id = UUID(reward_action_log.action_details["message_id"])
+
+    turn_id = await get_turn_id_from_message_id(message_id)
     if turn_id is None:
-        raise HTTPException(status_code=400, detail="Turn ID is required for QT eval actions")
+        raise HTTPException(status_code=404, detail="Could not find turn_id for the given message_id")
 
     # check if an out of range reward value has been passed in action details
-    if reward_action_log.action_details and "reward_amount" in reward_action_log.action_details:
+    if "reward_amount" in reward_action_log.action_details:
         reward_amount = float(reward_action_log.action_details["reward_amount"])
     else:
         reward_amount = None

@@ -589,3 +589,12 @@ def get_db_message_type(message: ChatMessageType1) -> MessageType:
             return MessageType.ASSISTANT_MESSAGE
         case _:
             raise ValueError(f"Unsupported message type: {type(message)}")
+
+
+async def get_turn_id_from_message_id(message_id: UUID) -> UUID | None:
+    """Get turn_id from message_id by querying the chat_messages table."""
+    async with AsyncSession(get_async_engine()) as session:
+        message = await session.get(ChatMessage, message_id)
+        if message:
+            return message.turn_id
+        return None
