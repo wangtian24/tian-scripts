@@ -63,6 +63,12 @@ Once all the dependencies are installed, make a copy of the sample `.env.copy` e
 cp .env.copy .env
 ```
 
+Make sure to set
+```
+PYTORCH_SERVE_GCP_URL=https://backend-pytorch-service-staging-451082535721.us-central1.run.app/api/v1
+```
+if it is not present in your `.env` file.
+
 To add new dependencies or update the versions of existings ones, modify the `[poetry]` section in [pyproject.toml] and run `poetry update`. This will modify the locked package versions in [poetry.lock]. Do not modify that file directly.
 
 Finally, install `ypl` as a package in the `ys-dev` environment:
