@@ -1124,15 +1124,25 @@ class MaxSpeedProposer(ModelProposer):
 
 
 class Exclude(ModelFilter):
-    def __init__(self, models: set[str]):
+    def __init__(self, *, models: set[str] | None = None, providers: set[str] | None = None):
         super().__init__(persist=True)
-        self.models = set(models)
+        self.models = models or set()
+        self.providers = providers or set()
 
     def _filter(self, state: RouterState) -> tuple[RouterState, set[str]]:
-        return state.emplaced(
-            selected_models={k: v for k, v in state.selected_models.items() if k not in self.models},
-            excluded_models=self.models | state.excluded_models,
-        ), self.models
+        state = state.deepcopy()
+        excl_models = self.models
+
+        if self.providers:
+            provider_map = deduce_original_providers(tuple(state.selected_models.keys()))
+            excl_models = excl_models | {
+                model for model in state.selected_models.keys() if provider_map[model] in self.providers
+            }
+
+        state.selected_models = {k: v for k, v in state.selected_models.items() if k not in excl_models}
+        state.excluded_models = state.excluded_models | excl_models
+
+        return state, excl_models
 
 
 class StreamableModelFilter(Exclude):
@@ -1142,7 +1152,7 @@ class StreamableModelFilter(Exclude):
 
     def __init__(self) -> None:
         non_streaming_models = {model for model, heuristics in MODEL_HEURISTICS.items() if not heuristics.can_stream}
-        super().__init__(non_streaming_models)
+        super().__init__(models=non_streaming_models)
 
 
 class RoutingDecision:
@@ -1383,10 +1393,12 @@ def get_prompt_conditional_router(
                 (RandomModelProposer(models=all_good_models).with_flags(offset=100000) | TopK(1)).with_flags(
                     always_include=True
                 )
-                & (ProModelProposer() | Exclude(all_bad_models) | TopK(1)).with_flags(always_include=True, offset=10000)
+                & (ProModelProposer() | Exclude(models=all_bad_models) | TopK(1)).with_flags(
+                    always_include=True, offset=10000
+                )
                 & (
                     categorizer_proposer
-                    | Exclude(all_bad_models)
+                    | Exclude(models=all_bad_models)
                     | ProviderFilter(one_per_provider=True)
                     | MaxSpeedProposer()
                     | RandomJitter(jitter_range=30.0)  # +/- 30 tokens per second
@@ -1394,7 +1406,7 @@ def get_prompt_conditional_router(
                 ).with_flags(always_include=True)
                 & RandomModelProposer().with_flags(offset=-1000, always_include=True)
             )
-            | Exclude(all_bad_models)
+            | Exclude(models=all_bad_models)
             | ProviderFilter(one_per_provider=True)
             | TopK(num_models)
             | RoutingDecisionLogger(
@@ -1471,7 +1483,7 @@ class HighErrorRateFilter(RNGMixin, ModelFilter):
             or error_rates.get(model, 0) > self.hard_threshold
         }
 
-        return Exclude(rejected_models)._filter(state)
+        return Exclude(models=rejected_models)._filter(state)
 
 
 def get_simple_pro_router(
@@ -1480,6 +1492,7 @@ def get_simple_pro_router(
     routing_preference: RoutingPreference | None = None,
     reputable_providers: set[str] | None = None,
     user_selected_models: list[str] | None = None,
+    show_me_more_models: list[str] | None = None,
 ) -> RouterModule:
     from ypl.backend.llm.routing.rule_router import RoutingRuleFilter, RoutingRuleProposer
 
@@ -1492,6 +1505,11 @@ def get_simple_pro_router(
     error_filter = HighErrorRateFilter()
     pro_proposer = ProModelProposer()
     num_pro = int(pro_proposer.get_rng().random() * 2 + 1)
+
+    if show_me_more_models:
+        show_me_more_providers = set(deduce_original_providers(tuple(show_me_more_models)).values())
+    else:
+        show_me_more_providers = set()
 
     if not preference.turns:
         # Construct a first-turn router guaranteeing at least one pro model and one reputable model.
@@ -1511,6 +1529,7 @@ def get_simple_pro_router(
                 ).with_flags(always_include=True, offset=5000)
             )
             | error_filter
+            | Exclude(providers=show_me_more_providers)
             | Inject(user_selected_models or [], score=10000000)
             | ProviderFilter(one_per_provider=True)
             | TopK(num_models)
@@ -1551,7 +1570,7 @@ def get_simple_pro_router(
                     | RandomJitter(jitter_range=1)
                 )
                 & (
-                    (ProModelProposer() | Exclude(all_bad_models) | error_filter | TopK(1)).with_flags(
+                    (ProModelProposer() | Exclude(models=all_bad_models) | error_filter | TopK(1)).with_flags(
                         always_include=True, offset=10000
                     )
                     ^ (
@@ -1571,7 +1590,7 @@ def get_simple_pro_router(
                 & RandomModelProposer().with_flags(offset=-1000, always_include=True)
             )
             | error_filter
-            | Exclude(all_bad_models)
+            | Exclude(models=all_bad_models, providers=show_me_more_providers)
             | Inject(user_selected_models or [], score=100000000)
             | ProviderFilter(one_per_provider=True)
             | TopK(num_models)

@@ -25,7 +25,7 @@ class DefaultLanguageModelStatusLogger(LanguageModelStatusLogger):
         *,
         internal_name: str | None = None,
     ) -> None:
-        logging.error(f"Language model status: {status}")
+        logging.info(f"Language model status: {status}")
 
 
 class DatabaseLanguageModelStatusLogger(LanguageModelStatusLogger):

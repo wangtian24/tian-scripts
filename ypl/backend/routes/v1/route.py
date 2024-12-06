@@ -53,13 +53,16 @@ def select_models(
 
 @router.post("/select_models_plus")
 def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Response:
-    def select_models_(required_models: list[str] | None = None) -> list[str]:
+    def select_models_(
+        required_models: list[str] | None = None, show_me_more_models: list[str] | None = None
+    ) -> list[str]:
         num_models = request.num_models
         router = get_simple_pro_router(
             prompt,
             num_models,
             preference,
             user_selected_models=required_models,
+            show_me_more_models=show_me_more_models,
         )
         all_models_state = RouterState.new_all_models_state()
         selected_models = router.select_models(state=all_models_state)
@@ -82,13 +85,16 @@ def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Response
         case _:
             preference = RoutingPreference(turns=[])
 
+    show_me_more_models = []
+
     if request.intent == SelectIntent.SHOW_ME_MORE:
         shown_models = get_shown_models(request.turn_id)  # type: ignore[arg-type]
 
         if preference.turns is None:
             preference.turns = []
 
-        preference.turns.append(PreferredModel(models=shown_models, preferred=None))
+        show_me_more_models = shown_models[-request.num_models :]
+        preference.turns.append(PreferredModel(models=list(dict.fromkeys(shown_models)), preferred=None))
 
     if request.intent == SelectIntent.NEW_TURN and preference.turns and not preference.turns[-1].has_evaluation:
         models = list(dict.fromkeys(preference.turns[-1].models + (request.required_models or [])))
@@ -96,7 +102,7 @@ def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Response
         models = request.required_models or []
 
     if len(models) < request.num_models:
-        models = select_models_(required_models=models)
+        models = select_models_(required_models=models, show_me_more_models=show_me_more_models)
 
     models = models[: request.num_models]
     selector = CategorizedPromptModifierSelector.make_default_from_db()

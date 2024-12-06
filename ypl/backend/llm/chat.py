@@ -184,7 +184,7 @@ def get_shown_models(turn_id: str) -> list[str]:
     query = (
         select(ChatMessage.assistant_model_name)
         .where(ChatMessage.turn_id == UUID(turn_id), ChatMessage.message_type == MessageType.ASSISTANT_MESSAGE)
-        .distinct()
+        .order_by(ChatMessage.created_at)  # type: ignore[arg-type]
     )
 
     with Session(get_engine()) as session:
