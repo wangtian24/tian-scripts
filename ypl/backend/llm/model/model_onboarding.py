@@ -322,9 +322,19 @@ def verify_inference_running(model: LanguageModel, provider_name: str, base_url:
             is_inference_running = bool(content.text and len(content.text) > 0)
         else:  # OpenAI and compatible providers
             completion = openai_api_call(client, model.internal_name, model.provider_settings)
-            is_inference_running = bool(
-                completion.choices[0].message.content and len(completion.choices[0].message.content) > 0
-            )
+            # Some OpenAI compatible providers return None for choices. This will help us debug the response.
+            if completion.choices is None:
+                log_dict = {
+                    "message": "No choices returned from the provider",
+                    "model_name": model.name,
+                    "cleaned_provider_name": cleaned_provider_name,
+                }
+                logging.warning(json_dumps(log_dict))
+                is_inference_running = False
+            else:
+                is_inference_running = bool(
+                    completion.choices[0].message.content and len(completion.choices[0].message.content) > 0
+                )
         end_time = time.time()
         latency = round(end_time - start_time, 3)
 
@@ -333,7 +343,7 @@ def verify_inference_running(model: LanguageModel, provider_name: str, base_url:
                 "message": f"Inference running latency for {model.name} - latency: {latency} seconds",
                 "model_name": model.name,
                 "cleaned_provider_name": cleaned_provider_name,
-                "latency": latency,
+                "latency": str(latency),
             }
             logging.info(json_dumps(log_dict))
 
