@@ -6,7 +6,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, validator
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tenacity import retry, stop_after_attempt, wait_exponential
 
@@ -122,6 +122,79 @@ async def get_quality(chat_id: UUID, turn_id: UUID) -> TurnQuality:
         raise HTTPException(status_code=404, detail="Turn quality not found")
 
     return tq
+
+
+class PinChatRequest(BaseModel):
+    pin: bool
+    user_id: str
+
+
+@router.patch("/chats/{chat_id}/pin", response_model=Chat)
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=5))
+async def pin_chat(
+    chat_id: UUID,
+    pin_request: PinChatRequest,
+) -> Chat:
+    """
+    Pin or unpin a chat for a user.
+    """
+    async with AsyncSession(get_async_engine()) as session:
+        async with session.begin():  # Use a transaction
+            # Get the chat and verify ownership
+            try:
+                stmt = select(Chat).where(Chat.chat_id == chat_id)  # type: ignore[arg-type]
+                result = await session.execute(stmt)
+                chat = result.scalar_one_or_none()
+                if not chat:
+                    raise HTTPException(status_code=404, detail="Chat not found")
+                if str(chat.creator_user_id) != pin_request.user_id:
+                    raise HTTPException(status_code=403, detail="Not authorized to modify this chat")
+
+                if pin_request.pin:
+                    # Check current number of pinned chats
+                    query = (
+                        select(func.count())
+                        .select_from(Chat)
+                        .where(Chat.creator_user_id == pin_request.user_id)  # type: ignore[arg-type]
+                        .where(Chat.deleted_at.is_(None))  # type: ignore
+                        .where(Chat.is_pinned.is_(True))  # type: ignore
+                    )
+                    result = await session.execute(query)
+                    pinned_count = result.scalar()
+
+                    if pinned_count >= MAX_PINNED_CHATS:  # type: ignore
+                        raise HTTPException(status_code=400, detail=f"Cannot pin more than {MAX_PINNED_CHATS} chats")
+
+                # Update pin status
+                chat.is_pinned = pin_request.pin
+                await session.flush()
+
+                # Create a detached copy before closing the session
+                chat_dict = {
+                    "chat_id": chat.chat_id,
+                    "creator_user_id": chat.creator_user_id,
+                    "created_at": chat.created_at,
+                    "modified_at": chat.modified_at,
+                    "deleted_at": chat.deleted_at,
+                    "is_pinned": chat.is_pinned,
+                    "title": chat.title,
+                    "path": chat.path,
+                    "is_public": chat.is_public,
+                }
+
+                return Chat(**chat_dict)
+
+            except HTTPException as he:
+                raise HTTPException(status_code=he.status_code, detail=he.detail) from he
+            except Exception as e:
+                log_dict = {
+                    "message": "Failed to pin/unpin chat",
+                    "chat_id": str(chat_id),
+                    "user_id": pin_request.user_id,
+                    "error": str(e),
+                }
+                logging.exception(json_dumps(log_dict))
+                raise HTTPException(status_code=500, detail="Failed to pin/unpin chat") from e
 
 
 @router.get("/chats/pinned", response_model=list[Chat])
