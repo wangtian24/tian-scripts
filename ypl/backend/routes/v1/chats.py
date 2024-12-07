@@ -68,7 +68,7 @@ async def label_quality(chat_id: UUID, turn_id: UUID) -> TurnQuality:
 
     responses += ["", ""]  # ensure at least two responses
 
-    label_task = asyncio.create_task(labeler.alabel((prompt,) + tuple(responses[:2])))  # type: ignore[arg-type]
+    label_task = asyncio.create_task(labeler.alabel((prompt,) + tuple(responses[:2])))  # type: ignore
     moderate_task = asyncio.create_task(amoderate(prompt))
 
     try:

@@ -9,7 +9,7 @@ from pydantic.v1 import BaseModel as BaseModelV1
 
 from ypl.backend.llm.chat import ModelInfo
 from ypl.backend.llm.constants import MODEL_HEURISTICS
-from ypl.backend.llm.labeler import LLMLabeler, OnErrorBehavior
+from ypl.backend.llm.labeler import InputType, LLMLabeler, OnErrorBehavior, OutputType
 from ypl.backend.prompts import (
     JUDGE_RESPONSE_REFUSAL_PROMPT,
     JUDGE_YUPP_CHAT_PROMPT_SPEED_AWARE_TEMPLATE,
@@ -23,6 +23,7 @@ from ypl.backend.prompts import (
 )
 
 DEFAULT_PROMPT_DIFFICULTY = 4  # Most common value.
+LOW_PROMPT_DIFFICULTY = 1
 
 
 class JudgeConfig(BaseModelV1):
@@ -89,8 +90,15 @@ class SpeedAwareYuppEvaluationLabeler(LLMLabeler[tuple[str, str, str, float, flo
 
 
 class YuppPromptDifficultyLabeler(LLMLabeler[tuple[str, str, str], int]):
-    def __init__(self, llm: BaseChatModel, timeout_secs: float = 5.0, on_error: OnErrorBehavior = "raise") -> None:
+    def __init__(
+        self,
+        llm: BaseChatModel,
+        timeout_secs: float = 5.0,
+        on_error: OnErrorBehavior = "raise",
+        max_words_low_quality: int = 4,  # prompts under this word count are considered low quality.
+    ) -> None:
         super().__init__(llm, timeout_secs, on_error)
+        self.max_words_low_quality = max_words_low_quality
 
     def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
         return JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT_TEMPLATE | llm  # type: ignore
@@ -104,6 +112,19 @@ class YuppPromptDifficultyLabeler(LLMLabeler[tuple[str, str, str], int]):
     @property
     def error_value(self) -> int:
         return -1
+
+    def _heuristic_label(self, input: tuple[str, str, str]) -> int | None:
+        """Labels based on heuristics if possible, otherwise None."""
+        if len(input[0].split()) <= self.max_words_low_quality:
+            return LOW_PROMPT_DIFFICULTY
+
+        return None
+
+    def label(self, input: InputType) -> OutputType:  # type: ignore
+        return self._heuristic_label(input) or super().label(input)  # type: ignore
+
+    async def alabel(self, input: InputType) -> OutputType:
+        return self._heuristic_label(input) or await super().alabel(input)  # type: ignore
 
 
 class YuppPromptDifficultyLabelerSimple(YuppPromptDifficultyLabeler):
