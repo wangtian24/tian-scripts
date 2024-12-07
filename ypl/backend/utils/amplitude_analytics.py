@@ -24,7 +24,7 @@ AMPLITUDE_CHARTS: Final[dict[str, ChartInfo]] = {
     "number_of_streaming_complete_events": {"id": "4tmavajd", "description": "streaming completes"},
     "prefs": {"id": "ht7fo2h7", "description": "prefs"},
     "scratchcards": {"id": "yxihkyvd", "description": "scratchcards"},
-    "credits": {"id": "hqa0es1y", "description": "credits given"},
+    "credits": {"id": "7ukm5tc7", "description": "credits claimed"},
     "feedbacks": {"id": "ezl4kq8l", "description": "app feedbacks"},
     "turns": {"id": "cmqeokju", "description": "turns"},
     "show_more": {"id": "wycwc81n", "description": "show more"},
