@@ -369,3 +369,17 @@ Does the prompt above require any real-time information or current event knowled
 """
 
 JUDGE_YUPP_ONLINE_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([("human", JUDGE_YUPP_ONLINE_PROMPT)])
+
+JUDGE_RESPONSE_REFUSAL_PROMPT_TEMPLATE = """
+You are an AI assistant specialized in evaluating whether an LLM refused to respond to a prompt.
+A refusal is defined as the LLM explicitly stating that it cannot respond to the prompt;
+if the LLM says it doesn't know the answer, that's not a refusal.
+
+Here are a user's prompt and the LLM's response to it.
+Respond with 1 if the LLM refused to respond, and 0 otherwise. Do not elaborate or explain your answer.
+
+User's message: {prompt}
+LLM's response: {response}
+"""
+
+JUDGE_RESPONSE_REFUSAL_PROMPT = ChatPromptTemplate.from_messages([("human", JUDGE_RESPONSE_REFUSAL_PROMPT_TEMPLATE)])

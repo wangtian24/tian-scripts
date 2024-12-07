@@ -11,6 +11,7 @@ from ypl.backend.llm.chat import ModelInfo
 from ypl.backend.llm.constants import MODEL_HEURISTICS
 from ypl.backend.llm.labeler import LLMLabeler, OnErrorBehavior
 from ypl.backend.prompts import (
+    JUDGE_RESPONSE_REFUSAL_PROMPT,
     JUDGE_YUPP_CHAT_PROMPT_SPEED_AWARE_TEMPLATE,
     JUDGE_YUPP_CHAT_PROMPT_TEMPLATE,
     JUDGE_YUPP_ONLINE_PROMPT_TEMPLATE,
@@ -197,3 +198,36 @@ class YuppMultilabelClassifier(LLMLabeler[str, list[str]]):
     @property
     def error_value(self) -> list[str]:
         return []
+
+
+class ResponseRefusalLabeler(LLMLabeler[tuple[str, str], int]):
+    def __init__(
+        self,
+        llm: BaseChatModel,
+        timeout_secs: float = 5.0,
+        on_error: OnErrorBehavior = "use_error_value",
+        max_prompt_len: int = 200,
+        max_response_len: int = 500,
+    ) -> None:
+        super().__init__(llm, timeout_secs, on_error)
+        self.max_prompt_len = max_prompt_len
+        self.max_response_len = max_response_len
+
+    def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
+        return JUDGE_RESPONSE_REFUSAL_PROMPT | llm  # type: ignore
+
+    def _prepare_input(self, input: tuple[str, str]) -> dict[str, Any]:
+        prompt = input[0][: self.max_prompt_len] + "..." if len(input[0]) > self.max_prompt_len else input[0]
+        response = input[1][: self.max_response_len] + "..." if len(input[1]) > self.max_response_len else input[1]
+        return dict(prompt=prompt, response=response)
+
+    def _parse_output(self, output: BaseMessage) -> int:
+        content = str(output.content)
+        try:
+            return int(content)
+        except ValueError:
+            return self.error_value
+
+    @property
+    def error_value(self) -> int:
+        return -1
