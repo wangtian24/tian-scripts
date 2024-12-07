@@ -37,8 +37,27 @@ WAIT_TIME = 5
 INFERENCE_TIMEOUT = 60
 INFERENCE_VERIFICATION_PROMPT = "What is the capital of Odisha?"
 
+BILLING_ERROR_KEYWORDS = [
+    "quota",
+    "plan",
+    "billing",
+    "insufficient",
+    "exceeded",
+    "limit",
+    "payment",
+    "subscription",
+    "credit",
+    "balance",
+    "access",
+    "unauthorized",
+]
+
 # Replace the existing client caches with a single cache
 provider_clients: dict[str, Any] = {}
+
+
+def contains_billing_error_keywords(error_message: str) -> bool:
+    return any(keyword.lower() in error_message.lower() for keyword in BILLING_ERROR_KEYWORDS)
 
 
 @cache
@@ -140,7 +159,14 @@ async def verify_and_update_model_status(
     async for attempt in await async_retry_decorator():
         with attempt:
             try:
-                is_inference_running = verify_inference_running(model, provider_name, base_url)
+                is_inference_running, has_billing_error = verify_inference_running(model, provider_name, base_url)
+
+                if has_billing_error:
+                    log_message = (
+                        f"Environment {os.environ.get('ENVIRONMENT')} - "
+                        f"Billing error detected for model {model.name}"
+                    )
+                    await post_to_slack(log_message)
 
                 if is_inference_running:
                     model.status = LanguageModelStatusEnum.ACTIVE
@@ -301,9 +327,12 @@ def get_mmlu_pro_score(model_info: ModelInfo) -> float:
     return 0
 
 
-def verify_inference_running(model: LanguageModel, provider_name: str, base_url: str) -> bool:
+def verify_inference_running(model: LanguageModel, provider_name: str, base_url: str) -> tuple[bool, bool]:
     """
     Verify if the model is running on the provider's endpoint.
+
+    Returns:
+        tuple[bool, bool]: (is_inference_running, has_billing_error)
     """
     try:
         is_inference_running = False
@@ -347,7 +376,7 @@ def verify_inference_running(model: LanguageModel, provider_name: str, base_url:
             }
             logging.info(json_dumps(log_dict))
 
-        return is_inference_running
+        return is_inference_running, False  # No billing error
     except Exception as e:
         log_dict = {
             "message": "Unexpected error verifying inference running for model",
@@ -356,7 +385,17 @@ def verify_inference_running(model: LanguageModel, provider_name: str, base_url:
             "error": str(e),
         }
         logging.exception(json_dumps(log_dict))
-        return False
+
+        has_billing_error = contains_billing_error_keywords(str(e))
+        if has_billing_error:
+            log_dict = {
+                "message": "Potential billing error detected",
+                "model_name": model.name,
+                "provider_name": provider_name,
+            }
+            logging.error(json_dumps(log_dict))
+
+        return False, has_billing_error
 
 
 def get_provider_api_key(provider_name: str) -> str:

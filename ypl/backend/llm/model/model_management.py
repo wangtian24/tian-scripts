@@ -106,7 +106,7 @@ async def verify_and_update_model_status(
         base_url (str): The base URL for the provider's API.
     """
     try:
-        is_inference_running = verify_inference_running(model, provider_name, base_url)
+        is_inference_running, has_billing_error = verify_inference_running(model, provider_name, base_url)
 
         if not is_inference_running:
             # TODO: Uncomment once we have a way to track number of failures
@@ -119,6 +119,7 @@ async def verify_and_update_model_status(
                 "model_name": model.name,
                 "provider_name": provider_name,
                 "base_url": base_url,
+                "has_billing_error": has_billing_error,
             }
             logging.error(json_dumps(log_dict))
 
@@ -126,6 +127,10 @@ async def verify_and_update_model_status(
                 f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} "
                 "is not running at the inference endpoint. Please investigate."
             )
+
+            if has_billing_error:
+                slack_message += " (Potential billing error detected)"
+
             await post_to_slack(f":warning: {slack_message}")
     except Exception as e:
         log_dict = {
