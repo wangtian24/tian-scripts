@@ -106,6 +106,12 @@ class YuppPromptDifficultyLabeler(LLMLabeler[tuple[str, str, str], int]):
 
 
 class YuppPromptDifficultyLabelerSimple(YuppPromptDifficultyLabeler):
+    max_length = 300
+
+    def _prepare_input(self, input: tuple[str, str, str]) -> dict[str, Any]:
+        short_input = [txt[: self.max_length] + "..." if len(txt) > self.max_length else txt for txt in input]
+        return dict(response1=short_input[1], response2=short_input[2], user_prompt=input[0])
+
     def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
         return JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT_SIMPLE_TEMPLATE | llm  # type: ignore
 

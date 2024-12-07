@@ -275,7 +275,8 @@ Now, evaluate the following prompt and its responses for difficulty:
 
 Prompt: {user_prompt}
 
-Responses:
+Responses (may be truncated, if long):
+
 Model A: {response1}
 Model B: {response2}
 """

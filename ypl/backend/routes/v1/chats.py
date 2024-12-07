@@ -27,7 +27,7 @@ router = APIRouter()
 llm = get_chat_model(
     ModelInfo(
         provider=ChatProvider.OPENAI,
-        model="gpt-4o-mini",
+        model="gpt-4o",
         api_key=settings.OPENAI_API_KEY,
     ),
     temperature=0.0,
