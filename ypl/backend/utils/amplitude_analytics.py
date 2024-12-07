@@ -22,6 +22,7 @@ AMPLITUDE_CHARTS: Final[dict[str, ChartInfo]] = {
     "unique_number_of_models": {"id": "czeomci2", "description": "unique number of models"},
     "unique_number_of_model_responses": {"id": "x5h3txne", "description": "unique number of model responses"},
     "number_of_streaming_complete_events": {"id": "4tmavajd", "description": "streaming completes"},
+    "number_of_streaming_errors": {"id": "ni45kdy8", "description": "streaming errors"},
     "prefs": {"id": "ht7fo2h7", "description": "prefs"},
     "scratchcards": {"id": "yxihkyvd", "description": "scratchcards"},
     "credits": {"id": "7ukm5tc7", "description": "credits claimed"},
