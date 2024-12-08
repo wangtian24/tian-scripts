@@ -5,7 +5,7 @@ from fastapi import APIRouter, Body, Query
 from pydantic import BaseModel
 from tqdm import tqdm
 
-from ypl.backend.llm.chat import get_preferences, get_shown_models, get_user_message
+from ypl.backend.llm.chat import deduce_original_providers, get_preferences, get_shown_models, get_user_message
 from ypl.backend.llm.prompt_selector import CategorizedPromptModifierSelector, get_modifiers_by_model, store_modifiers
 from ypl.backend.llm.ranking import get_ranker
 from ypl.backend.llm.routing.route_data_type import PreferredModel, RoutingPreference
@@ -35,6 +35,7 @@ class SelectModelsV2Request(BaseModel):
 
 class SelectModelsV2Response(BaseModel):
     models: list[tuple[str, list[tuple[str, str]]]]  # list of (model, list[(prompt modifier ID, prompt modifier)])
+    provider_map: dict[str, str]  # map from model to provider
 
 
 @router.post("/select_models")
@@ -116,7 +117,10 @@ def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Response
     if request.turn_id:
         GlobalThreadPoolExecutor.get_instance().submit(store_modifiers, request.turn_id, prompt_modifiers)
 
-    return SelectModelsV2Response(models=[(model, prompt_modifiers.get(model, [])) for model in models])
+    return SelectModelsV2Response(
+        models=[(model, prompt_modifiers.get(model, [])) for model in models],
+        provider_map=deduce_original_providers(tuple(models)),
+    )
 
 
 @router.post("/update_ranker")
