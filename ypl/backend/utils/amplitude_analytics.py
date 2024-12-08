@@ -14,21 +14,23 @@ from ypl.backend.utils.json import json_dumps
 class ChartInfo(TypedDict):
     id: str
     description: str
+    series_number: int
 
 
 AMPLITUDE_CHARTS: Final[dict[str, ChartInfo]] = {
-    "users": {"id": "t2bandy1", "description": "users"},
-    "conversations": {"id": "ifpv0bg1", "description": "conversations"},
-    "unique_number_of_models": {"id": "czeomci2", "description": "unique number of models"},
-    "unique_number_of_model_responses": {"id": "x5h3txne", "description": "unique number of model responses"},
-    "number_of_streaming_complete_events": {"id": "4tmavajd", "description": "streaming completes"},
-    "number_of_streaming_errors": {"id": "ni45kdy8", "description": "streaming errors"},
-    "prefs": {"id": "ht7fo2h7", "description": "prefs"},
-    "scratchcards": {"id": "yxihkyvd", "description": "scratchcards"},
-    "credits": {"id": "7ukm5tc7", "description": "credits claimed"},
-    "feedbacks": {"id": "ezl4kq8l", "description": "app feedbacks"},
-    "turns": {"id": "cmqeokju", "description": "turns"},
-    "show_more": {"id": "wycwc81n", "description": "show more"},
+    "users": {"id": "t2bandy1", "description": "users", "series_number": 0},
+    "conversations": {"id": "ifpv0bg1", "description": "conversations", "series_number": 0},
+    "turns": {"id": "cmqeokju", "description": "turns", "series_number": 0},
+    "show_more": {"id": "wycwc81n", "description": "show more", "series_number": 0},
+    "unique_number_of_models": {"id": "czeomci2", "description": "models", "series_number": 0},
+    "number_of_streaming_complete_events": {"id": "4tmavajd", "description": "streaming completes", "series_number": 0},
+    "number_of_streaming_errors": {"id": "ni45kdy8", "description": "streaming errors", "series_number": 0},
+    "number_of_qt_evals": {"id": "ve518j58", "description": "QT evals", "series_number": 0},
+    "prefs": {"id": "ht7fo2h7", "description": "prefs", "series_number": 0},
+    "scratchcards_shown": {"id": "yxihkyvd", "description": "SCs shown", "series_number": 0},
+    "scratchcards_scratched": {"id": "yxihkyvd", "description": "SCs scratched", "series_number": 1},
+    "credits_claimed": {"id": "7ukm5tc7", "description": "credits claimed", "series_number": 0},
+    "feedbacks": {"id": "ezl4kq8l", "description": "app feedbacks", "series_number": 0},
 }
 
 
@@ -93,7 +95,8 @@ async def post_amplitude_metrics_to_slack() -> None:
             try:
                 data = fetch_chart_data(chart_id=chart_info["id"], auth=auth, start_date=start_date, end_date=end_date)
 
-                yesterdays_value = int(data["data"]["series"][0][-2]["value"])
+                series_data = data["data"]["series"][chart_info["series_number"]]
+                yesterdays_value = int(series_data[-2]["value"])
                 separator = ", " if i < len(charts_items) - 1 else ""
                 message += f"{yesterdays_value} {chart_info['description']}{separator}"
                 log_dict[chart_info["description"]] = yesterdays_value
