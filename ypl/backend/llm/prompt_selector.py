@@ -133,7 +133,12 @@ class CategorizedPromptModifierSelector(RNGMixin):
             for model in models:
                 if modifier_history.get(model):
                     previously_modified_models.append(model)
-                    modifiers_by_model[model] = [self.modifiers_by_id[id] for id in modifier_history[model]]
+                    modifiers_by_model[model] = [
+                        self.modifiers_by_id[id] for id in modifier_history[model] if id in self.modifiers_by_id
+                    ]
+
+                    if not modifiers_by_model[model]:
+                        unmodified_models.append(model)
                 else:
                     unmodified_models.append(model)
         else:
