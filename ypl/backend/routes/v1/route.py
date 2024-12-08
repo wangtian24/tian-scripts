@@ -1,3 +1,4 @@
+import logging
 from enum import Enum
 from typing import Any
 
@@ -106,16 +107,21 @@ def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Response
         models = select_models_(required_models=models, show_me_more_models=show_me_more_models)
 
     models = models[: request.num_models]
-    selector = CategorizedPromptModifierSelector.make_default_from_db()
 
-    if request.chat_id:
-        modifier_history = get_modifiers_by_model(request.chat_id)
-    else:
-        modifier_history = {}
-    prompt_modifiers = selector.select_modifiers(models, modifier_history)
+    try:
+        selector = CategorizedPromptModifierSelector.make_default_from_db()
 
-    if request.turn_id:
-        GlobalThreadPoolExecutor.get_instance().submit(store_modifiers, request.turn_id, prompt_modifiers)
+        if request.chat_id:
+            modifier_history = get_modifiers_by_model(request.chat_id)
+        else:
+            modifier_history = {}
+        prompt_modifiers = selector.select_modifiers(models, modifier_history)
+
+        if request.turn_id:
+            GlobalThreadPoolExecutor.get_instance().submit(store_modifiers, request.turn_id, prompt_modifiers)
+    except Exception as e:
+        logging.error(f"Error selecting modifiers: {e}")
+        prompt_modifiers = {}
 
     return SelectModelsV2Response(
         models=[(model, prompt_modifiers.get(model, [])) for model in models],

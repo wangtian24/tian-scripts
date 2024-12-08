@@ -139,6 +139,7 @@ class CategorizedPromptModifierSelector(RNGMixin):
 
                     if not modifiers_by_model[model]:
                         unmodified_models.append(model)
+                        del modifiers_by_model[model]
                 else:
                     unmodified_models.append(model)
         else:
