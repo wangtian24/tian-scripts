@@ -6,8 +6,10 @@ from fastapi import APIRouter, HTTPException, Query
 
 from ypl.backend.llm.chat import get_turn_id_from_message_id
 from ypl.backend.llm.reward import (
+    RewardAmountRule,
     RewardClaimedResponse,
     RewardCreationResponse,
+    RewardProbabilityRule,
     create_reward,
     create_reward_action_log,
     feedback_based_reward,
@@ -21,9 +23,6 @@ from ypl.backend.utils.json import json_dumps
 from ypl.db.rewards import RewardActionEnum, RewardActionLog
 
 router = APIRouter()
-
-MAX_RETRIES = 3
-RETRY_DELAY = 1  # seconds
 
 
 async def handle_turn_reward(reward_action_log: RewardActionLog) -> RewardCreationResponse:
@@ -55,52 +54,94 @@ async def handle_turn_reward(reward_action_log: RewardActionLog) -> RewardCreati
     return RewardCreationResponse(is_rewarded=False)
 
 
-async def handle_feedback_reward(reward_action_log: RewardActionLog) -> RewardCreationResponse:
-    """Handle feedback-based reward processing."""
+async def process_reward_creation_and_claim(
+    user_id: str,
+    credit_delta: int,
+    comment: str,
+    reward_action_log: RewardActionLog,
+    turn_id: UUID | None,
+    reward_amount_rule: RewardAmountRule | None,
+    reward_probability_rule: RewardProbabilityRule | None,
+) -> RewardCreationResponse:
+    """Process reward creation and claim synchronously.
 
-    # check if an out of range reward value has been passed in action details
-    # This is to ensure that incase frontend decided the reward, it is within the bounds
-    if reward_action_log.action_details and "reward_amount" in reward_action_log.action_details:
-        reward_amount = float(reward_action_log.action_details["reward_amount"])
-    else:
-        reward_amount = None
+    Args:
+        user_id: The ID of the user receiving the reward
+        credit_delta: Amount of credits to award
+        comment: Description of the reward
+        reward_action_log: Log of the action that triggered the reward
+        turn_id: Optional ID of the conversation turn (not used for feedback)
+        reward_amount_rule: Rule used to calculate reward amount
+        reward_probability_rule: Rule used to determine reward probability
 
-    updated_reward_action_log = await create_reward_action_log(reward_action_log)
-    should_reward, credit_delta, comment, reward_amount_rule, reward_probability_rule = feedback_based_reward(
-        updated_reward_action_log.user_id, reward_amount
-    )
+    Returns:
+        RewardCreationResponse with reward status and details
 
-    if should_reward:
+    Raises:
+        Exception: If reward creation or claiming fails
+    """
+    try:
+        # Create reward synchronously
         created_reward = await create_reward(
-            user_id=updated_reward_action_log.user_id,
+            user_id=user_id,
             credit_delta=credit_delta,
             comment=comment,
-            reward_action_logs=[updated_reward_action_log],
-            turn_id=None,
+            reward_action_logs=[reward_action_log],
+            turn_id=turn_id,
             reward_amount_rule=reward_amount_rule,
             reward_probability_rule=reward_probability_rule,
         )
 
-        # TODO post kabini release, we should send scratchcards and not automatically claim rewards
-        # Create task for process_reward_claim and add error callback
-        task_name = (
-            f"function: handle_feedback_reward "
-            f"reward_claim for user: {updated_reward_action_log.user_id} "
-            f"with reward_id: {created_reward.reward_id}"
-        )
-        task = asyncio.create_task(
-            retry_reward_claim(created_reward.reward_id, updated_reward_action_log.user_id), name=task_name
-        )
-        task.add_done_callback(handle_background_task_error)
+        # Process claim synchronously
+        reward_claim = await process_reward_claim(created_reward.reward_id, user_id)
 
         return RewardCreationResponse(
             is_rewarded=True,
             reward_id=created_reward.reward_id,
-            comment=comment,
+            comment=reward_claim.comment,
             credit_delta=credit_delta,
         )
 
-    return RewardCreationResponse(is_rewarded=False)
+    except Exception as e:
+        log_dict = {
+            "message": "Error in process_reward_creation_and_claim",
+            "user_id": user_id,
+            "credit_delta": credit_delta,
+            "turn_id": str(turn_id) if turn_id else None,
+            "reward_action_log": reward_action_log.dict(),
+            "error": str(e),
+        }
+        logging.exception("Reward processing failed", extra=log_dict)
+
+        # Background notification using context manager
+        asyncio.create_task(notify_slack_error(user_id, credit_delta, str(e)))
+
+        return RewardCreationResponse(is_rewarded=False)
+
+
+async def handle_feedback_reward(reward_action_log: RewardActionLog) -> RewardCreationResponse:
+    """Handle feedback-based reward processing."""
+
+    reward_amount = validate_reward_amount(reward_action_log.action_details)
+
+    updated_reward_action_log = await create_reward_action_log(reward_action_log)
+
+    should_reward, credit_delta, comment, amount_rule, prob_rule = feedback_based_reward(
+        updated_reward_action_log.user_id, reward_amount
+    )
+
+    if not should_reward:
+        return RewardCreationResponse(is_rewarded=False)
+
+    return await process_reward_creation_and_claim(
+        user_id=updated_reward_action_log.user_id,
+        credit_delta=int(credit_delta),
+        comment=comment,
+        reward_action_log=updated_reward_action_log,
+        turn_id=None,
+        reward_amount_rule=amount_rule,
+        reward_probability_rule=prob_rule,
+    )
 
 
 async def handle_qt_eval_reward(reward_action_log: RewardActionLog) -> RewardCreationResponse:
@@ -115,21 +156,17 @@ async def handle_qt_eval_reward(reward_action_log: RewardActionLog) -> RewardCre
     if turn_id is None:
         raise HTTPException(status_code=404, detail="Could not find turn_id for the given message_id")
 
-    # check if an out of range reward value has been passed in action details
-    if "reward_amount" in reward_action_log.action_details:
-        reward_amount = float(reward_action_log.action_details["reward_amount"])
-    else:
-        reward_amount = None
+    reward_amount = validate_reward_amount(reward_action_log.action_details)
 
     # Check if an entry already exists for this user and turn
-    existing_log = await get_reward_action_log_by_user_and_turn(
+    exists_reward_action_log = await get_reward_action_log_by_user_and_turn(
         user_id=reward_action_log.user_id,
         turn_id=turn_id,
         action_type=RewardActionEnum.QT_EVAL.name,
     )
 
     # do not reward the user for multiple QT eval actions in a single turn
-    if existing_log:
+    if exists_reward_action_log:
         return RewardCreationResponse(is_rewarded=False)
 
     updated_reward_action_log = await create_reward_action_log(reward_action_log)
@@ -138,33 +175,14 @@ async def handle_qt_eval_reward(reward_action_log: RewardActionLog) -> RewardCre
     )
 
     if should_reward:
-        created_reward = await create_reward(
+        return await process_reward_creation_and_claim(
             user_id=updated_reward_action_log.user_id,
-            credit_delta=credit_delta,
+            credit_delta=int(credit_delta),
             comment=comment,
-            reward_action_logs=[updated_reward_action_log],
+            reward_action_log=updated_reward_action_log,
             turn_id=turn_id,
             reward_amount_rule=reward_amount_rule,
             reward_probability_rule=reward_probability_rule,
-        )
-
-        # TODO post kabini release, we should send scratchcards and not automatically claim rewards
-        # Create task for process_reward_claim and add error callback
-        task_name = (
-            f"handle_qt_eval_reward reward_claim "
-            f"for user: {updated_reward_action_log.user_id} "
-            f"with reward_id: {created_reward.reward_id}"
-        )
-        task = asyncio.create_task(
-            retry_reward_claim(created_reward.reward_id, updated_reward_action_log.user_id), name=task_name
-        )
-        task.add_done_callback(handle_background_task_error)
-
-        return RewardCreationResponse(
-            is_rewarded=True,
-            reward_id=created_reward.reward_id,
-            comment=comment,
-            credit_delta=credit_delta,
         )
 
     return RewardCreationResponse(is_rewarded=False)
@@ -216,65 +234,16 @@ async def claim_reward(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-async def retry_reward_claim(reward_id: UUID, user_id: str, attempt: int = 1) -> None:
-    """
-    Retry the reward claim with exponential backoff.
-    """
-    try:
-        await process_reward_claim(reward_id, user_id)
-    except Exception as exc:
-        if attempt >= MAX_RETRIES:
-            logging.error(
-                json_dumps(
-                    {
-                        "message": f"Reward claim failed after {MAX_RETRIES} attempts",
-                        "error": str(exc),
-                        "user_id": user_id,
-                        "reward_id": reward_id,
-                    }
-                )
-            )
-            return
-
-        # Exponential backoff
-        wait_time = RETRY_DELAY * (2 ** (attempt - 1))
-        logging.warning(
-            json_dumps(
-                {
-                    "message": f"Reward claim attempt {attempt} failed, retrying in {wait_time}s",
-                    "error": str(exc),
-                    "user_id": user_id,
-                    "reward_id": reward_id,
-                }
-            )
-        )
-        await asyncio.sleep(wait_time)
-        await retry_reward_claim(reward_id, user_id, attempt + 1)
+async def notify_slack_error(user_id: str, credit_delta: int, error: str) -> None:
+    """Send error notification to Slack asynchronously."""
+    message = (
+        f":x: Reward creation and claim failed\n" f"User: {user_id}\n" f"Amount: {credit_delta}\n" f"Error: {error}"
+    )
+    await post_to_slack(message)
 
 
-def handle_background_task_error(task: asyncio.Task) -> None:
-    """Handle any errors from background tasks."""
-    try:
-        # Get the exception if the task failed
-        exc = task.exception()
-        if exc:
-            log_dict = {
-                "credit_claim_failed": True,
-                "message": task.get_name(),
-                "error": str(exc),
-                "user_id": task.get_name().split("user: ")[1].split(" ")[0],  # Extract from task name
-                "reward_id": task.get_name().split("reward_id: ")[1],  # Extract from task name
-            }
-            logging.exception(json_dumps(log_dict))
-
-            # Create a new async task for Slack notification
-            slack_message = (
-                f":x: Reward claim failed for user {log_dict['user_id']}\n"
-                f"Reward ID: {log_dict['reward_id']}\n"
-                f"Error: {str(exc)}"
-            )
-            # Create a new task for the async Slack call
-            asyncio.create_task(post_to_slack(slack_message))
-
-    except asyncio.CancelledError:
-        pass
+def validate_reward_amount(action_details: dict) -> int | None:
+    """Extract and validate reward amount from action details."""
+    if not action_details or "reward_amount" not in action_details:
+        return None
+    return int(action_details["reward_amount"])
