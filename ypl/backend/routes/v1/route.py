@@ -81,9 +81,14 @@ def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Response
             prompt = get_user_message(request.turn_id)
 
     match request.intent:
-        case SelectIntent.NEW_TURN | SelectIntent.SHOW_ME_MORE:
+        case SelectIntent.NEW_TURN:
             preference, user_selected_models = get_preferences(request.chat_id)  # type: ignore[arg-type]
             request.required_models = list(dict.fromkeys((request.required_models or []) + user_selected_models))
+        case SelectIntent.SHOW_ME_MORE:
+            preference, user_selected_models = get_preferences(request.chat_id)  # type: ignore[arg-type]
+            preference.turns = preference.turns or []
+            preference.turns.append(PreferredModel(models=user_selected_models, preferred=None))
+            request.required_models = []
         case _:
             preference = RoutingPreference(turns=[])
 
