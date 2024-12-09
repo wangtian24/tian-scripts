@@ -310,25 +310,34 @@ def turn_based_reward(
     )
 
 
-def generate_bounded_reward(lower_bound: int, upper_bound: int) -> int:
+def generate_bounded_reward(lower_bound: int, upper_bound: int, feedback_comment: str | None = None) -> int:
     """
     Generate a normally distributed random reward amount between lower and upper bounds.
 
     Args:
         lower_bound (int): Minimum reward amount
         upper_bound (int): Maximum reward amount
-
+        feedback_comment (str): The feedback comment
     Returns:
         int: The generated reward amount, rounded to nearest 10
     """
     mean = (lower_bound + upper_bound) / 2
+
+    # Adjust mean based on feedback length if provided
+    if feedback_comment:
+        # Longer feedback gets slightly higher mean reward
+        length_factor = min(1.2, max(0.8, len(feedback_comment) / 100))
+        mean = mean * length_factor
+
     std_dev = (upper_bound - mean) / 3
 
     reward_amount = int(round(random.gauss(mean, std_dev), -1))
     return max(lower_bound, min(upper_bound, reward_amount))
 
 
-def feedback_based_reward(user_id: str) -> tuple[bool, int, str, RewardAmountRule | None, RewardProbabilityRule | None]:
+def feedback_based_reward(
+    user_id: str, feedback_comment: str
+) -> tuple[bool, int, str, RewardAmountRule | None, RewardProbabilityRule | None]:
     """
     Determine if a user should be rewarded for feedback and calculate the reward amount.
     Uses a normally distributed random variable between 1000-2000,
@@ -336,7 +345,7 @@ def feedback_based_reward(user_id: str) -> tuple[bool, int, str, RewardAmountRul
 
     Args:
         user_id: The ID of the user
-
+        feedback_comment: The feedback comment
     Raises:
         ValueError: If reward_amount is provided but outside the valid range
     """
@@ -344,7 +353,9 @@ def feedback_based_reward(user_id: str) -> tuple[bool, int, str, RewardAmountRul
 
     # Generate a random reward amount if none provided
     reward_amount = generate_bounded_reward(
-        lower_bound=FEEDBACK_REWARD_LOWER_BOUND, upper_bound=FEEDBACK_REWARD_UPPER_BOUND
+        lower_bound=FEEDBACK_REWARD_LOWER_BOUND,
+        upper_bound=FEEDBACK_REWARD_UPPER_BOUND,
+        feedback_comment=feedback_comment,
     )
 
     reward_comment = f"Feedback based reward: {reward_amount} credits."

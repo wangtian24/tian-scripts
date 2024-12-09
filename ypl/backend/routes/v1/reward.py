@@ -121,11 +121,14 @@ async def process_reward_creation_and_claim(
 
 async def handle_feedback_reward(reward_action_log: RewardActionLog) -> RewardCreationResponse:
     """Handle feedback-based reward processing."""
+    if not reward_action_log.action_details or "feedback_comment" not in reward_action_log.action_details:
+        return RewardCreationResponse(is_rewarded=False, credit_delta=0)
 
     updated_reward_action_log = await create_reward_action_log(reward_action_log)
 
     should_reward, credit_delta, comment, amount_rule, prob_rule = feedback_based_reward(
-        updated_reward_action_log.user_id
+        updated_reward_action_log.user_id,
+        reward_action_log.action_details["feedback_comment"],
     )
 
     if not should_reward:
