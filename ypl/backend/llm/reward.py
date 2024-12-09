@@ -8,6 +8,8 @@ from typing import Any, Literal
 from uuid import UUID
 
 from cachetools.func import ttl_cache
+from dotenv import load_dotenv
+from langchain_core.language_models import BaseChatModel
 from pydantic import BaseModel
 from sqlalchemy import and_, func
 from sqlalchemy.exc import DatabaseError, OperationalError
@@ -17,6 +19,9 @@ from tenacity import after_log, retry, retry_if_exception_type, stop_after_attem
 
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine, get_engine
+from ypl.backend.llm.chat import ModelInfo, get_chat_model
+from ypl.backend.llm.constants import ChatProvider
+from ypl.backend.llm.judge import FeedbackQualityLabeler
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import Chat, Eval, Turn, TurnQuality
 from ypl.db.point_transactions import PointsActionEnum, PointTransaction
@@ -30,12 +35,38 @@ from ypl.db.rewards import (
 )
 from ypl.db.users import User
 
+load_dotenv()  # Load environment variables from .env file
+
 # Define mean reward for evals, baseline value for medium tier (method="mean")
 MEAN_EVAL_REWARD = 50
-FEEDBACK_REWARD_LOWER_BOUND = 1000
+FEEDBACK_REWARD_LOWER_BOUND = 300
 FEEDBACK_REWARD_UPPER_BOUND = 2000
 QT_EVAL_REWARD_LOWER_BOUND = 0
 QT_EVAL_REWARD_UPPER_BOUND = 300
+
+VERY_POOR_FEEDBACK_SCORE = 2
+POOR_FEEDBACK_SCORE = 3
+AVERAGE_FEEDBACK_SCORE = 5
+GOOD_FEEDBACK_SCORE = 7
+EXCELLENT_FEEDBACK_SCORE = 10
+
+FEEDBACK_QUALITY_MULTIPLIER = {
+    # Very poor quality (1-2)
+    1: 0.15,  # ~300-400 range
+    2: 0.2,  # ~400-500 range
+    # Poor quality (3-4)
+    3: 0.25,  # ~500-600 range
+    4: 0.35,  # ~600-700 range
+    # Average quality (5-6)
+    5: 0.4,  # ~700-850 range
+    6: 0.5,  # ~850-1000 range
+    # Good quality (7-8)
+    7: 0.65,  # ~1000-1250 range
+    8: 0.75,  # ~1250-1500 range
+    # Excellent quality (9-10)
+    9: 0.85,  # ~1500-1750 range
+    10: 1.0,  # ~1750-2000 range
+}
 
 
 @dataclass
@@ -310,24 +341,66 @@ def turn_based_reward(
     )
 
 
-def generate_bounded_reward(lower_bound: int, upper_bound: int, feedback_comment: str | None = None) -> int:
+def get_reward_llm() -> BaseChatModel:
+    """Get the LLM for reward evaluation. Separated for easier testing."""
+    return get_chat_model(
+        ModelInfo(
+            provider=ChatProvider.OPENAI,
+            model="gpt-4o-mini",
+            api_key=settings.OPENAI_API_KEY,
+        ),
+        temperature=0.0,
+    )
+
+
+# At module level
+_cached_llm: BaseChatModel | None = None
+
+
+def get_llm() -> BaseChatModel:
+    """Get or create the LLM instance."""
+    global _cached_llm
+    if _cached_llm is None:
+        _cached_llm = get_reward_llm()
+    return _cached_llm
+
+
+# Update get_feedback_quality_score to use the function
+async def get_feedback_quality_score(feedback: str, llm: BaseChatModel | None = None) -> int:
+    try:
+        labeler = FeedbackQualityLabeler(llm or get_llm())
+        score = await labeler.alabel(feedback)
+        return score
+    except Exception as e:
+        log_dict = {
+            "message": "Error getting feedback quality score",
+            "error": str(e),
+        }
+        logging.warning(json_dumps(log_dict))
+        return 5  # Return average score on error
+
+
+async def generate_bounded_reward(lower_bound: int, upper_bound: int, quality_score: int | None = None) -> int:
     """
     Generate a normally distributed random reward amount between lower and upper bounds.
+    Adjusts the reward based on feedback quality if feedback is provided.
 
     Args:
         lower_bound (int): Minimum reward amount
         upper_bound (int): Maximum reward amount
-        feedback_comment (str): The feedback comment
+        quality_score (int): The feedback quality score
     Returns:
         int: The generated reward amount, rounded to nearest 10
     """
     mean = (lower_bound + upper_bound) / 2
 
-    # Adjust mean based on feedback length if provided
-    if feedback_comment:
-        # Longer feedback gets slightly higher mean reward
-        length_factor = min(1.2, max(0.8, len(feedback_comment) / 100))
-        mean = mean * length_factor
+    # Adjust mean based on feedback quality if provided
+    if quality_score:
+        # Get multiplier based on quality score (default to 1.0 if score is invalid)
+        quality_multiplier = FEEDBACK_QUALITY_MULTIPLIER.get(quality_score, 1.0)
+
+        # Apply quality multiplier to mean
+        mean = mean * quality_multiplier
 
     std_dev = (upper_bound - mean) / 3
 
@@ -335,31 +408,46 @@ def generate_bounded_reward(lower_bound: int, upper_bound: int, feedback_comment
     return max(lower_bound, min(upper_bound, reward_amount))
 
 
-def feedback_based_reward(
+async def feedback_based_reward(
     user_id: str, feedback_comment: str
 ) -> tuple[bool, int, str, RewardAmountRule | None, RewardProbabilityRule | None]:
     """
     Determine if a user should be rewarded for feedback and calculate the reward amount.
-    Uses a normally distributed random variable between 1000-2000,
-    unless a specific reward_amount is provided.
+    The reward amount is based on both feedback length and quality.
 
     Args:
         user_id: The ID of the user
         feedback_comment: The feedback comment
-    Raises:
-        ValueError: If reward_amount is provided but outside the valid range
     """
     should_reward = True
 
-    # Generate a random reward amount if none provided
-    reward_amount = generate_bounded_reward(
+    # Get quality score for the comment
+    quality_score = await get_feedback_quality_score(feedback_comment)
+
+    reward_amount = await generate_bounded_reward(
         lower_bound=FEEDBACK_REWARD_LOWER_BOUND,
         upper_bound=FEEDBACK_REWARD_UPPER_BOUND,
-        feedback_comment=feedback_comment,
+        quality_score=quality_score,
     )
 
-    reward_comment = f"Feedback based reward: {reward_amount} credits."
+    # Customize comment based on quality
+    if quality_score >= EXCELLENT_FEEDBACK_SCORE:
+        reward_comment = f"Excellent feedback! Reward: {reward_amount} credits"
+    elif quality_score >= GOOD_FEEDBACK_SCORE:
+        reward_comment = f"Good quality feedback. Reward: {reward_amount} credits"
+    elif quality_score >= AVERAGE_FEEDBACK_SCORE:
+        reward_comment = f"Average feedback. Reward: {reward_amount} credits"
+    else:
+        reward_comment = f"Feedback reward: {reward_amount} credits. More detailed feedback earns higher rewards!"
 
+    log_dict = {
+        "user_id": user_id,
+        "message": "Feedback based reward",
+        "should_reward": should_reward,
+        "reward_amount": reward_amount,
+        "reward_comment": reward_comment,
+    }
+    logging.info(json_dumps(log_dict))
     return (
         should_reward,
         reward_amount,
@@ -369,22 +457,11 @@ def feedback_based_reward(
     )
 
 
-def qt_eval_reward(user_id: str) -> tuple[bool, int, str, RewardAmountRule | None, RewardProbabilityRule | None]:
-    """
-    Determine if a user should be rewarded for QT evaluation and calculate the reward amount.
-    Uses a normally distributed random variable between 0-300,
-    unless a specific reward_amount is provided.
-
-    Args:
-        user_id: The ID of the user
-
-    Raises:
-        ValueError: If reward_amount is provided but outside the valid range
-    """
+async def qt_eval_reward(user_id: str) -> tuple[bool, int, str, RewardAmountRule | None, RewardProbabilityRule | None]:
     should_reward = True
 
     # Generate a random reward amount if none provided
-    reward_amount = generate_bounded_reward(
+    reward_amount = await generate_bounded_reward(
         lower_bound=QT_EVAL_REWARD_LOWER_BOUND, upper_bound=QT_EVAL_REWARD_UPPER_BOUND
     )
 
@@ -394,8 +471,8 @@ def qt_eval_reward(user_id: str) -> tuple[bool, int, str, RewardAmountRule | Non
         should_reward,
         reward_amount,
         reward_comment,
-        None,  # No specific amount rule for QT eval for now
-        None,  # No specific probability rule for QT eval for now
+        None,
+        None,
     )
 
 

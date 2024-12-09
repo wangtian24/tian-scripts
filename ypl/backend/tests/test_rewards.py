@@ -1,18 +1,32 @@
 import uuid
+from collections.abc import Generator
 from datetime import datetime
 from typing import Any
 from unittest.mock import patch
 
 import numpy as np
+from langchain_core.callbacks import (
+    AsyncCallbackManagerForLLMRun,
+    CallbackManagerForLLMRun,
+)
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import BaseMessage, ChatMessage
+from langchain_core.outputs import (
+    ChatGeneration,
+    ChatResult,
+)
 from pytest import approx, fixture, mark
 
 from ypl.backend.llm.reward import (
+    FEEDBACK_REWARD_LOWER_BOUND,
+    FEEDBACK_REWARD_UPPER_BOUND,
     MEAN_EVAL_REWARD,
     REWARD_TIER_HIGH,
     REWARD_TIER_LOW,
     REWARD_TIER_MEDIUM,
     REWARD_TIER_VERY_LOW,
     UserTurnReward,
+    feedback_based_reward,
 )
 from ypl.db.rewards import RewardAmountRule, RewardProbabilityRule
 
@@ -241,3 +255,69 @@ def test_reward_rule_equality() -> None:
     # Should match even if IDs/timestamps differ.
     assert MOCK_AMOUNT_RULES[0] == MOCK_AMOUNT_RULES[0].model_copy(update={"reward_amount_rule_id": uuid.uuid4()})
     assert MOCK_PROBABILITY_RULES[0] == MOCK_PROBABILITY_RULES[0].model_copy(update={"created_at": datetime.now()})
+
+
+# Create a mock LLM for testing
+class MockLLM(BaseChatModel):
+    @property
+    def _llm_type(self) -> str:
+        return "mock"
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: CallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        return ChatResult(
+            generations=[
+                ChatGeneration(message=ChatMessage(content='{"score": 7}', role="assistant"), generation_info=None)
+            ]
+        )
+
+    async def _agenerate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: AsyncCallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        return ChatResult(
+            generations=[
+                ChatGeneration(message=ChatMessage(content='{"score": 7}', role="assistant"), generation_info=None)
+            ]
+        )
+
+
+@fixture(autouse=True)
+def mock_chat_model() -> Generator[Any, None, None]:
+    """Mock get_chat_model to prevent OpenAI client creation during import."""
+    with patch("ypl.backend.llm.chat.get_chat_model") as mock:
+        mock.return_value = MockLLM()
+        yield mock
+
+
+@patch("ypl.backend.llm.reward.get_reward_llm")
+async def test_feedback_reward(mock_get_llm: Any) -> None:
+    # Setup mock chain
+    mock_llm = MockLLM()
+    mock_get_llm.return_value = mock_llm
+
+    test_user_id = "test_user"
+    # Test cases
+    test_cases = [
+        ("Great feedback", True),  # Good feedback
+        ("ok", True),  # Short feedback
+        ("", True),  # Empty feedback
+    ]
+
+    for feedback, should_reward in test_cases:
+        result = await feedback_based_reward(test_user_id, feedback)
+        should_reward, reward_amount, comment, rule_amount, rule_prob = result
+
+        assert should_reward is True  # Should always reward feedback
+        assert FEEDBACK_REWARD_LOWER_BOUND <= reward_amount <= FEEDBACK_REWARD_UPPER_BOUND
+        assert isinstance(comment, str)
+        assert rule_amount is None
+        assert rule_prob is None

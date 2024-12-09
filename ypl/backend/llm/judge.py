@@ -11,6 +11,7 @@ from ypl.backend.llm.chat import ModelInfo
 from ypl.backend.llm.constants import MODEL_HEURISTICS
 from ypl.backend.llm.labeler import InputType, LLMLabeler, OnErrorBehavior, OutputType
 from ypl.backend.prompts import (
+    FEEDBACK_QUALITY_PROMPT_TEMPLATE,
     JUDGE_RESPONSE_REFUSAL_PROMPT,
     JUDGE_YUPP_CHAT_PROMPT_SPEED_AWARE_TEMPLATE,
     JUDGE_YUPP_CHAT_PROMPT_TEMPLATE,
@@ -252,3 +253,38 @@ class ResponseRefusalLabeler(LLMLabeler[tuple[str, str], int]):
     @property
     def error_value(self) -> int:
         return -1
+
+
+class FeedbackQualityLabeler(LLMLabeler[str, int]):
+    """Labels the quality of feedback on a scale of 1-10."""
+
+    def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
+        return FEEDBACK_QUALITY_PROMPT_TEMPLATE | llm  # type: ignore
+
+    def _prepare_input(self, input: str) -> dict[str, Any]:
+        return dict(feedback=input)
+
+    def _parse_output(self, output: BaseMessage) -> int:
+        content = str(output.content)
+
+        if m := re.search(r"\{.*?\"score\":\s*(\d+)\}.*", content):
+            return int(m.group(1))
+
+        return self.error_value
+
+    @property
+    def error_value(self) -> int:
+        return -1
+
+    def _heuristic_label(self, input: str) -> int | None:
+        """Labels based on heuristics if possible, otherwise None."""
+        # Very short feedback is likely low quality
+        if len(input.split()) <= 4:
+            return 1
+        return None
+
+    def label(self, input: str) -> int:
+        return self._heuristic_label(input) or super().label(input)
+
+    async def alabel(self, input: str) -> int:
+        return self._heuristic_label(input) or await super().alabel(input)

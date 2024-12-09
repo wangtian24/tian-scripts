@@ -126,7 +126,7 @@ async def handle_feedback_reward(reward_action_log: RewardActionLog) -> RewardCr
 
     updated_reward_action_log = await create_reward_action_log(reward_action_log)
 
-    should_reward, credit_delta, comment, amount_rule, prob_rule = feedback_based_reward(
+    should_reward, credit_delta, comment, amount_rule, prob_rule = await feedback_based_reward(
         updated_reward_action_log.user_id,
         reward_action_log.action_details["feedback_comment"],
     )
@@ -169,7 +169,7 @@ async def handle_qt_eval_reward(reward_action_log: RewardActionLog) -> RewardCre
         return RewardCreationResponse(is_rewarded=False, credit_delta=0)
 
     updated_reward_action_log = await create_reward_action_log(reward_action_log)
-    should_reward, credit_delta, comment, reward_amount_rule, reward_probability_rule = qt_eval_reward(
+    should_reward, credit_delta, comment, reward_amount_rule, reward_probability_rule = await qt_eval_reward(
         updated_reward_action_log.user_id
     )
 

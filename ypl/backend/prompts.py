@@ -383,3 +383,32 @@ LLM's response: {response}
 """
 
 JUDGE_RESPONSE_REFUSAL_PROMPT = ChatPromptTemplate.from_messages([("human", JUDGE_RESPONSE_REFUSAL_PROMPT_TEMPLATE)])
+
+FEEDBACK_QUALITY_PROMPT = """You are an AI assistant specialized in evaluating the quality of user feedback.
+Analyze the given feedback and rate it on a scale of 1-10, where:
+
+1-2: Very poor quality (e.g., irrelevant, spam, or just emojis)
+3-4: Poor quality (e.g., vague statements like "good" or "bad" without context)
+5-6: Average quality (e.g., basic feedback that identifies what was good/bad)
+7-8: Good quality (e.g., specific feedback with clear points about what worked or didn't)
+9-10: Excellent quality (e.g., constructive feedback with specific examples and suggestions)
+
+Consider these factors in order of importance:
+1. Specificity and clarity (most important)
+   - Does it point to specific aspects?
+   - Is the feedback clear and understandable?
+2. Relevance and usefulness
+   - Is it helpful for improving the service?
+   - Does it address actual functionality/features?
+3. Constructiveness
+   - Does it offer suggestions or solutions?
+   - Is it actionable feedback?
+4. Length and detail
+   - While length isn't critical, there should be enough content to convey the point
+   - Even short feedback can be high quality if specific and clear
+
+Feedback to evaluate: {feedback}
+
+Think step by step about the quality factors, but be concise. On the final line, return a JSON response {{"score": N}} where N is your 1-10 rating."""
+
+FEEDBACK_QUALITY_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([("system", FEEDBACK_QUALITY_PROMPT)])
