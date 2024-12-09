@@ -1036,8 +1036,8 @@ def refresh_rewards_rules(rules_file: str, dry_run: bool) -> None:
 
 
 @cli.command(help="Annotate LLM refusals")
-@click.option("-j", "--num-parallel", default=16, help="The number of jobs to run in parallel.")
-@click.option("-n", "--max-num-turns", default=1000, help="The maximum number of turns to process")
+@click.option("-j", "--num-parallel", default=8, help="The number of jobs to run in parallel.")
+@click.option("-n", "--max-num-turns", default=1000, help="The maximum number of unannotated turns to process")
 def judge_refusals(
     num_parallel: int,
     max_num_turns: int,
@@ -1054,19 +1054,30 @@ def judge_refusals(
         )
 
     with Session(get_engine()) as session:
-        turn_ids = session.exec(
-            select(Turn.turn_id)
-            .join(ChatMessage)
-            .where(missing_refusal_annotation(ChatMessage.annotations))
-            .limit(max_num_turns)
-        ).all()
+        # Get unannotated turns, up to the max number of turns.
+        turn_ids = (
+            session.exec(
+                select(Turn.turn_id)
+                .join(ChatMessage)
+                .where(missing_refusal_annotation(ChatMessage.annotations))
+                .order_by(Turn.created_at.desc())  # type: ignore
+                .limit(max_num_turns)
+            )
+            .unique()
+            .all()
+        )
 
+        # Get the messages for each turn as pairs of prompt and response.
         for turn_id in turn_ids:
             messages = session.exec(
                 select(ChatMessage.message_id, ChatMessage.content, ChatMessage.message_type)  # type: ignore
                 .where(
                     ChatMessage.turn_id == turn_id,
-                    missing_refusal_annotation(ChatMessage.annotations),
+                    (
+                        missing_refusal_annotation(ChatMessage.annotations)
+                        # Include the prompt message.
+                        | (ChatMessage.message_type == MessageType.USER_MESSAGE)
+                    ),
                 )
                 .order_by(ChatMessage.created_at)
             ).all()
@@ -1082,7 +1093,7 @@ def judge_refusals(
                 continue
 
             for message_id, content, message_type in messages:
-                if message_type == MessageType.ASSISTANT_MESSAGE:
+                if message_type in (MessageType.ASSISTANT_MESSAGE, MessageType.QUICK_RESPONSE_MESSAGE):
                     prompts_responses.append((prompt, content))
                     response_message_ids.append(message_id)
 
@@ -1120,24 +1131,29 @@ def judge_refusals(
         ]
     )
 
-    with Session(get_engine()) as session:
-        # Bulk update, keep existing annotations.
-        session.execute(
-            text(
-                """
-                UPDATE chat_messages
-                SET annotations = COALESCE(annotations, '{}') || jsonb_build_object(:key, :value)
-                WHERE message_id = :message_id
-                """
-            ),
-            update_values,
-        )
-        session.commit()
-
     num_refusals = sum(result == 1 for result in results)
-    num_messages = len(update_values)
-
+    num_messages = len(results)
     logging.info(f"{num_refusals} refusals found for {num_messages} messages ({num_refusals / num_messages:.2%})")
+
+    chunk_size = 100
+    for i in range(0, len(update_values), chunk_size):
+        start, end = i, min(i + chunk_size, len(update_values))
+        chunk = update_values[start:end]
+        with Session(get_engine()) as session:
+            # Bulk update, keep existing annotations.
+            session.execute(
+                text(
+                    """
+                    UPDATE chat_messages
+                    SET annotations = COALESCE(annotations, '{}') || jsonb_build_object(:key, :value)
+                    WHERE message_id = :message_id
+                    """
+                ),
+                chunk,
+            )
+            session.commit()
+            logging.info(f"Committed updates {start} to {end} out of {len(update_values)}")
+    logging.info(f"Completed updating {num_messages} messages")
 
 
 if __name__ == "__main__":

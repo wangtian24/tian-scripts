@@ -228,7 +228,7 @@ class ResponseRefusalLabeler(LLMLabeler[tuple[str, str], int]):
         timeout_secs: float = 5.0,
         on_error: OnErrorBehavior = "use_error_value",
         max_prompt_len: int = 200,
-        max_response_len: int = 500,
+        max_response_len: int = 300,
     ) -> None:
         super().__init__(llm, timeout_secs, on_error)
         self.max_prompt_len = max_prompt_len

@@ -1,21 +1,21 @@
-name: Verify Submitted Models
+name: Label refusals
 
 on:
   schedule:
-    - cron: '0 4 * * *'  # Every 24 hours at 4am
+    - cron: '20 * * * *'  # Every hour, at 20 minutes past the hour.
   workflow_dispatch:
 
 jobs:
-  verify_submitted_models_staging:
+  label_refusals_staging:
     uses: ./.github/workflows/cronjob.yml
     with:
-      command: verify-submitted-models
+      command: judge-refusals
       environment: staging
     secrets: inherit
 
-  verify_submitted_models_production:
+  label_refusals_production:
     uses: ./.github/workflows/cronjob.yml
     with:
-      command: verify-submitted-models
+      command: judge-refusals
       environment: production
     secrets: inherit
