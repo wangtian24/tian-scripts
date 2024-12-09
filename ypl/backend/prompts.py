@@ -384,28 +384,28 @@ LLM's response: {response}
 
 JUDGE_RESPONSE_REFUSAL_PROMPT = ChatPromptTemplate.from_messages([("human", JUDGE_RESPONSE_REFUSAL_PROMPT_TEMPLATE)])
 
-FEEDBACK_QUALITY_PROMPT = """You are an AI assistant specialized in evaluating the quality of user feedback.
-Analyze the given feedback and rate it on a scale of 1-10, where:
+FEEDBACK_QUALITY_PROMPT = """You are an AI assistant specialized in evaluating the quality of user feedback submitted on a website.
+Analyze the given website feedback and rate it on a scale of 1-10, where:
 
 1-2: Very poor quality (e.g., irrelevant, spam, or just emojis)
-3-4: Poor quality (e.g., vague statements like "good" or "bad" without context)
-5-6: Average quality (e.g., basic feedback that identifies what was good/bad)
-7-8: Good quality (e.g., specific feedback with clear points about what worked or didn't)
-9-10: Excellent quality (e.g., constructive feedback with specific examples and suggestions)
+3-4: Poor quality (e.g., vague statements like "good website" or "bad site" without context)
+5-6: Average quality (e.g., basic feedback that identifies what was good/bad about the website)
+7-8: Good quality (e.g., specific feedback with clear points about website features or user experience)
+9-10: Excellent quality (e.g., constructive feedback with specific examples and suggestions for website improvement)
 
 Consider these factors in order of importance:
 1. Specificity and clarity (most important)
-   - Does it point to specific aspects?
+   - Does it point to specific aspects of the website?
    - Is the feedback clear and understandable?
 2. Relevance and usefulness
-   - Is it helpful for improving the service?
-   - Does it address actual functionality/features?
+   - Is it helpful for improving the website?
+   - Does it address actual functionality/features of the site?
 3. Constructiveness
-   - Does it offer suggestions or solutions?
-   - Is it actionable feedback?
+   - Does it offer suggestions or solutions for website improvement?
+   - Is it actionable feedback for the website team?
 4. Length and detail
    - While length isn't critical, there should be enough content to convey the point
-   - Even short feedback can be high quality if specific and clear
+   - Even short feedback can be high quality if specific and clear about website aspects
 
 Feedback to evaluate: {feedback}
 
