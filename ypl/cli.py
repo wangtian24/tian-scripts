@@ -41,6 +41,7 @@ from ypl.backend.llm.constants import MODEL_HEURISTICS
 from ypl.backend.llm.embedding import get_embedding_model
 from ypl.backend.llm.judge import (
     JudgeConfig,
+    ResponseRefusalLabeler,
     SpeedAwareYuppEvaluationLabeler,
     YuppEvaluationLabeler,
     YuppMultilabelClassifier,
@@ -59,7 +60,7 @@ from ypl.backend.llm.ranking import get_default_ranker
 from ypl.backend.llm.synthesize import SQLChatIO, SynthesizerConfig, SyntheticUserGenerator, asynthesize_chats
 from ypl.backend.llm.utils import fetch_categories_with_descriptions_from_db
 from ypl.backend.utils.amplitude_analytics import post_amplitude_metrics_to_slack
-from ypl.db.chats import Chat, ChatMessage, LanguageCode, MessageType, Turn, TurnQuality
+from ypl.db.chats import IS_REFUSAL_ANNOTATION_NAME, Chat, ChatMessage, LanguageCode, MessageType, Turn, TurnQuality
 from ypl.db.language_models import LanguageModel, Provider
 from ypl.db.rewards import RewardAmountRule, RewardProbabilityRule, RewardRule
 
@@ -1032,6 +1033,111 @@ def refresh_rewards_rules(rules_file: str, dry_run: bool) -> None:
             session.add_all(existing_rules_to_update)
             session.add_all(new_rules_to_add)
             session.commit()
+
+
+@cli.command(help="Annotate LLM refusals")
+@click.option("-j", "--num-parallel", default=16, help="The number of jobs to run in parallel.")
+@click.option("-n", "--max-num-turns", default=1000, help="The maximum number of turns to process")
+def judge_refusals(
+    num_parallel: int,
+    max_num_turns: int,
+) -> None:
+    prompts_responses = []
+    response_message_ids = []
+    prompt_message_ids = []
+
+    def missing_refusal_annotation(annotations: dict) -> Any:
+        return (
+            annotations.is_(None)  # type: ignore
+            | (~annotations.has_key(IS_REFUSAL_ANNOTATION_NAME))  # type: ignore
+            | (annotations[IS_REFUSAL_ANNOTATION_NAME].astext.is_(None))
+        )
+
+    with Session(get_engine()) as session:
+        turn_ids = session.exec(
+            select(Turn.turn_id)
+            .join(ChatMessage)
+            .where(missing_refusal_annotation(ChatMessage.annotations))
+            .limit(max_num_turns)
+        ).all()
+
+        for turn_id in turn_ids:
+            messages = session.exec(
+                select(ChatMessage.message_id, ChatMessage.content, ChatMessage.message_type)  # type: ignore
+                .where(
+                    ChatMessage.turn_id == turn_id,
+                    missing_refusal_annotation(ChatMessage.annotations),
+                )
+                .order_by(ChatMessage.created_at)
+            ).all()
+
+            prompt = None
+            for message_id, content, message_type in messages:
+                if message_type == MessageType.USER_MESSAGE:
+                    prompt = content
+                    prompt_message_ids.append(message_id)
+                    break
+
+            if prompt is None:
+                continue
+
+            for message_id, content, message_type in messages:
+                if message_type == MessageType.ASSISTANT_MESSAGE:
+                    prompts_responses.append((prompt, content))
+                    response_message_ids.append(message_id)
+
+    if not prompts_responses:
+        logging.info("No responses to label")
+        return
+
+    logging.info(f"Collected {len(prompts_responses)} prompt-response pairs to label")
+
+    judge_llm = get_chat_model(
+        ModelInfo(provider=ChatProvider.OPENAI, model="gpt-4o-mini", api_key=settings.OPENAI_API_KEY),
+        temperature=0.0,
+    )
+    labeler = ResponseRefusalLabeler(judge_llm)
+    results = asyncio.run(labeler.abatch_label(prompts_responses, num_parallel=num_parallel))
+
+    update_values = [
+        {
+            "message_id": message_id,
+            "key": IS_REFUSAL_ANNOTATION_NAME,
+            "value": result,
+        }
+        for message_id, result in zip(response_message_ids, results, strict=True)
+        if result not in (None, labeler.error_value)
+    ]
+    # Prompts are not refusals; update them so that they are not processed again.
+    update_values.extend(
+        [
+            {
+                "message_id": prompt_message_id,
+                "key": IS_REFUSAL_ANNOTATION_NAME,
+                "value": 0,
+            }
+            for prompt_message_id in prompt_message_ids
+        ]
+    )
+
+    with Session(get_engine()) as session:
+        # Bulk update, keep existing annotations.
+        session.execute(
+            text(
+                """
+                UPDATE chat_messages
+                SET annotations = COALESCE(annotations, '{}') || jsonb_build_object(:key, :value)
+                WHERE message_id = :message_id
+                """
+            ),
+            update_values,
+        )
+        session.commit()
+
+    num_refusals = sum(result == 1 for result in results)
+    num_messages = len(update_values)
+
+    logging.info(f"{num_refusals} refusals found for {num_messages} messages ({num_refusals / num_messages:.2%})")
 
 
 if __name__ == "__main__":

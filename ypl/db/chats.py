@@ -21,6 +21,9 @@ if TYPE_CHECKING:
     from ypl.db.rewards import Reward, RewardActionLog
 
 
+IS_REFUSAL_ANNOTATION_NAME = "is_refusal"
+
+
 # A chat can contain multiple conversations.
 class Chat(BaseModel, table=True):
     __tablename__ = "chats"
