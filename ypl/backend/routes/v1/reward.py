@@ -122,20 +122,18 @@ async def process_reward_creation_and_claim(
 async def handle_feedback_reward(reward_action_log: RewardActionLog) -> RewardCreationResponse:
     """Handle feedback-based reward processing."""
 
-    reward_amount = validate_reward_amount(reward_action_log.action_details)
-
     updated_reward_action_log = await create_reward_action_log(reward_action_log)
 
     should_reward, credit_delta, comment, amount_rule, prob_rule = feedback_based_reward(
-        updated_reward_action_log.user_id, reward_amount
+        updated_reward_action_log.user_id
     )
 
     if not should_reward:
-        return RewardCreationResponse(is_rewarded=False)
+        return RewardCreationResponse(is_rewarded=False, credit_delta=0)
 
     return await process_reward_creation_and_claim(
         user_id=updated_reward_action_log.user_id,
-        credit_delta=int(credit_delta),
+        credit_delta=credit_delta,
         comment=comment,
         reward_action_log=updated_reward_action_log,
         turn_id=None,
@@ -156,8 +154,6 @@ async def handle_qt_eval_reward(reward_action_log: RewardActionLog) -> RewardCre
     if turn_id is None:
         raise HTTPException(status_code=404, detail="Could not find turn_id for the given message_id")
 
-    reward_amount = validate_reward_amount(reward_action_log.action_details)
-
     # Check if an entry already exists for this user and turn
     exists_reward_action_log = await get_reward_action_log_by_user_and_turn(
         user_id=reward_action_log.user_id,
@@ -167,17 +163,17 @@ async def handle_qt_eval_reward(reward_action_log: RewardActionLog) -> RewardCre
 
     # do not reward the user for multiple QT eval actions in a single turn
     if exists_reward_action_log:
-        return RewardCreationResponse(is_rewarded=False)
+        return RewardCreationResponse(is_rewarded=False, credit_delta=0)
 
     updated_reward_action_log = await create_reward_action_log(reward_action_log)
     should_reward, credit_delta, comment, reward_amount_rule, reward_probability_rule = qt_eval_reward(
-        updated_reward_action_log.user_id, reward_amount
+        updated_reward_action_log.user_id
     )
 
     if should_reward:
         return await process_reward_creation_and_claim(
             user_id=updated_reward_action_log.user_id,
-            credit_delta=int(credit_delta),
+            credit_delta=credit_delta,
             comment=comment,
             reward_action_log=updated_reward_action_log,
             turn_id=turn_id,
@@ -185,7 +181,7 @@ async def handle_qt_eval_reward(reward_action_log: RewardActionLog) -> RewardCre
             reward_probability_rule=reward_probability_rule,
         )
 
-    return RewardCreationResponse(is_rewarded=False)
+    return RewardCreationResponse(is_rewarded=False, credit_delta=0)
 
 
 @router.post("/rewards/record-action", response_model=RewardCreationResponse)
@@ -240,10 +236,3 @@ async def notify_slack_error(user_id: str, credit_delta: int, error: str) -> Non
         f":x: Reward creation and claim failed\n" f"User: {user_id}\n" f"Amount: {credit_delta}\n" f"Error: {error}"
     )
     await post_to_slack(message)
-
-
-def validate_reward_amount(action_details: dict) -> int | None:
-    """Extract and validate reward amount from action details."""
-    if not action_details or "reward_amount" not in action_details:
-        return None
-    return int(action_details["reward_amount"])

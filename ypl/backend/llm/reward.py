@@ -328,9 +328,7 @@ def generate_bounded_reward(lower_bound: int, upper_bound: int) -> int:
     return max(lower_bound, min(upper_bound, reward_amount))
 
 
-def feedback_based_reward(
-    user_id: str, reward_amount: float | None = None
-) -> tuple[bool, int, str, RewardAmountRule | None, RewardProbabilityRule | None]:
+def feedback_based_reward(user_id: str) -> tuple[bool, int, str, RewardAmountRule | None, RewardProbabilityRule | None]:
     """
     Determine if a user should be rewarded for feedback and calculate the reward amount.
     Uses a normally distributed random variable between 1000-2000,
@@ -338,35 +336,16 @@ def feedback_based_reward(
 
     Args:
         user_id: The ID of the user
-        reward_amount: Optional specific reward amount to use instead of generating one
 
     Raises:
         ValueError: If reward_amount is provided but outside the valid range
     """
     should_reward = True
 
-    if reward_amount is not None:
-        # Validate reward amount is within bounds
-        if reward_amount < FEEDBACK_REWARD_LOWER_BOUND or reward_amount > FEEDBACK_REWARD_UPPER_BOUND:
-            log_dict = {
-                "message": "Reward amount is outside valid range",
-                "user_id": user_id,
-                "reward_amount": reward_amount,
-                "lower_bound": FEEDBACK_REWARD_LOWER_BOUND,
-                "upper_bound": FEEDBACK_REWARD_UPPER_BOUND,
-            }
-            logging.warning(json_dumps(log_dict))
-            raise ValueError(
-                f"Reward amount {reward_amount} is outside valid range "
-                f"({FEEDBACK_REWARD_LOWER_BOUND}-{FEEDBACK_REWARD_UPPER_BOUND})"
-            )
-        # Use the exact provided reward amount
-        reward_amount = int(reward_amount)
-    else:
-        # Generate a random reward amount if none provided
-        reward_amount = generate_bounded_reward(
-            lower_bound=FEEDBACK_REWARD_LOWER_BOUND, upper_bound=FEEDBACK_REWARD_UPPER_BOUND
-        )
+    # Generate a random reward amount if none provided
+    reward_amount = generate_bounded_reward(
+        lower_bound=FEEDBACK_REWARD_LOWER_BOUND, upper_bound=FEEDBACK_REWARD_UPPER_BOUND
+    )
 
     reward_comment = f"Feedback based reward: {reward_amount} credits."
 
@@ -379,9 +358,7 @@ def feedback_based_reward(
     )
 
 
-def qt_eval_reward(
-    user_id: str, reward_amount: float | None = None
-) -> tuple[bool, int, str, RewardAmountRule | None, RewardProbabilityRule | None]:
+def qt_eval_reward(user_id: str) -> tuple[bool, int, str, RewardAmountRule | None, RewardProbabilityRule | None]:
     """
     Determine if a user should be rewarded for QT evaluation and calculate the reward amount.
     Uses a normally distributed random variable between 0-300,
@@ -389,35 +366,16 @@ def qt_eval_reward(
 
     Args:
         user_id: The ID of the user
-        reward_amount: Optional specific reward amount to use instead of generating one
 
     Raises:
         ValueError: If reward_amount is provided but outside the valid range
     """
     should_reward = True
 
-    if reward_amount is not None:
-        # Validate reward amount is within bounds
-        if reward_amount < QT_EVAL_REWARD_LOWER_BOUND or reward_amount > QT_EVAL_REWARD_UPPER_BOUND:
-            log_dict = {
-                "message": "Reward amount is outside valid range",
-                "user_id": user_id,
-                "reward_amount": reward_amount,
-                "lower_bound": QT_EVAL_REWARD_LOWER_BOUND,
-                "upper_bound": QT_EVAL_REWARD_UPPER_BOUND,
-            }
-            logging.warning(json_dumps(log_dict))
-            raise ValueError(
-                f"Reward amount {reward_amount} is outside valid range "
-                f"({QT_EVAL_REWARD_LOWER_BOUND}-{QT_EVAL_REWARD_UPPER_BOUND})"
-            )
-        # Use the exact provided reward amount
-        reward_amount = int(reward_amount)
-    else:
-        # Generate a random reward amount if none provided
-        reward_amount = generate_bounded_reward(
-            lower_bound=QT_EVAL_REWARD_LOWER_BOUND, upper_bound=QT_EVAL_REWARD_UPPER_BOUND
-        )
+    # Generate a random reward amount if none provided
+    reward_amount = generate_bounded_reward(
+        lower_bound=QT_EVAL_REWARD_LOWER_BOUND, upper_bound=QT_EVAL_REWARD_UPPER_BOUND
+    )
 
     reward_comment = f"QT Eval reward: {reward_amount} credits."
 
