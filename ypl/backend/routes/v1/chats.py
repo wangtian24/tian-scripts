@@ -365,7 +365,7 @@ async def get_message_debug_info(message_id: UUID) -> MessageDebugInfo | None:
                 return None
 
             modifiers = [(mod.name, mod.text) for mod in message.prompt_modifiers]
-            language_code = message.language_code.value if message.language_code else None
+            language_code = str(message.language_code) if message.language_code else ""
 
             return MessageDebugInfo(
                 message_id=message_id,
