@@ -30,7 +30,8 @@ AMPLITUDE_CHARTS: Final[dict[str, ChartInfo]] = {
     "scratchcards_shown": {"id": "yxihkyvd", "description": "SCs shown", "series_number": 0},
     "scratchcards_scratched": {"id": "yxihkyvd", "description": "SCs scratched", "series_number": 1},
     "credits_claimed": {"id": "7ukm5tc7", "description": "credits claimed", "series_number": 0},
-    "feedbacks": {"id": "ezl4kq8l", "description": "app feedbacks", "series_number": 0},
+    "app_feedbacks": {"id": "ezl4kq8l", "description": "app feedbacks", "series_number": 0},
+    "model_feedbacks": {"id": "ezl4kq8l", "description": "model feedbacks", "series_number": 1},
 }
 
 
