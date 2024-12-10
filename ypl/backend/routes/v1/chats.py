@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from ypl.backend.config import settings
@@ -21,7 +22,7 @@ from ypl.backend.llm.judge import (
 from ypl.backend.llm.moderation import DEFAULT_MODERATION_RESULT, amoderate
 from ypl.backend.rw_cache import TurnQualityCache
 from ypl.backend.utils.json import json_dumps
-from ypl.db.chats import Chat, MessageType, TurnQuality
+from ypl.db.chats import Chat, ChatMessage, MessageType, TurnQuality
 
 router = APIRouter()
 llm = get_chat_model(
@@ -340,3 +341,41 @@ async def get_user_chats(params: Annotated[GetChatsParams, Depends()]) -> ChatRe
         }
         logging.exception(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail={"message": "Failed to fetch chat history", "error": str(e)}) from e
+
+
+class MessageDebugInfo(BaseModel):
+    message_id: UUID
+    language_code: str
+    modifiers: list[tuple[str, str]]
+
+
+@router.get("/chat_messages/{message_id}/debug_info", response_model=MessageDebugInfo | None)
+async def get_message_debug_info(message_id: UUID) -> MessageDebugInfo | None:
+    try:
+        async with AsyncSession(get_async_engine()) as session:
+            stmt = (
+                select(ChatMessage)
+                .options(selectinload(ChatMessage.prompt_modifiers))  # type: ignore
+                .where(ChatMessage.message_id == message_id)  # type: ignore
+            )
+            result = await session.execute(stmt)
+            message = result.scalar_one_or_none()
+
+            if not message:
+                return None
+
+            modifiers = [(mod.name, mod.text) for mod in message.prompt_modifiers]
+            language_code = message.language_code.value if message.language_code else None
+
+            return MessageDebugInfo(
+                message_id=message_id,
+                language_code=language_code,
+                modifiers=modifiers,
+            )
+
+    except Exception as e:
+        log_dict = {
+            "message": f"Error getting message debug info: {str(e)}",
+        }
+        logging.exception(json_dumps(log_dict))
+        raise HTTPException(status_code=500, detail=str(e)) from e
