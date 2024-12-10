@@ -1,6 +1,8 @@
+import asyncio
 import logging
 import math
 import random
+import time
 import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
@@ -44,28 +46,23 @@ FEEDBACK_REWARD_UPPER_BOUND = 2000
 QT_EVAL_REWARD_LOWER_BOUND = 0
 QT_EVAL_REWARD_UPPER_BOUND = 300
 
-VERY_POOR_FEEDBACK_SCORE = 2
-POOR_FEEDBACK_SCORE = 3
-AVERAGE_FEEDBACK_SCORE = 5
-GOOD_FEEDBACK_SCORE = 7
-EXCELLENT_FEEDBACK_SCORE = 10
+VERY_POOR_FEEDBACK_SCORE = 1
+POOR_FEEDBACK_SCORE = 2
+AVERAGE_FEEDBACK_SCORE = 3
+GOOD_FEEDBACK_SCORE = 4
+EXCELLENT_FEEDBACK_SCORE = 5
 
 FEEDBACK_QUALITY_MULTIPLIER = {
-    # Very poor quality (1-2)
-    1: 0.15,  # ~300-400 range
-    2: 0.2,  # ~400-500 range
-    # Poor quality (3-4)
-    3: 0.25,  # ~500-600 range
-    4: 0.35,  # ~600-700 range
-    # Average quality (5-6)
-    5: 0.4,  # ~700-850 range
-    6: 0.5,  # ~850-1000 range
-    # Good quality (7-8)
-    7: 0.65,  # ~1000-1250 range
-    8: 0.75,  # ~1250-1500 range
-    # Excellent quality (9-10)
-    9: 0.85,  # ~1500-1750 range
-    10: 1.0,  # ~1750-2000 range
+    # Poor quality (1)
+    1: 0.25,  # ~300-400 range
+    # Below average quality (2)
+    2: 0.35,  # ~400-600 range
+    # Average quality (3)
+    3: 0.45,  # ~600-800 range
+    # Good quality (4)
+    4: 0.75,  # ~1000-1500 range
+    # Excellent quality (5)
+    5: 1.0,  # ~1500-2000 range
 }
 
 
@@ -366,15 +363,42 @@ def get_llm() -> BaseChatModel:
 
 
 # Update get_feedback_quality_score to use the function
-async def get_feedback_quality_score(feedback: str, llm: BaseChatModel | None = None) -> int:
+async def get_feedback_quality_score(user_id: str, feedback: str, llm: BaseChatModel | None = None) -> int:
     try:
+        start_time = time.time()
         labeler = FeedbackQualityLabeler(llm or get_llm())
-        score = await labeler.alabel(feedback)
+
+        # Wrap the label call with timeout
+        try:
+            score = await asyncio.wait_for(labeler.alabel(feedback), timeout=0.5)  # 500ms timeout
+        except TimeoutError:
+            log_dict = {
+                "message": "Timeout getting feedback quality score",
+                "user_id": user_id,
+                "feedback": feedback,
+                "timeout": 0.5,
+            }
+            logging.warning(json_dumps(log_dict))
+            return 2  # Return lower score on timeout since it might be spam
+
+        elapsed_time = (time.time() - start_time) * 1000  # Convert to milliseconds
+
+        log_dict = {
+            "message": "Feedback quality score latency",
+            "latency_ms": elapsed_time,
+            "score": score,
+            "user_id": user_id,
+            "feedback": feedback,
+        }
+        logging.info(json_dumps(log_dict))
+
         return score
     except Exception as e:
         log_dict = {
             "message": "Error getting feedback quality score",
             "error": str(e),
+            "user_id": user_id,
+            "feedback": feedback,
         }
         logging.warning(json_dumps(log_dict))
         return 5  # Return average score on error
@@ -422,7 +446,7 @@ async def feedback_based_reward(
     should_reward = True
 
     # Get quality score for the comment
-    quality_score = await get_feedback_quality_score(feedback_comment)
+    quality_score = await get_feedback_quality_score(user_id, feedback_comment)
 
     reward_amount = await generate_bounded_reward(
         lower_bound=FEEDBACK_REWARD_LOWER_BOUND,
