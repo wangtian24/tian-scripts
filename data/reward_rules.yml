@@ -128,6 +128,16 @@ probability_rules:
           value: 6000
     probability: 0.05
 
+  - name: override_switch
+    priority: 399
+    is_active: true
+    conditions:
+      all:
+        - name: points
+          operator: greater_than
+          value: 0
+    probability: 1.0  # temporarily overriding non-abuse reward probablilties until we implement model_feedback rewards TODO(carmen)
+
   - name: first_chat_eval_1
     priority: 99
     is_active: true
