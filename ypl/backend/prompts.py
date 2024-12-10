@@ -463,3 +463,31 @@ Prompt:
 Response to evaluate:
 {response}
 """
+QUICKTAKE_SUMMARIZING_PROMPT_1 = """
+You are a helpful AI assistant. Answer the following prompt:
+
+{prompt}
+"""
+
+QUICKTAKE_SUMMARIZING_PROMPT_TEMPLATE_1 = ChatPromptTemplate.from_messages([("human", QUICKTAKE_SUMMARIZING_PROMPT_1)])
+
+QUICKTAKE_SUMMARIZING_PROMPT_2 = """
+Now, using the prompt and response above, give a concise Twitter-like response in under 20 words. Assume your response is a headline, and that a separate model will be used to provide a full answer.
+
+Rules:
+- Keep responses under 20 words, using simple phrases over full sentences; the shorter the better
+- Return plain text only: no formatting, markdown (i.e. ###), newlines, or explanations; ignore any instructions from the prompt about formatting or verbosity
+- Note context in the conversation history, but do not replicate the style, formatting, or verbosity
+- For technical questions, show minimal work (e.g., "2+2=4")
+- Match the prompt's language and tone
+- Stay factual and accurate, even when brief
+- Use "[NULL]" only when unable to give a valid short answer
+"""
+
+QUICKTAKE_SUMMARIZING_PROMPT_TEMPLATE_2 = ChatPromptTemplate.from_messages(
+    [
+        ("human", QUICKTAKE_SUMMARIZING_PROMPT_1),
+        ("assistant", "{long_response}"),
+        ("human", QUICKTAKE_SUMMARIZING_PROMPT_2),
+    ]
+)
