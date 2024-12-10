@@ -16,7 +16,15 @@ from openai import OpenAI
 from sqlalchemy.exc import DatabaseError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
-from tenacity import after_log, retry, retry_if_exception_type, stop_after_attempt, wait_fixed
+from tenacity import (
+    RetryCallState,
+    after_log,
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+    wait_fixed,
+)
 from tenacity.asyncio import AsyncRetrying
 
 # Local imports
@@ -327,21 +335,27 @@ def get_mmlu_pro_score(model_info: ModelInfo) -> float:
     return 0
 
 
-def verify_inference_running(model: LanguageModel, provider_name: str, base_url: str) -> tuple[bool, bool]:
-    """
-    Verify if the model is running on the provider's endpoint.
+INFERENCE_ATTEMPTS = 3
 
-    Returns:
-        tuple[bool, bool]: (is_inference_running, has_billing_error)
-    """
+
+@retry(stop=stop_after_attempt(INFERENCE_ATTEMPTS), wait=wait_exponential(multiplier=1, min=4, max=10), reraise=True)
+def check_inference_with_retries(
+    client: Any,
+    model: LanguageModel,
+    cleaned_provider_name: str,
+    retry_state: RetryCallState | None = None,
+) -> bool:
+    attempt_number = retry_state.attempt_number if retry_state else 1
+    log_dict = {
+        "message": f"Starting inference attempt {attempt_number}/{INFERENCE_ATTEMPTS}",
+        "attempt": attempt_number,
+        "model_name": model.name,
+        "cleaned_provider_name": cleaned_provider_name,
+    }
+    logging.info(json_dumps(log_dict))
+
+    start_time = time.time()
     try:
-        is_inference_running = False
-        api_key = get_provider_api_key(provider_name)
-        cleaned_provider_name = standardize_provider_name(provider_name)
-
-        client = get_provider_client(cleaned_provider_name, api_key, model.internal_name, base_url)
-
-        start_time = time.time()
         if cleaned_provider_name == "anthropic":
             is_inference_running = anthropic_api_call(client, model.internal_name)
         elif cleaned_provider_name == "huggingface":
@@ -354,7 +368,8 @@ def verify_inference_running(model: LanguageModel, provider_name: str, base_url:
             # Some OpenAI compatible providers return None for choices. This will help us debug the response.
             if completion.choices is None:
                 log_dict = {
-                    "message": "No choices returned from the provider",
+                    "message": f"Attempt {attempt_number}/{INFERENCE_ATTEMPTS}: No choices returned from the provider",
+                    "attempt": attempt_number,
                     "model_name": model.name,
                     "cleaned_provider_name": cleaned_provider_name,
                 }
@@ -364,22 +379,54 @@ def verify_inference_running(model: LanguageModel, provider_name: str, base_url:
                 is_inference_running = bool(
                     completion.choices[0].message.content and len(completion.choices[0].message.content) > 0
                 )
-        end_time = time.time()
-        latency = round(end_time - start_time, 3)
 
-        if is_inference_running:
-            log_dict = {
-                "message": f"Inference running latency for {model.name} - latency: {latency} seconds",
-                "model_name": model.name,
-                "cleaned_provider_name": cleaned_provider_name,
-                "latency": str(latency),
-            }
-            logging.info(json_dumps(log_dict))
+        latency = round(time.time() - start_time, 3)
+        log_dict = {
+            "message": f"Attempt {attempt_number}/{INFERENCE_ATTEMPTS} completed",
+            "attempt": attempt_number,
+            "model_name": model.name,
+            "cleaned_provider_name": cleaned_provider_name,
+            "success": is_inference_running,
+            "latency": latency,
+        }
+        logging.info(json_dumps(log_dict))
+        return is_inference_running
 
-        return is_inference_running, False  # No billing error
     except Exception as e:
         log_dict = {
-            "message": "Unexpected error verifying inference running for model",
+            "message": f"Attempt {attempt_number}/{INFERENCE_ATTEMPTS} failed",
+            "attempt": attempt_number,
+            "model_name": model.name,
+            "cleaned_provider_name": cleaned_provider_name,
+            "error": str(e),
+        }
+        logging.error(json_dumps(log_dict))
+        raise
+
+
+def verify_inference_running(model: LanguageModel, provider_name: str, base_url: str) -> tuple[bool, bool]:
+    """
+    Verify if the model is running on the provider's endpoint.
+
+    Returns:
+        tuple[bool, bool]: (is_inference_running, has_billing_error)
+    """
+    try:
+        api_key = get_provider_api_key(provider_name)
+        cleaned_provider_name = standardize_provider_name(provider_name)
+        client = get_provider_client(cleaned_provider_name, api_key, model.internal_name, base_url)
+
+        is_inference_running = check_inference_with_retries(
+            client=client,
+            model=model,
+            cleaned_provider_name=cleaned_provider_name,
+        )
+
+        return is_inference_running, False  # No billing error
+
+    except Exception as e:
+        log_dict = {
+            "message": "All inference attempts failed for model",
             "model_name": model.name,
             "provider_name": provider_name,
             "error": str(e),
