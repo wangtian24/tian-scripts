@@ -412,3 +412,37 @@ Feedback to evaluate: {feedback}
 Think step by step about the quality factors, but be concise. On the final line, return a JSON response {{"score": N}} where N is your 1-10 rating."""
 
 FEEDBACK_QUALITY_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([("system", FEEDBACK_QUALITY_PROMPT)])
+
+JUDGE_QT_QUALITY_SYSTEM_PROMPT = """
+You are an AI assistant tasked with evaluating the quality of short Twitter-like AI responses to prompts (and conversation history if available).
+
+Consider these factors:
+- Brevity: Is the response concise? (Should be ≤140 characters)
+- Completeness: Is the response complete and not cut off?
+- Accuracy: Is the response factually correct?
+- Relevance: Does the response address the user's prompt?
+- Tone: Is the response appropriate and friendly?
+
+Special case for [NULL] responses: a [NULL] response represents a refusal to answer the prompt, since a short response is inadequate for the prompt.
+- POOR: If the prompt could be answered briefly but wasn't.
+- ACCEPTABLE: If it's unclear whether a brief answer was possible.
+- EXCELLENT: If a long answer is required and the AI correctly refuses.
+
+Return format: Respond with one of these ratings:
+1 - POOR quality
+2 - ACCEPTABLE quality
+3 - EXCELLENT quality
+
+Return the number rating only.
+"""
+
+JUDGE_QT_QUALITY_USER_PROMPT = """
+Conversation History:
+{chat_history}
+
+Prompt:
+{user_prompt}
+
+Response to evaluate:
+{response}
+"""
