@@ -283,6 +283,7 @@ class TurnQualityCache(SingletonMixin, ThreadedReadWriteThroughCache[uuid.UUID, 
             else:
                 turn_quality.prompt_difficulty = value.prompt_difficulty
                 turn_quality.prompt_difficulty_judge_model_id = value.prompt_difficulty_judge_model_id
+                turn_quality.prompt_difficulty_details = value.prompt_difficulty_details
                 turn_quality.prompt_is_safe = value.prompt_is_safe
                 turn_quality.prompt_unsafe_reasons = value.prompt_unsafe_reasons
                 turn_quality.prompt_moderation_model_name = value.prompt_moderation_model_name

@@ -69,11 +69,11 @@ async def label_quality(chat_id: UUID, turn_id: UUID) -> TurnQuality:
 
     responses += ["", ""]  # ensure at least two responses
 
-    label_task = asyncio.create_task(labeler.alabel((prompt,) + tuple(responses[:2])))  # type: ignore
+    label_task = asyncio.create_task(labeler.alabel_full((prompt,) + tuple(responses[:2])))  # type: ignore
     moderate_task = asyncio.create_task(amoderate(prompt))
 
     try:
-        prompt_difficulty: int = await label_task
+        prompt_difficulty, prompt_difficulty_details = await label_task
     except Exception as e:
         log_dict = {
             "message": "Error labeling prompt difficulty; assigning default value",
@@ -95,6 +95,7 @@ async def label_quality(chat_id: UUID, turn_id: UUID) -> TurnQuality:
         moderation_result = DEFAULT_MODERATION_RESULT
 
     tq.prompt_difficulty = prompt_difficulty
+    tq.prompt_difficulty_details = prompt_difficulty_details
     tq.prompt_is_safe = moderation_result.safe
     tq.prompt_moderation_model_name = moderation_result.model_name
     if not moderation_result.safe:

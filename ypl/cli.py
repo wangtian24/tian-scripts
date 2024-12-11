@@ -233,12 +233,14 @@ def judge_yupp_prompt_difficulty(
 ) -> None:
     llm = get_chat_model(ModelInfo(provider=provider, model=language_model, api_key=api_key), temperature=0.0)
 
-    async def arun_batch(inputs: list[tuple[str, str, str, str]]) -> list[tuple[int, str]]:
-        async def ajudge_yupp_output(id: str, user_msg: str, llm1_msg: str, llm2_msg: str) -> tuple[int, str]:
+    async def arun_batch(inputs: list[tuple[str, str, str, str]]) -> list[tuple[tuple[int, str], str]]:
+        async def ajudge_yupp_output(
+            id: str, user_msg: str, llm1_msg: str, llm2_msg: str
+        ) -> tuple[tuple[int, str], str]:
             async with sem:
                 judge = YuppPromptDifficultyLabeler(llm)
 
-                return await judge.alabel((user_msg, llm1_msg, llm2_msg)), id
+                return await judge.alabel_full((user_msg, llm1_msg, llm2_msg)), id
 
         sem = asyncio.Semaphore(num_parallel)
 
@@ -270,8 +272,9 @@ def judge_yupp_prompt_difficulty(
     results = asyncio.run(arun_batch(inputs))
     with open(output_file, "w") as outf:
         for res in results:
-            judgement, chat_id = res
-            outf.write(json.dumps(dict(judgement=judgement, chat_id=chat_id)))
+            full_judgement, chat_id = res
+            judgement, judgement_details = full_judgement
+            outf.write(json.dumps(dict(judgement=judgement, chat_id=chat_id, judgement_details=judgement_details)))
             outf.write("\n")
 
 
@@ -298,17 +301,19 @@ def store_prompt_difficulty(input_path: str, provider: str, language_model: str)
 
         for i, row in tqdm(list(df.iterrows())):
             row_id = row["chat_id"]
-            prompt_difficulty = float(row["judgement"]["overall"])
+            prompt_difficulty = float(row["judgement"])
             turn_quality = session.exec(select(TurnQuality).where(TurnQuality.turn_id == row_id)).first()
             if turn_quality is None:
                 turn_quality = TurnQuality(
                     turn_id=row_id,
                     prompt_difficulty=prompt_difficulty,
                     prompt_difficulty_judge_model_id=llm_id,
+                    prompt_difficulty_details=row["judgement_details"],
                 )
             else:
                 turn_quality.prompt_difficulty = prompt_difficulty
                 turn_quality.prompt_difficulty_judge_model_id = llm_id
+                turn_quality.prompt_difficulty_details = row["judgement_details"]
             session.add(turn_quality)
             if i % 500 == 0:
                 session.commit()
