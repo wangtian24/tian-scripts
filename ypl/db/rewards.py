@@ -23,6 +23,7 @@ class RewardActionEnum(Enum):
     QT_EVAL = "qt_eval"
     TURN = "turn"
     FEEDBACK = "feedback"
+    MODEL_FEEDBACK = "model_feedback"
 
 
 class RewardActionLog(BaseModel, table=True):

@@ -26,15 +26,20 @@ router = APIRouter()
 
 
 async def handle_turn_reward(reward_action_log: RewardActionLog) -> RewardCreationResponse:
-    """Handle turn-based reward processing."""
+    """Handle turn-based reward processing, and create both regular and high value rewards."""
     turn_id = reward_action_log.turn_id
     if turn_id is None:
         raise HTTPException(status_code=400, detail="Turn ID is required for non-feedback actions")
 
     updated_reward_action_log = await create_reward_action_log(reward_action_log)
-    should_reward, credit_delta, comment, reward_amount_rule, reward_probability_rule = turn_based_reward(
-        updated_reward_action_log.user_id, turn_id
-    )
+    (
+        should_reward,
+        credit_delta,
+        high_value_credit_delta,
+        comment,
+        reward_amount_rule,
+        reward_probability_rule,
+    ) = turn_based_reward(updated_reward_action_log.user_id, turn_id)
 
     if should_reward:
         created_reward = await create_reward(
@@ -47,8 +52,23 @@ async def handle_turn_reward(reward_action_log: RewardActionLog) -> RewardCreati
             reward_probability_rule=reward_probability_rule,
         )
 
+        created_high_value_reward = await create_reward(
+            user_id=updated_reward_action_log.user_id,
+            credit_delta=high_value_credit_delta,
+            comment="Model feedback reward boost.",
+            reward_action_logs=[],  # TODO: add model feedback reward action log from FE?
+            turn_id=turn_id,
+            reward_amount_rule=None,
+            reward_probability_rule=None,
+        )
+
         return RewardCreationResponse(
-            is_rewarded=True, reward_id=created_reward.reward_id, comment=comment, credit_delta=credit_delta
+            is_rewarded=True,
+            reward_id=created_reward.reward_id,
+            comment=comment,
+            credit_delta=credit_delta,
+            high_value_reward_id=created_high_value_reward.reward_id,
+            high_value_credit_delta=high_value_credit_delta,
         )
 
     return RewardCreationResponse(is_rewarded=False)

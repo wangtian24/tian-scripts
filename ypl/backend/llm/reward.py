@@ -99,6 +99,8 @@ class RewardCreationResponse:
     reward_id: UUID | None = None
     comment: str | None = None
     credit_delta: int | None = None
+    high_value_reward_id: UUID | None = None
+    high_value_credit_delta: int | None = None
 
 
 def get_matching_rule(rules: list[RewardRule], context: dict[str, Any]) -> RewardRule | None:
@@ -298,40 +300,52 @@ def get_reward(
 )
 def turn_based_reward(
     user_id: str, turn_id: UUID
-) -> tuple[bool, int, str, RewardAmountRule | None, RewardProbabilityRule | None]:
+) -> tuple[bool, int, int, str, RewardAmountRule | None, RewardProbabilityRule | None]:
     """
-    Determine if a user should be rewarded for a turn and calculate the reward amount.
+    Determine if a user should be rewarded for a turn and calculate both regular and high value reward amounts.
 
     Args:
         user_id (str): The ID of the user.
         turn_id (UUID): The ID of the turn.
 
     Returns:
-        tuple[bool, int, str]: A tuple containing:
+        tuple: A tuple containing:
             - bool: Whether the user should be rewarded (True) or not (False).
             - int: The reward amount (in points). 0 if not rewarded.
+            - int: The high value reward amount if the user provides model feedback.
             - str: A comment or message about the reward.
+            - RewardAmountRule | None: The reward amount rule used.
+            - RewardProbabilityRule | None: The reward probability rule used.
     """
     user_turn_reward = UserTurnReward(user_id, turn_id)
     reward_probability = user_turn_reward.get_probability()
     should_reward = random.random() < reward_probability
 
+    # Get reward amount from rule engine
     reward_amount = user_turn_reward.get_amount()
+
+    # Calculate high value reward (~2x multiplier)
+    high_value_multiplier = 2.0
+    high_value_reward_amount = int(round(reward_amount * high_value_multiplier, -1))
+
     reward_comment = user_turn_reward.get_reward_comment()
 
-    # Override reward amount for local environments
+    # Override reward amounts for local environments
     if settings.ENVIRONMENT == "local":
-        reward_amount = random.randint(1, 10)
+        reward_amount = random.randint(100, 500)
+        high_value_reward_amount = reward_amount * 2
         should_reward = True
 
     # A safety check to prevent negative or zero credit rewards from being given.
-    if reward_amount <= 0:
+    if reward_amount <= 0 or high_value_reward_amount <= 0:
         should_reward = False
         reward_amount = 0
+        high_value_reward_amount = 0
 
     return (
         should_reward,
         reward_amount,
+        high_value_reward_amount,
         reward_comment,
         user_turn_reward.amount_rule,
         user_turn_reward.probability_rule,
