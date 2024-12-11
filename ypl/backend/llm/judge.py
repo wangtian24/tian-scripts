@@ -114,18 +114,36 @@ class YuppPromptDifficultyLabeler(LLMLabeler[tuple[str, str, str], int]):
     def error_value(self) -> int:
         return -1
 
-    def _heuristic_label(self, input: tuple[str, str, str]) -> int | None:
+    def _heuristic_label(self, input: tuple[str, str, str]) -> tuple[int | None, str]:
         """Labels based on heuristics if possible, otherwise None."""
-        if len(input[0].split()) <= self.max_words_low_quality:
-            return LOW_PROMPT_DIFFICULTY
+        num_words = len(input[0].split())
+        if num_words <= self.max_words_low_quality:
+            return LOW_PROMPT_DIFFICULTY, f"Short prompt ({num_words} <= {self.max_words_low_quality} words)"
 
-        return None
+        return None, ""
 
     def label(self, input: InputType) -> OutputType:  # type: ignore
-        return self._heuristic_label(input) or super().label(input)  # type: ignore
+        heuristic_label, _ = self._heuristic_label(input)  # type: ignore
+        return heuristic_label or super().label(input)  # type: ignore
 
     async def alabel(self, input: InputType) -> OutputType:
-        return self._heuristic_label(input) or await super().alabel(input)  # type: ignore
+        heuristic_label, _ = self._heuristic_label(input)  # type: ignore
+        return heuristic_label or await super().alabel(input)  # type: ignore
+
+    def label_full(self, input: InputType) -> tuple[OutputType, str]:
+        heuristic_label, heuristic_reason = self._heuristic_label(input)  # type: ignore
+        return (heuristic_label, heuristic_reason) if heuristic_label else super().label_full(input)  # type: ignore
+
+    async def alabel_full(self, input: InputType) -> tuple[OutputType, str]:
+        heuristic_label, heuristic_reason = self._heuristic_label(input)  # type: ignore
+        return (heuristic_label, heuristic_reason) if heuristic_label else await super().alabel_full(input)  # type: ignore
+
+    def _clean_output(self, output: BaseMessage) -> str:
+        return super()._clean_output(output).replace("json\n", "").replace("```", "")
+
+
+def label_prompt_difficulty(prompt: str, llm: BaseChatModel) -> int:
+    return YuppPromptDifficultyLabeler(llm).label((prompt, "", ""))
 
 
 class YuppPromptDifficultyLabelerSimple(YuppPromptDifficultyLabeler):

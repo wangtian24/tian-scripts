@@ -71,56 +71,70 @@ class LLMLabeler(Generic[InputType, OutputType]):
         """Parses the output of the LLM's `.ainvoke` method. Defaults to calling `_parse_output`."""
         return self._parse_output(output)
 
+    def _clean_output(self, output: BaseMessage) -> str:
+        return str(output.content)
+
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_fixed(0.1),
         retry=retry_if_exception_type((TimeoutError,)),
     )
-    def label(self, input: InputType) -> OutputType:
+    def label_full(self, input: InputType) -> tuple[OutputType, str]:
         """Labels the input."""
         try:
             prepared_input = self._prepare_input(input)
             output = self.llm.invoke(prepared_input)  # type: ignore
 
-            return self._parse_output(output)
+            return self._parse_output(output), self._clean_output(output)
         except Exception as e:
             if self.on_error == "raise":
                 raise e
             else:
                 logging.warning(f"Error labeling input {input}: {e}")
-                return self.error_value
+                return self.error_value, ""
+
+    def label(self, input: InputType) -> OutputType:
+        return self.label_full(input)[0]
 
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_fixed(0.1),
         retry=retry_if_exception_type((TimeoutError,)),
     )
-    async def alabel(self, input: InputType) -> OutputType:
+    async def alabel_full(self, input: InputType) -> tuple[OutputType, str]:
         """Labels the input asynchronously."""
         try:
             async with asyncio.timeout(self.timeout_secs):
                 prepared_input = self._prepare_input(input)
                 output = await self.llm.ainvoke(prepared_input)  # type: ignore
-
-                return await self._aparse_output(output)
+                return await self._aparse_output(output), self._clean_output(output)
         except Exception as e:
             if self.on_error == "raise":
                 raise e
             else:
                 logging.warning(f"Error labeling input {input}: {e}")
-                return self.error_value
+                return self.error_value, ""
+
+    async def alabel(self, input: InputType) -> OutputType:
+        return (await self.alabel_full(input))[0]
 
     def batch_label(self, inputs: list[InputType]) -> list[OutputType | None]:
         """Labels a batch of inputs."""
         return [self.label(input) for input in inputs]
 
-    async def abatch_label(self, inputs: list[InputType], num_parallel: int = 16) -> list[OutputType | None]:
+    def batch_label_full(self, inputs: list[InputType]) -> list[tuple[OutputType, str]]:
+        """Labels a batch of inputs."""
+        return [self.label_full(input) for input in inputs]
+
+    async def abatch_label_full(
+        self, inputs: list[InputType], num_parallel: int = 16
+    ) -> list[tuple[OutputType, str] | None]:
         """Labels a batch of inputs asynchronously."""
 
-        async def _do_label(input: InputType, sem: asyncio.Semaphore) -> OutputType | None:
+        async def _do_label(input: InputType, sem: asyncio.Semaphore) -> tuple[OutputType, str] | None:
             async with sem:
                 try:
-                    return await self.alabel(input)
+                    return await self.alabel_full(input)
                 except Exception as e:  # noqa catch-all errors for now
                     logging.exception(f"Error labeling input {input}: {e}")
 
@@ -128,11 +142,14 @@ class LLMLabeler(Generic[InputType, OutputType]):
                         raise e
                     else:
                         logging.warning(f"Error labeling input {input}: {e}")
-                        return self.error_value
+                        return self.error_value, ""
 
         sem = asyncio.Semaphore(num_parallel)
 
         return await tqdm_asyncio.gather(*[_do_label(input, sem) for input in inputs])  # type: ignore
+
+    async def abatch_label(self, inputs: list[InputType], num_parallel: int = 16) -> list[OutputType | None]:
+        return [x[0] if x else None for x in await self.abatch_label_full(inputs, num_parallel)]
 
 
 class MultistepLLMLabeler(Generic[InputType, OutputType]):
@@ -272,7 +289,7 @@ class WildChatRealismLabeler(LLMLabeler[str, bool]):
     algorithm works as follows:
     - Fetch the top-21 most similar embeddings from n (default of 5000) examples from WildChat
     - Ask the LLM if the top-1 most similar prompt is more similar to the top-2->21 (20 total) than the given prompt
-    - Return true if it is; false otherwise
+    - Return true if it is; false otherwise.
     """
 
     def __init__(

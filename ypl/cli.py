@@ -342,7 +342,7 @@ def label_yupp_online_prompts(
 
     # Needs -1 because .loc includes the endpoint in the slice
     df.loc[: limit_ - 1, "is_online"] = [
-        ["offline", "online"][int(x)]  # type: ignore[arg-type]
+        ["offline", "online"][int(x)] if x else None
         for x in asyncio.run(judge.abatch_label(df.loc[: limit_ - 1, "prompt"].tolist(), num_parallel=num_parallel))
     ]
     df.to_csv(output_path, index=False)
