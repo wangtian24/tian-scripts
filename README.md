@@ -129,6 +129,10 @@ When using `mypy` in VSCode, you may need to enable the "Run using active interp
 
 Github actions in `.github/workflows` are set up to run these linters on push and pull requests.
 
+## Database migrations
+
+With database model updates, migration scripts are generated and managed by alembic. Instructions here: [ypl/db/README.md](https://github.com/yupp-ai/yupp-mind/blob/main/ypl/db/README.md)
+
 ## Deployment
 
 This repo uses `Docker` to build the backend image. For faster builds, a base image contains most of the expensive dependencies; when these are modified significantly, the base image should be rebuilt.
