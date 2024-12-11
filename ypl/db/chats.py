@@ -312,6 +312,9 @@ class TurnQuality(BaseModel, table=True):
         sa_column=Column(ARRAY(PostgresEnum(ModerationReason)), nullable=True)
     )
 
+    # Additional details about the prompt difficulty - either the raw LLM response or any heuristics used.
+    prompt_difficulty_details: str | None = Field(nullable=True)
+
     # The overall quality of the turn.
     quality: float | None = Field(nullable=True)
 
