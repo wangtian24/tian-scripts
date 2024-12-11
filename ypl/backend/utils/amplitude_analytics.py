@@ -29,9 +29,20 @@ AMPLITUDE_CHARTS: Final[dict[str, ChartInfo]] = {
     "prefs": {"id": "ht7fo2h7", "description": "prefs", "series_number": 0},
     "scratchcards_shown": {"id": "yxihkyvd", "description": "SCs shown", "series_number": 0},
     "scratchcards_scratched": {"id": "yxihkyvd", "description": "SCs scratched", "series_number": 1},
-    "credits_claimed": {"id": "7ukm5tc7", "description": "credits claimed", "series_number": 0},
     "app_feedbacks": {"id": "ezl4kq8l", "description": "app feedbacks", "series_number": 0},
     "model_feedbacks": {"id": "ezl4kq8l", "description": "model feedbacks", "series_number": 1},
+    "total_credits_claimed": {"id": "7ukm5tc7", "description": "total credits claimed", "series_number": 0},
+    "app_feedbacks_credits_claimed": {
+        "id": "7ukm5tc7",
+        "description": "app feedbacks credits claimed",
+        "series_number": 1,
+    },
+    "model_feedbacks_credits_claimed": {
+        "id": "7ukm5tc7",
+        "description": "model feedbacks credits claimed",
+        "series_number": 2,
+    },
+    "QT_evals_credits_claimed": {"id": "7ukm5tc7", "description": "QT evals credits claimed", "series_number": 3},
 }
 
 
