@@ -17,7 +17,6 @@ from sqlalchemy.exc import DatabaseError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 from tenacity import (
-    RetryCallState,
     after_log,
     retry,
     retry_if_exception_type,
@@ -343,11 +342,10 @@ def check_inference_with_retries(
     client: Any,
     model: LanguageModel,
     cleaned_provider_name: str,
-    retry_state: RetryCallState | None = None,
 ) -> bool:
-    attempt_number = retry_state.attempt_number if retry_state else 1
+    attempt_number = check_inference_with_retries.statistics["attempt_number"]  # type: ignore
     log_dict = {
-        "message": f"Starting inference attempt {attempt_number}/{INFERENCE_ATTEMPTS}",
+        "message": f"Starting inference attempt {attempt_number}/{INFERENCE_ATTEMPTS} for model {model.name}",
         "attempt": attempt_number,
         "model_name": model.name,
         "cleaned_provider_name": cleaned_provider_name,
@@ -368,7 +366,10 @@ def check_inference_with_retries(
             # Some OpenAI compatible providers return None for choices. This will help us debug the response.
             if completion.choices is None:
                 log_dict = {
-                    "message": f"Attempt {attempt_number}/{INFERENCE_ATTEMPTS}: No choices returned from the provider",
+                    "message": (
+                        f"Attempt {attempt_number}/{INFERENCE_ATTEMPTS}: No choices returned from the provider. "
+                        f"Completion call output: {completion}"
+                    ),
                     "attempt": attempt_number,
                     "model_name": model.name,
                     "cleaned_provider_name": cleaned_provider_name,
@@ -382,7 +383,7 @@ def check_inference_with_retries(
 
         latency = round(time.time() - start_time, 3)
         log_dict = {
-            "message": f"Attempt {attempt_number}/{INFERENCE_ATTEMPTS} completed",
+            "message": f"Attempt {attempt_number}/{INFERENCE_ATTEMPTS} completed for model {model.name}",
             "attempt": attempt_number,
             "model_name": model.name,
             "cleaned_provider_name": cleaned_provider_name,
@@ -390,11 +391,14 @@ def check_inference_with_retries(
             "latency": latency,
         }
         logging.info(json_dumps(log_dict))
+        # If the inference failed and it's not the last attempt, raise an exception to trigger a retry.
+        if not is_inference_running and attempt_number < INFERENCE_ATTEMPTS:
+            raise Exception(f"Inference failed for model {model.name}")
         return is_inference_running
 
     except Exception as e:
         log_dict = {
-            "message": f"Attempt {attempt_number}/{INFERENCE_ATTEMPTS} failed",
+            "message": f"Attempt {attempt_number}/{INFERENCE_ATTEMPTS} failed for model {model.name}",
             "attempt": attempt_number,
             "model_name": model.name,
             "cleaned_provider_name": cleaned_provider_name,
