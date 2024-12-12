@@ -2,7 +2,7 @@ import asyncio
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Path, Query
 
 from ypl.backend.llm.chat import get_turn_id_from_message_id
 from ypl.backend.llm.reward import (
@@ -10,6 +10,7 @@ from ypl.backend.llm.reward import (
     RewardClaimedResponse,
     RewardCreationResponse,
     RewardProbabilityRule,
+    RewardStatusUpdateResponse,
     create_reward,
     create_reward_action_log,
     feedback_based_reward,
@@ -17,10 +18,11 @@ from ypl.backend.llm.reward import (
     process_reward_claim,
     qt_eval_reward,
     turn_based_reward,
+    update_reward_status,
 )
 from ypl.backend.llm.utils import post_to_slack
 from ypl.backend.utils.json import json_dumps
-from ypl.db.rewards import RewardActionEnum, RewardActionLog
+from ypl.db.rewards import RewardActionEnum, RewardActionLog, RewardStatusEnum
 
 router = APIRouter()
 
@@ -228,25 +230,33 @@ async def record_reward_action(reward_action_log: RewardActionLog) -> RewardCrea
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/reward/{reward_id}/claim", response_model=RewardClaimedResponse)
-async def claim_reward(
-    reward_id: UUID, user_id: str = Query(..., description="The user ID of the user claiming the reward")
-) -> RewardClaimedResponse:
+@router.post("/reward/{reward_id}/{status}", response_model=RewardClaimedResponse | RewardStatusUpdateResponse)
+async def process_reward(
+    reward_id: UUID,
+    user_id: str = Query(..., description="The user ID of the user who owns the reward"),
+    status: str = Path(..., description="The status that the reward should go to."),
+) -> RewardClaimedResponse | RewardStatusUpdateResponse:
     try:
-        reward_claim_struct = await process_reward_claim(reward_id, user_id)
-
-        return RewardClaimedResponse(
-            status=reward_claim_struct.status,
-            comment=reward_claim_struct.comment,
-            # TODO(arawind): Stop populating reason.
-            reason=reward_claim_struct.comment,
-            credit_delta=reward_claim_struct.credit_delta,
-            current_credit_balance=reward_claim_struct.current_credit_balance,
-        )
+        if status == "claim":
+            reward_claim_struct = await process_reward_claim(reward_id, user_id)
+            return RewardClaimedResponse(
+                status=reward_claim_struct.status,
+                comment=reward_claim_struct.comment,
+                credit_delta=reward_claim_struct.credit_delta,
+                current_credit_balance=reward_claim_struct.current_credit_balance,
+            )
+        elif status == "reject":
+            await update_reward_status(reward_id, user_id, RewardStatusEnum.REJECTED)
+            return RewardStatusUpdateResponse(
+                reward_id=reward_id,
+                status=RewardStatusEnum.REJECTED,
+            )
+        else:
+            raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
 
     except Exception as e:
         log_dict = {
-            "message": "Error claiming reward",
+            "message": "Error updating the reward status",
             "error": str(e),
         }
         logging.exception(json_dumps(log_dict))

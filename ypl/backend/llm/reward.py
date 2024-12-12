@@ -103,6 +103,12 @@ class RewardCreationResponse:
     high_value_credit_delta: int | None = None
 
 
+@dataclass
+class RewardStatusUpdateResponse:
+    reward_id: UUID
+    status: RewardStatusEnum
+
+
 def get_matching_rule(rules: list[RewardRule], context: dict[str, Any]) -> RewardRule | None:
     """Get the first matching reward rule in `rules`, given the variables in `context`.
 
@@ -517,8 +523,6 @@ async def qt_eval_reward(user_id: str) -> tuple[bool, int, str, RewardAmountRule
 
 @dataclass
 class RewardClaimedResponse:
-    # TODO(arawind): Stop using reason.
-    reason: str
     comment: str
     credit_delta: int
     current_credit_balance: int
@@ -667,6 +671,35 @@ async def process_reward_claim(reward_id: UUID, user_id: str) -> RewardClaimStru
             credit_delta=reward.credit_delta,
             current_credit_balance=new_credit_balance,
         )
+
+
+async def update_reward_status(reward_id: UUID, user_id: str, new_status: RewardStatusEnum) -> None:
+    """
+    Update the status of a reward to a non-CLAIMED status.
+    Claiming a reward should be done via process_reward_claim.
+    """
+    async with AsyncSession(get_async_engine()) as session:
+        if new_status == RewardStatusEnum.CLAIMED:
+            # Use process_reward_claim to claim the reward. This method should not be used to update status to claimed.
+            raise ValueError("Cannot update status to claimed")
+
+        restricted_states = []
+        if new_status == RewardStatusEnum.REJECTED:
+            # Claimed rewards cannot be rejected.
+            restricted_states = [RewardStatusEnum.CLAIMED]
+
+        await session.exec(
+            update(Reward)
+            .returning(Reward.reward_id)  # type: ignore
+            .where(
+                Reward.reward_id == reward_id,
+                Reward.user_id == user_id,
+                Reward.deleted_at.is_(None),  # type: ignore
+                Reward.status.not_in(restricted_states),  # type: ignore
+            )
+            .values(status=new_status)
+        )
+        await session.commit()
 
 
 def _get_reward_rules(rule_class: type[RewardAmountRule] | type[RewardProbabilityRule]) -> list[RewardRule]:
