@@ -49,6 +49,8 @@ class Settings(BaseSettings):
     OPENROUTER_API_KEY: str = ""
     PERPLEXITY_API_KEY: str = ""
     TOGETHERAI_API_KEY: str = ""
+    GROQ_API_KEY: str = ""
+    CEREBRAS_API_KEY: str = ""
 
     DOMAIN: str = "localhost"
     ENVIRONMENT: Literal["test", "local", "staging", "production"] = "local"

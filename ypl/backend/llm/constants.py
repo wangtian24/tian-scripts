@@ -719,6 +719,8 @@ PROVIDER_KEY_MAPPING = {
     "openrouter": "OPENROUTER_API_KEY",
     "togetherai": "TOGETHER_API_KEY",
     "perplexity": "PERPLEXITY_API_KEY",
+    "groq": "GROQ_API_KEY",
+    "cerebras": "CEREBRAS_API_KEY",
 }
 
 PROVIDER_MODEL_PATTERNS = {
