@@ -420,29 +420,30 @@ async def get_feedback_quality_score(user_id: str, feedback: str, llm: BaseChatM
 
 async def generate_bounded_reward(lower_bound: int, upper_bound: int, quality_score: int | None = None) -> int:
     """
-    Generate a normally distributed random reward amount between lower and upper bounds.
-    Adjusts the reward based on feedback quality if feedback is provided.
+    Generate a reward amount between lower and upper bounds, adjusted by quality score.
+    Uses a more deterministic approach to ensure higher quality scores always yield higher rewards.
 
     Args:
         lower_bound (int): Minimum reward amount
         upper_bound (int): Maximum reward amount
-        quality_score (int): The feedback quality score
+        quality_score (int): The feedback quality score (1-5)
     Returns:
         int: The generated reward amount, rounded to nearest 10
     """
-    mean = (lower_bound + upper_bound) / 2
+    if not quality_score:
+        # Default to middle range if no quality score
+        mean = (lower_bound + upper_bound) / 2
+        std_dev = (upper_bound - lower_bound) / 6
+        reward_amount = int(round(random.gauss(mean, std_dev), -1))
+        return max(lower_bound, min(upper_bound, reward_amount))
 
-    # Adjust mean based on feedback quality if provided
-    if quality_score:
-        # Get multiplier based on quality score (default to 1.0 if score is invalid)
-        quality_multiplier = FEEDBACK_QUALITY_MULTIPLIER.get(quality_score, 1.0)
+    # Calculate the reward range for this quality score
+    range_size = upper_bound - lower_bound
+    score_min = lower_bound + (range_size * FEEDBACK_QUALITY_MULTIPLIER[quality_score] * 0.8)
+    score_max = lower_bound + (range_size * FEEDBACK_QUALITY_MULTIPLIER[quality_score] * 1.2)
 
-        # Apply quality multiplier to mean
-        mean = mean * quality_multiplier
-
-    std_dev = (upper_bound - mean) / 3
-
-    reward_amount = int(round(random.gauss(mean, std_dev), -1))
+    # Add small random variation within the quality score's range
+    reward_amount = int(round(random.uniform(score_min, score_max), -1))
     return max(lower_bound, min(upper_bound, reward_amount))
 
 
