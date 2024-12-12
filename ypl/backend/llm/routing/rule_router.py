@@ -116,5 +116,5 @@ class RoutingRuleFilter(ModelFilter):
         self.routing_table = get_routing_table()
 
     def _filter(self, state: RouterState) -> tuple[RouterState, set[str]]:
-        _, rejected_models = self.routing_table.apply(self.prompt_category, set(state.selected_models.keys()))
+        _, rejected_models = self.routing_table.apply(self.prompt_category, state.get_selectable_models())
         return state.emplaced(excluded_models=rejected_models), rejected_models
