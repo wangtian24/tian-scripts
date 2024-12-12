@@ -55,9 +55,21 @@ def upgrade() -> None:
     
     # Update language models with the new license.
     default_license = licenses[LicenseEnum.unknown.name]
-    language_models = session.query(LanguageModel).all()
-    for model in language_models:
-        model.language_model_license = licenses.get(model.license.name, default_license)    
+
+    license_mapping = {
+        license_enum.name: str(licenses[license_enum.name].language_model_license_id)
+        for license_enum in LicenseEnum
+    }
+    default_license_id = str(licenses[LicenseEnum.unknown.name].language_model_license_id)
+
+    case_stmt = "CASE license\n"
+    for enum_name, license_id in license_mapping.items():
+        case_stmt += f"    WHEN '{enum_name}' THEN '{license_id}'::uuid\n"
+    case_stmt += f"    ELSE '{default_license_id}'::uuid\n"
+    case_stmt += "END"
+
+    # Update all language models in a single query
+    op.execute(f"UPDATE language_models  SET language_model_license_id = {case_stmt}")
 
     session.flush()
     # ### end Alembic commands ###
