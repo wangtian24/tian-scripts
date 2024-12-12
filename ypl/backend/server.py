@@ -1,10 +1,25 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.responses import ORJSONResponse
 from fastapi.routing import APIRoute
 from starlette.middleware.cors import CORSMiddleware
 
 from ypl.backend.config import settings
+from ypl.backend.jobs.app import init_celery, start_celery_workers, start_redis
 from ypl.backend.routes.main import api_router
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):  # type: ignore
+    start_redis()
+    init_celery()
+    workers = start_celery_workers()
+
+    yield  # Hand over to FastAPI.
+
+    for worker in workers:
+        worker.terminate()
 
 
 def custom_generate_unique_id(route: APIRoute) -> str:
@@ -17,6 +32,7 @@ app = FastAPI(
     docs_url=f"{settings.API_PREFIX}/docs",
     generate_unique_id_function=custom_generate_unique_id,
     default_response_class=ORJSONResponse,
+    lifespan=lifespan,
 )
 
 

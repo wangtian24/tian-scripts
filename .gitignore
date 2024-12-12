@@ -176,3 +176,6 @@ tmp/
 yupp-llms-*.json
 
 notebooks/cache
+
+# Redis
+*.rdb
