@@ -189,6 +189,11 @@ class LanguageModel(BaseModel, table=True):
     organization_id: uuid.UUID | None = Field(foreign_key="organizations.organization_id", nullable=True, default=None)
     organization: "Organization" = Relationship(back_populates="language_models")
 
+    # This is the semantic group of the language model, e.g. "gpt-4o-2024-05-13" is in the group "gpt-4o",
+    # as are all the LLaMA models. It differs from `family` in that it can dictated by arbitrary business
+    # logic, e.g., if we wanted "llama-3" to be a separate group from "llama-2".
+    semantic_group: str | None = Field(sa_column=Column(sa.VARCHAR(), nullable=True, index=True))
+
     # This is the user that created the language model.
     creator_user_id: str = Field(foreign_key="users.user_id", nullable=False)
     language_model_creator: "User" = Relationship(
