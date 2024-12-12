@@ -10,6 +10,7 @@ from uuid import UUID
 # Third-party imports
 import anthropic
 import google.generativeai as genai
+import httpx
 from huggingface_hub import HfApi, InferenceClient, ModelInfo
 from huggingface_hub.utils import HfHubHTTPError
 from openai import OpenAI
@@ -27,6 +28,7 @@ from tenacity import (
 from tenacity.asyncio import AsyncRetrying
 
 # Local imports
+from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine
 from ypl.backend.llm.chat import standardize_provider_name
 from ypl.backend.llm.constants import PROVIDER_KEY_MAPPING
@@ -119,6 +121,8 @@ async def verify_onboard_submitted_models() -> None:
 
                 await session.commit()
 
+                await revalidate_yupp_head_model_info()
+
 
 async def verify_onboard_specific_model(model_id: UUID) -> None:
     """
@@ -146,6 +150,8 @@ async def verify_onboard_specific_model(model_id: UUID) -> None:
                     model, provider_name, base_url = row
                     await verify_and_update_model_status(session, model, provider_name, base_url)
                     await session.commit()
+
+                    await revalidate_yupp_head_model_info()
                 else:
                     log_dict = {"message": f"No submitted model found with id {model_id}", "model_id": model_id}
                     logging.warning(json_dumps(log_dict))
@@ -549,3 +555,28 @@ def anthropic_api_call(client: Any, model_name: str) -> bool:
         timeout=INFERENCE_TIMEOUT,
     )
     return bool(message.content and len(message.content) > 0)
+
+
+async def revalidate_yupp_head_model_info() -> None:
+    """Notify yupp-head when model ."""
+    yupp_head_base_url = settings.YUPP_HEAD_APP_BASE_URL
+    if not yupp_head_base_url:
+        logging.error(json_dumps({"message": "yupp-head base url not found for revalidation"}))
+        return
+
+    async with httpx.AsyncClient() as client:
+        logging.info(
+            json_dumps({"message": "Revalidating yupp-head model info", "yupp_head_base_url": yupp_head_base_url})
+        )
+        try:
+            response = await client.get(
+                f"{yupp_head_base_url}/api/models/revalidate",
+                timeout=10.0,
+                headers={"X-API-KEY": settings.X_API_KEY},
+            )
+            response.raise_for_status()
+            logging.info(
+                json_dumps({"message": "yupp-head model revalidation call succeeded", "response": response.json()})
+            )
+        except httpx.HTTPError as e:
+            logging.error(json_dumps({"message": "yupp-head model revalidation call failed", "error": str(e)}))

@@ -96,6 +96,10 @@ class Settings(BaseSettings):
     PYTORCH_SERVE_GCP_REGION: str = "us-central1"  # only region that supports L4 GPUs
     PYTORCH_SERVE_GCP_URL: str = ""
 
+    # The base URL of the yupp-head app, set to staging by default.
+    # Example use case: when updating models on yupp-mind, we need to revalidate the model caches on yupp-head too.
+    YUPP_HEAD_APP_BASE_URL: str = "https://chaos.yupp.ai"
+
     @computed_field  # type: ignore[misc]
     @property
     def server_host(self) -> str:
