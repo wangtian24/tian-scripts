@@ -86,6 +86,9 @@ In order to redact sensitive data, the `redact_sensitive_data` function is used.
 
 ## Running the service
 
+If this is the first time you are running the service, you need to install redis; on Mac, this can be done with `brew install redis`.
+For other operating systems, see [redis installation instructions](https://redis.io/docs/latest/operate/oss_and_stack/install/install-redis/).
+
 Start the backend service in any folder containing the `.env` file with:
 
 ```sh
@@ -93,6 +96,8 @@ uvicorn ypl.backend.server:app --reload
 ```
 
 See [localhost:8000/api/docs](http://localhost:8000/api/docs) for the available API routes. This only works if your `ENVIRONMENT` variable in the `.env` file is set to `local`.
+
+If redis is not installed, you will see a `Redis not installed` exception when starting the service.
 
 ## Accessing the APIs
 
