@@ -188,12 +188,18 @@ class RewardRule(BaseModel, table=False):
     # Whether the rule is the default rule. Only one rule should be marked as default.
     is_default: bool = Field(nullable=False, default=False)
 
+    # The type of action that would trigger this rule.
+    action_type: RewardActionEnum = Field(nullable=False)
+
     # The matching conditions, in the format specified by https://github.com/venmo/business-rules.
     conditions: dict = Field(sa_type=sa.JSON, default_factory=dict)
 
     def matches(self, context: dict[str, Any]) -> bool:
         """Returns True if the rule matches the context."""
         if not self.is_active:
+            return False
+
+        if self.action_type != context.get("action_type"):
             return False
 
         return bool(

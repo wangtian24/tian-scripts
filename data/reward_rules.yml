@@ -2,6 +2,7 @@ amount_rules:
   - name: high
     priority: 300
     is_active: true
+    action_type: TURN
     conditions:
       all:
         - name: turn_quality_score
@@ -18,6 +19,7 @@ amount_rules:
   - name: medium
     priority: 200
     is_active: true
+    action_type: TURN
     conditions:
       all:
         - name: turn_quality_score
@@ -34,6 +36,7 @@ amount_rules:
     priority: 100
     is_active: true
     is_default: true
+    action_type: TURN
     conditions:
       all:
         - name: turn_quality_score
@@ -48,6 +51,7 @@ amount_rules:
   - name: over_point_limit_last_month_low_reward
     priority: 400
     is_active: true
+    action_type: TURN
     conditions:
       all:
         - name: points_last_month
@@ -62,6 +66,7 @@ amount_rules:
   - name: over_point_limit_last_week_low_reward
     priority: 500
     is_active: true
+    action_type: TURN
     conditions:
       all:
         - name: points_last_week
@@ -76,6 +81,7 @@ amount_rules:
   - name: over_point_limit_last_24_hours_low_reward
     priority: 500
     is_active: true
+    action_type: TURN
     conditions:
       all:
         - name: points_last_day
@@ -91,6 +97,7 @@ probability_rules:
   - name: kill_switch
     priority: 100000
     is_active: false
+    action_type: TURN
     conditions:
       all:
         - name: points
@@ -101,6 +108,7 @@ probability_rules:
   - name: over_point_limit_last_month_low_probability
     priority: 300
     is_active: true
+    action_type: TURN
     conditions:
       all:
         - name: points_last_month
@@ -111,6 +119,7 @@ probability_rules:
   - name: over_point_limit_last_week_low_probability
     priority: 400
     is_active: true
+    action_type: TURN
     conditions:
       all:
         - name: points_last_week
@@ -121,6 +130,7 @@ probability_rules:
   - name: over_point_limit_last_24_hours_low_probability
     priority: 400
     is_active: true
+    action_type: TURN
     conditions:
       all:
         - name: points_last_day
@@ -131,6 +141,7 @@ probability_rules:
   - name: override_switch
     priority: 399
     is_active: true
+    action_type: TURN
     conditions:
       all:
         - name: points
@@ -141,6 +152,7 @@ probability_rules:
   - name: first_chat_eval_1
     priority: 99
     is_active: true
+    action_type: TURN
     conditions:
       all:
         - name: previous_chat_count
@@ -154,6 +166,7 @@ probability_rules:
   - name: first_chat_eval_2
     priority: 98
     is_active: true
+    action_type: TURN
     conditions:
       all:
         - name: previous_chat_count
@@ -167,6 +180,7 @@ probability_rules:
   - name: first_chat_eval_3
     priority: 97
     is_active: true
+    action_type: TURN
     conditions:
       all:
         - name: previous_chat_count
@@ -180,6 +194,7 @@ probability_rules:
   - name: first_chat_eval_4
     priority: 96
     is_active: true
+    action_type: TURN
     conditions:
       all:
         - name: previous_chat_count
@@ -193,6 +208,7 @@ probability_rules:
   - name: first_chat_eval_5
     priority: 95
     is_active: true
+    action_type: TURN
     conditions:
       all:
         - name: previous_chat_count
@@ -206,6 +222,7 @@ probability_rules:
   - name: early_chat_eval_1
     priority: 94
     is_active: true
+    action_type: TURN
     conditions:
       all:
         - name: previous_chat_count
@@ -219,6 +236,7 @@ probability_rules:
   - name: early_chat_eval_2
     priority: 93
     is_active: true
+    action_type: TURN
     conditions:
       all:
         - name: previous_chat_count
@@ -232,6 +250,7 @@ probability_rules:
   - name: early_chat_eval_3
     priority: 92
     is_active: true
+    action_type: TURN
     conditions:
       all:
         - name: previous_chat_count
@@ -245,6 +264,7 @@ probability_rules:
   - name: early_chat_eval_4
     priority: 91
     is_active: true
+    action_type: TURN
     conditions:
       all:
         - name: previous_chat_count
@@ -258,6 +278,7 @@ probability_rules:
   - name: early_chat_eval_5
     priority: 90
     is_active: true
+    action_type: TURN
     conditions:
       all:
         - name: previous_chat_count
@@ -271,6 +292,7 @@ probability_rules:
   - name: prompt_not_safe
     priority: 350
     is_active: true
+    action_type: TURN
     conditions:
       all:
         - name: turn_quality_score
@@ -282,6 +304,7 @@ probability_rules:
     priority: 0
     is_active: true
     is_default: true
+    action_type: TURN
     conditions:
       all:
         - name: credits

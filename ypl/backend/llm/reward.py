@@ -29,6 +29,7 @@ from ypl.db.chats import Chat, Eval, Turn, TurnQuality
 from ypl.db.point_transactions import PointsActionEnum, PointTransaction
 from ypl.db.rewards import (
     Reward,
+    RewardActionEnum,
     RewardActionLog,
     RewardAmountRule,
     RewardProbabilityRule,
@@ -83,8 +84,6 @@ REWARD_TIER_VERY_LOW = "very_low"
 REWARD_TIER_LOW = "low"
 REWARD_TIER_MEDIUM = "medium"
 REWARD_TIER_HIGH = "high"
-# Users with higher point balances will receive rewards at a lower rate/amount.
-MAX_POINTS = 20000
 
 DEFAULT_COMMENTS = [
     "Thanks for your input on model responses.",
@@ -144,6 +143,7 @@ class UserTurnReward:
     points_last_day: int = 0
     points_last_week: int = 0
     points_last_month: int = 0
+    action_type: RewardActionEnum = RewardActionEnum.EVALUATION
 
     def __post_init__(self) -> None:
         self._fetch_data_and_set_flags()

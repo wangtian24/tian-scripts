@@ -108,6 +108,8 @@ pgvector = "0.2.5"
 psycopg2-binary = "2.9.9"
 pydantic = "2.7.4"
 pydantic-settings = "2.2.1"
+pytest-asyncio = "0.24.0"
+pytest-xdist = "3.6.1"
 pytest-mock = "3.14.0"
 python = ">=3.11,<3.12"
 python-dotenv = "1.0.1"
@@ -173,6 +175,10 @@ filterwarnings = [
     "ignore::DeprecationWarning:httpx.*:",
     "ignore::FutureWarning:transformers.*",
     "ignore:Support for class-based `config` is deprecated:DeprecationWarning",
+]
+asyncio_mode = "auto"
+markers = [
+    "asyncio: mark test as async",
 ]
 
 [build-system]

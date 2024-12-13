@@ -29,7 +29,7 @@ from ypl.backend.llm.reward import (
     UserTurnReward,
     feedback_based_reward,
 )
-from ypl.db.rewards import RewardAmountRule, RewardProbabilityRule
+from ypl.db.rewards import RewardActionEnum, RewardAmountRule, RewardProbabilityRule
 
 MOCK_AMOUNT_RULES = [
     RewardAmountRule(
@@ -45,6 +45,7 @@ MOCK_AMOUNT_RULES = [
                 }
             ]
         },
+        action_type=RewardActionEnum.TURN,
         min_value=0,
         max_value=10,
         mean_value=0,
@@ -63,6 +64,7 @@ MOCK_AMOUNT_RULES = [
                 }
             ]
         },
+        action_type=RewardActionEnum.TURN,
         min_value=200,
         max_value=1000,
         mean_value=MEAN_EVAL_REWARD * 1.5,
@@ -86,6 +88,7 @@ MOCK_AMOUNT_RULES = [
                 }
             ]
         },
+        action_type=RewardActionEnum.TURN,
         min_value=50,
         max_value=200,
         mean_value=MEAN_EVAL_REWARD * 1.0,
@@ -108,6 +111,7 @@ MOCK_AMOUNT_RULES = [
                 }
             ]
         },
+        action_type=RewardActionEnum.TURN,
         min_value=10,
         max_value=50,
         mean_value=MEAN_EVAL_REWARD * 0.5,
@@ -120,6 +124,7 @@ MOCK_PROBABILITY_RULES = [
         reward_probability_rule_id=uuid.uuid4(),
         name="high_credits",
         priority=300,
+        action_type=RewardActionEnum.TURN,
         conditions={
             "all": [
                 {
@@ -135,6 +140,7 @@ MOCK_PROBABILITY_RULES = [
         reward_probability_rule_id=uuid.uuid4(),
         name="first_eval",
         priority=250,
+        action_type=RewardActionEnum.TURN,
         conditions={
             "all": [
                 {
@@ -150,6 +156,7 @@ MOCK_PROBABILITY_RULES = [
         reward_probability_rule_id=uuid.uuid4(),
         name="new_or_inactive_user",
         priority=150,
+        action_type=RewardActionEnum.TURN,
         conditions={
             "any": [
                 {
@@ -171,6 +178,7 @@ MOCK_PROBABILITY_RULES = [
         name="active_user",
         priority=0,
         is_default=True,
+        action_type=RewardActionEnum.TURN,
         conditions={},  # Always matches.
         probability=0.8,
     ),
@@ -191,6 +199,7 @@ def create_user_turn_reward(**kwargs: Any) -> UserTurnReward:
     user_turn_reward = UserTurnReward.__new__(UserTurnReward)
     user_turn_reward.user_id = "fake_user_id"
     user_turn_reward.turn_id = uuid.uuid4()
+    user_turn_reward.action_type = RewardActionEnum.TURN
     for key, value in kwargs.items():
         if value is not None:
             setattr(user_turn_reward, key, value)
