@@ -94,6 +94,23 @@ amount_rules:
       - "Thank you for participating."
 
 probability_rules:
+  - name: under_point_limits_feedback_reward
+    priority: 100
+    is_active: true
+    action_type: FEEDBACK
+    conditions:
+      all:
+        - name: points_last_day
+          operator: less_than
+          value: 10000
+        - name: points_last_week
+          operator: less_than
+          value: 30000
+        - name: points_last_month
+          operator: less_than
+          value: 100000
+    probability: 1.0
+
   - name: kill_switch
     priority: 100000
     is_active: false
@@ -103,6 +120,23 @@ probability_rules:
         - name: points
           operator: greater_than
           value: 0
+    probability: 0.0
+
+  - name: over_point_limit_no_reward
+    priority: 1000
+    is_active: true
+    action_type: TURN
+    conditions:
+      any:
+        - name: points_last_day
+          operator: greater_than
+          value: 10000
+        - name: points_last_week
+          operator: greater_than
+          value: 30000
+        - name: points_last_month
+          operator: greater_than
+          value: 100000
     probability: 0.0
 
   - name: over_point_limit_last_month_low_probability

@@ -1,188 +1,48 @@
 import uuid
 from collections.abc import Generator
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from unittest.mock import patch
 
 import numpy as np
-from langchain_core.callbacks import (
-    AsyncCallbackManagerForLLMRun,
-    CallbackManagerForLLMRun,
-)
+import yaml
+from langchain_core.callbacks import AsyncCallbackManagerForLLMRun, CallbackManagerForLLMRun
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, ChatMessage
-from langchain_core.outputs import (
-    ChatGeneration,
-    ChatResult,
-)
+from langchain_core.outputs import ChatGeneration, ChatResult
 from pytest import approx, fixture, mark
 
 import ypl.db.all_models  # noqa: F401
 from ypl.backend.llm.reward import (
     FEEDBACK_REWARD_LOWER_BOUND,
     FEEDBACK_REWARD_UPPER_BOUND,
-    MEAN_EVAL_REWARD,
-    REWARD_TIER_HIGH,
-    REWARD_TIER_LOW,
-    REWARD_TIER_MEDIUM,
-    REWARD_TIER_VERY_LOW,
     UserTurnReward,
     feedback_based_reward,
 )
+from ypl.backend.tests.test_utils import MockSession
 from ypl.db.rewards import RewardActionEnum, RewardAmountRule, RewardProbabilityRule
 
-MOCK_AMOUNT_RULES = [
-    RewardAmountRule(
-        reward_amount_rule_id=uuid.uuid4(),
-        name=REWARD_TIER_VERY_LOW,
-        priority=200,
-        conditions={
-            "all": [
-                {
-                    "name": "credits",
-                    "operator": "greater_than_or_equal_to",
-                    "value": 20000,
-                }
-            ]
-        },
-        action_type=RewardActionEnum.TURN,
-        min_value=0,
-        max_value=10,
-        mean_value=0,
-        comments=["Thank you for participating."],
-    ),
-    RewardAmountRule(
-        reward_amount_rule_id=uuid.uuid4(),
-        name=REWARD_TIER_HIGH,
-        priority=100,
-        conditions={
-            "all": [
-                {
-                    "name": "turn_quality_score",
-                    "operator": "greater_than_or_equal_to",
-                    "value": 8,
-                }
-            ]
-        },
-        action_type=RewardActionEnum.TURN,
-        min_value=200,
-        max_value=1000,
-        mean_value=MEAN_EVAL_REWARD * 1.5,
-        comments=[
-            "This engages the model in a well-rounded, thought-provoking way.",
-            "This prompt is a great conversation starter.",
-            "This prompt challenges the model effectively across many aspects.",
-        ],
-    ),
-    RewardAmountRule(
-        reward_amount_rule_id=uuid.uuid4(),
-        name=REWARD_TIER_MEDIUM,
-        is_default=True,
-        priority=90,
-        conditions={
-            "all": [
-                {
-                    "name": "turn_quality_score",
-                    "operator": "greater_than_or_equal_to",
-                    "value": 4,
-                }
-            ]
-        },
-        action_type=RewardActionEnum.TURN,
-        min_value=50,
-        max_value=200,
-        mean_value=MEAN_EVAL_REWARD * 1.0,
-        comments=[
-            "Try writing a more novel prompt for better rewards.",
-            "Try adding more complexity to future prompts to earn more rewards.",
-            "Try more differentiated prompts for higher reward.",
-        ],
-    ),
-    RewardAmountRule(
-        reward_amount_rule_id=uuid.uuid4(),
-        name=REWARD_TIER_LOW,
-        priority=80,
-        conditions={
-            "all": [
-                {
-                    "name": "turn_quality_score",
-                    "operator": "greater_than_or_equal_to",
-                    "value": 1,
-                }
-            ]
-        },
-        action_type=RewardActionEnum.TURN,
-        min_value=10,
-        max_value=50,
-        mean_value=MEAN_EVAL_REWARD * 0.5,
-        comments=["Thank you for participating."],
-    ),
-]
+with open("data/reward_rules.yml") as f:
+    RULES = yaml.safe_load(f)
 
-MOCK_PROBABILITY_RULES = [
-    RewardProbabilityRule(
-        reward_probability_rule_id=uuid.uuid4(),
-        name="high_credits",
-        priority=300,
-        action_type=RewardActionEnum.TURN,
-        conditions={
-            "all": [
-                {
-                    "name": "credits",
-                    "operator": "greater_than_or_equal_to",
-                    "value": 20000,
-                }
-            ]
-        },
-        probability=0.05,
-    ),
-    RewardProbabilityRule(
-        reward_probability_rule_id=uuid.uuid4(),
-        name="first_eval",
-        priority=250,
-        action_type=RewardActionEnum.TURN,
-        conditions={
-            "all": [
-                {
-                    "name": "is_first_eval",
-                    "operator": "is_true",
-                    "value": True,
-                }
-            ]
-        },
-        probability=1.0,
-    ),
-    RewardProbabilityRule(
-        reward_probability_rule_id=uuid.uuid4(),
-        name="new_or_inactive_user",
-        priority=150,
-        action_type=RewardActionEnum.TURN,
-        conditions={
-            "any": [
-                {
-                    "name": "is_new_user",
-                    "operator": "is_true",
-                    "value": True,
-                },
-                {
-                    "name": "is_inactive_user",
-                    "operator": "is_true",
-                    "value": True,
-                },
-            ]
-        },
-        probability=0.9,
-    ),
-    RewardProbabilityRule(
-        reward_probability_rule_id=uuid.uuid4(),
-        name="active_user",
-        priority=0,
-        is_default=True,
-        action_type=RewardActionEnum.TURN,
-        conditions={},  # Always matches.
-        probability=0.8,
-    ),
-]
+# Emulate what the DB returns: the rules from reward_rules.yml, reverse-sorted by priority.
+MOCK_AMOUNT_RULES = sorted(
+    [RewardAmountRule(**rule) for rule in RULES.get("amount_rules", [])], key=lambda x: -x.priority
+)
+MOCK_PROBABILITY_RULES = sorted(
+    [
+        RewardProbabilityRule(**rule)
+        for rule in RULES.get("probability_rules", [])
+        if rule.get("name") != "override_switch"
+    ],
+    key=lambda x: -x.priority,
+)
+
+# Fix the yaml parsing.
+for rule in MOCK_AMOUNT_RULES + MOCK_PROBABILITY_RULES:
+    action_type_str = rule.action_type
+    if action_type_str and isinstance(action_type_str, str):
+        rule.action_type = RewardActionEnum(action_type_str.lower())
 
 
 @fixture(autouse=True)
@@ -209,19 +69,19 @@ def create_user_turn_reward(**kwargs: Any) -> UserTurnReward:
 
 
 @mark.parametrize(
-    "turn_quality_score, credits, expected_tier_name",
+    "turn_quality_score, points, points_last_month, expected_tier_name",
     [
-        (None, 100, REWARD_TIER_MEDIUM),
-        (2, 100, REWARD_TIER_LOW),
-        (5, 100, REWARD_TIER_MEDIUM),
-        (9, 100, REWARD_TIER_HIGH),
-        (None, 50000, REWARD_TIER_VERY_LOW),
-        (5, 40000, REWARD_TIER_VERY_LOW),
+        (None, 100, 100, "low"),
+        (2, 100, 100, "low"),
+        (5, 100, 100, "medium"),
+        (9, 100, 100, "high"),
+        (5, 100, 200000, "over_point_limit_last_month_low_reward"),
     ],
 )
-def test_tiers(turn_quality_score: float | None, credits: int, expected_tier_name: str) -> None:
-    user_turn_reward = create_user_turn_reward(turn_quality_score=turn_quality_score, points=credits)
-
+def test_tiers(turn_quality_score: float | None, points: int, expected_tier_name: str, points_last_month: int) -> None:
+    user_turn_reward = create_user_turn_reward(
+        turn_quality_score=turn_quality_score, points=points, points_last_month=points_last_month
+    )
     rule = user_turn_reward._get_amount_rule()
     assert rule is not None
     assert rule.name == expected_tier_name
@@ -236,20 +96,29 @@ def test_tiers(turn_quality_score: float | None, credits: int, expected_tier_nam
 
 
 @mark.parametrize(
-    "is_new_user, is_inactive_user, is_first_eval, credits, expected_probability",
+    "is_new_user, is_inactive_user, is_first_eval, points, points_last_day, expected_probability",
     [
-        (True, False, False, 100, 0.9),
-        (False, True, False, 100, 0.9),
-        (False, False, True, 100, 1.0),
-        (False, False, False, 100, 0.8),
-        (False, False, False, 5e5, 0.05),
+        (True, False, False, 100, 100, 0.9),
+        (False, True, False, 100, 100, 0.9),
+        (False, False, True, 100, 100, 0.9),
+        (False, False, False, 100, 100, 0.9),
+        (False, False, False, 100, 100000, 0.0),
     ],
 )
 def test_reward_probability(
-    is_new_user: bool, is_inactive_user: bool, is_first_eval: bool, credits: int, expected_probability: float
+    is_new_user: bool,
+    is_inactive_user: bool,
+    is_first_eval: bool,
+    points: int,
+    expected_probability: float,
+    points_last_day: int,
 ) -> None:
     user_turn_reward = create_user_turn_reward(
-        is_new_user=is_new_user, is_inactive_user=is_inactive_user, is_first_eval=is_first_eval, points=credits
+        is_new_user=is_new_user,
+        is_inactive_user=is_inactive_user,
+        is_first_eval=is_first_eval,
+        points=points,
+        points_last_day=points_last_day,
     )
 
     probabilities = [user_turn_reward.get_probability() for _ in range(1000)]
@@ -308,9 +177,21 @@ def mock_chat_model() -> Generator[Any, None, None]:
         yield mock
 
 
+@patch("ypl.backend.llm.reward.Session")
+@patch("ypl.backend.llm.reward._get_reward_points")
 @patch("ypl.backend.llm.reward.get_reward_llm")
-async def test_feedback_reward(mock_get_llm: Any) -> None:
-    # Setup mock chain
+async def test_feedback_reward(mock_get_llm: Any, mock_get_reward_points: Any, mock_session: Any) -> None:
+    mock_session.return_value = MockSession()
+
+    def get_limits(daily: int, weekly: int, monthly: int) -> dict[timedelta, int]:
+        return {
+            timedelta(days=1): daily,
+            timedelta(days=7): weekly,
+            timedelta(days=30): monthly,
+        }
+
+    mock_get_reward_points.side_effect = lambda user_id, session, delta: get_limits(100, 500, 2000)[delta]
+
     mock_llm = MockLLM()
     mock_get_llm.return_value = mock_llm
 
@@ -330,4 +211,16 @@ async def test_feedback_reward(mock_get_llm: Any) -> None:
         assert FEEDBACK_REWARD_LOWER_BOUND <= reward_amount <= FEEDBACK_REWARD_UPPER_BOUND
         assert isinstance(comment, str)
         assert rule_amount is None
+        assert rule_prob is not None
+
+    # Test no reward for high-point users.
+    for args in (
+        (10000, 0, 0),
+        (0, 50000, 0),
+        (0, 0, 200000),
+    ):
+        mock_get_reward_points.side_effect = lambda user_id, session, delta: get_limits(*args)[delta]  # noqa
+        result = await feedback_based_reward(test_user_id, "")
+        should_reward, reward_amount, comment, rule_amount, rule_prob = result
+        assert should_reward is False
         assert rule_prob is None

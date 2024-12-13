@@ -1,4 +1,6 @@
 from collections.abc import Iterable
+from typing import Any
+from unittest.mock import MagicMock
 
 import numpy as np
 from pytest import approx, raises
@@ -57,3 +59,19 @@ def test_update_ratings_counter() -> None:
     assert counter.total_count == 28
     assert counter.count == 9
     assert counter.threshold == 10
+
+
+class MockSession:
+    def __init__(self) -> None:
+        self.exec = MagicMock()
+        self.add = MagicMock()
+        self.commit = MagicMock()
+        self.refresh = MagicMock()
+        self.delete = MagicMock()
+        self.get = MagicMock()
+
+    def __enter__(self) -> "MockSession":
+        return self
+
+    def __exit__(self, _: Any, __: Any, ___: Any) -> None:
+        pass

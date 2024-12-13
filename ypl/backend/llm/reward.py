@@ -117,6 +117,8 @@ def get_matching_rule(rules: list[RewardRule], context: dict[str, Any]) -> Rewar
 
     default_rule = None
     for rule in rules:
+        if rule.action_type != context.get("action_type"):
+            continue
         if rule.is_default:
             default_rule = rule
         if rule.conditions and rule.matches(context):
@@ -224,20 +226,9 @@ class UserTurnReward:
             self.amount_rule = self._get_amount_rule()
             self.probability_rule = self._get_probability_rule()
 
-            self.points_last_day = self._get_reward_points(session, timedelta(days=1))
-            self.points_last_week = self._get_reward_points(session, timedelta(days=7))
-            self.points_last_month = self._get_reward_points(session, timedelta(days=30))
-
-    def _get_reward_points(self, session: Session, delta: timedelta) -> int:
-        result: int | None = session.exec(
-            select(func.sum(PointTransaction.point_delta)).where(
-                PointTransaction.user_id == self.user_id,
-                PointTransaction.deleted_at.is_(None),  # type: ignore
-                PointTransaction.action_type == PointsActionEnum.REWARD,
-                PointTransaction.created_at > (datetime.now() - delta),  # type: ignore
-            )
-        ).one()
-        return result or 0
+            self.points_last_day = _get_reward_points(self.user_id, session, timedelta(days=1))
+            self.points_last_week = _get_reward_points(self.user_id, session, timedelta(days=7))
+            self.points_last_month = _get_reward_points(self.user_id, session, timedelta(days=30))
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary with UUID fields converted to strings."""
@@ -246,10 +237,10 @@ class UserTurnReward:
         return d
 
     def _get_amount_rule(self) -> RewardAmountRule | None:
-        return get_matching_rule(get_reward_amount_rules(), self.to_dict())  # type: ignore
+        return get_matching_rule(get_reward_amount_rules(self.action_type), self.to_dict())  # type: ignore
 
     def _get_probability_rule(self) -> RewardProbabilityRule | None:
-        return get_matching_rule(get_reward_probability_rules(), self.to_dict())  # type: ignore
+        return get_matching_rule(get_reward_probability_rules(self.action_type), self.to_dict())  # type: ignore
 
     def get_amount(self, method: Literal["range", "mean"] = "range") -> int:
         rule = self.amount_rule
@@ -370,8 +361,19 @@ def get_reward_llm() -> BaseChatModel:
     )
 
 
-# At module level
 _cached_llm: BaseChatModel | None = None
+
+
+def _get_reward_points(user_id: str, session: Session, delta: timedelta) -> int:
+    result: int | None = session.exec(
+        select(func.sum(PointTransaction.point_delta)).where(
+            PointTransaction.user_id == user_id,
+            PointTransaction.deleted_at.is_(None),  # type: ignore
+            PointTransaction.action_type == PointsActionEnum.REWARD,
+            PointTransaction.created_at > (datetime.now() - delta),  # type: ignore
+        )
+    ).one()
+    return result or 0
 
 
 def get_llm() -> BaseChatModel:
@@ -382,7 +384,6 @@ def get_llm() -> BaseChatModel:
     return _cached_llm
 
 
-# Update get_feedback_quality_score to use the function
 async def get_feedback_quality_score(user_id: str, feedback: str, llm: BaseChatModel | None = None) -> int:
     try:
         start_time = time.time()
@@ -464,14 +465,33 @@ async def feedback_based_reward(
         user_id: The ID of the user
         feedback_comment: The feedback comment
     """
-    should_reward = True
-
     # Get quality score for the comment
     quality_score = await get_feedback_quality_score(user_id, feedback_comment)
+    action_type = RewardActionEnum.FEEDBACK
 
+    reward_params = {
+        "user_id": user_id,
+        "action_type": action_type,
+    }
+    with Session(get_engine()) as session:
+        reward_params["points_last_day"] = _get_reward_points(user_id, session, timedelta(days=1))
+        reward_params["points_last_week"] = _get_reward_points(user_id, session, timedelta(days=7))
+        reward_params["points_last_month"] = _get_reward_points(user_id, session, timedelta(days=30))
+
+    amount_rule: RewardAmountRule | None = get_matching_rule(get_reward_amount_rules(action_type), reward_params)  # type: ignore
+    probability_rule: RewardProbabilityRule | None = get_matching_rule(  # type: ignore
+        get_reward_probability_rules(action_type), reward_params
+    )
+
+    should_reward = False
+    if probability_rule:
+        should_reward = random.random() < probability_rule.probability
+
+    min_value = amount_rule.min_value if amount_rule else FEEDBACK_REWARD_LOWER_BOUND
+    max_value = amount_rule.max_value if amount_rule else FEEDBACK_REWARD_UPPER_BOUND
     reward_amount = await generate_bounded_reward(
-        lower_bound=FEEDBACK_REWARD_LOWER_BOUND,
-        upper_bound=FEEDBACK_REWARD_UPPER_BOUND,
+        lower_bound=min_value,
+        upper_bound=max_value,
         quality_score=quality_score,
     )
 
@@ -497,8 +517,8 @@ async def feedback_based_reward(
         should_reward,
         reward_amount,
         reward_comment,
-        None,  # No specific amount rule for feedback for now
-        None,  # No specific probability rule for feedback for now
+        amount_rule,
+        probability_rule,
     )
 
 
@@ -702,7 +722,9 @@ async def update_reward_status(reward_id: UUID, user_id: str, new_status: Reward
         await session.commit()
 
 
-def _get_reward_rules(rule_class: type[RewardAmountRule] | type[RewardProbabilityRule]) -> list[RewardRule]:
+def _get_reward_rules(
+    rule_class: type[RewardAmountRule] | type[RewardProbabilityRule], rule_type: RewardActionEnum
+) -> list[RewardRule]:
     """Get active reward rules of the specified type, sorted by priority."""
     with Session(get_engine()) as session:
         rules = session.exec(
@@ -710,6 +732,7 @@ def _get_reward_rules(rule_class: type[RewardAmountRule] | type[RewardProbabilit
             .where(
                 rule_class.is_active.is_(True),  # type: ignore
                 rule_class.deleted_at.is_(None),  # type: ignore
+                rule_class.action_type == rule_type,
             )
             .order_by(rule_class.priority.desc())  # type: ignore
         ).all()
@@ -732,13 +755,13 @@ def _get_reward_rules(rule_class: type[RewardAmountRule] | type[RewardProbabilit
 
 
 @ttl_cache(ttl=600)  # 10 minute cache
-def get_reward_amount_rules() -> list[RewardRule]:
-    return _get_reward_rules(RewardAmountRule)
+def get_reward_amount_rules(rule_type: RewardActionEnum = RewardActionEnum.TURN) -> list[RewardRule]:
+    return _get_reward_rules(RewardAmountRule, rule_type)
 
 
 @ttl_cache(ttl=600)  # 10 minute cache
-def get_reward_probability_rules() -> list[RewardRule]:
-    return _get_reward_rules(RewardProbabilityRule)
+def get_reward_probability_rules(rule_type: RewardActionEnum = RewardActionEnum.TURN) -> list[RewardRule]:
+    return _get_reward_rules(RewardProbabilityRule, rule_type)
 
 
 async def get_reward_action_log_by_user_and_turn(

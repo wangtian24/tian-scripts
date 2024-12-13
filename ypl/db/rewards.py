@@ -16,13 +16,19 @@ if TYPE_CHECKING:
 
 
 class RewardActionEnum(Enum):
+    # User signs up.
     SIGN_UP = "sign_up"
     # Deprecated. Use TURN instead.
     PROMPT = "prompt"
+    # Deprecated. Use TURN instead.
     EVALUATION = "evaluation"
+    # Thumbs up/down on a QT response.
     QT_EVAL = "qt_eval"
+    # Selection of "I prefer this" in a turn.
     TURN = "turn"
+    # Feedback on the app.
     FEEDBACK = "feedback"
+    # Selection of a canned response (On target! Too long. etc) from the model feedback box.
     MODEL_FEEDBACK = "model_feedback"
 
 
