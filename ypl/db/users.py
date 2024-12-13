@@ -14,6 +14,7 @@ from ypl.db.rewards import Reward, RewardActionLog
 if TYPE_CHECKING:
     from ypl.db.chats import Chat, Eval, Turn
     from ypl.db.language_models import LanguageModel
+    from ypl.db.payments import PaymentInstrument
 
 # The threshold for considering a user as "new" based on the number of chats
 NEW_USER_CHAT_THRESHOLD = 10
@@ -78,6 +79,7 @@ class User(BaseModel, table=True):
     point_transactions: list[PointTransaction] = Relationship(back_populates="user", cascade_delete=True)
     reward_action_logs: list["RewardActionLog"] = Relationship(back_populates="user", cascade_delete=True)
     rewards: list["Reward"] = Relationship(back_populates="user", cascade_delete=True)
+    payment_instruments: list["PaymentInstrument"] = Relationship(back_populates="user", cascade_delete=True)
 
     def is_new_user(self) -> bool:
         return len(self.chats) < NEW_USER_CHAT_THRESHOLD

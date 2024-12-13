@@ -8,6 +8,7 @@ from sqlmodel import Field, Relationship
 from ypl.db.base import BaseModel
 
 if TYPE_CHECKING:
+    from ypl.db.payments import PaymentTransaction
     from ypl.db.rewards import Reward
     from ypl.db.users import User
 
@@ -15,9 +16,12 @@ if TYPE_CHECKING:
 class PointsActionEnum(Enum):
     UNKNOWN = "unknown"
     SIGN_UP = "sign_up"
+    REWARD = "reward"
+    CASHOUT = "cashout"
+
+    # Not used anymore. Kept for historical reasons.
     PROMPT = "prompt"
     EVALUATION = "evaluation"
-    REWARD = "reward"
 
 
 class PointTransaction(BaseModel, table=True):
@@ -30,19 +34,21 @@ class PointTransaction(BaseModel, table=True):
     # Can be negative or postiive depending on the action.
     point_delta: int = Field(nullable=False, default=0)
 
-    # Deprecated. Credits are now only added via rewards.
-    # TODO(arawind): Drop action_* columns.
     action_type: PointsActionEnum = Field(nullable=False)
     # Action type to identifier mapping:
     # - "sign_up": "referrer_id"
-    # - "prompt": "prompt_id"
-    # - "evaluation": "eval_id"
     # - "reward": "reward_id"
     action_details: dict[str, str] = Field(default_factory=dict, sa_type=sa.JSON)
 
     # Set if this transaction is associated with a reward.
     claimed_reward_id: uuid.UUID | None = Field(foreign_key="rewards.reward_id", nullable=True)
     claimed_reward: "Reward" = Relationship(back_populates="claim_transaction")
+
+    # Set if this transaction is associated with a cashout.
+    cashout_payment_transaction_id: uuid.UUID | None = Field(
+        foreign_key="payment_transactions.payment_transaction_id", nullable=True
+    )
+    cashout_payment_transaction: "PaymentTransaction" = Relationship(back_populates="credits_transaction")
 
     # Needed for Column(JSON)
     class Config:

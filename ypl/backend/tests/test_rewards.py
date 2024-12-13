@@ -17,6 +17,7 @@ from langchain_core.outputs import (
 )
 from pytest import approx, fixture, mark
 
+import ypl.db.all_models  # noqa: F401
 from ypl.backend.llm.reward import (
     FEEDBACK_REWARD_LOWER_BOUND,
     FEEDBACK_REWARD_UPPER_BOUND,
