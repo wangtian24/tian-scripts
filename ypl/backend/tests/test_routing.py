@@ -267,11 +267,13 @@ def test_fast_compute_all_conf_overlap_diffs() -> None:
 @patch("ypl.backend.llm.routing.router.get_all_pro_models")
 @patch("ypl.backend.llm.routing.router.deduce_original_providers")
 @patch("ypl.backend.llm.routing.rule_router.deduce_original_providers")
+@patch("ypl.backend.llm.routing.router.deduce_semantic_groups")
 @patch("ypl.backend.llm.routing.router.RemotePromptCategorizer")
 @patch("ypl.backend.llm.routing.rule_router.get_routing_table")
 def test_simple_pro_router(
     mock_routing_table: Mock,
     mock_prompt_categorizer: Mock,
+    mock_semantic_group_map: Mock,
     mock_deduce_providers1: Mock,
     mock_deduce_providers2: Mock,
     mock_get_all_pro_models: Mock,
@@ -283,6 +285,7 @@ def test_simple_pro_router(
     mock_prompt_categorizer.categorize.return_value = CategorizerResponse(category="advice")
     pro_models = {"pro1", "pro2", "pro3", "pro4"}
     mock_get_all_pro_models.return_value = pro_models
+    mock_semantic_group_map.return_value = {}
 
     models = {"model1", "model2"}
     reputable_providers = {"pro1", "pro2", "pro3", "model1"}
@@ -320,6 +323,27 @@ def test_simple_pro_router(
         )
         selected_models = router.select_models(state=state).get_sorted_selected_models()
         assert "model1" in selected_models
+
+    # Test that semantic group filtering works.
+    models = {"model1", "model2", "model3", "model4", "model5"}
+    reputable_providers = {"pro1", "pro2", "pro3", "model1"}
+    all_models = models | pro_models
+    state = RouterState(all_models=all_models)
+    # Just make a provider for each model named after the model.
+    mock_deduce_providers1.return_value = {model: model for model in all_models}
+    mock_deduce_providers2.return_value = {model: model for model in all_models}
+    mock_get_all_strong_models.return_value = {"pro1", "pro2", "pro3", "model1"}
+    mock_error_filter.side_effect = lambda state: state
+    mock_semantic_group_map.return_value = {"model1": "group1", "model2": "group1"}
+
+    router = get_simple_pro_router(
+        prompt="", num_models=1, reputable_providers=reputable_providers, user_selected_models=["model2"]
+    )
+
+    for _ in range(15):
+        state = RouterState(all_models=models)
+        selected_models = router.select_models(state=state).get_sorted_selected_models()
+        assert "model2" in selected_models and "model1" not in selected_models
 
 
 @patch("ypl.backend.llm.routing.rule_router.deduce_original_providers")

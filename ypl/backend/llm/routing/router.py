@@ -21,6 +21,7 @@ from ypl.backend.db import get_engine
 from ypl.backend.llm.chat import (
     adeduce_original_provider,
     deduce_original_providers,
+    deduce_semantic_groups,
     get_all_pro_models,
     get_all_strong_models,
 )
@@ -1292,6 +1293,29 @@ class ProviderFilter(ModelFilter):
         return state.emplaced(selected_models=filtered_models), excluded_models
 
 
+class OnePerSemanticGroupFilter(ModelFilter):
+    """
+    Filters models based on their semantic group.
+    """
+
+    def __init__(self, persist: bool = False) -> None:
+        super().__init__(persist=persist)
+
+    def _filter(self, state: RouterState) -> tuple[RouterState, set[str]]:
+        sorted_models = state.get_sorted_selected_models()
+        semantic_group_map = deduce_semantic_groups(tuple(sorted_models))
+
+        keep_models = set(
+            {semantic_group_map.get(model, idx): model for idx, model in enumerate(reversed(sorted_models))}.values()
+        )
+
+        excluded_models = state.selected_models.keys() - keep_models
+
+        return state.emplaced(
+            selected_models={model: state.selected_models[model] for model in keep_models}
+        ), excluded_models
+
+
 def get_router_ranker(ranker: Ranker | None = None) -> tuple[RouterModule, Ranker]:
     min_weight = settings.ROUTING_WEIGHTS.get("min_simple_cost", 0.1)
     rand_weight = settings.ROUTING_WEIGHTS.get("random", 0.1)
@@ -1531,6 +1555,7 @@ def get_simple_pro_router(
             | error_filter
             | Exclude(providers=show_me_more_providers)
             | Inject(user_selected_models or [], score=10000000)
+            | OnePerSemanticGroupFilter()
             | ProviderFilter(one_per_provider=True)
             | TopK(num_models)
             | RoutingDecisionLogger(enabled=settings.ROUTING_DO_LOGGING, prefix="first-prompt-simple-pro-router")
@@ -1592,6 +1617,7 @@ def get_simple_pro_router(
             | error_filter
             | Exclude(models=all_bad_models, providers=show_me_more_providers)
             | Inject(user_selected_models or [], score=100000000)
+            | OnePerSemanticGroupFilter()
             | ProviderFilter(one_per_provider=True)
             | TopK(num_models)
             | RoutingDecisionLogger(

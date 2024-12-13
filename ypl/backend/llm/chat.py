@@ -205,6 +205,34 @@ def get_chat(chat_id: str) -> Chat:
 
 
 @ttl_cache(ttl=600)  # 10-min cache
+def deduce_semantic_groups(models: tuple[str, ...]) -> dict[str, str]:
+    """
+    Deduces the semantic group of the given model. If a model is not found in the database, its key is absent from the
+    returned dictionary.
+    """
+    semantic_group_map = {}
+    sql_query = text(
+        """
+        SELECT language_models.internal_name, language_models.semantic_group FROM language_models
+        WHERE language_models.internal_name IN :model_names
+        AND language_models.deleted_at IS NULL
+        AND language_models.status = 'ACTIVE'
+        AND language_models.semantic_group IS NOT NULL
+        """
+    )
+
+    with get_engine().connect() as conn:
+        c = conn.execute(sql_query, dict(model_names=models))
+        rows = c.fetchall()
+
+    for row in rows:
+        model, semantic_group = row[0], row[1]
+        semantic_group_map[model] = semantic_group.lower().strip()
+
+    return semantic_group_map
+
+
+@ttl_cache(ttl=600)  # 10-min cache
 def deduce_original_providers(models: tuple[str, ...]) -> dict[str, str]:
     provider_map = {}
     models_left = set(models)
