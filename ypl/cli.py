@@ -1204,7 +1204,7 @@ def judge_refusals(
 @db_cmd
 def process_crypto_rewards() -> None:
     """Process pending crypto rewards."""
-    from ypl.backend.rewards.crypto_rewards import process_pending_crypto_rewards
+    from ypl.backend.payment.crypto_rewards import process_pending_crypto_rewards
 
     asyncio.run(process_pending_crypto_rewards())
 

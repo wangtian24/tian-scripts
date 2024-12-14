@@ -5,9 +5,6 @@ import os
 import time
 from dataclasses import dataclass
 from decimal import Decimal
-from enum import Enum
-from typing import Any
-from uuid import UUID
 
 from cdp import Cdp, Wallet
 from dotenv import load_dotenv
@@ -19,10 +16,12 @@ from ypl.backend.utils.files import (
     write_file,
 )
 from ypl.backend.utils.json import json_dumps
+from ypl.db.payments import PaymentTransactionStatusEnum
 
 # Constants
 POLL_INTERVAL_SECONDS = 5
 MAX_WAIT_TIME_SECONDS = 120
+
 
 # File Paths
 SEED_FILE_NAME = "encrypted_seed.json"
@@ -32,23 +31,13 @@ SEED_FILE_PATH = os.path.join(CRYPTO_WALLET_PATH, SEED_FILE_NAME)
 WALLET_FILE_PATH = os.path.join(CRYPTO_WALLET_PATH, WALLET_FILE_NAME)
 
 
-class CryptoRewardStatus(str, Enum):
-    PENDING = "pending"
-    PROCESSING = "processing"
-    COMPLETED = "completed"
-    FAILED = "failed"
-
-
 @dataclass
 class CryptoReward:
-    reward_id: UUID
     user_id: str
     wallet_address: str
     asset_id: str
     amount: Decimal
-    status: CryptoRewardStatus
-    transaction_hash: str | None = None
-    error_message: str | None = None
+    status: PaymentTransactionStatusEnum
 
 
 class CryptoWalletError(Exception):
@@ -70,15 +59,6 @@ class CryptoRewardProcessor:
         """Initialize the processor"""
         self.wallet: Wallet | None = None
 
-    async def __aenter__(self) -> "CryptoRewardProcessor":
-        await self._init_cdp()
-        await self._init_wallet()
-        return self
-
-    async def __aexit__(self, exc_type: type | None, exc_val: Exception | None, exc_tb: Any | None) -> None:
-        # Cleanup code here
-        pass
-
     async def _init_cdp(self) -> None:
         """Initialize CDP configuration"""
         load_dotenv()
@@ -96,6 +76,8 @@ class CryptoRewardProcessor:
         """Initialize sending wallet"""
         log_dict = {
             "message": "Initializing wallet",
+            "seed_file_path": SEED_FILE_PATH,
+            "wallet_file_path": WALLET_FILE_PATH,
             "seed_file_exists": file_exists(SEED_FILE_PATH),
             "wallet_file_exists": file_exists(WALLET_FILE_PATH),
         }
@@ -153,6 +135,7 @@ class CryptoRewardProcessor:
 
         Args:
             total_required: Required amount in asset
+            asset_id: The asset ID to check the balance of
 
         Returns:
             bool: True if wallet has sufficient funds, False otherwise
@@ -170,7 +153,8 @@ class CryptoRewardProcessor:
             attempts += 1
             asset_balance = self.wallet.balance(asset_id) if self.wallet else Decimal("0")
             log_dict = {
-                "message": f"Checking current {asset_id} balance",
+                "message": "Checking current balance",
+                "asset_id": asset_id,
                 "balance": asset_balance,
                 "required": str(total_required),
                 "attempt": attempts,
@@ -181,6 +165,7 @@ class CryptoRewardProcessor:
             if asset_balance >= total_required:
                 log_dict = {
                     "message": "Wallet has sufficient funds",
+                    "asset_id": asset_id,
                     "balance": asset_balance,
                     "required": str(total_required),
                     "attempts_needed": attempts,
@@ -191,6 +176,7 @@ class CryptoRewardProcessor:
             if asset_balance < total_required:
                 log_dict = {
                     "message": f"Need {total_required} {asset_id}; attempting to fund wallet with faucet...",
+                    "asset_id": asset_id,
                     "current_balance": asset_balance,
                     "attempt": attempts,
                 }
@@ -207,7 +193,8 @@ class CryptoRewardProcessor:
 
                     new_asset_balance = self.wallet.balance(asset_id) if self.wallet else Decimal("0")
                     log_dict = {
-                        "message": "New ETH balance after faucet",
+                        "message": "New balance after faucet",
+                        "asset_id": asset_id,
                         "previous_balance": asset_balance,
                         "new_balance": new_asset_balance,
                         "required": str(total_required),
@@ -233,78 +220,126 @@ class CryptoRewardProcessor:
         logging.error(json_dumps(log_dict))
         return False
 
-    async def process_reward(self, reward: CryptoReward) -> bool:
+    async def process_reward(self, reward: CryptoReward) -> str:
         """Process a single crypto reward"""
         try:
             log_dict = {
                 "message": "Processing crypto reward",
-                "reward_id": str(reward.reward_id),
                 "user_id": reward.user_id,
+                "asset_id": reward.asset_id,
                 "wallet_address": reward.wallet_address,
                 "amount": str(reward.amount),
+                "status": reward.status.value,
             }
             logging.info(json_dumps(log_dict))
 
             # Attempt transfer
+            start_time = time.time()
             transfer = (
                 self.wallet.transfer(amount=reward.amount, asset_id=reward.asset_id, destination=reward.wallet_address)
                 if self.wallet
                 else None
             )
 
-            # Wait for transfer with timeout
-            transfer.wait()
+            # Do no wait for transfer to complete and return immediately
+            # transfer.wait()
 
-            # Update reward with transaction details
-            reward.status = CryptoRewardStatus.COMPLETED
-            reward.transaction_hash = transfer.transaction_hash
-
+            # # Update reward with transaction details
+            # reward.status = PaymentTransactionStatusEnum.SUCCESS
+            transaction_hash = str(transfer.transaction_hash)
+            end_time = time.time()
+            duration = end_time - start_time
             log_dict = {
-                "reward_id": str(reward.reward_id),
+                "message": "Created transaction in the blockchain",
                 "user_id": reward.user_id,
-                "transaction_hash": transfer.transaction_hash,
+                "transaction_hash": transaction_hash,
                 "transaction_link": transfer.transaction_link,
-                "status": reward.status,
+                "status": reward.status.value,
+                "duration": str(duration),
             }
             logging.info(json_dumps(log_dict))
-            return True
+            return transaction_hash
 
         except Exception as e:
-            reward.status = CryptoRewardStatus.FAILED
-            reward.error_message = str(e)
+            reward.status = PaymentTransactionStatusEnum.FAILED
             log_dict = {
                 "message": "Failed to process crypto reward",
-                "reward_id": str(reward.reward_id),
                 "user_id": reward.user_id,
                 "error_message": str(e),
             }
             logging.error(json_dumps(log_dict))
-            return False
+            return ""
 
 
 async def process_pending_crypto_rewards() -> None:
     """Process all pending crypto rewards"""
-    async with CryptoRewardProcessor() as processor:
-        # TODO: Uncomment this once we have a database
-        # engine = get_engine()
-        # with Session(engine) as session:
-        #     query = select(CryptoReward).where(
-        #         CryptoReward.status == CryptoRewardStatus.PENDING
-        #     )
-        #     pending_rewards = session.exec(query).all()
+    processor = await get_processor()
 
-        # Mock rewards array for testing
-        pending_rewards = [
-            CryptoReward(
-                reward_id=UUID("12345678-1234-5678-1234-567812345678"),
-                user_id="test_user_123",
-                asset_id=os.getenv("ASSET_ID") or "",
-                wallet_address=os.getenv("CHAOS_RECEIVER_ADDRESS") or "",
-                amount=Decimal(os.getenv("DEFAULT_TRANSFER_AMOUNT") or Decimal("0")),
-                status=CryptoRewardStatus.PENDING,
-            )
-        ]
+    # Mock rewards array for testing
+    pending_rewards = [
+        CryptoReward(
+            user_id="test_user_123",
+            asset_id=os.getenv("ASSET_ID") or "",
+            wallet_address=os.getenv("CHAOS_RECEIVER_ADDRESS") or "",
+            amount=Decimal(os.getenv("DEFAULT_TRANSFER_AMOUNT") or "0"),
+            status=PaymentTransactionStatusEnum.PENDING,
+        )
+    ]
 
-        # Process each pending reward
-        for reward in pending_rewards:
-            await processor.process_reward(reward)
+    # Process each pending reward
+    for reward in pending_rewards:
+        await processor.process_reward(reward)
+
+
+async def process_single_crypto_reward(reward: CryptoReward) -> str:
+    """Process a single cryptocurrency reward payment.
+
+    Args:
+        reward: The CryptoReward object containing payment details
+
+    Returns:
+        str: The blockchain transaction hash if successful, or an empty string if the transaction failed
+
+    Note:
+        The transaction is initiated but not awaited - the function returns once the transaction
+        is submitted to the blockchain, not when it's confirmed.
+    """
+    processor = await get_processor()
+    return await processor.process_reward(reward)
+
+
+async def cleanup_crypto_processor() -> None:
+    """Cleanup the processor instance during application shutdown"""
+    global _processor_instance
+    if _processor_instance is not None:
+        # Add any cleanup code here if needed
+        _processor_instance = None
+
+
+_processor_instance: CryptoRewardProcessor | None = None
+_initialization_lock: asyncio.Lock | None = None
+
+
+async def get_processor() -> CryptoRewardProcessor:
+    """Get or create a cached CryptoRewardProcessor instance"""
+    global _processor_instance, _initialization_lock
+
+    # Initialize the lock if needed
+    if _initialization_lock is None:
+        _initialization_lock = asyncio.Lock()
+
+    # Fast path: return existing instance if available
+    if _processor_instance is not None:
+        return _processor_instance
+
+    # Slow path: initialize with lock to prevent multiple simultaneous initializations
+    async with _initialization_lock:
+        # Check again in case another task initialized while we were waiting
+        if _processor_instance is not None:
+            return _processor_instance
+
+        processor = CryptoRewardProcessor()
+        await processor._init_cdp()
+        await processor._init_wallet()
+        _processor_instance = processor
+        return _processor_instance

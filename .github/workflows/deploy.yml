@@ -132,6 +132,8 @@ jobs:
         echo "ROUTING_GOOD_MODELS_ALWAYS=True" >> .env
         echo "USE_GOOGLE_CLOUD_LOGGING=True" >> .env
         echo "ANALYTICS_SLACK_WEBHOOK_URL=${{ secrets.ANALYTICS_SLACK_WEBHOOK_URL }}" >> .env
+        echo "CRYPTO_EXCHANGE_PRICE_API_URL_COINBASE=${{ secrets.CRYPTO_EXCHANGE_PRICE_API_URL_COINBASE }}" >> .env
+        echo "CRYPTO_EXCHANGE_PRICE_API_KEY_COINBASE=${{ secrets.CRYPTO_EXCHANGE_PRICE_API_KEY_COINBASE }}" >> .env
         if [[ "${{ env.ENVIRONMENT }}" == "production" ]]; then
           echo "POSTGRES_USER=${{ secrets.POSTGRES_USER }}" >> .env
           echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_PRODUCTION }}" >> .env
@@ -199,6 +201,8 @@ jobs:
           echo "TWITTER_ACCESS_TOKEN_SECRET=${{ secrets.TWITTER_ACCESS_TOKEN_SECRET_STAGING }}" >> .env
           echo "YUPP_HEAD_APP_BASE_URL=${{ secrets.YUPP_HEAD_APP_BASE_URL_STAGING }}" >> .env
           echo "CRYPTO_WALLET_PATH=${{ secrets.CRYPTO_WALLET_PATH_STAGING }}" >> .env
+          echo "CDP_API_KEY_NAME=${{ secrets.CDP_API_KEY_NAME_STAGING }}" >> .env
+          echo "CDP_API_KEY_PRIVATE_KEY=${{ secrets.CDP_API_KEY_PRIVATE_KEY_STAGING }}" >> .env
         fi
 
     - name: Authenticate to Google Cloud
