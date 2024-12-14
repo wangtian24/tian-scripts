@@ -2,7 +2,7 @@ import uuid
 from collections.abc import Generator
 from datetime import datetime, timedelta
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import numpy as np
 import yaml
@@ -177,11 +177,25 @@ def mock_chat_model() -> Generator[Any, None, None]:
         yield mock
 
 
-@patch("ypl.backend.llm.reward.Session")
-@patch("ypl.backend.llm.reward._get_reward_points")
+@patch("ypl.backend.llm.reward.get_async_engine")
 @patch("ypl.backend.llm.reward.get_reward_llm")
-async def test_feedback_reward(mock_get_llm: Any, mock_get_reward_points: Any, mock_session: Any) -> None:
+@patch("ypl.backend.llm.reward._get_reward_points")
+@patch("ypl.backend.llm.reward.Session")
+@patch("ypl.backend.config.settings")
+@patch("pydantic.PostgresDsn.build")
+async def test_feedback_reward(
+    mock_postgres_dsn: Any,
+    mock_settings: Any,
+    mock_get_llm: Any,
+    mock_get_reward_points: Any,
+    mock_session: Any,
+    mock_engine: Any,
+) -> None:
+    # Mock PostgresDsn.build to return a valid URL string
+    mock_postgres_dsn.return_value.unicode_string.return_value = "postgresql://test_user:test_pass@test_host/test_db"
+
     mock_session.return_value = MockSession()
+    mock_engine.return_value = AsyncMock()
 
     def get_limits(daily: int, weekly: int, monthly: int) -> dict[timedelta, int]:
         return {
@@ -192,8 +206,11 @@ async def test_feedback_reward(mock_get_llm: Any, mock_get_reward_points: Any, m
 
     mock_get_reward_points.side_effect = lambda user_id, session, delta: get_limits(100, 500, 2000)[delta]
 
-    mock_llm = MockLLM()
-    mock_get_llm.return_value = mock_llm
+    # Create an AsyncMock that returns our MockLLM instance
+    mock_llm_context = AsyncMock()
+    mock_llm_instance = MockLLM()
+    mock_llm_context.__aenter__.return_value = mock_llm_instance
+    mock_get_llm.return_value = mock_llm_context
 
     test_user_id = "test_user"
     # Test cases

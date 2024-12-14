@@ -1200,5 +1200,14 @@ def judge_refusals(
     logging.info(f"Completed updating {num_messages} messages")
 
 
+@cli.command()
+@db_cmd
+def process_crypto_rewards() -> None:
+    """Process pending crypto rewards."""
+    from ypl.backend.rewards.crypto_rewards import process_pending_crypto_rewards
+
+    asyncio.run(process_pending_crypto_rewards())
+
+
 if __name__ == "__main__":
     cli()

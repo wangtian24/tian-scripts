@@ -106,7 +106,7 @@ orjson = "3.10.0"
 pandas = "2.2.2"
 pgvector = "0.2.5"
 psycopg2-binary = "2.9.9"
-pydantic = "2.7.4"
+pydantic = "2.10.3"
 pydantic-settings = "2.2.1"
 pytest-asyncio = "0.24.0"
 pytest-xdist = "3.6.1"
@@ -130,6 +130,7 @@ asyncpg = "0.29.0"
 anthropic = "0.36.0"
 slack-sdk = "3.33.1"
 tweepy = "4.14.0"
+cdp-sdk = "0.12.1"  # coinbase sdk
 
 [tool.poetry.group.dev.dependencies]
 httpx = "0.27.0"

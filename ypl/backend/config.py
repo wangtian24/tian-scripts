@@ -1,3 +1,4 @@
+import os
 import secrets
 import warnings
 from typing import Annotated, Any, Literal, Self
@@ -95,6 +96,11 @@ class Settings(BaseSettings):
     PYTORCH_SERVE_GCP_SERVICE_NAME: str = "backend-pytorch-service"
     PYTORCH_SERVE_GCP_REGION: str = "us-central1"  # only region that supports L4 GPUs
     PYTORCH_SERVE_GCP_URL: str = ""
+
+    CDP_API_KEY_NAME: str = os.getenv("CDP_API_KEY_NAME", "")
+    CDP_API_KEY_PRIVATE_KEY: str = os.getenv("CDP_API_KEY_PRIVATE_KEY", "")
+
+    CRYPTO_WALLET_PATH: str = os.getenv("CRYPTO_WALLET_PATH", ".")
 
     # The base URL of the yupp-head app, set to staging by default.
     # Example use case: when updating models on yupp-mind, we need to revalidate the model caches on yupp-head too.

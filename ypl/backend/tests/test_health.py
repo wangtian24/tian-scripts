@@ -12,7 +12,8 @@ client = TestClient(app)
 
 
 @patch("ypl.backend.routes.v1.health.AsyncSession")
-def test_health(mock_session: AsyncMock) -> None:
+@patch("ypl.backend.routes.v1.health.get_async_engine")
+def test_health(mock_engine: AsyncMock, mock_session: AsyncMock) -> None:
     # Mock the database session and query result
     mock_session_instance = AsyncMock()
     mock_session.return_value.__aenter__.return_value = mock_session_instance
