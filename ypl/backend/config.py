@@ -58,11 +58,11 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = ""
     BACKEND_CORS_ORIGINS: Annotated[CorsOrigins, BeforeValidator(parse_cors)] = []
 
-    POSTGRES_USER: str = ""
-    POSTGRES_PASSWORD: str = ""
-    POSTGRES_HOST: str = ""
-    POSTGRES_HOST_NON_POOLING: str = ""
-    POSTGRES_DATABASE: str = ""
+    POSTGRES_USER: str = os.getenv("POSTGRES_USER", "test")
+    POSTGRES_PASSWORD: str = os.getenv("POSTGRES_PASSWORD", "test")
+    POSTGRES_HOST: str = os.getenv("POSTGRES_HOST", "localhost:5432")
+    POSTGRES_HOST_NON_POOLING: str = os.getenv("POSTGRES_HOST_NON_POOLING", "localhost:5432")
+    POSTGRES_DATABASE: str = os.getenv("POSTGRES_DATABASE", "postgres")
     # For direct DB connection through Cloud SQL Proxy
     # Ref: https://cloud.google.com/sql/docs/postgres/connect-run#connect
     # Looks like "/cloudsql/<INSTANCE_CONNECTION_NAME>"
@@ -191,6 +191,24 @@ class Settings(BaseSettings):
         self._check_default_secret("PERPLEXITY_API_KEY", self.PERPLEXITY_API_KEY)
         self._check_default_secret("TOGETHERAI_API_KEY", self.TOGETHERAI_API_KEY)
 
+        return self
+
+    @model_validator(mode="after")
+    def validate_db_config(self) -> Self:
+        if self.ENVIRONMENT in ["production", "staging"]:
+            # Only validate during actual runtime, not during tests
+            if os.getenv("PYTEST_CURRENT_TEST") is None:  # This env var is automatically set by pytest
+                test_values = ["test", "postgres", "localhost:5432"]
+                if (
+                    self.POSTGRES_USER in test_values
+                    or self.POSTGRES_PASSWORD == "test"
+                    or self.POSTGRES_HOST in test_values
+                    or self.POSTGRES_DATABASE in test_values
+                ):
+                    raise ValueError(
+                        f"Database configuration using test values in {self.ENVIRONMENT} environment. "
+                        "Please set proper database credentials."
+                    )
         return self
 
 
