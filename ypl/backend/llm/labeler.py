@@ -10,6 +10,8 @@ from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
+from langchain_core.prompts import ChatPromptTemplate
+from pydantic import BaseModel
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 from tqdm.asyncio import tqdm_asyncio
 
@@ -17,6 +19,8 @@ from ypl.backend.llm.embedding import cached_get_database
 from ypl.backend.prompts import (
     QUICKTAKE_SUMMARIZING_PROMPT_TEMPLATE_1,
     QUICKTAKE_SUMMARIZING_PROMPT_TEMPLATE_2,
+    SYSTEM_QUICKTAKE_PROMPT,
+    USER_QUICKTAKE_PROMPT,
     WILDCHAT_REALISM_PROMPT_TEMPLATE,
 )
 
@@ -393,3 +397,49 @@ class SummarizingQuicktakeLabeler(MultistepLLMLabeler[str, str]):
                 return QUICKTAKE_SUMMARIZING_PROMPT_TEMPLATE_2 | llm  # type: ignore
             case _:
                 raise ValueError(f"Invalid step number: {step_no}")
+
+
+class QuickTakeRequest(BaseModel):
+    chat_history: list[dict[str, Any]]
+    prompt: str
+
+
+class QuickTakeGenerator(LLMLabeler[str, str]):
+    """
+    Writes a quicktake for a given conversation history and prompt.
+    """
+
+    def __init__(
+        self,
+        llm: BaseChatModel,
+        chat_history: list[dict[str, Any]],
+        keep_role: str | None = "assistant",
+    ) -> None:
+        self.keep_role = keep_role
+        self.chat_history = chat_history
+        super().__init__(llm)
+
+    @property
+    def error_value(self) -> str:
+        return "<CANT_ANSWER>"
+
+    def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
+        keep_roles = {"user", self.keep_role} if self.keep_role else {"user", "assistant", "quicktake"}
+        template = ChatPromptTemplate.from_messages(
+            [("system", SYSTEM_QUICKTAKE_PROMPT)]
+            + [
+                (x["role"], x["content"].replace("{", "{{").replace("}", "}}"))
+                for x in self.chat_history
+                if x["role"] in keep_roles
+            ]
+            + [("user", USER_QUICKTAKE_PROMPT)]
+        )
+
+        return template | llm  # type: ignore
+
+    def _prepare_input(self, prompt: str) -> dict[str, Any]:
+        return dict(prompt=prompt)
+
+    def _parse_output(self, output: BaseMessage) -> str:
+        assert output.content is not None and isinstance(output.content, str)
+        return str(output.content).strip()

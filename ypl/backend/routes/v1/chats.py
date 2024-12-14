@@ -13,12 +13,13 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine
-from ypl.backend.llm.chat import ModelInfo, get_chat_model
+from ypl.backend.llm.chat import ModelInfo, get_chat_history, get_chat_model
 from ypl.backend.llm.constants import ChatProvider
 from ypl.backend.llm.judge import (
     DEFAULT_PROMPT_DIFFICULTY,
     YuppPromptDifficultyLabelerSimple,
 )
+from ypl.backend.llm.labeler import QuickTakeGenerator
 from ypl.backend.llm.moderation import DEFAULT_MODERATION_RESULT, amoderate
 from ypl.backend.rw_cache import TurnQualityCache
 from ypl.backend.utils.json import json_dumps
@@ -35,6 +36,24 @@ llm = get_chat_model(
 )
 
 MAX_PINNED_CHATS = 10
+
+
+class QuickTakeResponse(BaseModel):
+    quicktake: str
+
+
+@router.post("/chats/{chat_id}:generate_quicktake", response_model=QuickTakeResponse)
+@router.post("/chats/{chat_id}/turns/{turn_id}:generate_quicktake", response_model=QuickTakeResponse)
+async def generate_quicktake(
+    chat_id: str,
+    turn_id: str | None = None,
+    prompt: str | None = Query(None, description="Prompt"),  # noqa: B008
+) -> QuickTakeResponse:
+    chat_history = get_chat_history(chat_id, turn_id=turn_id)
+    quicktake_generator = QuickTakeGenerator(llm, chat_history)
+    quicktake = await quicktake_generator.alabel(prompt or "")
+
+    return QuickTakeResponse(quicktake=quicktake)
 
 
 @router.post("/chats/{chat_id}/turns/{turn_id}:label_quality", response_model=TurnQuality)

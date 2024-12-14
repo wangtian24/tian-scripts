@@ -1,3 +1,4 @@
+import random
 import re
 from collections.abc import Generator, Sequence
 from functools import lru_cache
@@ -119,6 +120,87 @@ def get_user_message(turn_id: str) -> str:
 
     with Session(get_engine()) as session:
         return session.exec(query).first() or ""
+
+
+def get_chat_history(
+    chat_id: str,
+    turn_id: str | None = None,
+    merge_method: str = "single-thread-random",  # noqa: C901
+    last_num_turns: int = 100,
+) -> list[dict[str, Any]]:
+    """
+    Returns the chat history for the given chat ID.
+
+    Args:
+        chat_id: The ID of the chat to get the history for.
+        turn_id: The ID of the last turn to include in the history. If None, the history will include all turns.
+        merge_method: The method to use to merge the chat history if there are multiple assistant messages. Currently
+            only "single-thread-random" is supported, e.g., randomly select one of the assistant messages if none are
+            explicitly selected by the user.
+
+    Returns:
+        A sequence of {"content": str, "role": str} objects, where role is one of "user", "assistant", or "quicktake".
+    """
+    sql_query = text(
+        f"""
+        SELECT cm.message_type, cm.content, t.turn_id, me.score FROM turns t
+            JOIN chat_messages cm ON cm.turn_id = t.turn_id
+            LEFT JOIN message_evals me ON me.message_id = cm.message_id
+        WHERE t.chat_id = :chat_id
+        ORDER BY cm.created_at DESC
+        LIMIT {last_num_turns}
+        """
+    )
+
+    with get_engine().connect() as conn:
+        c = conn.execute(sql_query, dict(chat_id=chat_id))
+        rows = c.fetchall()
+
+    last_turn_id = None
+    last_turn_id_to_include = turn_id
+    history = []
+    asst_buffer: list[dict[str, Any]] = []
+
+    for row in reversed(rows):
+        if last_turn_id is not None and last_turn_id_to_include == last_turn_id:
+            break
+
+        msg_type, content, turn_id, score = row
+
+        if turn_id != last_turn_id:
+            if asst_buffer:
+                random.shuffle(asst_buffer)
+                history.append(
+                    dict(
+                        content=max(asst_buffer, key=lambda x: x["score"])["content"],
+                        role="assistant",
+                    )
+                )
+
+            asst_buffer.clear()
+
+        last_turn_id = turn_id
+
+        match msg_type:
+            case "USER_MESSAGE":
+                history.append(dict(content=content, role="user"))
+            case "ASSISTANT_MESSAGE":
+                asst_buffer.append(dict(content=content, score=0 if score is None else score))
+            case "QUICK_RESPONSE_MESSAGE":
+                history.append(dict(content=content, role="quicktake"))
+            case _:
+                continue
+
+    if asst_buffer:
+        random.shuffle(asst_buffer)
+        history.append(
+            dict(
+                content=max(asst_buffer, key=lambda x: x["score"])["content"],
+                role="assistant",
+            )
+        )
+
+    return history
 
 
 def get_preferences(chat_id: str) -> tuple[RoutingPreference, list[str]]:
