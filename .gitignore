@@ -182,3 +182,7 @@ notebooks/cache
 
 # Redis
 *.rdb
+
+# Crypto wallet files
+crypto_wallet/
+**/crypto_wallet/

@@ -12,7 +12,11 @@ from ypl.backend.payment.exchange_rates import get_exchange_rate
 from ypl.backend.payment.facilitator import Facilitator
 from ypl.backend.payment.validation import validate_destination_identifier_for_currency
 from ypl.backend.utils.json import json_dumps
-from ypl.db.payments import CurrencyEnum, PaymentInstrumentIdentifierTypeEnum, PaymentTransactionStatusEnum
+from ypl.db.payments import (
+    CurrencyEnum,
+    PaymentInstrumentIdentifierTypeEnum,
+    PaymentTransactionStatusEnum,
+)
 from ypl.db.users import SIGNUP_CREDITS
 
 router = APIRouter()
@@ -96,7 +100,9 @@ async def cashout_credits(request: CashoutCreditsRequest) -> str:
             status_code=500, detail=f"Error converting credits to currency {request.cashout_currency}"
         ) from e
 
-    facilitator = Facilitator.init(request.cashout_currency, request.destination_identifier_type)
+    facilitator = Facilitator.init(
+        request.credits_to_cashout, request.cashout_currency, request.destination_identifier_type
+    )
     transaction_reference_id = await facilitator.make_payment(
         request.user_id,
         amount_in_currency,

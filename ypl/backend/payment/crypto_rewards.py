@@ -13,17 +13,12 @@ from ypl.backend.utils.files import (
     download_gcs_to_local_temp,
     file_exists,
     read_file,
-    write_file,
 )
 from ypl.backend.utils.json import json_dumps
-from ypl.db.payments import PaymentTransactionStatusEnum
 
-# Constants
 POLL_INTERVAL_SECONDS = 5
-MAX_WAIT_TIME_SECONDS = 120
+MAX_WAIT_TIME_SECONDS = 60
 
-
-# File Paths
 SEED_FILE_NAME = "encrypted_seed.json"
 WALLET_FILE_NAME = "wallet.json"
 CRYPTO_WALLET_PATH = settings.CRYPTO_WALLET_PATH
@@ -37,7 +32,6 @@ class CryptoReward:
     wallet_address: str
     asset_id: str
     amount: Decimal
-    status: PaymentTransactionStatusEnum
 
 
 class CryptoWalletError(Exception):
@@ -68,26 +62,17 @@ class CryptoRewardProcessor:
         if not api_key_name or not api_key_private_key:
             raise ValueError("Wallet configuration is missing")
 
-        # Configure the CDP SDK
         private_key = api_key_private_key.replace("\\n", "\n")
         Cdp.configure(api_key_name, private_key)
 
     async def _init_wallet(self) -> None:
         """Initialize sending wallet"""
-        log_dict = {
-            "message": "Initializing wallet",
-            "seed_file_path": SEED_FILE_PATH,
-            "wallet_file_path": WALLET_FILE_PATH,
-            "seed_file_exists": file_exists(SEED_FILE_PATH),
-            "wallet_file_exists": file_exists(WALLET_FILE_PATH),
-        }
-        logging.info(json_dumps(log_dict))
 
         if not file_exists(SEED_FILE_PATH) or not file_exists(WALLET_FILE_PATH):
             log_dict = {
                 "message": "Required wallet files not found",
-                "seed_file": SEED_FILE_PATH,
-                "wallet_file": WALLET_FILE_PATH,
+                "seed_file_path": SEED_FILE_PATH,
+                "wallet_file_path": WALLET_FILE_PATH,
             }
             logging.exception(json_dumps(log_dict))
             raise WalletNotFoundError(
@@ -96,35 +81,13 @@ class CryptoRewardProcessor:
 
         self.wallet = self._import_existing_wallet()
 
-    def _create_sending_wallet(self) -> Wallet:
-        """Create a new sending wallet"""
-
-        sending_wallet = Wallet.create()
-        # Persist the wallet locally
-        wallet_id_string = json.dumps(sending_wallet.id)
-        write_file(WALLET_FILE_PATH, wallet_id_string)
-        sending_wallet.save_seed(SEED_FILE_PATH)
-
-        sending_address = sending_wallet.default_address
-        log_dict = {
-            "message": "Created wallet with address",
-            "address": sending_address.address_id if sending_address else "",
-        }
-        logging.info(json_dumps(log_dict))
-        return sending_wallet
-
     def _import_existing_wallet(self) -> Wallet:
         """Import an existing wallet"""
-        log_dict = {"message": "Importing existing CDP wallet..."}
-        logging.info(json_dumps(log_dict))
 
-        # Get the wallet ID
         wallet_data = read_file(WALLET_FILE_PATH)
         wallet_id = json.loads(wallet_data)
 
-        # Get seed file path - download if GCS, use directly if local
         with download_gcs_to_local_temp(SEED_FILE_PATH) as local_seed_path:
-            # Get the wallet
             wallet = Wallet.fetch(wallet_id)
             wallet.load_seed(local_seed_path)
             return wallet
@@ -143,75 +106,39 @@ class CryptoRewardProcessor:
         Raises:
             ValueError: If wallet funding fails
         """
-        MAX_WAIT_TIME = 60  # 1 minute timeout
-        POLL_INTERVAL = 5  # Check balance every 5 seconds
-
         start_time = time.time()
         attempts = 0
 
-        while time.time() - start_time < MAX_WAIT_TIME:
+        while time.time() - start_time < MAX_WAIT_TIME_SECONDS:
             attempts += 1
             asset_balance = self.wallet.balance(asset_id) if self.wallet else Decimal("0")
-            log_dict = {
-                "message": "Checking current balance",
-                "asset_id": asset_id,
-                "balance": asset_balance,
-                "required": str(total_required),
-                "attempt": attempts,
-                "elapsed_seconds": int(time.time() - start_time),
-            }
-            logging.info(json_dumps(log_dict))
 
             if asset_balance >= total_required:
-                log_dict = {
-                    "message": "Wallet has sufficient funds",
-                    "asset_id": asset_id,
-                    "balance": asset_balance,
-                    "required": str(total_required),
-                    "attempts_needed": attempts,
-                }
-                logging.info(json_dumps(log_dict))
                 return True
 
             if asset_balance < total_required:
                 log_dict = {
-                    "message": f"Need {total_required} {asset_id}; attempting to fund wallet with faucet...",
+                    "message": "Not enough funds. Attempting to fund wallet with faucet...",
                     "asset_id": asset_id,
+                    "total_required": total_required,
                     "current_balance": asset_balance,
                     "attempt": attempts,
                 }
                 logging.info(json_dumps(log_dict))
 
                 try:
-                    faucet_transaction = self.wallet.faucet() if self.wallet else None
-                    log_dict = {
-                        "message": "Faucet transaction completed",
-                        "transaction": faucet_transaction,
-                        "attempt": attempts,
-                    }
-                    logging.info(json_dumps(log_dict))
-
-                    new_asset_balance = self.wallet.balance(asset_id) if self.wallet else Decimal("0")
-                    log_dict = {
-                        "message": "New balance after faucet",
-                        "asset_id": asset_id,
-                        "previous_balance": asset_balance,
-                        "new_balance": new_asset_balance,
-                        "required": str(total_required),
-                        "attempt": attempts,
-                    }
-                    logging.info(json_dumps(log_dict))
+                    self.wallet.faucet(asset_id) if self.wallet else None
 
                 except Exception as e:
                     log_dict = {"message": "Failed to request funds from faucet", "error": str(e), "attempt": attempts}
                     logging.error(json_dumps(log_dict))
 
             # Wait before checking balance again
-            await asyncio.sleep(POLL_INTERVAL)
+            await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
         log_dict = {
             "message": "Timed out waiting for wallet funding",
-            "timeout_seconds": MAX_WAIT_TIME,
+            "timeout_seconds": MAX_WAIT_TIME_SECONDS,
             "total_attempts": attempts,
             "final_balance": self.wallet.balance(asset_id) if self.wallet else Decimal("0"),
             "required_balance": str(total_required),
@@ -221,54 +148,50 @@ class CryptoRewardProcessor:
         return False
 
     async def process_reward(self, reward: CryptoReward) -> str:
-        """Process a single crypto reward"""
-        try:
-            log_dict = {
-                "message": "Processing crypto reward",
-                "user_id": reward.user_id,
-                "asset_id": reward.asset_id,
-                "wallet_address": reward.wallet_address,
-                "amount": str(reward.amount),
-                "status": reward.status.value,
-            }
-            logging.info(json_dumps(log_dict))
+        """Process a single crypto reward
 
-            # Attempt transfer
+        Returns:
+            str: The transaction hash
+        """
+        try:
             start_time = time.time()
-            transfer = (
-                self.wallet.transfer(amount=reward.amount, asset_id=reward.asset_id, destination=reward.wallet_address)
-                if self.wallet
-                else None
+            if not self.wallet:
+                raise CryptoWalletError("Wallet not initialized")
+
+            transfer = self.wallet.transfer(
+                amount=reward.amount, asset_id=reward.asset_id, destination=reward.wallet_address
             )
 
-            # Do no wait for transfer to complete and return immediately
-            # transfer.wait()
+            if not transfer:
+                raise CryptoWalletError("Transfer creation failed")
 
-            # # Update reward with transaction details
-            # reward.status = PaymentTransactionStatusEnum.SUCCESS
-            transaction_hash = str(transfer.transaction_hash)
+            transfer.wait()
             end_time = time.time()
             duration = end_time - start_time
             log_dict = {
                 "message": "Created transaction in the blockchain",
                 "user_id": reward.user_id,
-                "transaction_hash": transaction_hash,
+                "asset_id": reward.asset_id,
+                "wallet_address": reward.wallet_address,
+                "amount": str(reward.amount),
+                "transaction_hash": transfer.transaction_hash,
                 "transaction_link": transfer.transaction_link,
-                "status": reward.status.value,
                 "duration": str(duration),
             }
             logging.info(json_dumps(log_dict))
-            return transaction_hash
+            return str(transfer.transaction_hash)
 
         except Exception as e:
-            reward.status = PaymentTransactionStatusEnum.FAILED
             log_dict = {
                 "message": "Failed to process crypto reward",
                 "user_id": reward.user_id,
+                "asset_id": reward.asset_id,
+                "wallet_address": reward.wallet_address,
+                "amount": str(reward.amount),
                 "error_message": str(e),
             }
             logging.error(json_dumps(log_dict))
-            return ""
+            raise CryptoWalletError("Failed to process reward") from e
 
 
 async def process_pending_crypto_rewards() -> None:
@@ -282,7 +205,6 @@ async def process_pending_crypto_rewards() -> None:
             asset_id=os.getenv("ASSET_ID") or "",
             wallet_address=os.getenv("CHAOS_RECEIVER_ADDRESS") or "",
             amount=Decimal(os.getenv("DEFAULT_TRANSFER_AMOUNT") or "0"),
-            status=PaymentTransactionStatusEnum.PENDING,
         )
     ]
 
@@ -298,11 +220,7 @@ async def process_single_crypto_reward(reward: CryptoReward) -> str:
         reward: The CryptoReward object containing payment details
 
     Returns:
-        str: The blockchain transaction hash if successful, or an empty string if the transaction failed
-
-    Note:
-        The transaction is initiated but not awaited - the function returns once the transaction
-        is submitted to the blockchain, not when it's confirmed.
+        str: The transaction hash
     """
     processor = await get_processor()
     return await processor.process_reward(reward)

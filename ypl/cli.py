@@ -1209,5 +1209,13 @@ def process_crypto_rewards() -> None:
     asyncio.run(process_pending_crypto_rewards())
 
 
+@cli.command()
+def create_wallet() -> None:
+    """Create a new wallet."""
+    from ypl.backend.utils.crypto_create_wallet import create_wallet
+
+    create_wallet()
+
+
 if __name__ == "__main__":
     cli()
