@@ -260,4 +260,8 @@ async def get_processor() -> CryptoRewardProcessor:
         await processor._init_cdp()
         await processor._init_wallet()
         _processor_instance = processor
+        log_dict = {
+            "message": "Crypto processor initialized",
+        }
+        logging.info(json_dumps(log_dict))
         return _processor_instance

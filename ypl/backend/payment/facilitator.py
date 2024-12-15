@@ -64,11 +64,9 @@ class PaymentInstrumentNotFoundError(PaymentProcessingError):
 class Facilitator(ABC):
     def __init__(
         self,
-        credits_to_cashout: int,
         currency: CurrencyEnum,
         destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
     ):
-        self.credits_to_cashout = credits_to_cashout
         self.currency = currency
         self.destination_identifier_type = destination_identifier_type
 
@@ -90,13 +88,10 @@ class Facilitator(ABC):
         pass
 
     @abstractmethod
-    async def _create_payment_transaction(self, payment_transaction_request: PaymentTransactionRequest) -> uuid.UUID:
-        pass
-
-    @abstractmethod
     async def _send_payment_request(
         self,
         user_id: str,
+        credits_to_cashout: int,
         amount: Decimal,
         destination_identifier: str,
         destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
@@ -110,6 +105,7 @@ class Facilitator(ABC):
     async def make_payment(
         self,
         user_id: str,
+        credits_to_cashout: int,
         amount: Decimal,
         destination_identifier: str,
         destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
@@ -118,21 +114,22 @@ class Facilitator(ABC):
         # 0. Check the balance of the source account.
         # 1. Send the request to the facilitator.
         # 2. Return the transaction reference id.
-        return await self._send_payment_request(user_id, amount, destination_identifier, destination_identifier_type)
+        return await self._send_payment_request(
+            user_id, credits_to_cashout, amount, destination_identifier, destination_identifier_type
+        )
 
     @staticmethod
     def init(
-        credits_to_cashout: int,
         currency: CurrencyEnum,
         destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
     ) -> "Facilitator":
         if currency == CurrencyEnum.INR:
-            return UpiFacilitator(credits_to_cashout, currency, destination_identifier_type)
+            return UpiFacilitator(currency, destination_identifier_type)
         elif currency in (CurrencyEnum.USDC, CurrencyEnum.BTC, CurrencyEnum.ETH):
             if destination_identifier_type == PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS:
-                return OnChainFacilitator(credits_to_cashout, currency, destination_identifier_type)
+                return OnChainFacilitator(currency, destination_identifier_type)
             else:
-                return CoinbaseFacilitator(credits_to_cashout, currency, destination_identifier_type)
+                return CoinbaseFacilitator(currency, destination_identifier_type)
 
         raise ValueError(f"Unsupported currency: {currency}")
 
@@ -141,7 +138,7 @@ class Facilitator(ABC):
         # TODO: Implement this
         # 1. Fetch the transaction details from the db.
         # 2. Return the facilitator for the transaction.
-        return UpiFacilitator(0, CurrencyEnum.INR, PaymentInstrumentIdentifierTypeEnum.PHONE_NUMBER)
+        return UpiFacilitator(CurrencyEnum.INR, PaymentInstrumentIdentifierTypeEnum.PHONE_NUMBER)
 
 
 class UpiFacilitator(Facilitator):
@@ -162,13 +159,10 @@ class UpiFacilitator(Facilitator):
         # TODO: Implement this
         return uuid.uuid4()
 
-    async def _create_payment_transaction(self, payment_transaction_request: PaymentTransactionRequest) -> uuid.UUID:
-        # TODO: Implement this
-        return uuid.uuid4()
-
     async def _send_payment_request(
         self,
         user_id: str,
+        credits_to_cashout: int,
         amount: Decimal,
         destination_identifier: str,
         destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
@@ -258,10 +252,6 @@ class OnChainFacilitator(Facilitator):
                 return instrument.payment_instrument_id
             return instrument.payment_instrument_id
 
-    async def _create_payment_transaction(self, payment_transaction_request: PaymentTransactionRequest) -> uuid.UUID:
-        payment_transaction_id = await create_payment_transaction(payment_transaction_request)
-        return payment_transaction_id
-
     async def get_balance(self, currency: CurrencyEnum) -> Decimal:
         # TODO: Implement this
         return Decimal(1000)
@@ -269,6 +259,7 @@ class OnChainFacilitator(Facilitator):
     async def _send_payment_request(
         self,
         user_id: str,
+        credits_to_cashout: int,
         amount: Decimal,
         destination_identifier: str,
         destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
@@ -303,7 +294,7 @@ class OnChainFacilitator(Facilitator):
                         "destination_identifier_type": destination_identifier_type,
                     },
                 )
-                payment_transaction_id = await self._create_payment_transaction(payment_transaction_request)
+                payment_transaction_id = await create_payment_transaction(payment_transaction_request)
             except Exception as e:
                 log_dict = {
                     "message": "Failed to create payment transaction",
@@ -315,7 +306,7 @@ class OnChainFacilitator(Facilitator):
                 raise TransactionCreationError("Failed to create payment transaction") from e
 
             try:
-                await update_user_points(user_id, -self.credits_to_cashout)
+                await update_user_points(user_id, -credits_to_cashout)
             except Exception as e:
                 log_dict = {
                     "message": "Failed to update user points or transaction status",
@@ -327,6 +318,7 @@ class OnChainFacilitator(Facilitator):
                 await self._handle_failed_transaction(
                     payment_transaction_id,
                     user_id,
+                    credits_to_cashout,
                     amount,
                     source_instrument_id,
                     destination_instrument_id,
@@ -363,6 +355,7 @@ class OnChainFacilitator(Facilitator):
                 await self._handle_failed_transaction(
                     payment_transaction_id,
                     user_id,
+                    credits_to_cashout,
                     amount,
                     source_instrument_id,
                     destination_instrument_id,
@@ -401,6 +394,7 @@ class OnChainFacilitator(Facilitator):
         self,
         payment_transaction_id: uuid.UUID,
         user_id: str,
+        credits_to_cashout: int,
         amount: Decimal,
         source_instrument_id: uuid.UUID,
         destination_instrument_id: uuid.UUID,
@@ -412,7 +406,7 @@ class OnChainFacilitator(Facilitator):
         try:
             await update_payment_transaction(payment_transaction_id, status=PaymentTransactionStatusEnum.FAILED)
             if update_points:
-                await update_user_points(user_id, self.credits_to_cashout)
+                await update_user_points(user_id, credits_to_cashout)
 
             reversal_request = PaymentTransactionRequest(
                 currency=self.currency,
@@ -427,7 +421,7 @@ class OnChainFacilitator(Facilitator):
                     "reversal_transaction_id": payment_transaction_id,
                 },
             )
-            await self._create_payment_transaction(reversal_request)
+            await create_payment_transaction(reversal_request)
         except Exception as e:
             log_dict = {
                 "message": "Failed to handle failed transaction cleanup",
@@ -467,6 +461,7 @@ class CoinbaseFacilitator(Facilitator):
     async def _send_payment_request(
         self,
         user_id: str,
+        credits_to_cashout: int,
         amount: Decimal,
         destination_identifier: str,
         destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,

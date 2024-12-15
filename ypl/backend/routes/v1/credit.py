@@ -100,11 +100,10 @@ async def cashout_credits(request: CashoutCreditsRequest) -> str:
             status_code=500, detail=f"Error converting credits to currency {request.cashout_currency}"
         ) from e
 
-    facilitator = Facilitator.init(
-        request.credits_to_cashout, request.cashout_currency, request.destination_identifier_type
-    )
+    facilitator = Facilitator.init(request.cashout_currency, request.destination_identifier_type)
     transaction_reference_id = await facilitator.make_payment(
         request.user_id,
+        request.credits_to_cashout,
         amount_in_currency,
         request.destination_identifier,
         request.destination_identifier_type,

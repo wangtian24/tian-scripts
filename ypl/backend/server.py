@@ -7,7 +7,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from ypl.backend.config import settings
 from ypl.backend.jobs.app import init_celery, start_celery_workers, start_redis
-from ypl.backend.payment.crypto_rewards import cleanup_crypto_processor
+from ypl.backend.payment.crypto_rewards import cleanup_crypto_processor, get_processor
 from ypl.backend.routes.main import api_router
 
 
@@ -16,6 +16,9 @@ async def lifespan(app: FastAPI):  # type: ignore
     start_redis()
     init_celery()
     workers = start_celery_workers()
+    # Initialize crypto processor at startup as it is a long running process
+    await get_processor()
+
     yield  # Hand over to FastAPI.
 
     await cleanup_crypto_processor()
