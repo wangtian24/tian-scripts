@@ -53,7 +53,7 @@ async def generate_quicktake(
     return QuickTakeResponse(quicktake=quicktake)
 
 
-@router.post("/chats/{chat_id}:generate_quicktake", response_model=QuickTakeResponse)
+@router.post("/chats/{chat_id}/generate_quicktake", response_model=QuickTakeResponse)
 async def generate_quicktake_chat_id(
     request: QuickTakeRequest,
     chat_id: str = Path(..., description="The ID of the chat"),
@@ -61,7 +61,7 @@ async def generate_quicktake_chat_id(
     return await generate_quicktake(request, chat_id)
 
 
-@router.post("/chats/{chat_id}/turns/{turn_id}:generate_quicktake", response_model=QuickTakeResponse)
+@router.post("/chats/{chat_id}/turns/{turn_id}/generate_quicktake", response_model=QuickTakeResponse)
 async def generate_quicktake_turn_id(
     request: QuickTakeRequest,
     chat_id: str = Path(..., description="The ID of the chat"),
