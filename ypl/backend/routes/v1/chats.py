@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,19 +40,34 @@ class QuickTakeResponse(BaseModel):
 
 
 class QuickTakeRequest(BaseModel):
-    chat_id: str | None = None
     prompt: str | None = None
-    turn_id: str | None = None
 
 
-@router.post("/chats/{chat_id}:generate_quicktake", response_model=QuickTakeResponse)
-@router.post("/chats/{chat_id}/turns/{turn_id}:generate_quicktake", response_model=QuickTakeResponse)
-async def generate_quicktake(request: QuickTakeRequest) -> QuickTakeResponse:
-    chat_history = [] if request.chat_id is None else get_chat_history(request.chat_id, turn_id=request.turn_id)
+async def generate_quicktake(
+    request: QuickTakeRequest, chat_id: str | None = None, turn_id: str | None = None
+) -> QuickTakeResponse:
+    chat_history = [] if chat_id is None else get_chat_history(chat_id, turn_id)
     quicktake_generator = QuickTakeGenerator(llm, chat_history)
     quicktake = await quicktake_generator.alabel(request.prompt or "")
 
     return QuickTakeResponse(quicktake=quicktake)
+
+
+@router.post("/chats/{chat_id}:generate_quicktake", response_model=QuickTakeResponse)
+async def generate_quicktake_chat_id(
+    request: QuickTakeRequest,
+    chat_id: str = Path(..., description="The ID of the chat"),
+) -> QuickTakeResponse:
+    return await generate_quicktake(request, chat_id)
+
+
+@router.post("/chats/{chat_id}/turns/{turn_id}:generate_quicktake", response_model=QuickTakeResponse)
+async def generate_quicktake_turn_id(
+    request: QuickTakeRequest,
+    chat_id: str = Path(..., description="The ID of the chat"),
+    turn_id: str = Path(..., description="The ID of the turn"),
+) -> QuickTakeResponse:
+    return await generate_quicktake(request, chat_id, turn_id)
 
 
 @router.post("/chats/{chat_id}/turns/{turn_id}:label_quality", response_model=TurnQuality)
