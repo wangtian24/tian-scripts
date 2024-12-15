@@ -97,15 +97,18 @@ class YuppPromptDifficultyLabeler(LLMLabeler[tuple[str, str, str], int]):
         timeout_secs: float = 5.0,
         on_error: OnErrorBehavior = "raise",
         max_words_low_quality: int = 4,  # prompts under this word count are considered low quality.
+        max_length: int = 300,
     ) -> None:
         super().__init__(llm, timeout_secs, on_error)
         self.max_words_low_quality = max_words_low_quality
+        self.max_length = max_length
 
     def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
         return JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT_TEMPLATE | llm  # type: ignore
 
     def _prepare_input(self, input: tuple[str, str, str]) -> dict[str, Any]:
-        return dict(response1=input[1], response2=input[2], user_prompt=input[0])
+        short_input = [txt[: self.max_length] + "..." if len(txt) > self.max_length else txt for txt in input]
+        return dict(response1=short_input[1], response2=short_input[2], user_prompt=input[0])
 
     def _parse_output(self, output: BaseMessage) -> int:
         return int(re.search(r"\"overall\":\s*(\d+)", str(output.content)).group(1))  # type: ignore
@@ -148,12 +151,6 @@ def label_prompt_difficulty(prompt: str, llm: BaseChatModel) -> int:
 
 
 class YuppPromptDifficultyLabelerSimple(YuppPromptDifficultyLabeler):
-    max_length = 300
-
-    def _prepare_input(self, input: tuple[str, str, str]) -> dict[str, Any]:
-        short_input = [txt[: self.max_length] + "..." if len(txt) > self.max_length else txt for txt in input]
-        return dict(response1=short_input[1], response2=short_input[2], user_prompt=input[0])
-
     def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
         return JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT_SIMPLE_TEMPLATE | llm  # type: ignore
 

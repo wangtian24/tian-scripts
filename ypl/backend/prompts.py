@@ -225,10 +225,10 @@ Consider the following factors when evaluating difficulty:
 
 If multiple responses were provided, additional factors to consider:
 
-9. Response consistency: How similar are the responses across different models? (1: very similar, 5: very different)
-10. Completion rate: Were all models able to provide a response, or did some fail? (1: all completed, 5: none completed)
-11. Quality variance: Is there a significant difference in the quality of responses? (1: very similar, 5: very different)
-12. Interpretation differences: Do the responses suggest different interpretations of the prompt? (1: very similar, 5: very different)
+9. Response quality: How similar are the responses across different models?
+Were all models able to provide a response, or did some fail?
+Is there a significant difference in the quality of responses?
+(1: similar responses, both models are able to respond, 5: very different responses, one model is unable to respond)
 
 If just a single response is provided, additional factors to consider:
 9. Response quality: Was the response relevant and of high quality (1: poor response, 5: excellent response)
@@ -236,7 +236,8 @@ If just a single response is provided, additional factors to consider:
 For each prompt and its responses, provide an assessment on a scale of 1 to 5,
 where 1 is very easy and 5 is very difficult, for each of the above factors.
 Then, provide an overall difficulty score on a scale of 1 to 10.
-The response should be a JSON object with a key for each factor, and a numerical value for each.
+The response should be a single JSON object with a key for each factor, and a numerical value for each.
+Don't explain or include any additional text in the response.
 
 Example input:
 Prompt: "Write a haiku about artificial intelligence"
@@ -252,9 +253,12 @@ Now, evaluate the following prompt and its responses for difficulty:
 
 Prompt: {user_prompt}
 
-Responses:
+Responses (may be truncated, if long):
+
 Model A: {response1}
 Model B: {response2}
+
+Do not explain or add any additional text in the response.
 """
 
 JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT_SIMPLE = """

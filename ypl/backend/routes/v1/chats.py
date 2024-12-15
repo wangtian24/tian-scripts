@@ -15,10 +15,7 @@ from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine
 from ypl.backend.llm.chat import ModelInfo, get_chat_history, get_chat_model
 from ypl.backend.llm.constants import ChatProvider
-from ypl.backend.llm.judge import (
-    DEFAULT_PROMPT_DIFFICULTY,
-    YuppPromptDifficultyLabelerSimple,
-)
+from ypl.backend.llm.judge import DEFAULT_PROMPT_DIFFICULTY, YuppPromptDifficultyLabeler
 from ypl.backend.llm.labeler import QuickTakeGenerator
 from ypl.backend.llm.moderation import DEFAULT_MODERATION_RESULT, amoderate
 from ypl.backend.rw_cache import TurnQualityCache
@@ -59,7 +56,7 @@ async def generate_quicktake(
 @router.post("/chats/{chat_id}/turns/{turn_id}:label_quality", response_model=TurnQuality)
 async def label_quality(chat_id: UUID, turn_id: UUID) -> TurnQuality:
     cache = TurnQualityCache.get_instance()
-    labeler = YuppPromptDifficultyLabelerSimple(llm)
+    labeler = YuppPromptDifficultyLabeler(llm)
 
     tq = await cache.aread(turn_id, deep=True)
 
