@@ -141,19 +141,38 @@ def get_chat_history(
     Returns:
         A sequence of {"content": str, "role": str} objects, where role is one of "user", "assistant", or "quicktake".
     """
-    sql_query = text(
-        f"""
-        SELECT cm.message_type, cm.content, t.turn_id, me.score FROM turns t
-            JOIN chat_messages cm ON cm.turn_id = t.turn_id
-            LEFT JOIN message_evals me ON me.message_id = cm.message_id
-        WHERE t.chat_id = :chat_id
-        ORDER BY cm.created_at DESC
-        LIMIT {last_num_turns}
-        """
-    )
+    query_dict = dict(chat_id=chat_id)
+
+    if turn_id is None:
+        sql_query = text(
+            f"""
+            SELECT cm.message_type, cm.content, t.turn_id, me.score FROM turns t
+                JOIN chat_messages cm ON cm.turn_id = t.turn_id
+                LEFT JOIN message_evals me ON me.message_id = cm.message_id
+            WHERE t.chat_id = :chat_id
+            ORDER BY cm.created_at DESC
+            LIMIT {last_num_turns}
+            """
+        )
+    else:
+        sql_query = text(
+            f"""
+            WITH turn_seq_id AS (
+                SELECT sequence_id FROM turns WHERE turn_id = :turn_id
+            )
+            SELECT cm.message_type, cm.content, t.turn_id, me.score FROM turns t
+                JOIN chat_messages cm ON cm.turn_id = t.turn_id
+                LEFT JOIN message_evals me ON me.message_id = cm.message_id
+            WHERE t.chat_id = :chat_id
+                AND t.sequence_id BETWEEN (SELECT sequence_id FROM turn_seq_id) - {last_num_turns}
+                AND (SELECT sequence_id FROM turn_seq_id)
+            ORDER BY cm.created_at DESC
+            """
+        )
+        query_dict["turn_id"] = turn_id
 
     with get_engine().connect() as conn:
-        c = conn.execute(sql_query, dict(chat_id=chat_id))
+        c = conn.execute(sql_query, query_dict)
         rows = c.fetchall()
 
     last_turn_id = None

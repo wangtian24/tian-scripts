@@ -39,16 +39,18 @@ class QuickTakeResponse(BaseModel):
     quicktake: str
 
 
+class QuickTakeRequest(BaseModel):
+    chat_id: str | None = None
+    prompt: str | None = None
+    turn_id: str | None = None
+
+
 @router.post("/chats/{chat_id}:generate_quicktake", response_model=QuickTakeResponse)
 @router.post("/chats/{chat_id}/turns/{turn_id}:generate_quicktake", response_model=QuickTakeResponse)
-async def generate_quicktake(
-    chat_id: str,
-    turn_id: str | None = None,
-    prompt: str | None = Query(None, description="Prompt"),  # noqa: B008
-) -> QuickTakeResponse:
-    chat_history = get_chat_history(chat_id, turn_id=turn_id)
+async def generate_quicktake(request: QuickTakeRequest) -> QuickTakeResponse:
+    chat_history = [] if request.chat_id is None else get_chat_history(request.chat_id, turn_id=request.turn_id)
     quicktake_generator = QuickTakeGenerator(llm, chat_history)
-    quicktake = await quicktake_generator.alabel(prompt or "")
+    quicktake = await quicktake_generator.alabel(request.prompt or "")
 
     return QuickTakeResponse(quicktake=quicktake)
 
