@@ -227,7 +227,7 @@ async def test_feedback_reward(
         assert should_reward is True  # Should always reward feedback
         assert FEEDBACK_REWARD_LOWER_BOUND <= reward_amount <= FEEDBACK_REWARD_UPPER_BOUND
         assert isinstance(comment, str)
-        assert rule_amount is None
+        assert rule_amount is not None
         assert rule_prob is not None
 
     # Test no reward for high-point users.
@@ -240,4 +240,5 @@ async def test_feedback_reward(
         result = await feedback_based_reward(test_user_id, "")
         should_reward, reward_amount, comment, rule_amount, rule_prob = result
         assert should_reward is False
-        assert rule_prob is None
+        assert rule_prob is not None
+        assert rule_prob.name == "no_feedback_reward"

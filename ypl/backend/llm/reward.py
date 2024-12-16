@@ -146,7 +146,7 @@ class UserTurnReward:
     points_last_day: int = 0
     points_last_week: int = 0
     points_last_month: int = 0
-    action_type: RewardActionEnum = RewardActionEnum.EVALUATION
+    action_type: RewardActionEnum = RewardActionEnum.TURN
 
     def __post_init__(self) -> None:
         self._fetch_data_and_set_flags()
@@ -224,12 +224,12 @@ class UserTurnReward:
             if turn_quality:
                 self.turn_quality_score = turn_quality.get_overall_quality() or -1
 
-            self.amount_rule = self._get_amount_rule()
-            self.probability_rule = self._get_probability_rule()
-
             self.points_last_day = _get_reward_points(self.user_id, session, timedelta(days=1))
             self.points_last_week = _get_reward_points(self.user_id, session, timedelta(days=7))
             self.points_last_month = _get_reward_points(self.user_id, session, timedelta(days=30))
+
+            self.amount_rule = self._get_amount_rule()
+            self.probability_rule = self._get_probability_rule()
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary with UUID fields converted to strings."""
@@ -473,6 +473,7 @@ async def feedback_based_reward(
     reward_params = {
         "user_id": user_id,
         "action_type": action_type,
+        "quality_score": quality_score,
     }
     with Session(get_engine()) as session:
         reward_params["points_last_day"] = _get_reward_points(user_id, session, timedelta(days=1))
