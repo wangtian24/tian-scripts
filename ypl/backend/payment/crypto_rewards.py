@@ -60,7 +60,12 @@ class CryptoRewardProcessor:
         api_key_private_key = settings.CDP_API_KEY_PRIVATE_KEY
 
         if not api_key_name or not api_key_private_key:
-            raise ValueError("Wallet configuration is missing")
+            log_dict = {
+                "message": "Wallet configuration is missing",
+                "error": "Missing CDP API key name or private key",
+            }
+            logging.exception(json_dumps(log_dict))
+            return
 
         private_key = api_key_private_key.replace("\\n", "\n")
         Cdp.configure(api_key_name, private_key)
@@ -75,9 +80,7 @@ class CryptoRewardProcessor:
                 "wallet_file_path": WALLET_FILE_PATH,
             }
             logging.exception(json_dumps(log_dict))
-            raise WalletNotFoundError(
-                f"Required wallet files not found. Seed: {SEED_FILE_PATH}, Wallet: {WALLET_FILE_PATH}"
-            )
+            return
 
         self.wallet = self._import_existing_wallet()
 
@@ -156,7 +159,11 @@ class CryptoRewardProcessor:
         try:
             start_time = time.time()
             if not self.wallet:
-                raise CryptoWalletError("Wallet not initialized")
+                new_processor = await get_processor()
+                if new_processor.wallet:
+                    self.wallet = new_processor.wallet
+                else:
+                    raise CryptoWalletError("Wallet not initialized")
 
             transfer = self.wallet.transfer(
                 amount=reward.amount, asset_id=reward.asset_id, destination=reward.wallet_address
