@@ -47,6 +47,7 @@ FEEDBACK_REWARD_UPPER_BOUND = 1000
 QT_EVAL_REWARD_LOWER_BOUND = 100
 QT_EVAL_REWARD_UPPER_BOUND = 200
 
+FEEDBACK_QUALITY_JUDGING_TIMEOUT = 0.1
 VERY_POOR_FEEDBACK_SCORE = 1
 POOR_FEEDBACK_SCORE = 2
 AVERAGE_FEEDBACK_SCORE = 3
@@ -391,13 +392,13 @@ async def get_feedback_quality_score(user_id: str, feedback: str, llm: BaseChatM
 
         # Wrap the label call with timeout
         try:
-            score = await asyncio.wait_for(labeler.alabel(feedback), timeout=0.5)  # 500ms timeout
+            score = await asyncio.wait_for(labeler.alabel(feedback), timeout=FEEDBACK_QUALITY_JUDGING_TIMEOUT)
         except TimeoutError:
             log_dict = {
                 "message": "Timeout getting feedback quality score",
                 "user_id": user_id,
                 "feedback": feedback,
-                "timeout": 0.5,
+                "timeout": FEEDBACK_QUALITY_JUDGING_TIMEOUT,
             }
             logging.warning(json_dumps(log_dict))
             return 2  # Return lower score on timeout since it might be spam
