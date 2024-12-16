@@ -18,31 +18,28 @@ class ChartInfo(TypedDict):
 
 
 AMPLITUDE_CHARTS: Final[dict[str, ChartInfo]] = {
-    "users": {"id": "t2bandy1", "description": "users", "series_number": 0},
-    "conversations": {"id": "ifpv0bg1", "description": "conversations", "series_number": 0},
-    "turns": {"id": "cmqeokju", "description": "turns", "series_number": 0},
-    "show_more": {"id": "wycwc81n", "description": "show more", "series_number": 0},
-    "unique_number_of_models": {"id": "czeomci2", "description": "models", "series_number": 0},
-    "number_of_streaming_complete_events": {"id": "4tmavajd", "description": "streaming completes", "series_number": 0},
-    "number_of_streaming_errors": {"id": "ni45kdy8", "description": "streaming errors", "series_number": 0},
-    "number_of_qt_evals": {"id": "ve518j58", "description": "QT evals", "series_number": 0},
-    "prefs": {"id": "ht7fo2h7", "description": "prefs", "series_number": 0},
-    "scratchcards_shown": {"id": "yxihkyvd", "description": "SCs shown", "series_number": 0},
-    "scratchcards_scratched": {"id": "yxihkyvd", "description": "SCs scratched", "series_number": 1},
-    "app_feedbacks": {"id": "ezl4kq8l", "description": "app feedbacks", "series_number": 0},
-    "model_feedbacks": {"id": "ezl4kq8l", "description": "model feedbacks", "series_number": 1},
-    "total_credits_claimed": {"id": "7ukm5tc7", "description": "total credits claimed", "series_number": 0},
-    "app_feedbacks_credits_claimed": {
-        "id": "7ukm5tc7",
-        "description": "app feedbacks credits claimed",
-        "series_number": 1,
-    },
-    "model_feedbacks_credits_claimed": {
-        "id": "7ukm5tc7",
-        "description": "model feedbacks credits claimed",
-        "series_number": 2,
-    },
-    "QT_evals_credits_claimed": {"id": "7ukm5tc7", "description": "QT evals credits claimed", "series_number": 3},
+    "users": {"id": "ruptpxku", "description": "active users", "series_number": 0},
+    "users_pref": {"id": "ruptpxku", "description": "users pref", "series_number": 1},
+    "users_mof": {"id": "ruptpxku", "description": "users mof", "series_number": 2},
+    "conversations": {"id": "ekszggrp", "description": "conversations", "series_number": 0},
+    "follow_up": {"id": "ekszggrp", "description": "follow up", "series_number": 1},
+    "show_more": {"id": "ekszggrp", "description": "show more", "series_number": 2},
+    "models_used": {"id": "czeomci2", "description": "models used", "series_number": 0},
+    "streaming_complete": {"id": "w9grx38g", "description": "streaming complete", "series_number": 0},
+    "streaming_errors": {"id": "w9grx38g", "description": "streaming errors", "series_number": 1},
+    "streaming_stopped": {"id": "w9grx38g", "description": "streaming stopped", "series_number": 2},
+    "qt_refusals": {"id": "cnshoe8v", "description": "QT refusals", "series_number": 0},
+    "qt_latency": {"id": "cnshoe8v", "description": "QT latency", "series_number": 1},
+    "qt_evals": {"id": "cnshoe8v", "description": "QT evals", "series_number": 2},
+    "qt_thumbs_up": {"id": "cnshoe8v", "description": "QT thumbs up", "series_number": 3},
+    "qt_thumbs_down": {"id": "cnshoe8v", "description": "QT thumbs down", "series_number": 4},
+    "feedbacks_pref": {"id": "784miua4", "description": "feedbacks pref", "series_number": 0},
+    "feedbacks_mof": {"id": "784miua4", "description": "feedbacks mof", "series_number": 1},
+    "feedbacks_af": {"id": "784miua4", "description": "feedbacks af", "series_number": 2},
+    "credits_total": {"id": "7ukm5tc7", "description": "credits total", "series_number": 0},
+    "credits_af": {"id": "7ukm5tc7", "description": "credits af", "series_number": 1},
+    "credits_pref": {"id": "7ukm5tc7", "description": "credits pref", "series_number": 2},
+    "credits_qt": {"id": "7ukm5tc7", "description": "credits qt", "series_number": 3},
 }
 
 
@@ -102,23 +99,68 @@ async def post_amplitude_metrics_to_slack() -> None:
 
     try:
         charts_items = list(AMPLITUDE_CHARTS.items())
+        metrics: dict[str, int] = {}
 
-        for i, (metric, chart_info) in enumerate(charts_items):
+        # First collect all metrics
+        for metric, chart_info in charts_items:
             try:
                 data = fetch_chart_data(chart_id=chart_info["id"], auth=auth, start_date=start_date, end_date=end_date)
-
                 series_data = data["data"]["series"][chart_info["series_number"]]
                 yesterdays_value = int(series_data[-2]["value"])
-                separator = ", " if i < len(charts_items) - 1 else ""
-                message += f"{yesterdays_value} {chart_info['description']}{separator}"
+                metrics[metric] = yesterdays_value
                 log_dict[chart_info["description"]] = yesterdays_value
-
-            except (KeyError, IndexError) as e:
+            except (KeyError, IndexError, RequestException) as e:
                 logging.error(f"Failed to process data for {metric}: {e}")
-                message += f"• {chart_info['description']}: Failed to fetch, "
-            except RequestException as e:
-                logging.error(f"Failed to fetch {metric} data: {e}")
-                message += f"• {chart_info['description']}: Failed to fetch, "
+                metrics[metric] = 0
+
+        # Format message in sections
+        message = f"*Amplitude Metrics for {start_date.date()}*\n"
+
+        # a. Users section
+        message += (
+            f"a. Users: {metrics.get('users', 0)} active, "
+            f"{metrics.get('users_pref', 0)} did PREF, "
+            f"{metrics.get('users_mof', 0)} did MOF\n"
+        )
+
+        # b. Conversations section
+        message += (
+            f"b. Convos: {metrics.get('conversations', 0)}, "
+            f"{(metrics.get('conversations', 0) + metrics.get('follow_up', 0))} turns, "
+            f"{metrics.get('show_more', 0)} SM\n"
+        )
+
+        # c. Models section
+        message += (
+            f"c. Models: {metrics.get('models_used', 0)} used, "
+            f"{metrics.get('streaming_complete', 0)} streaming completes, "
+            f"{metrics.get('streaming_errors', 0)} streaming errors, "
+            f"{metrics.get('streaming_stopped', 0)} streaming stopped\n"
+        )
+
+        # d. QT section
+        message += (
+            f"d. QT: {metrics.get('qt_refusals', 0)} refusals, "
+            f"{metrics.get('qt_latency', 0)} high latency, "
+            f"{metrics.get('qt_evals', 0)} evals, "
+            f"{metrics.get('qt_thumbs_up', 0)} thumbs up, "
+            f"{metrics.get('qt_thumbs_down', 0)} thumbs down\n"
+        )
+
+        # e. Feedbacks section
+        message += (
+            f"e. Feedbacks: {metrics.get('feedbacks_pref', 0)} PREF, "
+            f"{metrics.get('feedbacks_mof', 0)} MOFs, "
+            f"{metrics.get('feedbacks_af', 0)} AF\n"
+        )
+
+        # f. Credits section
+        message += (
+            f"f. Credits: {metrics.get('credits_qt',0)} QT, "
+            f"{metrics.get('credits_af', 0)} AF, "
+            f"{metrics.get('credits_pref', 0)} PREF, "
+            f"{metrics.get('credits_total', 0)} Total\n"
+        )
 
         logging.info(json_dumps(log_dict))
         analytics_webhook_url = os.environ.get("ANALYTICS_SLACK_WEBHOOK_URL")
