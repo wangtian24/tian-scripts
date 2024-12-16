@@ -370,7 +370,7 @@ def _get_reward_points(user_id: str, session: Session, delta: timedelta) -> int:
         select(func.sum(PointTransaction.point_delta)).where(
             PointTransaction.user_id == user_id,
             PointTransaction.deleted_at.is_(None),  # type: ignore
-            PointTransaction.action_type == PointsActionEnum.REWARD,
+            PointTransaction.action_type.in_([PointsActionEnum.REWARD, PointsActionEnum.ADJUSTMENT]),  # type: ignore
             PointTransaction.created_at > (datetime.now() - delta),  # type: ignore
         )
     ).one()
