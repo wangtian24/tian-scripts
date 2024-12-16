@@ -18,6 +18,7 @@ class PointsActionEnum(Enum):
     SIGN_UP = "sign_up"
     REWARD = "reward"
     CASHOUT = "cashout"
+    ADJUSTMENT = "adjustment"
 
     # Not used anymore. Kept for historical reasons.
     PROMPT = "prompt"
@@ -38,6 +39,7 @@ class PointTransaction(BaseModel, table=True):
     # Action type to identifier mapping:
     # - "sign_up": "referrer_id"
     # - "reward": "reward_id"
+    # - "adjustment": "adjustment_reason"
     action_details: dict[str, str] = Field(default_factory=dict, sa_type=sa.JSON)
 
     # Set if this transaction is associated with a reward.
