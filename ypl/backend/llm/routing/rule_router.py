@@ -10,6 +10,7 @@ from ypl.backend.llm.chat import deduce_original_providers, standardize_provider
 from ypl.backend.llm.routing.policy import SelectionCriteria
 from ypl.backend.llm.routing.router import ModelFilter, ModelProposer, RouterState
 from ypl.backend.llm.utils import dict_shuffled
+from ypl.db.all_models import *  # noqa: F403
 from ypl.db.language_models import RoutingAction, RoutingRule
 from ypl.utils import RNGMixin
 

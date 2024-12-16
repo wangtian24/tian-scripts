@@ -1,12 +1,13 @@
+import asyncio
 from collections import Counter
 from typing import Any
 from unittest.mock import Mock, patch
 
 import numpy as np
+import pytest
 from pytest import approx, mark
 
 from ypl.backend.config import settings
-from ypl.backend.llm.prompt_classifiers import CategorizerResponse
 from ypl.backend.llm.ranking import Battle, ChoixRanker, ChoixRankerConfIntervals, EloRanker
 from ypl.backend.llm.routing.policy import (
     exponential_decay,
@@ -262,27 +263,29 @@ def test_fast_compute_all_conf_overlap_diffs() -> None:
     assert vals.tolist() == approx([0.0])
 
 
+@patch("ypl.backend.llm.routing.router.YuppOnlinePromptLabeler.alabel")
 @patch("ypl.backend.llm.routing.router.HighErrorRateFilter.select_models")
 @patch("ypl.backend.llm.routing.router.get_all_strong_models")
 @patch("ypl.backend.llm.routing.router.get_all_pro_models")
 @patch("ypl.backend.llm.routing.router.deduce_original_providers")
 @patch("ypl.backend.llm.routing.rule_router.deduce_original_providers")
 @patch("ypl.backend.llm.routing.router.deduce_semantic_groups")
-@patch("ypl.backend.llm.routing.router.RemotePromptCategorizer")
 @patch("ypl.backend.llm.routing.rule_router.get_routing_table")
-def test_simple_pro_router(
+@pytest.mark.asyncio
+async def test_simple_pro_router(
     mock_routing_table: Mock,
-    mock_prompt_categorizer: Mock,
     mock_semantic_group_map: Mock,
     mock_deduce_providers1: Mock,
     mock_deduce_providers2: Mock,
     mock_get_all_pro_models: Mock,
     mock_get_all_strong_models: Mock,
     mock_error_filter: Mock,
+    mock_alabel: Mock,
 ) -> None:
     # Test that we get different models
+    mock_alabel.return_value = asyncio.Future()
+    mock_alabel.return_value.set_result("advice")
     mock_routing_table.return_value = RoutingTable([])
-    mock_prompt_categorizer.categorize.return_value = CategorizerResponse(category="advice")
     pro_models = {"pro1", "pro2", "pro3", "pro4"}
     mock_get_all_pro_models.return_value = pro_models
     mock_semantic_group_map.return_value = {}
@@ -299,7 +302,7 @@ def test_simple_pro_router(
 
     all_selected_models = set()
     for _ in range(30):
-        router = get_simple_pro_router(prompt="", num_models=2, reputable_providers=reputable_providers)
+        router = await get_simple_pro_router(prompt="", num_models=2, reputable_providers=reputable_providers)
         selected_models = router.select_models(state=state).get_sorted_selected_models()
         assert len(selected_models) == 2
         assert (selected_models[0] in reputable_providers) or (selected_models[1] in reputable_providers)
@@ -311,14 +314,14 @@ def test_simple_pro_router(
 
     # Test that we get the same models if we specify them.
     for _ in range(10):
-        router = get_simple_pro_router(
+        router = await get_simple_pro_router(
             prompt="", num_models=2, reputable_providers=reputable_providers, user_selected_models=["model1", "model2"]
         )
         selected_models = router.select_models(state=state).get_sorted_selected_models()
         assert selected_models == ["model1", "model2"]
 
     for _ in range(10):
-        router = get_simple_pro_router(
+        router = await get_simple_pro_router(
             prompt="", num_models=1, reputable_providers=reputable_providers, user_selected_models=["model1"]
         )
         selected_models = router.select_models(state=state).get_sorted_selected_models()
@@ -336,7 +339,7 @@ def test_simple_pro_router(
     mock_error_filter.side_effect = lambda state: state
     mock_semantic_group_map.return_value = {"model1": "group1", "model2": "group1"}
 
-    router = get_simple_pro_router(
+    router = await get_simple_pro_router(
         prompt="", num_models=1, reputable_providers=reputable_providers, user_selected_models=["model2"]
     )
 

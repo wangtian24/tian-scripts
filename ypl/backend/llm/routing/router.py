@@ -19,14 +19,16 @@ from sqlmodel import Session, select
 from ypl.backend.config import settings
 from ypl.backend.db import get_engine
 from ypl.backend.llm.chat import (
+    ModelInfo,
     adeduce_original_provider,
     deduce_original_providers,
     deduce_semantic_groups,
     get_all_pro_models,
     get_all_strong_models,
+    get_chat_model,
 )
-from ypl.backend.llm.constants import MODEL_HEURISTICS
-from ypl.backend.llm.prompt_classifiers import RemotePromptCategorizer
+from ypl.backend.llm.constants import MODEL_HEURISTICS, ChatProvider
+from ypl.backend.llm.judge import YuppOnlinePromptLabeler
 from ypl.backend.llm.ranking import ConfidenceIntervalRankerMixin, Ranker, get_ranker
 from ypl.backend.llm.routing.policy import SelectionCriteria, decayed_random_fraction
 from ypl.backend.llm.routing.route_data_type import RoutingPreference
@@ -1510,7 +1512,7 @@ class HighErrorRateFilter(RNGMixin, ModelFilter):
         return Exclude(models=rejected_models)._filter(state)
 
 
-def get_simple_pro_router(
+async def get_simple_pro_router(
     prompt: str,
     num_models: int,
     routing_preference: RoutingPreference | None = None,
@@ -1522,8 +1524,21 @@ def get_simple_pro_router(
 
     preference = routing_preference or RoutingPreference(turns=[])
     reputable_proposer = RandomModelProposer(providers=reputable_providers or set(settings.ROUTING_REPUTABLE_PROVIDERS))
-    categorizer = RemotePromptCategorizer(settings.PYTORCH_SERVE_GCP_URL, settings.X_API_KEY)
-    category = categorizer.categorize(prompt).category
+
+    online_yupp_model = YuppOnlinePromptLabeler(
+        get_chat_model(
+            ModelInfo(
+                provider=ChatProvider.GOOGLE,
+                model="gemini-1.5-flash-002",
+                api_key=settings.GOOGLE_API_KEY,
+            ),
+            temperature=0.0,
+            max_tokens=16,
+        ),
+        timeout_secs=0.5,
+    )
+    category = "online" if await online_yupp_model.alabel(prompt) else "offline"
+
     rule_proposer = RoutingRuleProposer(category)
     rule_filter = RoutingRuleFilter(category)
     error_filter = HighErrorRateFilter()

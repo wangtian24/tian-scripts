@@ -40,13 +40,13 @@ class SelectModelsV2Response(BaseModel):
 
 
 @router.post("/select_models")
-def select_models(
+async def select_models(
     prompt: str = Query(..., description="Prompt"),
     num_models: int = Query(default=2, description="Number of different models to route to"),
     budget: float = Query(default=float("inf"), description="Budget"),
     preference: None | RoutingPreference = Body(default=None, description="List of past outcomes"),  # noqa: B008
 ) -> list[str]:
-    router = get_simple_pro_router(prompt, num_models, preference)
+    router = await get_simple_pro_router(prompt, num_models, preference)
     all_models_state = RouterState.new_all_models_state()
     selected_models = router.select_models(state=all_models_state)
     return_models = selected_models.get_sorted_selected_models()
@@ -54,12 +54,12 @@ def select_models(
 
 
 @router.post("/select_models_plus")
-def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Response:
-    def select_models_(
+async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Response:
+    async def select_models_(
         required_models: list[str] | None = None, show_me_more_models: list[str] | None = None
     ) -> list[str]:
         num_models = request.num_models
-        router = get_simple_pro_router(
+        router = await get_simple_pro_router(
             prompt,
             num_models,
             preference,
@@ -109,7 +109,7 @@ def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Response
         models = request.required_models or []
 
     if len(models) < request.num_models:
-        models = select_models_(required_models=models, show_me_more_models=show_me_more_models)
+        models = await select_models_(required_models=models, show_me_more_models=show_me_more_models)
 
     models = models[: request.num_models]
 

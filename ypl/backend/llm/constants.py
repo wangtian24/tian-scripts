@@ -41,7 +41,7 @@ ACTIVE_MODELS_BY_PROVIDER = {
         "o1-mini-2024-09-12",
     ],
     ChatProvider.MISTRAL: ["mistral-large-latest"],
-    ChatProvider.GOOGLE: ["gemini-1.5-pro"],
+    ChatProvider.GOOGLE: ["gemini-1.5-pro", "gemini-1.5-flash-002"],
     ChatProvider.ANTHROPIC: ["claude-3-5-sonnet-20240620"],
     ChatProvider.MICROSOFT: [
         "phi-3-mini-4k-instruct",
@@ -69,7 +69,7 @@ ALL_MODELS_BY_PROVIDER = {
         "o1-mini-2024-09-12",
     ],
     ChatProvider.MISTRAL: ["mistral-large-latest"],
-    ChatProvider.GOOGLE: ["gemini-1.5-pro"],
+    ChatProvider.GOOGLE: ["gemini-1.5-pro", "gemini-1.5-flash-002"],
     ChatProvider.ANTHROPIC: ["claude-3-5-sonnet-20240620"],
     ChatProvider.MICROSOFT: [
         "phi-3-mini-4k-instruct",

@@ -1,8 +1,7 @@
 from enum import Enum  # noqa: I001
 from functools import cache
-from typing import Any, cast
-
 import logging
+from typing import Any, cast
 
 import aiohttp
 from openai import OpenAI
@@ -27,7 +26,7 @@ class CategorizerResponse(BaseModel):
 
 class PromptCategorizer:
     async def acategorize(self, user_prompt: str) -> CategorizerResponse:
-        raise NotImplementedError
+        return self.categorize(user_prompt)
 
     def categorize(self, user_prompt: str) -> CategorizerResponse:
         raise NotImplementedError
