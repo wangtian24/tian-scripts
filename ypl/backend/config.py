@@ -84,6 +84,9 @@ class Settings(BaseSettings):
     # the router will use the default policy.
     ROUTING_WEIGHTS: dict[str, float] = {}
 
+    # The timeout for the prompt categorizer in routing
+    ROUTING_TIMEOUT_SECS: float = 0.75
+
     # Whether to use prompt-conditional routing. Defaults to false.
     ROUTING_USE_PROMPT_CONDITIONAL: bool = False
     ROUTING_REPUTABLE_PROVIDERS: list[str] = ["openai", "google", "anthropic", "azure", "microsoft", "meta"]

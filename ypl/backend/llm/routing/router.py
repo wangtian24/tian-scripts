@@ -1535,7 +1535,7 @@ async def get_simple_pro_router(
             temperature=0.0,
             max_tokens=16,
         ),
-        timeout_secs=0.5,
+        timeout_secs=settings.ROUTING_TIMEOUT_SECS,
     )
     category = "online" if await online_yupp_model.alabel(prompt) else "offline"
 
