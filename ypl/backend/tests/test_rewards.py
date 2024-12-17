@@ -16,8 +16,11 @@ import ypl.db.all_models  # noqa: F401
 from ypl.backend.llm.reward import (
     FEEDBACK_REWARD_LOWER_BOUND,
     FEEDBACK_REWARD_UPPER_BOUND,
+    QT_EVAL_REWARD_LOWER_BOUND,
+    QT_EVAL_REWARD_UPPER_BOUND,
     UserTurnReward,
     feedback_based_reward,
+    qt_eval_reward,
 )
 from ypl.backend.tests.test_utils import MockSession
 from ypl.db.rewards import RewardActionEnum, RewardAmountRule, RewardProbabilityRule
@@ -183,7 +186,7 @@ def mock_chat_model() -> Generator[Any, None, None]:
 @patch("ypl.backend.llm.reward.Session")
 @patch("ypl.backend.config.settings")
 @patch("pydantic.PostgresDsn.build")
-async def test_feedback_reward(
+async def test_feedback_and_qt_eval_reward(
     mock_postgres_dsn: Any,
     mock_settings: Any,
     mock_get_llm: Any,
@@ -230,6 +233,18 @@ async def test_feedback_reward(
         assert rule_amount is not None
         assert rule_prob is not None
 
+    # Test QT eval reward.
+    for _ in range(10):
+        qt_eval_result = await qt_eval_reward(test_user_id)
+        assert qt_eval_result is not None
+        should_reward, reward_amount, comment, rule_amount, rule_prob = qt_eval_result  # noqa
+        assert should_reward is True
+        assert rule_amount is not None
+        assert rule_amount.name == "under_point_limits_qt_eval_reward"
+        assert rule_prob is not None
+        assert rule_prob.name == "under_point_limits_qt_eval_reward"
+        assert QT_EVAL_REWARD_LOWER_BOUND <= reward_amount <= QT_EVAL_REWARD_UPPER_BOUND
+
     # Test no reward for high-point users.
     for args in (
         (10000, 0, 0),
@@ -237,8 +252,12 @@ async def test_feedback_reward(
         (0, 0, 200000),
     ):
         mock_get_reward_points.side_effect = lambda user_id, session, delta: get_limits(*args)[delta]  # noqa
-        result = await feedback_based_reward(test_user_id, "")
-        should_reward, reward_amount, comment, rule_amount, rule_prob = result
-        assert should_reward is False
-        assert rule_prob is not None
-        assert rule_prob.name == "no_feedback_reward"
+
+        feedback_result = await feedback_based_reward(test_user_id, "")
+        qt_eval_result = await qt_eval_reward(test_user_id)
+        expected_rule_names = ["no_feedback_reward", "no_qt_eval_reward"]
+        for result, expected_rule_name in zip([feedback_result, qt_eval_result], expected_rule_names, strict=True):
+            should_reward, reward_amount, comment, rule_amount, rule_prob = result
+            assert should_reward is False
+            assert rule_prob is not None
+            assert rule_prob.name == expected_rule_name

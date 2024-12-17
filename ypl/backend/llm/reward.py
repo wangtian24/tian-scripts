@@ -525,12 +525,29 @@ async def feedback_based_reward(
 
 
 async def qt_eval_reward(user_id: str) -> tuple[bool, int, str, RewardAmountRule | None, RewardProbabilityRule | None]:
-    should_reward = True
+    action_type = RewardActionEnum.QT_EVAL
+    params = {
+        "user_id": user_id,
+        "action_type": action_type,
+    }
+    with Session(get_engine()) as session:
+        params["points_last_day"] = _get_reward_points(user_id, session, timedelta(days=1))
+        params["points_last_week"] = _get_reward_points(user_id, session, timedelta(days=7))
+        params["points_last_month"] = _get_reward_points(user_id, session, timedelta(days=30))
 
-    # Generate a random reward amount if none provided
-    reward_amount = await generate_bounded_reward(
-        lower_bound=QT_EVAL_REWARD_LOWER_BOUND, upper_bound=QT_EVAL_REWARD_UPPER_BOUND
+    amount_rule: RewardAmountRule | None = get_matching_rule(get_reward_amount_rules(action_type), params)  # type: ignore
+    probability_rule: RewardProbabilityRule | None = get_matching_rule(  # type: ignore
+        get_reward_probability_rules(action_type), params
     )
+
+    should_reward = False
+    if probability_rule:
+        should_reward = random.random() < probability_rule.probability
+
+    min_value = amount_rule.min_value if amount_rule else QT_EVAL_REWARD_LOWER_BOUND
+    max_value = amount_rule.max_value if amount_rule else QT_EVAL_REWARD_UPPER_BOUND
+
+    reward_amount = await generate_bounded_reward(min_value, max_value)
 
     reward_comment = f"QT Eval reward: {reward_amount} credits."
 
@@ -538,8 +555,8 @@ async def qt_eval_reward(user_id: str) -> tuple[bool, int, str, RewardAmountRule
         should_reward,
         reward_amount,
         reward_comment,
-        None,
-        None,
+        amount_rule,
+        probability_rule,
     )
 
 
