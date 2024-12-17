@@ -47,7 +47,7 @@ def create_wallet() -> str | None:
         # Save wallet credentials
         wallet_id_string = json.dumps(sending_wallet.id)
         write_file(WALLET_FILE_PATH, wallet_id_string)
-        sending_wallet.save_seed(SEED_FILE_PATH)
+        sending_wallet.save_seed(SEED_FILE_PATH, encrypt=True)
 
         # Get and return the wallet address
         sending_address = sending_wallet.default_address

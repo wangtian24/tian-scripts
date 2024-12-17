@@ -1,9 +1,12 @@
+import asyncio
 import logging
 import time
 import uuid
 from abc import ABC, abstractmethod
 from decimal import Decimal
 
+from cdp.transaction import Transaction
+from cdp.transfer import Transfer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -176,17 +179,6 @@ class UpiFacilitator(Facilitator):
 
 
 class OnChainFacilitator(Facilitator):
-    async def _process_crypto_payment(self, user_id: str, amount: Decimal, destination_identifier: str) -> str:
-        """Process the crypto payment and return transaction hash."""
-        return await process_single_crypto_reward(
-            CryptoReward(
-                user_id=user_id,
-                wallet_address=destination_identifier,
-                asset_id=self.currency.value.lower(),
-                amount=amount,
-            )
-        )
-
     @retry(
         stop=stop_after_attempt(RETRY_ATTEMPTS),
         wait=wait_exponential(multiplier=RETRY_WAIT_MULTIPLIER, min=RETRY_WAIT_MIN, max=RETRY_WAIT_MAX),
@@ -264,6 +256,14 @@ class OnChainFacilitator(Facilitator):
         destination_identifier: str,
         destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
     ) -> str:
+        # Flow of the function
+        # 1. Get the source and destination instrument ids
+        # 2. Create a payment transaction
+        # 3. Update the user points
+        # 4. Process the crypto reward
+        # 5. Monitor the transfer completion
+        # 6. If success then update the payment transaction status
+        # 7. If failure then reverse the payment transaction and update the user points
         start_time = time.time()
         try:
             try:
@@ -329,7 +329,7 @@ class OnChainFacilitator(Facilitator):
                 raise PaymentProcessingError("Failed to update user points or transaction status") from e
 
             try:
-                tx_hash = await process_single_crypto_reward(
+                tx_hash, transfer = await process_single_crypto_reward(
                     CryptoReward(
                         user_id=user_id,
                         wallet_address=destination_identifier,
@@ -337,12 +337,43 @@ class OnChainFacilitator(Facilitator):
                         amount=amount,
                     )
                 )
-                if not tx_hash:
-                    raise CryptoRewardProcessingError("Empty transaction hash received")
 
-                await update_payment_transaction(
-                    payment_transaction_id, partner_reference_id=tx_hash, status=PaymentTransactionStatusEnum.SUCCESS
-                )
+                if str(transfer.status).lower() == Transaction.Status.COMPLETE.value.lower():
+                    await update_payment_transaction(
+                        payment_transaction_id,
+                        partner_reference_id=tx_hash,
+                        status=PaymentTransactionStatusEnum.SUCCESS,
+                    )
+                else:
+                    # Start monitoring in background task only if not complete
+                    asyncio.create_task(
+                        self._monitor_transfer_completion(
+                            transfer=transfer,
+                            payment_transaction_id=payment_transaction_id,
+                            user_id=user_id,
+                            credits_to_cashout=credits_to_cashout,
+                            amount=amount,
+                            source_instrument_id=source_instrument_id,
+                            destination_instrument_id=destination_instrument_id,
+                            destination_identifier=destination_identifier,
+                            destination_identifier_type=destination_identifier_type,
+                        )
+                    )
+
+                # Log success
+                end_time = time.time()
+                log_dict = {
+                    "message": "Successfully submitted for crypto cashout",
+                    "duration": str(end_time - start_time),
+                    "user_id": user_id,
+                    "amount": str(amount),
+                    "destination_identifier": destination_identifier,
+                    "currency": self.currency.value,
+                    "tx_hash": tx_hash,
+                }
+                logging.info(json_dumps(log_dict))
+                return tx_hash
+
             except Exception as e:
                 log_dict = {
                     "message": "Failed to process crypto reward. Reversing transaction.",
@@ -364,20 +395,6 @@ class OnChainFacilitator(Facilitator):
                     update_points=True,
                 )
                 raise CryptoRewardProcessingError("Failed to process crypto reward") from e
-
-            # Log success
-            end_time = time.time()
-            log_dict = {
-                "message": "Successfully processed crypto cashout",
-                "duration": str(end_time - start_time),
-                "user_id": user_id,
-                "amount": str(amount),
-                "destination_identifier": destination_identifier,
-                "currency": self.currency.value,
-                "tx_hash": tx_hash,
-            }
-            logging.info(json_dumps(log_dict))
-            return tx_hash
 
         except Exception as e:
             log_dict = {
@@ -434,6 +451,98 @@ class OnChainFacilitator(Facilitator):
     async def get_payment_status(self, payment_reference_id: str) -> PaymentTransactionStatusEnum:
         # TODO: Implement this
         return PaymentTransactionStatusEnum.SUCCESS
+
+    async def _monitor_transfer_completion(
+        self,
+        transfer: Transfer,
+        payment_transaction_id: uuid.UUID,
+        user_id: str,
+        credits_to_cashout: int,
+        amount: Decimal,
+        source_instrument_id: uuid.UUID,
+        destination_instrument_id: uuid.UUID,
+        destination_identifier: str,
+        destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
+    ) -> None:
+        """Monitor transfer completion and handle success/failure.
+
+        Args:
+            transfer: The transfer to monitor
+            payment_transaction_id: The ID of the payment transaction
+            user_id: The user ID
+            credits_to_cashout: The number of credits being cashed out
+            amount: The amount being transferred
+            source_instrument_id: The source payment instrument ID
+            destination_instrument_id: The destination payment instrument ID
+            destination_identifier: The destination wallet address
+            destination_identifier_type: The type of destination identifier
+        """
+        try:
+            start_time = time.time()
+            max_wait_time = 300  # 5 minutes in seconds
+            poll_interval = 5  # Check every 5 seconds
+
+            # first check if the transfer is already complete
+            # if not then wait for coinbase designed wait
+            if str(transfer.status).lower() != Transaction.Status.COMPLETE.value.lower():
+                transfer.wait()
+
+            # if still not complete then wait for max wait time
+            while (
+                str(transfer.status).lower() != Transaction.Status.COMPLETE.value.lower()
+                and (time.time() - start_time) < max_wait_time
+            ):
+                transfer.reload()
+                await asyncio.sleep(poll_interval)
+
+            if str(transfer.status).lower() == Transaction.Status.COMPLETE.value.lower():
+                await update_payment_transaction(
+                    payment_transaction_id,
+                    partner_reference_id=transfer.transaction_hash,
+                    status=PaymentTransactionStatusEnum.SUCCESS,
+                )
+                log_dict = {
+                    "message": "Crypto transfer completed",
+                    "user_id": user_id,
+                    "transaction_hash": transfer.transaction_hash,
+                    "status": transfer.status,
+                    "elapsed_time": time.time() - start_time,
+                }
+                logging.info(json_dumps(log_dict))
+            else:
+                log_dict = {
+                    "message": "Crypto transfer failed",
+                    "user_id": user_id,
+                    "transaction_hash": transfer.transaction_hash,
+                    "status": transfer.status,
+                    "timeout": time.time() - start_time >= max_wait_time,
+                    "elapsed_time": time.time() - start_time,
+                }
+                logging.error(json_dumps(log_dict))
+
+                # Handle the failed transaction
+                await self._handle_failed_transaction(
+                    payment_transaction_id=payment_transaction_id,
+                    user_id=user_id,
+                    credits_to_cashout=credits_to_cashout,
+                    amount=amount,
+                    source_instrument_id=source_instrument_id,
+                    destination_instrument_id=destination_instrument_id,
+                    destination_identifier=destination_identifier,
+                    destination_identifier_type=destination_identifier_type,
+                    update_points=True,
+                )
+
+        except Exception as e:
+            log_dict = {
+                "message": "Error monitoring transfer completion",
+                "user_id": user_id,
+                "transaction_hash": transfer.transaction_hash,
+                "error": str(e),
+                "elapsed_time": time.time() - start_time,
+            }
+            logging.error(json_dumps(log_dict))
+            raise PaymentProcessingError("Failed to monitor transfer completion") from e
 
 
 class CoinbaseFacilitator(Facilitator):

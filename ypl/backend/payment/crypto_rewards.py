@@ -6,7 +6,7 @@ import time
 from dataclasses import dataclass
 from decimal import Decimal
 
-from cdp import Cdp, Wallet
+from cdp import Cdp, Transfer, Wallet
 from dotenv import load_dotenv
 from ypl.backend.config import settings
 from ypl.backend.utils.files import (
@@ -121,7 +121,7 @@ class CryptoRewardProcessor:
 
             if asset_balance < total_required:
                 log_dict = {
-                    "message": "Not enough funds. Attempting to fund wallet with faucet...",
+                    "message": "Not enough funds.",
                     "asset_id": asset_id,
                     "total_required": total_required,
                     "current_balance": asset_balance,
@@ -129,12 +129,19 @@ class CryptoRewardProcessor:
                 }
                 logging.info(json_dumps(log_dict))
 
-                try:
-                    self.wallet.faucet(asset_id) if self.wallet else None
-
-                except Exception as e:
-                    log_dict = {"message": "Failed to request funds from faucet", "error": str(e), "attempt": attempts}
-                    logging.error(json_dumps(log_dict))
+                if settings.ENVIRONMENT != "production":
+                    try:
+                        self.wallet.faucet(asset_id) if self.wallet else None
+                    except Exception as e:
+                        log_dict = {
+                            "message": "Failed to request funds from faucet",
+                            "error": str(e),
+                            "attempt": attempts,
+                        }
+                        logging.error(json_dumps(log_dict))
+                        raise CryptoWalletError("Failed to request funds from faucet") from e
+                else:
+                    raise CryptoWalletError("Not enough funds in the wallet")
 
             # Wait before checking balance again
             await asyncio.sleep(POLL_INTERVAL_SECONDS)
@@ -150,11 +157,11 @@ class CryptoRewardProcessor:
         logging.error(json_dumps(log_dict))
         return False
 
-    async def process_reward(self, reward: CryptoReward) -> str:
+    async def process_reward(self, reward: CryptoReward) -> tuple[str, Transfer]:
         """Process a single crypto reward
 
         Returns:
-            str: The transaction hash
+            tuple[str, Transfer]: A tuple containing the transaction hash and transfer object
         """
         try:
             start_time = time.time()
@@ -172,7 +179,6 @@ class CryptoRewardProcessor:
             if not transfer:
                 raise CryptoWalletError("Transfer creation failed")
 
-            transfer.wait()
             end_time = time.time()
             duration = end_time - start_time
             log_dict = {
@@ -182,11 +188,11 @@ class CryptoRewardProcessor:
                 "wallet_address": reward.wallet_address,
                 "amount": str(reward.amount),
                 "transaction_hash": transfer.transaction_hash,
-                "transaction_link": transfer.transaction_link,
+                "transfer_status": transfer.status,
                 "duration": str(duration),
             }
             logging.info(json_dumps(log_dict))
-            return str(transfer.transaction_hash)
+            return str(transfer.transaction_hash), transfer
 
         except Exception as e:
             log_dict = {
@@ -220,14 +226,14 @@ async def process_pending_crypto_rewards() -> None:
         await processor.process_reward(reward)
 
 
-async def process_single_crypto_reward(reward: CryptoReward) -> str:
+async def process_single_crypto_reward(reward: CryptoReward) -> tuple[str, Transfer]:
     """Process a single cryptocurrency reward payment.
 
     Args:
         reward: The CryptoReward object containing payment details
 
     Returns:
-        str: The transaction hash
+        tuple[str, Transfer]: A tuple containing the transaction hash and transfer object
     """
     processor = await get_processor()
     return await processor.process_reward(reward)
