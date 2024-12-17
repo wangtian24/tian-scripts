@@ -19,8 +19,9 @@ class ChartInfo(TypedDict):
 
 AMPLITUDE_CHARTS: Final[dict[str, ChartInfo]] = {
     "users": {"id": "ruptpxku", "description": "active users", "series_number": 0},
-    "users_pref": {"id": "ruptpxku", "description": "users pref", "series_number": 1},
-    "users_mof": {"id": "ruptpxku", "description": "users mof", "series_number": 2},
+    "users_start_chat": {"id": "ruptpxku", "description": "users start chat", "series_number": 1},
+    "users_pref": {"id": "ruptpxku", "description": "users pref", "series_number": 2},
+    "users_mof": {"id": "ruptpxku", "description": "users mof", "series_number": 3},
     "conversations": {"id": "ekszggrp", "description": "conversations", "series_number": 0},
     "follow_up": {"id": "ekszggrp", "description": "follow up", "series_number": 1},
     "show_more": {"id": "ekszggrp", "description": "show more", "series_number": 2},
@@ -119,23 +120,25 @@ async def post_amplitude_metrics_to_slack() -> None:
         # a. Users section
         message += (
             f"a. Users: {metrics.get('users', 0)} active, "
+            f"{metrics.get('users_start_chat', 0)} started a new chat, "
             f"{metrics.get('users_pref', 0)} did PREF, "
             f"{metrics.get('users_mof', 0)} did MOF\n"
         )
 
         # b. Conversations section
         message += (
-            f"b. Convos: {metrics.get('conversations', 0)}, "
-            f"{(metrics.get('conversations', 0) + metrics.get('follow_up', 0))} turns, "
+            f"b. Convos: {metrics.get('conversations', 0) + metrics.get('follow_up', 0)}, "
+            f"{metrics.get('conversations', 0)} new chats, "
+            f"{metrics.get('follow_up', 0)} follow ups, "
             f"{metrics.get('show_more', 0)} SM\n"
         )
 
         # c. Models section
         message += (
             f"c. Models: {metrics.get('models_used', 0)} used, "
-            f"{metrics.get('streaming_complete', 0)} streaming completes, "
-            f"{metrics.get('streaming_errors', 0)} streaming errors, "
-            f"{metrics.get('streaming_stopped', 0)} streaming stopped\n"
+            f"{metrics.get('streaming_complete', 0)} completes, "
+            f"{metrics.get('streaming_errors', 0)} errors, "
+            f"{metrics.get('streaming_stopped', 0)} stopped\n"
         )
 
         # d. QT section
