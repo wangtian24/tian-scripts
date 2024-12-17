@@ -4,11 +4,12 @@ from typing import Final
 
 import httpx
 from ypl.backend.config import settings
-from ypl.db.payments import CurrencyEnum, PaymentInstrumentIdentifierTypeEnum
+from ypl.db.payments import CurrencyEnum
 
 CRYPTO_CURRENCY_IDS: Final[dict[CurrencyEnum, str]] = {
     CurrencyEnum.BTC: "bitcoin",
     CurrencyEnum.ETH: "ethereum",
+    CurrencyEnum.USDC: "usd-coin",
 }
 
 
@@ -79,24 +80,22 @@ async def get_fiat_exchange_rate(
         The exchange rate from source to destination currency
     """
     response = await client.get(
-        f"https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/{source_currency}.json"
+        f"https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/{source_currency.value.lower()}.json"
     )
     response.raise_for_status()
     data = response.json()
-    return Decimal(data[source_currency][destination_currency])
+    return Decimal(data[source_currency.value.lower()][destination_currency.value.lower()])
 
 
 async def get_exchange_rate(
     source_currency: CurrencyEnum,
     destination_currency: CurrencyEnum,
-    instrument_type: PaymentInstrumentIdentifierTypeEnum,
 ) -> Decimal:
     """Get exchange rate between two currencies.
 
     Args:
         source_currency: The source currency
         destination_currency: The destination currency
-        instrument_type: The type of payment instrument
 
     Returns:
         The exchange rate from source to destination currency
@@ -108,12 +107,12 @@ async def get_exchange_rate(
         "message": "Getting exchange rate",
         "source_currency": source_currency.value,
         "destination_currency": destination_currency.value,
-        "instrument_type": instrument_type.value,
+        "is_crypto": source_currency.is_crypto() or destination_currency.is_crypto(),
     }
     logging.info(log_dict)
 
     async with httpx.AsyncClient() as client:
-        if instrument_type == PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS:
+        if source_currency.is_crypto() or destination_currency.is_crypto():
             return await get_crypto_exchange_rate(source_currency, destination_currency, client)
         else:
             return await get_fiat_exchange_rate(source_currency, destination_currency, client)

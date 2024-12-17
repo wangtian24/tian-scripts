@@ -48,9 +48,7 @@ class CashoutCreditsRequest:
     destination_identifier_type: PaymentInstrumentIdentifierTypeEnum
 
 
-async def convert_credits_to_currency(
-    credits: int, currency: CurrencyEnum, destination_identifier_type: PaymentInstrumentIdentifierTypeEnum
-) -> Decimal:
+async def convert_credits_to_currency(credits: int, currency: CurrencyEnum) -> Decimal:
     # TODO: Put them in a config somewhere.
     CREDITS_TO_INR_RATE = Decimal(0.1)
     CREDITS_TO_USD_RATE = Decimal(0.0012)
@@ -61,7 +59,7 @@ async def convert_credits_to_currency(
         "message": "Converting credits to currency",
         "credits_decimal": str(credits_decimal),
         "currency": currency.value,
-        "destination_identifier_type": destination_identifier_type.value,
+        "currency_is_crypto": currency.is_crypto(),
     }
     logging.info(log_dict)
 
@@ -72,7 +70,7 @@ async def convert_credits_to_currency(
     elif currency == CurrencyEnum.USDC:
         return credits_decimal * CREDITS_TO_USD_RATE
     else:
-        exchange_rate = await get_exchange_rate(CurrencyEnum.USD, currency, destination_identifier_type)
+        exchange_rate = await get_exchange_rate(CurrencyEnum.USD, currency)
         return credits_decimal * CREDITS_TO_USD_RATE * exchange_rate
 
 
@@ -92,9 +90,7 @@ async def cashout_credits(request: CashoutCreditsRequest) -> str:
     await validate_cashout_request(request)
 
     try:
-        amount_in_currency = await convert_credits_to_currency(
-            request.credits_to_cashout, request.cashout_currency, request.destination_identifier_type
-        )
+        amount_in_currency = await convert_credits_to_currency(request.credits_to_cashout, request.cashout_currency)
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Error converting credits to currency {request.cashout_currency}"
