@@ -384,6 +384,30 @@ async def turn_based_reward(
             - RewardAmountRule | None: The reward amount rule used.
             - RewardProbabilityRule | None: The reward probability rule used.
     """
+
+    def _handle_zero_turn_based_reward_probability(user_id: str) -> tuple[bool, int, int, str, None, None]:
+        """Handle the case where zero turn-based reward probability is defined."""
+        should_reward = True
+        reward_amount = high_value_reward_amount = 0
+        reward_comment = "Better luck next time!"
+
+        post_reward_to_slack(
+            action_type=RewardActionEnum.TURN,
+            user_id=user_id,
+            user_name=None,
+            should_reward=should_reward,
+            reward_amount=reward_amount,
+            reward_comment=reward_comment,
+            probability_rule=None,
+            amount_rule=None,
+        )
+
+        return should_reward, reward_amount, high_value_reward_amount, reward_comment, None, None
+
+    if "zero_turn_based_reward_probability" in RULE_CONSTANTS:
+        if random.random() < RULE_CONSTANTS["zero_turn_based_reward_probability"]:
+            return _handle_zero_turn_based_reward_probability(user_id)
+
     user_turn_reward = UserTurnReward(user_id, turn_id)
     reward_probability = user_turn_reward.get_probability()
     should_reward = random.random() < reward_probability
@@ -400,8 +424,7 @@ async def turn_based_reward(
     # A safety check to prevent negative or zero credit rewards from being given.
     if reward_amount <= 0 or high_value_reward_amount <= 0:
         should_reward = False
-        reward_amount = 0
-        high_value_reward_amount = 0
+        reward_amount = high_value_reward_amount = 0
 
     post_reward_to_slack(
         should_reward=should_reward,

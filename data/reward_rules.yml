@@ -2,6 +2,7 @@ constants: &constants
   daily_points_limit: &daily_points_limit 50000
   weekly_points_limit: &weekly_points_limit 100000
   monthly_points_limit: &monthly_points_limit 200000
+  zero_turn_based_reward_probability: &zero_turn_based_reward_probability 0.25
 
 amount_rules:
   - name: high
@@ -285,7 +286,7 @@ probability_rules:
         - name: points
           operator: greater_than
           value: 0
-    probability: 1.0  # temporarily overriding non-abuse reward probablilties until we implement model_feedback rewards TODO(carmen)
+    probability: 1.0  # temporarily overriding non-abuse reward probablilties until we implement model_feedback
 
   - name: first_chat_eval_1
     priority: 99
