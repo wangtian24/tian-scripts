@@ -1,4 +1,4 @@
-name: Label refusals
+name: Judge refusals
 
 on:
   schedule:
@@ -6,14 +6,14 @@ on:
   workflow_dispatch:
 
 jobs:
-  label_refusals_staging:
+  judge_refusals_staging:
     uses: ./.github/workflows/cronjob.yml
     with:
       command: judge-refusals
       environment: staging
     secrets: inherit
 
-  label_refusals_production:
+  judge_refusals_production:
     uses: ./.github/workflows/cronjob.yml
     with:
       command: judge-refusals

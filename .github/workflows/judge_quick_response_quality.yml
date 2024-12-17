@@ -1,0 +1,21 @@
+name: Judge quick response quality
+
+on:
+  schedule:
+    - cron: '40 * * * *'  # Every hour, at 40 minutes past the hour.
+  workflow_dispatch:
+
+jobs:
+  judge_quick_response_quality_staging:
+    uses: ./.github/workflows/cronjob.yml
+    with:
+      command: judge-quick-response-quality
+      environment: staging
+    secrets: inherit
+
+  judge_quick_response_quality_production:
+    uses: ./.github/workflows/cronjob.yml
+    with:
+      command: judge-quick-response-quality
+      environment: production
+    secrets: inherit

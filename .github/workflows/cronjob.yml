@@ -25,7 +25,8 @@ on:
         type: choice
         options:  # sorted
           - categorize-messages
-          - label-refusals
+          - judge-quick-response-quality
+          - judge-refusals
           - post-amplitude-metrics
           - process-crypto-rewards
           - store-prompt-language
