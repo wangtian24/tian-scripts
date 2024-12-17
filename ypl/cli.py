@@ -1283,9 +1283,17 @@ def process_crypto_rewards() -> None:
 @cli.command()
 def create_wallet() -> None:
     """Create a new wallet."""
-    from ypl.backend.utils.crypto_create_wallet import create_wallet
+    from ypl.backend.utils.crypto_wallet import create_wallet
 
     create_wallet()
+
+
+@cli.command()
+def get_wallet_balance() -> None:
+    """Get the balance of a wallet."""
+    from ypl.backend.utils.crypto_wallet import get_wallet_balance
+
+    get_wallet_balance()
 
 
 if __name__ == "__main__":
