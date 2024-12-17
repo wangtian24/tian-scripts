@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 import yaml
 from dotenv import load_dotenv
-from sqlalchemy import func
+from sqlalchemy import and_, case, func, or_
 from sqlalchemy.orm import load_only, selectinload
 from sqlmodel import Session, select, text
 from tqdm import tqdm
@@ -41,6 +41,7 @@ from ypl.backend.llm.constants import MODEL_HEURISTICS
 from ypl.backend.llm.embedding import get_embedding_model
 from ypl.backend.llm.judge import (
     JudgeConfig,
+    QuickResponseQualityLabeler,
     ResponseRefusalLabeler,
     SpeedAwareYuppEvaluationLabeler,
     YuppEvaluationLabeler,
@@ -60,8 +61,21 @@ from ypl.backend.llm.ranking import get_default_ranker
 from ypl.backend.llm.synthesize import SQLChatIO, SynthesizerConfig, SyntheticUserGenerator, asynthesize_chats
 from ypl.backend.llm.utils import fetch_categories_with_descriptions_from_db
 from ypl.backend.utils.amplitude_analytics import post_amplitude_metrics_to_slack
-from ypl.db.chats import IS_REFUSAL_ANNOTATION_NAME, Chat, ChatMessage, LanguageCode, MessageType, Turn, TurnQuality
+from ypl.db.chats import (
+    Chat,
+    ChatMessage,
+    LanguageCode,
+    MessageType,
+    Turn,
+    TurnQuality,
+)
 from ypl.db.language_models import LanguageModel, Provider
+from ypl.db.message_annotations import (
+    IS_REFUSAL_ANNOTATION_NAME,
+    QUICK_RESPONSE_QUALITY_ANNOTATION_NAME,
+    get_turns_to_evaluate,
+    update_message_annotations_in_chunks,
+)
 from ypl.db.rewards import RewardAmountRule, RewardProbabilityRule, RewardRule
 
 logging.getLogger().setLevel(logging.INFO)
@@ -1088,49 +1102,28 @@ def judge_refusals(
 ) -> None:
     prompts_responses = []
     response_message_ids = []
-    prompt_message_ids = []
-
-    def missing_refusal_annotation(annotations: dict) -> Any:
-        return (
-            annotations.is_(None)  # type: ignore
-            | (~annotations.has_key(IS_REFUSAL_ANNOTATION_NAME))  # type: ignore
-            | (annotations[IS_REFUSAL_ANNOTATION_NAME].astext.is_(None))
-        )
 
     with Session(get_engine()) as session:
         # Get unannotated turns, up to the max number of turns.
-        turn_ids = (
-            session.exec(
-                select(Turn.turn_id)
-                .join(ChatMessage)
-                .where(missing_refusal_annotation(ChatMessage.annotations))
-                .order_by(Turn.created_at.desc())  # type: ignore
-                .limit(max_num_turns)
-            )
-            .unique()
-            .all()
+        turn_ids = get_turns_to_evaluate(
+            session,
+            [MessageType.ASSISTANT_MESSAGE, MessageType.QUICK_RESPONSE_MESSAGE],
+            IS_REFUSAL_ANNOTATION_NAME,
+            max_num_turns,
         )
 
         # Get the messages for each turn as pairs of prompt and response.
         for turn_id in turn_ids:
             messages = session.exec(
                 select(ChatMessage.message_id, ChatMessage.content, ChatMessage.message_type)  # type: ignore
-                .where(
-                    ChatMessage.turn_id == turn_id,
-                    (
-                        missing_refusal_annotation(ChatMessage.annotations)
-                        # Include the prompt message.
-                        | (ChatMessage.message_type == MessageType.USER_MESSAGE)
-                    ),
-                )
+                .where(ChatMessage.turn_id == turn_id)
                 .order_by(ChatMessage.created_at)
             ).all()
 
             prompt = None
-            for message_id, content, message_type in messages:
+            for _, content, message_type in messages:
                 if message_type == MessageType.USER_MESSAGE:
                     prompt = content
-                    prompt_message_ids.append(message_id)
                     break
 
             if prompt is None:
@@ -1163,41 +1156,119 @@ def judge_refusals(
         for message_id, result in zip(response_message_ids, results, strict=True)
         if result not in (None, labeler.error_value)
     ]
-    # Prompts are not refusals; update them so that they are not processed again.
-    update_values.extend(
-        [
-            {
-                "message_id": prompt_message_id,
-                "key": IS_REFUSAL_ANNOTATION_NAME,
-                "value": 0,
-            }
-            for prompt_message_id in prompt_message_ids
-        ]
-    )
 
     num_refusals = sum(result == 1 for result in results)
     num_messages = len(results)
     logging.info(f"{num_refusals} refusals found for {num_messages} messages ({num_refusals / num_messages:.2%})")
 
-    chunk_size = 100
-    for i in range(0, len(update_values), chunk_size):
-        start, end = i, min(i + chunk_size, len(update_values))
-        chunk = update_values[start:end]
-        with Session(get_engine()) as session:
-            # Bulk update, keep existing annotations.
-            session.execute(
-                text(
-                    """
-                    UPDATE chat_messages
-                    SET annotations = COALESCE(annotations, '{}') || jsonb_build_object(:key, :value)
-                    WHERE message_id = :message_id
-                    """
-                ),
-                chunk,
-            )
-            session.commit()
-            logging.info(f"Committed updates {start} to {end} out of {len(update_values)}")
-    logging.info(f"Completed updating {num_messages} messages")
+    update_message_annotations_in_chunks(update_values)
+
+
+@cli.command(help="Annotate quick response quality")
+@click.option("-j", "--num-parallel", default=8, help="The number of jobs to run in parallel.")
+@click.option("-n", "--max-num-turns", default=1000, help="The maximum number of unannotated turns to process")
+def judge_quick_response_quality(
+    num_parallel: int,
+    max_num_turns: int,
+) -> None:
+    def is_qt_refusal(content: Any) -> Any:
+        return or_(content == "", func.length(content) > 140)
+
+    prompts = []
+    responses = []
+    response_message_ids = []
+    chat_histories = []
+
+    with Session(get_engine()) as session:
+        turns_to_evaluate = get_turns_to_evaluate(
+            session,
+            [MessageType.QUICK_RESPONSE_MESSAGE],
+            QUICK_RESPONSE_QUALITY_ANNOTATION_NAME,
+            max_num_turns,
+            additional_fields=[Turn.chat_id, Turn.sequence_id],
+        )
+
+        # For a given turn, get the chat history up to and including this turn
+        for _, chat_id, sequence_id in turns_to_evaluate:  # type: ignore
+            messages = session.execute(
+                select(  # type: ignore
+                    ChatMessage.message_id,
+                    case(
+                        (
+                            and_(
+                                (ChatMessage.message_type == MessageType.QUICK_RESPONSE_MESSAGE),  # type: ignore
+                                is_qt_refusal(ChatMessage.content),
+                            ),
+                            "[NULL]",  # QT refusal text corresponding to JUDGE_QUICK_RESPONSE_QUALITY_SYSTEM_PROMPT
+                        ),
+                        else_=ChatMessage.content,
+                    ).label("content"),
+                    ChatMessage.message_type,
+                    Turn.sequence_id,
+                )
+                .join(Turn)
+                .where(
+                    Turn.chat_id == chat_id,
+                    Turn.sequence_id <= int(sequence_id),
+                    ChatMessage.message_type.in_([MessageType.USER_MESSAGE, MessageType.QUICK_RESPONSE_MESSAGE]),  # type: ignore
+                )
+                .order_by(Turn.sequence_id, ChatMessage.created_at)
+            ).all()
+
+            if len(messages) < 2:  # Need at least a prompt and response
+                continue
+
+            # Last two messages are the current turn's prompt and response
+            *history_messages, prompt_msg, response_msg = messages
+            assert prompt_msg.message_type == MessageType.USER_MESSAGE
+            assert response_msg.message_type == MessageType.QUICK_RESPONSE_MESSAGE
+
+            chat_history = [
+                {
+                    "role": "user" if msg.message_type == MessageType.USER_MESSAGE else "assistant",
+                    "content": msg.content,
+                }
+                for msg in history_messages
+            ]
+
+            prompts.append(prompt_msg.content)
+            responses.append(response_msg.content)
+            response_message_ids.append(response_msg.message_id)
+            chat_histories.append(chat_history)
+
+    if not prompts:
+        logging.info("No quick responses to label")
+        return
+
+    logging.info(f"Found {len(prompts)} prompt-response pairs to evaluate")
+
+    inputs = list(zip(prompts, responses, chat_histories, strict=True))
+
+    judge_llm = get_chat_model(
+        ModelInfo(provider=ChatProvider.OPENAI, model="gpt-4o-mini", api_key=settings.OPENAI_API_KEY),
+        temperature=0.0,
+    )
+    labeler = QuickResponseQualityLabeler(judge_llm)
+    results = asyncio.run(labeler.abatch_label(inputs, num_parallel=num_parallel))
+
+    update_values = [
+        {
+            "message_id": message_id,
+            "key": QUICK_RESPONSE_QUALITY_ANNOTATION_NAME,
+            "value": result,
+        }
+        for message_id, result in zip(response_message_ids, results, strict=True)
+        if result not in (None, labeler.error_value)
+    ]
+
+    quality_counts = Counter(results)
+    num_messages = len(results)
+    logging.info(f"Quality distribution for {num_messages} messages:")
+    for quality, count in quality_counts.items():
+        if quality not in (None, labeler.error_value):
+            logging.info(f"{quality}: {count} ({count / num_messages:.2%})")
+
+    update_message_annotations_in_chunks(update_values)
 
 
 @cli.command()

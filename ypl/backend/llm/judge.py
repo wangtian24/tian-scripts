@@ -12,6 +12,7 @@ from ypl.backend.llm.constants import MODEL_HEURISTICS
 from ypl.backend.llm.labeler import InputType, LLMLabeler, OnErrorBehavior, OutputType
 from ypl.backend.prompts import (
     FEEDBACK_QUALITY_PROMPT_TEMPLATE,
+    JUDGE_QUICK_RESPONSE_QUALITY_PROMPT_TEMPLATE,
     JUDGE_RESPONSE_REFUSAL_PROMPT,
     JUDGE_YUPP_CHAT_PROMPT_SPEED_AWARE_TEMPLATE,
     JUDGE_YUPP_CHAT_PROMPT_TEMPLATE,
@@ -304,3 +305,37 @@ class FeedbackQualityLabeler(LLMLabeler[str, int]):
 
     async def alabel(self, input: str) -> int:
         return self._heuristic_label(input) or await super().alabel(input)
+
+
+class QuickResponseQualityLabeler(LLMLabeler[tuple[str, str, list[dict[str, str]]], str]):
+    """Labels the quality of quick responses.
+
+    Returns:
+        int: Rating from 1-3 where:
+        1 - POOR quality (unhelpful, incorrect, or inappropriate)
+        2 - ACCEPTABLE quality (meets basic requirements)
+        3 - EXCELLENT quality (concise, accurate, and helpful)
+    """
+
+    def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
+        return JUDGE_QUICK_RESPONSE_QUALITY_PROMPT_TEMPLATE | llm  # type: ignore
+
+    def _prepare_input(self, input: tuple[str, str, list[dict[str, str]]]) -> dict[str, Any]:
+        """input is a (prompt, response, chat_history) tuple"""
+        chat_history_str = input[2] if input[2] else "No previous conversation"
+
+        return {"user_prompt": input[0], "response": input[1], "chat_history": chat_history_str}
+
+    def _parse_output(self, output: BaseMessage) -> str:
+        content = str(output.content).strip()
+        if "1" in content:
+            return "poor"
+        elif "2" in content:
+            return "acceptable"
+        elif "3" in content:
+            return "excellent"
+        return self.error_value
+
+    @property
+    def error_value(self) -> str:
+        return "error"

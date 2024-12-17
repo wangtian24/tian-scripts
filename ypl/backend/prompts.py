@@ -434,13 +434,14 @@ Return only a JSON response {{"score": N}} where N is 1-5. No explanation needed
 
 FEEDBACK_QUALITY_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([("system", FEEDBACK_QUALITY_PROMPT)])
 
-JUDGE_QT_QUALITY_SYSTEM_PROMPT = """
+JUDGE_QUICK_RESPONSE_QUALITY_SYSTEM_PROMPT = """
 You are an AI assistant tasked with evaluating the quality of short Twitter-like AI responses to prompts (and conversation history if available).
 
 Consider these factors:
-- Brevity: Is the response concise? (Should be ≤140 characters)
-- Completeness: Is the response complete and not cut off?
 - Accuracy: Is the response factually correct?
+- Brevity: Is the response concise without any extraneous words? (Should be ≤140 characters)
+- Formatting: Is the response plain text without formatting, markdown, or newlines?
+- Completeness: Is the response complete and not truncated mid-sentence?
 - Relevance: Does the response address the user's prompt?
 - Tone: Is the response appropriate and friendly?
 
@@ -457,7 +458,7 @@ Return format: Respond with one of these ratings:
 Return the number rating only.
 """
 
-JUDGE_QT_QUALITY_USER_PROMPT = """
+JUDGE_QUICK_RESPONSE_QUALITY_USER_PROMPT = """
 Conversation History:
 {chat_history}
 
@@ -467,6 +468,11 @@ Prompt:
 Response to evaluate:
 {response}
 """
+
+JUDGE_QUICK_RESPONSE_QUALITY_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages(
+    [("system", JUDGE_QUICK_RESPONSE_QUALITY_SYSTEM_PROMPT), ("human", JUDGE_QUICK_RESPONSE_QUALITY_USER_PROMPT)]
+)
+
 QUICKTAKE_SUMMARIZING_PROMPT_1 = """
 You are a helpful AI assistant. Answer the following prompt:
 
