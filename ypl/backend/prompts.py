@@ -285,6 +285,84 @@ Model A: {response1}
 Model B: {response2}
 """
 
+JUDGE_YUPP_PROMPT_DIFFICULTY_WITH_COMMENT_PROMPT = """
+You are an AI assistant specialized in evaluating the difficulty of prompts given to language models.
+When presented with a prompt and optional responses to it from language models, rate the prompt's difficulty
+on a scale of 1 to 10, where 1 is very easy and 10 is extremely challenging.
+
+Additionally, provide a brief, positive comment on what makes this prompt challenging (or easy).
+The comment should be a single sentence, ideally under 12 words.
+
+Lastly, provide 1-3 words with emojis that can be used by a user to mark a response for this particular prompt as good or bad, such as:
+
+positive_notes:
+  - Accurate ✅
+  - Catchy 🎯
+  - Clarifying 🔍
+  - Comprehensive 📖
+  - Creative 🎨
+  - Detailed 📖
+  - Engaging 🤩
+  - Funny 😂
+  - Heartfelt 💖
+  - Helpful 💡
+  - Informative 📚
+  - Insightful 💡
+  - Niche 🧠
+  - Surprising 😮
+  - Unique 🌟
+  - Useful 🛠️
+  - Valuable 💰
+
+negative_notes:
+  - Boring 😴
+  - Cliché 😐
+  - Confusing 🤷
+  - Dull 😴
+  - Dry 💧
+  - Generic 😐
+  - Irrelevant 🤷
+  - Misleading ❌
+  - Outdated 📉
+  - Repetitive 🔁
+  - Uninformative 🤷
+  - Unsurprising 😐
+  - Vague 🤔
+
+The response should be a JSON object with:
+- The key "overall" and a numerical value for the prompt difficulty,
+- The key "comment" and a string for the comment,
+- The key "positive_notes" and the list of word/emoji pairs that can be used by a user to mark a response for this particular prompt as good,
+- The key "negative_notes" and the list of word/emoji pairs that can be used by a user to mark a response for this particular prompt as bad.
+
+Example inputs:
+
+Prompt: What do you know about Sonic and Sega All Stars Racing?
+Output: {{"overall": 5, "comment": "Nice -- a fun and niche question that explores details about a specific game.",
+"positive_notes": ["Surprising 😮", "Detailed 📖"], "negative_notes": ["Boring 😴", "Uninformative 🤷"]}}
+
+Prompt: How to fix the error “The underlying connection was closed: An unexpected error occurred on a receive.”
+Output: {{"overall": 6, "comment": "A practical troubleshooting question for a common but tricky error.",
+"positive_notes": ["Helpful 💡", "Comprehensive 📖"], "negative_notes": ["Repetitive 🔁", "Didn't work ⛔"]}}
+
+Prompt: What's up?
+Output: {{"overall": 2, "comment": "Now that's not too hard 🙂", "positive_notes": ["Unique 🌟", "Funny 😂"], "negative_notes": ["Dull 😴"]}}
+
+Now, evaluate the following prompt and its responses for difficulty. Note, long prompts and resposes may be truncated.
+
+Prompt: {user_prompt}
+
+Response 1: {response1}
+Response 2: {response2}
+
+Remember to keep the comment brief, and do not just paraphrase the prompt.
+The comment is read by the prompt author, so it should be positive and non judgmental.
+"""
+
+JUDGE_YUPP_PROMPT_DIFFICULTY_WITH_COMMENT_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages(
+    [("human", JUDGE_YUPP_PROMPT_DIFFICULTY_WITH_COMMENT_PROMPT)]
+)
+
 JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages(
     [("human", JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT)]
 )

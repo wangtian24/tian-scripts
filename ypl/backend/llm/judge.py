@@ -19,6 +19,7 @@ from ypl.backend.prompts import (
     JUDGE_YUPP_ONLINE_PROMPT_TEMPLATE,
     JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT_SIMPLE_TEMPLATE,
     JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT_TEMPLATE,
+    JUDGE_YUPP_PROMPT_DIFFICULTY_WITH_COMMENT_PROMPT_TEMPLATE,
     PROMPT_MULTILABEL_CLASSIFICATION_PROMPT_TEMPLATE,
     RESPONSE_DIFFICULTY_PROMPT_TEMPLATE,
     RESPONSE_QUALITY_PROMPT_TEMPLATE,
@@ -97,7 +98,7 @@ class YuppPromptDifficultyLabeler(LLMLabeler[tuple[str, str, str], int]):
         llm: BaseChatModel,
         timeout_secs: float = 5.0,
         on_error: OnErrorBehavior = "raise",
-        max_words_low_quality: int = 4,  # prompts under this word count are considered low quality.
+        max_words_low_quality: int = 3,  # prompts under this word count are considered low quality.
         max_length: int = 300,
     ) -> None:
         super().__init__(llm, timeout_secs, on_error)
@@ -154,6 +155,11 @@ def label_prompt_difficulty(prompt: str, llm: BaseChatModel) -> int:
 class YuppPromptDifficultyLabelerSimple(YuppPromptDifficultyLabeler):
     def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
         return JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT_SIMPLE_TEMPLATE | llm  # type: ignore
+
+
+class YuppPromptDifficultyWithCommentLabeler(YuppPromptDifficultyLabeler):
+    def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
+        return JUDGE_YUPP_PROMPT_DIFFICULTY_WITH_COMMENT_PROMPT_TEMPLATE | llm  # type: ignore
 
 
 class YuppQualityLabeler(LLMLabeler[tuple[str, str], int]):
