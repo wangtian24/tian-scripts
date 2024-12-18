@@ -125,7 +125,7 @@ async def verify_and_update_model_status(
 
             slack_message = (
                 f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} "
-                "is not running at the inference endpoint. Please investigate."
+                "is not running at the inference endpoint on {provider_name}. Please investigate."
             )
 
             if has_billing_error:
@@ -144,8 +144,8 @@ async def verify_and_update_model_status(
         logging.exception(json_dumps(log_dict))
 
         slack_message = (
-            f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} "
-            f"inference validation failed: {str(e)}"
+            f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} from "
+            f"{provider_name} inference validation failed: {str(e)}"
         )
         await post_to_slack(f":x: {slack_message}")
         # TODO: Implement additional alerting if needed

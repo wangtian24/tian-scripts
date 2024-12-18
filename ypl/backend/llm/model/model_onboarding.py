@@ -116,12 +116,10 @@ async def verify_onboard_submitted_models() -> None:
                 )
                 submitted_models = await session.execute(query)
 
-                for model, provider_name, base_url in submitted_models:
-                    await verify_and_update_model_status(session, model, provider_name, base_url)
+            for model, provider_name, base_url in submitted_models:
+                await verify_and_update_model_status(model, provider_name, base_url)
 
-                await session.commit()
-
-                await revalidate_yupp_head_model_info()
+            await revalidate_yupp_head_model_info()
 
 
 async def verify_onboard_specific_model(model_id: UUID) -> None:
@@ -146,105 +144,107 @@ async def verify_onboard_specific_model(model_id: UUID) -> None:
                 result = await session.execute(query)
                 row = result.first()
 
-                if row:
-                    model, provider_name, base_url = row
-                    await verify_and_update_model_status(session, model, provider_name, base_url)
-                    await session.commit()
+            if row:
+                model, provider_name, base_url = row
+                await verify_and_update_model_status(model, provider_name, base_url)
 
-                    await revalidate_yupp_head_model_info()
-                else:
-                    log_dict = {"message": f"No submitted model found with id {model_id}", "model_id": model_id}
-                    logging.warning(json_dumps(log_dict))
+                await revalidate_yupp_head_model_info()
+            else:
+                log_dict = {"message": f"No submitted model found with id {model_id}", "model_id": model_id}
+                logging.warning(json_dumps(log_dict))
 
 
-async def verify_and_update_model_status(
-    session: AsyncSession, model: LanguageModel, provider_name: str, base_url: str
-) -> None:
+async def verify_and_update_model_status(model: LanguageModel, provider_name: str, base_url: str) -> None:
     """
     Verify and update the status of a single model.
 
     Args:
-        session (AsyncSession): The database session.
         model (LanguageModel): The model to verify and update.
         provider_name (str): The name of the provider.
         base_url (str): The base URL for the provider's API.
     """
     async for attempt in await async_retry_decorator():
         with attempt:
-            try:
-                is_inference_running, has_billing_error = verify_inference_running(model, provider_name, base_url)
+            async with AsyncSession(get_async_engine()) as session:
+                try:
+                    is_inference_running, has_billing_error = verify_inference_running(model, provider_name, base_url)
 
-                if has_billing_error:
-                    log_message = (
-                        f"Environment {os.environ.get('ENVIRONMENT')} - "
-                        f"Billing error detected for model {model.name}"
-                    )
-                    await post_to_slack(log_message)
+                    if has_billing_error:
+                        log_message = (
+                            f"Environment {os.environ.get('ENVIRONMENT')} - "
+                            f"Billing error detected for model {model.name}"
+                        )
+                        await post_to_slack(log_message)
 
-                if is_inference_running:
-                    model.status = LanguageModelStatusEnum.ACTIVE
-                    model.modified_at = datetime.utcnow()
-                    log_dict = {
-                        "message": "Model validated successfully and set to ACTIVE",
-                        "model_name": model.name,
-                    }
-                    logging.info(json_dumps(log_dict))
-                    log_message = (
-                        f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} "
-                        "validated successfully and set to ACTIVE."
-                    )
-                    await post_to_slack(log_message)
-                    await post_to_x(log_message)
-                else:
-                    is_hf_verified = verify_hf_model(model)
-                    if is_hf_verified:
-                        model.status = LanguageModelStatusEnum.VERIFIED_PENDING_ACTIVATION
+                    if is_inference_running:
+                        model.status = LanguageModelStatusEnum.ACTIVE
                         model.modified_at = datetime.utcnow()
+                        session.add(model)
                         log_dict = {
-                            "message": "Model validated successfully and set to VERIFIED_PENDING_ACTIVATION",
+                            "message": "Model validated successfully and set to ACTIVE",
                             "model_name": model.name,
                         }
                         logging.info(json_dumps(log_dict))
                         log_message = (
-                            f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} "
-                            "validated successfully and set to VERIFIED_PENDING_ACTIVATION."
+                            f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} from "
+                            f"{provider_name} validated successfully and set to ACTIVE."
                         )
+                        await session.commit()
                         await post_to_slack(log_message)
                         await post_to_x(log_message)
                     else:
-                        # reject if the model was submitted more than 3 days ago
-                        if (
-                            model.created_at
-                            and (datetime.now(UTC) - model.created_at.replace(tzinfo=UTC)).days > REJECT_AFTER_DAYS
-                        ):
-                            model.status = LanguageModelStatusEnum.REJECTED
+                        is_hf_verified = verify_hf_model(model)
+                        if is_hf_verified:
+                            model.status = LanguageModelStatusEnum.VERIFIED_PENDING_ACTIVATION
                             model.modified_at = datetime.utcnow()
+                            session.add(model)
+                            await session.commit()
                             log_dict = {
-                                "message": "Model not validated after 3 days. Setting status to REJECTED",
+                                "message": "Model validated successfully and set to VERIFIED_PENDING_ACTIVATION",
                                 "model_name": model.name,
                             }
                             logging.info(json_dumps(log_dict))
                             log_message = (
-                                f"Environment {os.environ.get('ENVIRONMENT')} - "
-                                f"Model {model.name}"
-                                "not validated after 3 days. Setting status to REJECTED."
+                                f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} from "
+                                f"{provider_name} validated successfully and set to VERIFIED_PENDING_ACTIVATION."
                             )
                             await post_to_slack(log_message)
+                            await post_to_x(log_message)
+                        else:
+                            # reject if the model was submitted more than 3 days ago
+                            if (
+                                model.created_at
+                                and (datetime.now(UTC) - model.created_at.replace(tzinfo=UTC)).days > REJECT_AFTER_DAYS
+                            ):
+                                model.status = LanguageModelStatusEnum.REJECTED
+                                model.modified_at = datetime.utcnow()
+                                session.add(model)
+                                await session.commit()
+                                log_dict = {
+                                    "message": "Model not validated after 3 days. Setting status to REJECTED",
+                                    "model_name": model.name,
+                                }
+                                logging.info(json_dumps(log_dict))
+                                log_message = (
+                                    f"Environment {os.environ.get('ENVIRONMENT')} - "
+                                    f"Model {model.name} from {provider_name} not validated after 3 days. "
+                                    "Setting status to REJECTED."
+                                )
+                                await post_to_slack(log_message)
 
-                await session.commit()
-
-            except Exception as e:
-                log_dict = {
-                    "message": "Model validation failed",
-                    "model_name": model.name,
-                    "error": str(e),
-                }
-                logging.exception(json_dumps(log_dict))
-                await post_to_slack(
-                    f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} " f"validation failed: {str(e)}"
-                )
-                # Re-raise the exception to trigger a retry
-                raise
+                except Exception as e:
+                    log_dict = {
+                        "message": "Model validation failed",
+                        "model_name": model.name,
+                        "error": str(e),
+                    }
+                    logging.exception(json_dumps(log_dict))
+                    await post_to_slack(
+                        f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} from "
+                        f"{provider_name} validation failed: {str(e)}"
+                    )
+                    # Re-raise the exception to trigger a retry
+                    raise
 
 
 def verify_hf_model(model: LanguageModel) -> bool:
