@@ -247,8 +247,8 @@ async def test_feedback_and_qt_eval_reward(
 
     # Test no reward for high-point users.
     for args in (
-        (10000, 0, 0),
-        (0, 50000, 0),
+        (30000, 0, 0),
+        (0, 80000, 0),
         (0, 0, 200000),
     ):
         mock_get_reward_points.side_effect = lambda user_id, session, delta: get_limits(*args)[delta]  # noqa

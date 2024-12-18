@@ -1,6 +1,6 @@
 constants: &constants
-  daily_points_limit: &daily_points_limit 10000
-  weekly_points_limit: &weekly_points_limit 30000
+  daily_points_limit: &daily_points_limit 20000
+  weekly_points_limit: &weekly_points_limit 50000
   monthly_points_limit: &monthly_points_limit 100000
 
 amount_rules:
