@@ -1,15 +1,20 @@
 import json
+import logging
 import random
 import re
 from typing import Any, Literal
 
+import vertexai
+import vertexai.preview
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 from pydantic.v1 import BaseModel as BaseModelV1
+from vertexai.preview.generative_models import GenerativeModel
 
 from ypl.backend.llm.chat import ModelInfo
 from ypl.backend.llm.constants import MODEL_HEURISTICS
 from ypl.backend.llm.labeler import InputType, LLMLabeler, OnErrorBehavior, OutputType
+from ypl.backend.llm.prompt_classifiers import CategorizerResponse, PromptCategorizer
 from ypl.backend.prompts import (
     FEEDBACK_QUALITY_PROMPT_TEMPLATE,
     JUDGE_QUICK_RESPONSE_QUALITY_PROMPT_TEMPLATE,
@@ -205,7 +210,7 @@ class YuppSingleDifficultyLabeler(LLMLabeler[str, int]):
         return -1
 
 
-class YuppOnlinePromptLabeler(LLMLabeler[str, bool]):
+class YuppOnlinePromptLabeler(PromptCategorizer, LLMLabeler[str, bool]):
     def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
         return JUDGE_YUPP_ONLINE_PROMPT_TEMPLATE | llm  # type: ignore
 
@@ -215,9 +220,37 @@ class YuppOnlinePromptLabeler(LLMLabeler[str, bool]):
     def _parse_output(self, output: BaseMessage) -> bool:
         return "true" in str(output.content)
 
+    def categorize(self, user_prompt: str) -> CategorizerResponse:
+        return CategorizerResponse(category="online" if self.label(user_prompt) else "offline")
+
     @property
     def error_value(self) -> bool:
         return False
+
+
+class FastVertexAIOnlinePromptLabeler(PromptCategorizer):
+    def __init__(self, project_id: str, region: str, model: str = "gemini-1.5-flash-002") -> None:
+        self.project_id = project_id
+        self.region = region
+        self._init = False
+
+        try:
+            vertexai.init(project=self.project_id, location=self.region)
+            self.model = GenerativeModel(model)
+            self._init = True
+        except Exception as e:
+            logging.error(f"Error initializing Vertex AI: {e}")
+
+    def _infer_category(self, user_prompt: str) -> str:
+        assert self.model is not None
+        response = self.model.generate_content([user_prompt], temperature=0.0, max_tokens=16)
+        return "online" if response.text else "offline"
+
+    def categorize(self, user_prompt: str) -> CategorizerResponse:
+        if not self._init:
+            return CategorizerResponse(category="offline")
+
+        return CategorizerResponse(category=self._infer_category(user_prompt))
 
 
 class YuppMultilabelClassifier(LLMLabeler[str, list[str]]):

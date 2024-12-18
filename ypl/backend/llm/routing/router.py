@@ -25,13 +25,13 @@ from ypl.backend.llm.chat import (
     deduce_semantic_groups,
     get_all_pro_models,
     get_all_strong_models,
-    get_chat_model,
 )
 from ypl.backend.llm.constants import MODEL_HEURISTICS, ChatProvider
 from ypl.backend.llm.judge import YuppOnlinePromptLabeler
 from ypl.backend.llm.ranking import ConfidenceIntervalRankerMixin, Ranker, get_ranker
 from ypl.backend.llm.routing.policy import SelectionCriteria, decayed_random_fraction
 from ypl.backend.llm.routing.route_data_type import RoutingPreference
+from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter
 from ypl.backend.utils.json import json_dumps
 from ypl.db.language_models import LanguageModel, LanguageModelResponseStatus, LanguageModelResponseStatusEnum
 from ypl.utils import RNGMixin
@@ -1512,6 +1512,26 @@ class HighErrorRateFilter(RNGMixin, ModelFilter):
         return Exclude(models=rejected_models)._filter(state)
 
 
+# Begin get simple pro router routine ###################################
+online_yupp_model = YuppOnlinePromptLabeler(
+    GeminiLangChainAdapter(
+        model_info=ModelInfo(
+            provider=ChatProvider.GOOGLE,
+            model="gemini-1.5-flash-002",
+            api_key=settings.GOOGLE_API_KEY,
+        ),
+        model_config=dict(
+            project_id=settings.GCP_PROJECT_ID,
+            region=settings.GCP_REGION,
+            temperature=0.0,
+            max_output_tokens=16,
+            top_k=1,
+        ),
+    ),
+    timeout_secs=settings.ROUTING_TIMEOUT_SECS,
+)
+
+
 async def get_simple_pro_router(
     prompt: str,
     num_models: int,
@@ -1524,19 +1544,6 @@ async def get_simple_pro_router(
 
     preference = routing_preference or RoutingPreference(turns=[])
     reputable_proposer = RandomModelProposer(providers=reputable_providers or set(settings.ROUTING_REPUTABLE_PROVIDERS))
-
-    online_yupp_model = YuppOnlinePromptLabeler(
-        get_chat_model(
-            ModelInfo(
-                provider=ChatProvider.GOOGLE,
-                model="gemini-1.5-flash-002",
-                api_key=settings.GOOGLE_API_KEY,
-            ),
-            temperature=0.0,
-            max_tokens=16,
-        ),
-        timeout_secs=settings.ROUTING_TIMEOUT_SECS,
-    )
     category = "online" if await online_yupp_model.alabel(prompt) else "offline"
 
     rule_proposer = RoutingRuleProposer(category)

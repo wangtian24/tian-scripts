@@ -85,7 +85,7 @@ class Settings(BaseSettings):
     ROUTING_WEIGHTS: dict[str, float] = {}
 
     # The timeout for the prompt categorizer in routing
-    ROUTING_TIMEOUT_SECS: float = 0.75
+    ROUTING_TIMEOUT_SECS: float = 1.25
 
     # Whether to use prompt-conditional routing. Defaults to false.
     ROUTING_USE_PROMPT_CONDITIONAL: bool = False
@@ -99,6 +99,10 @@ class Settings(BaseSettings):
     PYTORCH_SERVE_GCP_SERVICE_NAME: str = "backend-pytorch-service"
     PYTORCH_SERVE_GCP_REGION: str = "us-central1"  # only region that supports L4 GPUs
     PYTORCH_SERVE_GCP_URL: str = ""
+
+    # The cloud run project ID and region
+    GCP_PROJECT_ID: str = ""
+    GCP_REGION: str = "us-east4"
 
     CDP_API_KEY_NAME: str = os.getenv("CDP_API_KEY_NAME", "")
     CDP_API_KEY_PRIVATE_KEY: str = os.getenv("CDP_API_KEY_PRIVATE_KEY", "")

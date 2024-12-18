@@ -52,9 +52,15 @@ on:
         required: true
         default: 'https://backend-pytorch-service-staging-451082535721.us-central1.run.app/api/v1'
         type: string
+      llm_gcp_region:
+        description: 'GCP region for the LLM'
+        required: true
+        default: 'us-east4'
+        type: string
 
 
 env:
+  GCP_REGION: ${{ github.event.inputs.llm_gcp_region || 'us-east4' }}
   GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   SERVICE_NAME: ${{ github.event.inputs.image || 'backend' }}
   IMAGE_NAME: "gcr.io/yupp-llms/${{ github.event.inputs.image || 'backend' }}-${{ github.event.inputs.environment || 'staging' }}:v1"
@@ -134,7 +140,9 @@ jobs:
         echo "ANALYTICS_SLACK_WEBHOOK_URL=${{ secrets.ANALYTICS_SLACK_WEBHOOK_URL }}" >> .env
         echo "CRYPTO_EXCHANGE_PRICE_API_URL_COINBASE=${{ secrets.CRYPTO_EXCHANGE_PRICE_API_URL_COINBASE }}" >> .env
         echo "CRYPTO_EXCHANGE_PRICE_API_KEY_COINBASE=${{ secrets.CRYPTO_EXCHANGE_PRICE_API_KEY_COINBASE }}" >> .env
-        echo "ROUTING_TIMEOUT_SECS=0.75" >> .env
+        echo "ROUTING_TIMEOUT_SECS=1.25" >> .env
+        echo "GCP_PROJECT_ID=${{ env.GCP_PROJECT_ID }}" >> .env
+        echo "GCP_REGION=${{ env.GCP_REGION }}" >> .env
         if [[ "${{ env.ENVIRONMENT }}" == "production" ]]; then
           echo "POSTGRES_USER=${{ secrets.POSTGRES_USER }}" >> .env
           echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_PRODUCTION }}" >> .env
