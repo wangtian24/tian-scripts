@@ -149,13 +149,14 @@ def fetch_categories_with_descriptions_from_db() -> dict[str, str | None]:
         return {name: description for name, description in categories}
 
 
-async def post_to_slack(message: str, webhook_url: str | None = None) -> None:
+async def post_to_slack(message: str | None = None, webhook_url: str | None = None, blocks: list | None = None) -> None:
     """
     Post a message to a Slack channel using a webhook URL.
 
     Args:
         message (str): The message to post to Slack.
         webhook_url (str | None): Optional webhook URL. If not provided, uses the URL from environment variables.
+        blocks: Optional blocks to post to Slack.
     """
     if os.environ.get("ENVIRONMENT") != "production":
         print(f"Skipping Slack posting in non-production environment: \n{message}")
@@ -171,7 +172,7 @@ async def post_to_slack(message: str, webhook_url: str | None = None) -> None:
 
     try:
         webhook = WebhookClient(url_to_use)
-        response = webhook.send(text=message)
+        response = webhook.send(text=message, blocks=blocks)
         if response.status_code != 200:
             log_dict = {
                 "message": f"Failed to post message to Slack. Status code: {response.status_code}",

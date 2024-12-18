@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import math
+import os
 import random
 import time
 import uuid
@@ -21,6 +22,7 @@ from tenacity import after_log, retry, retry_if_exception_type, stop_after_attem
 
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine, get_engine
+from ypl.backend.jobs.tasks import post_to_slack_task
 from ypl.backend.llm.chat import ModelInfo, get_chat_model
 from ypl.backend.llm.constants import ChatProvider
 from ypl.backend.llm.judge import FeedbackQualityLabeler
@@ -80,11 +82,6 @@ class RewardTier:
     comments: list[str]
     name: str
 
-
-REWARD_TIER_VERY_LOW = "very_low"
-REWARD_TIER_LOW = "low"
-REWARD_TIER_MEDIUM = "medium"
-REWARD_TIER_HIGH = "high"
 
 DEFAULT_COMMENTS = [
     "Thanks for your input on model responses.",
@@ -296,7 +293,7 @@ def get_reward(
     after=after_log(logging.getLogger(), logging.WARNING),
     retry=retry_if_exception_type((OperationalError, DatabaseError)),
 )
-def turn_based_reward(
+async def turn_based_reward(
     user_id: str, turn_id: UUID
 ) -> tuple[bool, int, int, str, RewardAmountRule | None, RewardProbabilityRule | None]:
     """
@@ -340,6 +337,13 @@ def turn_based_reward(
         reward_amount = 0
         high_value_reward_amount = 0
 
+    post_reward_to_slack(
+        should_reward=should_reward,
+        reward_amount=reward_amount,
+        high_value_reward_amount=high_value_reward_amount,
+        **user_turn_reward.to_dict(),
+    )
+
     return (
         should_reward,
         reward_amount,
@@ -348,6 +352,60 @@ def turn_based_reward(
         user_turn_reward.amount_rule,
         user_turn_reward.probability_rule,
     )
+
+
+def post_reward_to_slack(
+    action_type: RewardActionEnum,
+    user_id: str,
+    should_reward: bool,
+    reward_amount: int,
+    probability_rule: RewardProbabilityRule | None,
+    amount_rule: RewardAmountRule | None,
+    **kwargs: Any,
+) -> None:
+    """Post a reward to Slack in a background task."""
+    webhook_url = os.environ.get("REWARDS_SLACK_WEBHOOK_URL")
+    if settings.ENVIRONMENT != "production" or not webhook_url:
+        return
+
+    probability_rule_str = f"`{probability_rule.name}`" if probability_rule else "[none]"
+    amount_rule_str = f"`{amount_rule.name}`" if amount_rule else "[none]"
+    blocks = [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f":moneybag: *Reward for {action_type.name} event* ({reward_amount} points)",
+            },
+        },
+        {
+            "type": "section",
+            "fields": [
+                {"type": "mrkdwn", "text": f"*User ID*\n{user_id}"},
+                {"type": "mrkdwn", "text": f"*Should Reward?*\n{should_reward}"},
+            ],
+        },
+        {
+            "type": "section",
+            "fields": [
+                {"type": "mrkdwn", "text": f"*Probability Rule*\n{probability_rule_str}"},
+                {"type": "mrkdwn", "text": f"*Amount Rule*\n{amount_rule_str}"},
+            ],
+        },
+    ]
+
+    if kwargs:
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f":receipt: *Additional Information*\n```{json_dumps(kwargs, indent=2)}```",
+                },
+            }
+        )
+
+    post_to_slack_task.delay(message=None, blocks=blocks, webhook_url=webhook_url)
 
 
 def get_reward_llm() -> BaseChatModel:
@@ -515,6 +573,15 @@ async def feedback_based_reward(
         "reward_comment": reward_comment,
     }
     logging.info(json_dumps(log_dict))
+
+    post_reward_to_slack(
+        should_reward=should_reward,
+        reward_amount=reward_amount,
+        probability_rule=probability_rule,
+        amount_rule=amount_rule,
+        **reward_params,  # type: ignore
+    )
+
     return (
         should_reward,
         reward_amount,
@@ -550,6 +617,14 @@ async def qt_eval_reward(user_id: str) -> tuple[bool, int, str, RewardAmountRule
     reward_amount = await generate_bounded_reward(min_value, max_value)
 
     reward_comment = f"QT Eval reward: {reward_amount} credits."
+
+    post_reward_to_slack(
+        should_reward=should_reward,
+        reward_amount=reward_amount,
+        probability_rule=None,
+        amount_rule=None,
+        **params,  # type: ignore
+    )
 
     return (
         should_reward,

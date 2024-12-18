@@ -41,7 +41,7 @@ async def handle_turn_reward(reward_action_log: RewardActionLog) -> RewardCreati
         comment,
         reward_amount_rule,
         reward_probability_rule,
-    ) = turn_based_reward(updated_reward_action_log.user_id, turn_id)
+    ) = await turn_based_reward(updated_reward_action_log.user_id, turn_id)
 
     if should_reward:
         created_reward = await create_reward(
