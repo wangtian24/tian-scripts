@@ -3,7 +3,7 @@ from typing import Literal
 
 import numpy as np
 import tiktoken
-from pydantic.v1 import BaseModel as BaseModelV1
+from pydantic import BaseModel as BaseModelV1
 from transformers import AutoTokenizer
 from vertexai.preview import tokenization
 

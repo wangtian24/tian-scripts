@@ -7,7 +7,7 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_openai import OpenAIEmbeddings
-from pydantic.v1 import SecretStr
+from pydantic import SecretStr
 
 from ypl.backend.config import settings
 from ypl.backend.llm.chat import ModelInfo
