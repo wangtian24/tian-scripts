@@ -206,3 +206,22 @@ async def get_model_base_statistics(model_id: str) -> LanguageModelStatistics:
             output_avg_tps=llm.output_avg_tps,
             output_p90_tps=llm.output_p90_tps,
         )
+
+
+class ModelResponseTelemetry(BaseModel):
+    """Telemetry data for a model response.
+
+    Attributes:
+        request_timestamp: Timestamp (in ms) when the request to the language model was created
+        first_token_timestamp: Timestamp (in ms) when the first token was received for streaming model.
+            Absent for non-streaming model.
+        last_token_timestamp: Timestamp (in ms) when the last token was received for streaming model,
+            or when the response was completed if it was not a streaming request.
+        completion_tokens: Number of tokens returned in the response.
+    """
+
+    requestTimestamp: float
+    firstTokenTimestamp: float | None = None
+    lastTokenTimestamp: float | None = None
+    completionTokens: int | None = None
+    experiments: dict | None = None

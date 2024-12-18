@@ -1520,7 +1520,7 @@ online_yupp_model = YuppOnlinePromptLabeler(
             model="gemini-1.5-flash-002",
             api_key=settings.GOOGLE_API_KEY,
         ),
-        model_config=dict(
+        model_config_=dict(
             project_id=settings.GCP_PROJECT_ID,
             region=settings.GCP_REGION,
             temperature=0.0,

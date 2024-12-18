@@ -7,9 +7,11 @@ from dotenv import load_dotenv
 from fastapi import APIRouter, Depends
 
 from ypl.backend.config import settings
+from ypl.backend.llm.provider.provider_clients import load_active_models_with_providers
 from ypl.backend.llm.ranking import get_ranker
+from ypl.backend.prompts import load_prompt_modifiers
 from ypl.backend.routes.api_auth import validate_api_key
-from ypl.backend.routes.v1 import chat_feed, credit, health, model, payment, rank, reward
+from ypl.backend.routes.v1 import chat_completions, chat_feed, credit, health, model, payment, rank, reward
 from ypl.backend.routes.v1 import chats as chats_route
 from ypl.backend.routes.v1 import provider as provider_route
 from ypl.backend.routes.v1 import route as llm_route
@@ -35,6 +37,11 @@ def app_init() -> None:
     if settings.ENVIRONMENT != "production":
         sa.event.listen(sa.engine.Engine, "before_cursor_execute", log_sql_query)
 
+    # prefetches the models-providers info & caches the data
+    load_active_models_with_providers()
+    # prefetches the prompt-modifiers & caches the data
+    load_prompt_modifiers()
+
     get_ranker().add_evals_from_db()
 
 
@@ -49,4 +56,6 @@ api_router.include_router(payment.router, prefix="/v1", tags=["payment"])
 api_router.include_router(provider_route.router, prefix="/v1", tags=["providers"])
 api_router.include_router(chat_feed.router, prefix="/v1", tags=["chat-feed"])
 api_router.include_router(chats_route.router, prefix="/v1", tags=["chats"])
+api_router.include_router(chat_completions.router, prefix="/v1", tags=["chat_completions"])
+
 app_init()

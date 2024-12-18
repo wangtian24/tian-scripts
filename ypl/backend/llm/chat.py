@@ -1,5 +1,7 @@
+import logging
 import random
 import re
+import traceback
 from collections.abc import Generator, Sequence
 from functools import lru_cache
 from pathlib import Path
@@ -13,19 +15,19 @@ from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.pydantic_v1 import BaseModel as BaseModelV1
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_mistralai import ChatMistralAI
 from langchain_openai import ChatOpenAI
-from pydantic.v1 import SecretStr
+from pydantic import BaseModel, SecretStr
 from sqlalchemy import text
 from sqlmodel import Session, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ypl.backend.db import get_async_engine, get_engine
 from ypl.backend.llm.constants import ACTIVE_MODELS_BY_PROVIDER, PROVIDER_MODEL_PATTERNS, ChatProvider
+from ypl.backend.llm.provider.provider_clients import get_model_provider_tuple
 from ypl.backend.llm.routing.route_data_type import PreferredModel, RoutingPreference
-from ypl.db.chats import Chat, ChatMessage, MessageType
+from ypl.db.chats import Chat, ChatMessage, MessageType, MessageUIStatus, PromptModifierAssoc, Turn
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
 from ypl.utils import async_timed_cache
 
@@ -37,7 +39,7 @@ YuppMessage = HumanMessage | AIMessage | SystemMessage  # this is needed for pro
 YuppMessageRow = list[YuppMessage]
 
 
-class ModelInfo(BaseModelV1):
+class ModelInfo(BaseModel):
     provider: ChatProvider | str
     model: str
     api_key: str
@@ -495,7 +497,7 @@ def get_chat_history_model(
 
 
 # langchain uses Pydantic v1 in YuppMessage; using for compatibility
-class Persona(BaseModelV1):
+class Persona(BaseModel):
     persona: str = ""
     interests: list[str] = []
     style: str = ""
@@ -515,7 +517,7 @@ class Persona(BaseModelV1):
 
 
 # langchain uses Pydantic v1 in YuppMessage; using for compatibility
-class YuppChatMessageHistory(BaseModelV1):
+class YuppChatMessageHistory(BaseModel):
     """
     Holds the chat history for a Yupp chat. Each turn can be composed of multiple chat messages (e.g., from two
     LLMs in parallel), so we use a list of messages to represent a turn.
@@ -727,3 +729,103 @@ async def get_turn_id_from_message_id(message_id: UUID) -> UUID | None:
         if message:
             return message.turn_id
         return None
+
+
+async def get_curated_chat_context(chat_id: UUID) -> list[dict]:
+    """Fetch chat history and format it for OpenAI context"""
+    query = (
+        select(ChatMessage)
+        .join(Turn, Turn.turn_id == ChatMessage.turn_id)  # type: ignore[arg-type]
+        .join(Chat, Chat.chat_id == Turn.chat_id)  # type: ignore[arg-type]
+        .where(
+            Chat.chat_id == chat_id,
+            ChatMessage.deleted_at.is_(None),  # type: ignore[union-attr]
+            Turn.deleted_at.is_(None),  # type: ignore[union-attr]
+            Chat.deleted_at.is_(None),  # type: ignore[union-attr]
+        )
+        .order_by(
+            Turn.sequence_id.asc(),  # type: ignore[attr-defined]
+            ChatMessage.turn_sequence_number.asc(),  # type: ignore[union-attr]
+        )
+    )
+
+    async with AsyncSession(get_async_engine()) as session:
+        result = await session.exec(query)
+        messages = result.all()
+
+    # Group messages by turn_id
+    turns: dict[UUID, list[ChatMessage]] = {}
+    for msg in messages:
+        if msg.turn_id not in turns:
+            turns[msg.turn_id] = []
+        turns[msg.turn_id].append(msg)
+
+    formatted_messages = []
+    for turn_messages in turns.values():
+        # Get user messages
+        user_msgs = [msg for msg in turn_messages if msg.message_type == MessageType.USER_MESSAGE]
+        if user_msgs:
+            formatted_messages.append({"role": "user", "content": user_msgs[0].content})
+
+        # Get assistant messages
+        assistant_msgs = [msg for msg in turn_messages if msg.message_type == MessageType.ASSISTANT_MESSAGE]
+        if assistant_msgs:
+            # Try to find message with SELECTED status
+            selected_msg = next(
+                (msg for msg in assistant_msgs if msg.ui_status == MessageUIStatus.SELECTED),
+                assistant_msgs[0],  # Fallback to first message if none selected
+            )
+            # TODO(bhanu) - add defensive check for null content and add placeholder.
+            # Note - UI already adds a placeholder Err text and persists
+            formatted_messages.append({"role": "assistant", "content": selected_msg.content})
+
+    return formatted_messages
+
+
+# TODO(bhanu) - add retry logic -
+# note - if we are not awaiting for turn_id in FE, this might fail with FK failed exception, retrying will solve.
+async def persist_chat_message(
+    turn_id: UUID,
+    message_id: UUID,
+    content: str,
+    model: str,
+    turn_seq_num: int,
+    streaming_metrics: dict[str, str] | None = None,
+    prompt_modifier_ids: list[UUID] | None = None,
+) -> None:
+    result = get_model_provider_tuple(model)  # accessed cached LanguageModel
+
+    if result is None:
+        raise ValueError(f"No model and provider found for {model}")
+    language_model = result[0]
+
+    """Persist chat message"""
+    async with AsyncSession(get_async_engine()) as session:
+        try:
+            # Create chat message
+            chat_message = ChatMessage(
+                turn_id=turn_id,
+                message_id=message_id,
+                message_type=MessageType.ASSISTANT_MESSAGE,
+                content=content,
+                assistant_model_name=model,  # Deprecated but still used
+                streaming_metrics=streaming_metrics or {},
+                turn_sequence_number=turn_seq_num,  # TODO(bhanu) First message in the turn
+                assistant_language_model_id=language_model.language_model_id,
+            )
+
+            # Add prompt modifier associations if provided
+            if prompt_modifier_ids:
+                for modifier_id in prompt_modifier_ids:
+                    prompt_modifier_assoc = PromptModifierAssoc(
+                        prompt_modifier_id=modifier_id, chat_message_id=message_id
+                    )
+                    session.add(prompt_modifier_assoc)
+
+            session.add(chat_message)
+            await session.commit()
+
+        except Exception as e:
+            await session.rollback()
+            logging.error(f"Error persisting chat message: {str(e)} \n" + traceback.format_exc())
+            raise

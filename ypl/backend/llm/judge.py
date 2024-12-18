@@ -8,7 +8,7 @@ import vertexai
 import vertexai.preview
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
-from pydantic.v1 import BaseModel as BaseModelV1
+from pydantic import BaseModel as BaseModelV1
 from vertexai.preview.generative_models import GenerativeModel
 
 from ypl.backend.llm.chat import ModelInfo

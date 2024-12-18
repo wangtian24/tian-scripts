@@ -12,8 +12,8 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.pydantic_v1 import BaseModel as BaseModelV1
-from pydantic.v1.error_wrappers import ValidationError
+from pydantic import BaseModel
+from pydantic.error_wrappers import ValidationError
 from sqlmodel import Session
 from tqdm.asyncio import tqdm_asyncio
 
@@ -39,7 +39,7 @@ from ypl.db.chats import Chat, ChatMessage, Eval, EvalType, MessageType, Turn
 from ypl.db.users import SyntheticBackfillAttributes
 
 
-class SampleLLMEntry(BaseModelV1):
+class SampleLLMEntry(BaseModel):
     """Represents an LLM to be sampled during synthetic conversation generation"""
 
     info: ModelInfo
@@ -47,7 +47,7 @@ class SampleLLMEntry(BaseModelV1):
 
 
 # langchain uses Pydantic v1 in BaseMessage; using for compatibility
-class SynthesizerConfig(BaseModelV1):
+class SynthesizerConfig(BaseModel):
     personas: list[Persona] = []
     use_personas: bool = True  # if False, use unconditional generation
     generate_num_personas: int = 0  # if zero, do not generate any personas and use the ones specified

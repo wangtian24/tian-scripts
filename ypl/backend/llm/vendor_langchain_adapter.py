@@ -17,7 +17,7 @@ GOOGLE_ROLE_MAP = dict(human="user", assistant="model")
 
 class VendorLangChainAdapter(BaseChatModel):
     model_info: ModelInfo
-    model_config: dict[str, Any]
+    model_config_: dict[str, Any]
 
     @abstractmethod
     def _generate(
@@ -41,11 +41,11 @@ class GeminiLangChainAdapter(VendorLangChainAdapter):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         """
-        GeminiLangChainAdapter is a wrapper around the Gemini LLM API. `model_config` must contain `project_id` and
+        GeminiLangChainAdapter is a wrapper around the Gemini LLM API. `model_config_` must contain `project_id` and
         `region` fields.
         """
-        kwargs["project_id"] = kwargs["model_config"].pop("project_id")
-        kwargs["region"] = kwargs["model_config"].pop("region")
+        kwargs["project_id"] = kwargs["model_config_"].pop("project_id")
+        kwargs["region"] = kwargs["model_config_"].pop("region")
 
         try:
             vertexai.init(project=kwargs["project_id"], location=kwargs["region"], api_key=kwargs["model_info"].api_key)
@@ -72,7 +72,7 @@ class GeminiLangChainAdapter(VendorLangChainAdapter):
         response = chat.send_message(
             messages[-1].content,
             generation_config=GenerationConfig(
-                **self.model_config,
+                **self.model_config_,
             ),
         )
 
