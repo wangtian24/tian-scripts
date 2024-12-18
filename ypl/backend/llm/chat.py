@@ -17,7 +17,7 @@ from langchain_core.pydantic_v1 import BaseModel as BaseModelV1
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_mistralai import ChatMistralAI
 from langchain_openai import ChatOpenAI
-from pydantic import SecretStr
+from pydantic.v1 import SecretStr
 from sqlalchemy import text
 from sqlmodel import Session, select
 from sqlmodel.ext.asyncio.session import AsyncSession
