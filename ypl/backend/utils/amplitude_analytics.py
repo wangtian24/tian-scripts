@@ -1,14 +1,21 @@
+import csv
 import logging
 import os
+import time
 from base64 import b64encode
 from datetime import datetime, timedelta
+from io import StringIO
 from typing import Any, Final
 
 import requests
 from requests.exceptions import RequestException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import TypedDict
+from ypl.backend.db import get_async_engine
 from ypl.backend.llm.utils import post_to_slack
 from ypl.backend.utils.json import json_dumps
+from ypl.db.users import User
 
 
 class ChartInfo(TypedDict):
@@ -42,6 +49,29 @@ AMPLITUDE_CHARTS: Final[dict[str, ChartInfo]] = {
     "credits_pref": {"id": "7ukm5tc7", "description": "credits pref", "series_number": 2},
     "credits_qt": {"id": "7ukm5tc7", "description": "credits qt", "series_number": 3},
 }
+
+
+class CohortInfo(TypedDict):
+    id: str
+    description: str
+
+
+class AmplitudeError(Exception):
+    """Base exception for Amplitude-related errors."""
+
+    pass
+
+
+AMPLITUDE_COHORTS: Final[dict[str, CohortInfo]] = {
+    "daily_active_guests": {"id": "scljjdk9", "description": "Daily Active Guests"},
+    "weekly_active_guests": {"id": "wmr7jmrw", "description": "Weekly Active Guests"},
+}
+
+
+class AmplitudeTimeoutError(AmplitudeError):
+    """Raised when Amplitude requests timeout."""
+
+    pass
 
 
 def fetch_chart_data(chart_id: str, auth: str, start_date: datetime, end_date: datetime) -> dict[str, Any]:
@@ -78,23 +108,52 @@ def fetch_chart_data(chart_id: str, auth: str, start_date: datetime, end_date: d
         raise
 
 
-async def post_amplitude_metrics_to_slack() -> None:
-    """Fetch metrics from multiple Amplitude charts and post them to Slack.
+def fetch_cohort_data(cohort_id: str, auth: str, start_date: datetime, end_date: datetime) -> dict[str, Any]:
+    """Fetch data from a specific Amplitude cohort."""
+    url = f"https://amplitude.com/api/5/cohorts/request/{cohort_id}?props=1"
+
+    try:
+        response = requests.get(url, headers={"Authorization": f"Basic {auth}", "Accept": "application/json"})
+        response.raise_for_status()
+        request_id = response.json()["request_id"]
+
+        timeout = datetime.now() + timedelta(minutes=10)
+        while datetime.now() < timeout:
+            status_url = f"https://amplitude.com/api/5/cohorts/request-status/{request_id}"
+            response = requests.get(status_url, headers={"Host": "amplitude.com", "Authorization": f"Basic {auth}"})
+            response.raise_for_status()
+            status = response.json()["async_status"]
+            if status == "JOB COMPLETED":
+                cohort_url = f"https://amplitude.com/api/5/cohorts/request/{request_id}/file"
+                response = requests.get(cohort_url, headers={"Authorization": f"Basic {auth}"})
+                response.raise_for_status()
+
+                csv_data = StringIO(response.text)
+                reader = csv.DictReader(csv_data)
+                user_ids = [row["user_id"].strip('"') for row in reader]  # Remove quotes from user_ids
+
+                return {"ids": user_ids}
+
+            time.sleep(60)
+
+        raise ValueError(f"Timeout waiting for cohort data. Last status: {status}")
+
+    except RequestException as e:
+        logging.error(f"Failed to fetch data from Amplitude cohort: {e}")
+        raise
+
+
+async def post_data_from_charts(auth: str, start_date: datetime, end_date: datetime) -> None:
+    """Fetch and post data from multiple Amplitude charts.
+
+    Args:
+        auth: Basic auth header string.
+        start_date: Start date for the query.
+        end_date: End date for the query.
 
     Raises:
-        ValueError: If required environment variables are not set.
         RequestException: If API requests fail.
     """
-    api_key = os.environ.get("AMPLITUDE_API_KEY")
-    api_secret = os.environ.get("AMPLITUDE_API_SECRET")
-
-    if not api_key or not api_secret:
-        raise ValueError("AMPLITUDE_API_KEY and AMPLITUDE_API_SECRET must be set")
-
-    end_date = datetime.now()
-    start_date = end_date - timedelta(days=1)
-
-    auth = b64encode(f"{api_key}:{api_secret}".encode()).decode()
     message = f"*Amplitude Metrics for {start_date.date()}*\n"
     log_dict: dict[str, int] = {}
 
@@ -102,7 +161,6 @@ async def post_amplitude_metrics_to_slack() -> None:
         charts_items = list(AMPLITUDE_CHARTS.items())
         metrics: dict[str, int] = {}
 
-        # First collect all metrics
         for metric, chart_info in charts_items:
             try:
                 data = fetch_chart_data(chart_id=chart_info["id"], auth=auth, start_date=start_date, end_date=end_date)
@@ -114,7 +172,6 @@ async def post_amplitude_metrics_to_slack() -> None:
                 logging.error(f"Failed to process data for {metric}: {e}")
                 metrics[metric] = 0
 
-        # Format message in sections
         message = f"*Amplitude Metrics for {start_date.date()}*\n"
 
         # a. Users section
@@ -168,6 +225,91 @@ async def post_amplitude_metrics_to_slack() -> None:
         logging.info(json_dumps(log_dict))
         analytics_webhook_url = os.environ.get("ANALYTICS_SLACK_WEBHOOK_URL")
         await post_to_slack(message, analytics_webhook_url)
+
+    except Exception as e:
+        error_message = f"⚠️ Failed to process chart data: {e}"
+        logging.error(error_message)
+        raise
+
+
+async def fetch_user_names(user_ids: list[str]) -> dict[str, str]:
+    """Fetch multiple user names from the database in a single query."""
+    try:
+        engine = get_async_engine()
+        async with AsyncSession(engine) as session:
+            query = select(User).where(
+                User.user_id.in_(user_ids),  # type: ignore
+            )
+            result = await session.execute(query)
+            users = result.scalars().all()
+
+            name_dict = {user_id: user_id for user_id in user_ids}
+            name_dict.update({user.user_id: str(user.name).split()[0] for user in users if user.name})
+            return name_dict
+
+    except Exception as e:
+        logging.exception(f"Failed to fetch users from database: {e}")
+        return {user_id: user_id for user_id in user_ids}
+
+
+async def post_data_from_cohorts(auth: str, start_date: datetime, end_date: datetime) -> None:
+    """Fetch metrics for multiple Amplitude cohorts and post them to Slack."""
+    message = f"*Daily Active Guests for {start_date.date()}*"
+    log_dict: dict[str, int] = {}
+
+    try:
+        # Only process weekly cohorts on Sunday (weekday 6)
+        cohorts_items = [
+            (name, info)
+            for name, info in AMPLITUDE_COHORTS.items()
+            if not name.startswith("weekly_") or start_date.weekday() == 6
+        ]
+        metrics: dict[str, int] = {}
+
+        for cohort_name, cohort_info in cohorts_items:
+            try:
+                cohort_data = fetch_cohort_data(
+                    cohort_id=cohort_info["id"], auth=auth, start_date=start_date, end_date=end_date
+                )
+                user_ids = cohort_data.get("ids", [])
+                total_users = len(user_ids)
+                metrics[cohort_name] = total_users
+                message += f"\n{cohort_info['description']}: {total_users}\n"
+                user_names = await fetch_user_names(user_ids)
+                message += ", ".join(user_names.values())
+            except (KeyError, RequestException) as e:
+                logging.error(f"Failed to process data for cohort {cohort_name}: {e}")
+                metrics[cohort_name] = 0
+
+        logging.info(json_dumps(log_dict))
+        analytics_webhook_url = os.environ.get("ANALYTICS_SLACK_WEBHOOK_URL")
+        await post_to_slack(message, analytics_webhook_url)
+    except Exception as e:
+        error_message = f"⚠️ Failed to process cohort data: {e}"
+        logging.error(error_message)
+        raise
+
+
+async def post_amplitude_metrics_to_slack() -> None:
+    """Fetch metrics from multiple Amplitude charts and post them to Slack.
+
+    Raises:
+        ValueError: If required environment variables are not set.
+        RequestException: If API requests fail.
+    """
+    api_key = os.environ.get("AMPLITUDE_API_KEY")
+    api_secret = os.environ.get("AMPLITUDE_API_SECRET")
+
+    if not api_key or not api_secret:
+        raise ValueError("AMPLITUDE_API_KEY and AMPLITUDE_API_SECRET must be set")
+
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=1)
+    auth = b64encode(f"{api_key}:{api_secret}".encode()).decode()
+
+    try:
+        await post_data_from_charts(auth=auth, start_date=start_date, end_date=end_date)
+        await post_data_from_cohorts(auth=auth, start_date=start_date, end_date=end_date)
 
     except Exception as e:
         error_message = f"⚠️ Failed to fetch Amplitude metrics: {e}"
