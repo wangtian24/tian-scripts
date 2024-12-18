@@ -44,8 +44,8 @@ load_dotenv()  # Load environment variables from .env file
 
 # Define mean reward for evals, baseline value for medium tier (method="mean")
 MEAN_EVAL_REWARD = 50
-FEEDBACK_REWARD_LOWER_BOUND = 500
-FEEDBACK_REWARD_UPPER_BOUND = 1000
+FEEDBACK_REWARD_LOWER_BOUND = 400
+FEEDBACK_REWARD_UPPER_BOUND = 700
 QT_EVAL_REWARD_LOWER_BOUND = 100
 QT_EVAL_REWARD_UPPER_BOUND = 200
 
@@ -481,7 +481,7 @@ async def get_feedback_quality_score(user_id: str, feedback: str, llm: BaseChatM
             "feedback": feedback,
         }
         logging.warning(json_dumps(log_dict))
-        return 5  # Return average score on error
+        return 2  # Return average score on error
 
 
 async def generate_bounded_reward(lower_bound: int, upper_bound: int, quality_score: int | None = None) -> int:
@@ -505,8 +505,10 @@ async def generate_bounded_reward(lower_bound: int, upper_bound: int, quality_sc
 
     # Calculate the reward range for this quality score
     range_size = upper_bound - lower_bound
-    score_min = lower_bound + (range_size * FEEDBACK_QUALITY_MULTIPLIER[quality_score] * 0.8)
-    score_max = lower_bound + (range_size * FEEDBACK_QUALITY_MULTIPLIER[quality_score] * 1.2)
+    multiplier = FEEDBACK_QUALITY_MULTIPLIER[quality_score]
+    # Ensure the range stays within bounds
+    score_min = min(upper_bound, lower_bound + (range_size * multiplier * 0.8))
+    score_max = min(upper_bound, lower_bound + (range_size * multiplier * 1.2))
 
     # Add small random variation within the quality score's range
     reward_amount = int(round(random.uniform(score_min, score_max), -1))
@@ -547,8 +549,8 @@ async def feedback_based_reward(
     if probability_rule:
         should_reward = random.random() < probability_rule.probability
 
-    min_value = amount_rule.min_value if amount_rule else FEEDBACK_REWARD_LOWER_BOUND
-    max_value = amount_rule.max_value if amount_rule else FEEDBACK_REWARD_UPPER_BOUND
+    min_value = max(FEEDBACK_REWARD_LOWER_BOUND, amount_rule.min_value if amount_rule else FEEDBACK_REWARD_LOWER_BOUND)
+    max_value = min(FEEDBACK_REWARD_UPPER_BOUND, amount_rule.max_value if amount_rule else FEEDBACK_REWARD_UPPER_BOUND)
     reward_amount = await generate_bounded_reward(
         lower_bound=min_value,
         upper_bound=max_value,
