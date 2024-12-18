@@ -172,6 +172,7 @@ class CryptoRewardProcessor:
                 else:
                     raise CryptoWalletError("Wallet not initialized")
 
+            await self.ensure_wallet_funded(reward.amount, reward.asset_id)
             transfer = self.wallet.transfer(
                 amount=reward.amount, asset_id=reward.asset_id, destination=reward.wallet_address
             )
