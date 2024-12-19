@@ -18,6 +18,7 @@ from ypl.backend.llm.constants import ChatProvider
 from ypl.backend.llm.judge import DEFAULT_PROMPT_DIFFICULTY, YuppPromptDifficultyLabeler
 from ypl.backend.llm.labeler import QuickTakeGenerator
 from ypl.backend.llm.moderation import DEFAULT_MODERATION_RESULT, amoderate
+from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter, OpenAILangChainAdapter
 from ypl.backend.rw_cache import TurnQualityCache
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import Chat, ChatMessage, MessageType, TurnQuality
@@ -32,6 +33,45 @@ llm = get_chat_model(
     temperature=0.0,
 )
 
+gpt_4o_mini_llm = OpenAILangChainAdapter(
+    model_info=ModelInfo(
+        provider=ChatProvider.OPENAI,
+        model="gpt-4o-mini",
+        api_key=settings.OPENAI_API_KEY,
+    ),
+    model_config_=dict(
+        temperature=0.0,
+        max_tokens=40,
+    ),
+)
+
+openai_llm = OpenAILangChainAdapter(
+    model_info=ModelInfo(
+        provider=ChatProvider.OPENAI,
+        model="gpt-4o",
+        api_key=settings.OPENAI_API_KEY,
+    ),
+    model_config_=dict(
+        temperature=0.0,
+        max_tokens=40,
+    ),
+)
+
+gemini_15_flash_002_llm = GeminiLangChainAdapter(
+    model_info=ModelInfo(
+        provider=ChatProvider.GOOGLE,
+        model="gemini-1.5-flash-002",
+        api_key=settings.GOOGLE_API_KEY,
+    ),
+    model_config_=dict(
+        project_id=settings.GCP_PROJECT_ID,
+        region=settings.GCP_REGION,
+        temperature=0.0,
+        max_output_tokens=40,
+        top_k=1,
+    ),
+)
+
 MAX_PINNED_CHATS = 10
 
 
@@ -41,13 +81,24 @@ class QuickTakeResponse(BaseModel):
 
 class QuickTakeRequest(BaseModel):
     prompt: str | None = None
+    model: str = "gpt-4o"  # one of "gpt-4o", "gpt-4o-mini", "gemini-1.5-flash-002"
 
 
 async def generate_quicktake(
     request: QuickTakeRequest, chat_id: str | None = None, turn_id: str | None = None
 ) -> QuickTakeResponse:
     chat_history = [] if chat_id is None else get_chat_history(chat_id, turn_id)
-    quicktake_generator = QuickTakeGenerator(llm, chat_history)
+
+    match request.model:
+        case "gpt-4o":
+            quicktake_generator = QuickTakeGenerator(openai_llm, chat_history, timeout_secs=5.0)
+        case "gpt-4o-mini":
+            quicktake_generator = QuickTakeGenerator(gpt_4o_mini_llm, chat_history, timeout_secs=5.0)
+        case "gemini-1.5-flash-002":
+            quicktake_generator = QuickTakeGenerator(gemini_15_flash_002_llm, chat_history, timeout_secs=5.0)
+        case _:
+            raise HTTPException(status_code=400, detail="Invalid model")
+
     quicktake = await quicktake_generator.alabel(request.prompt or "")
 
     return QuickTakeResponse(quicktake=quicktake)

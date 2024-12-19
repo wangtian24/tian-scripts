@@ -3,16 +3,18 @@ from abc import abstractmethod
 from typing import Any
 
 import vertexai
-from langchain_core.callbacks import CallbackManagerForLLMRun
+from langchain_core.callbacks import AsyncCallbackManagerForLLMRun, CallbackManagerForLLMRun
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatResult
 from langchain_core.outputs.chat_generation import ChatGeneration
+from openai import AsyncOpenAI, OpenAI
 from vertexai.preview.generative_models import GenerationConfig, GenerativeModel
 
 from ypl.backend.llm.chat import ModelInfo
 
-GOOGLE_ROLE_MAP = dict(human="user", assistant="model")
+GOOGLE_ROLE_MAP = dict(human="user", assistant="model", ai="model")
+OPENAI_ROLE_MAP = dict(human="user", ai="assistant")
 
 
 class VendorLangChainAdapter(BaseChatModel):
@@ -77,3 +79,54 @@ class GeminiLangChainAdapter(VendorLangChainAdapter):
         )
 
         return ChatResult(generations=[ChatGeneration(message=AIMessage(content=response.text))])
+
+
+class OpenAILangChainAdapter(VendorLangChainAdapter):
+    model: OpenAI
+    async_model: AsyncOpenAI
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        kwargs["model"] = OpenAI(api_key=kwargs["model_info"].api_key)
+        kwargs["async_model"] = AsyncOpenAI(api_key=kwargs["model_info"].api_key)
+        super().__init__(*args, **kwargs)
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: CallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        for key, value in self.model_config_.items():
+            kwargs.setdefault(key, value)
+
+        response = self.model.chat.completions.create(
+            messages=[dict(role=message.type, content=message.content) for message in messages],  # type: ignore[misc]
+            model=self.model_info.model,
+            **kwargs,
+        )
+        content = str(response.choices[0].message.content)
+
+        return ChatResult(generations=[ChatGeneration(message=AIMessage(content=content))])
+
+    async def _agenerate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: AsyncCallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        for key, value in self.model_config_.items():
+            kwargs.setdefault(key, value)
+
+        response = await self.async_model.chat.completions.create(
+            messages=[
+                dict(role=OPENAI_ROLE_MAP.get(message.type, message.type), content=message.content)  # type: ignore[misc]
+                for message in messages
+            ],
+            model=self.model_info.model,
+            **kwargs,
+        )
+        content = str(response.choices[0].message.content)
+
+        return ChatResult(generations=[ChatGeneration(message=AIMessage(content=content))])

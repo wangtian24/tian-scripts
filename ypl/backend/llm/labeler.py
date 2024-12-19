@@ -414,10 +414,11 @@ class QuickTakeGenerator(LLMLabeler[str, str]):
         llm: BaseChatModel,
         chat_history: list[dict[str, Any]],
         keep_role: str | None = "assistant",
+        **kwargs: Any,
     ) -> None:
         self.keep_role = keep_role
         self.chat_history = chat_history
-        super().__init__(llm)
+        super().__init__(llm, **kwargs)
 
     @property
     def error_value(self) -> str:
