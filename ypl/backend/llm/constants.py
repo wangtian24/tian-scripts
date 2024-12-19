@@ -724,7 +724,7 @@ PROVIDER_KEY_MAPPING = {
 }
 
 PROVIDER_MODEL_PATTERNS = {
-    re.compile(r"^(chatgpt|gpt-[34]|o1).*$", re.IGNORECASE): "openai",
+    re.compile(r"^(openai|chatgpt|gpt-[34]|o1).*$", re.IGNORECASE): "openai",
     re.compile(r"^(gemini|google|gemma|palm).*$", re.IGNORECASE): "google",
     re.compile(r"^(mistral|codestral|pixtral|mixtral).*$", re.IGNORECASE): "mistralai",
     re.compile(r"^(claude|opus).*$", re.IGNORECASE): "anthropic",

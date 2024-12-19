@@ -367,7 +367,7 @@ def deduce_original_providers(models: tuple[str, ...]) -> dict[str, str]:
         for row in rows:
             provider, model = row[0], row[1]
             models_left.remove(model)
-            provider_map[model] = provider
+            provider_map[model] = standardize_provider_name(provider)
 
     for model in models_left:
         # On failure, assume model name is provider name
