@@ -15,6 +15,7 @@ from cachetools.func import ttl_cache
 from dotenv import load_dotenv
 from langchain_core.language_models import BaseChatModel
 from pydantic import BaseModel
+from scipy import stats
 from sqlalchemy import and_, func
 from sqlalchemy.exc import DatabaseError, OperationalError
 from sqlmodel import Session, select, update
@@ -348,15 +349,31 @@ class UserTurnReward:
 def get_reward(
     mean_reward: float = MEAN_EVAL_REWARD, min_value: int | None = None, max_value: int | None = None
 ) -> int:
-    raw_reward = math.ceil(-mean_reward * math.log(1 - random.random()))
-
     if min_value is not None and max_value is not None:
-        raw_reward_range = math.ceil(-mean_reward * math.log(1e-5))
-        raw_reward = max(0, min(raw_reward, raw_reward_range))
-        scaled_reward = min_value + (raw_reward / raw_reward_range) * (max_value - min_value)
-        return int(round(scaled_reward, -1))
+        return get_reward_truncated_normal(min_value, max_value)
 
+    raw_reward = math.ceil(-mean_reward * math.log(1 - random.random()))
     return int(round(raw_reward, -1))
+
+
+def get_reward_truncated_normal(min_value: int, max_value: int) -> int:
+    # min_value is the mean in a normal distribution
+    # max_value is 3 standard deviations up (sigma), and values are clamped thereafter
+
+    if min_value == max_value:
+        return min_value
+    if max_value < min_value:
+        raise ValueError("max_value must be greater than or equal to min_value.")
+
+    sigma = (max_value - min_value) / 3
+
+    a = 0
+    b = (max_value - min_value) / sigma
+
+    # Sample from truncated normal (right-side half)
+    reward = stats.truncnorm.rvs(a=a, b=b, loc=min_value, scale=sigma, size=1)[0]
+    reward = int(math.floor(reward))
+    return int(min(reward, max_value))
 
 
 @retry(
