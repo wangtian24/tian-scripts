@@ -5,7 +5,6 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import numpy as np
-import yaml
 from langchain_core.callbacks import AsyncCallbackManagerForLLMRun, CallbackManagerForLLMRun
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, ChatMessage
@@ -19,14 +18,14 @@ from ypl.backend.llm.reward import (
     QT_EVAL_REWARD_LOWER_BOUND,
     QT_EVAL_REWARD_UPPER_BOUND,
     UserTurnReward,
+    _load_rules_constants,
     feedback_based_reward,
     qt_eval_reward,
 )
 from ypl.backend.tests.test_utils import MockSession
 from ypl.db.rewards import RewardActionEnum, RewardAmountRule, RewardProbabilityRule
 
-with open("data/reward_rules.yml") as f:
-    RULES = yaml.safe_load(f)
+RULES = _load_rules_constants()
 
 # Emulate what the DB returns: the rules from reward_rules.yml, reverse-sorted by priority.
 MOCK_AMOUNT_RULES = sorted(
@@ -261,3 +260,36 @@ async def test_feedback_and_qt_eval_reward(
             assert should_reward is False
             assert rule_prob is not None
             assert rule_prob.name == expected_rule_name
+
+
+@patch("ypl.backend.llm.reward.get_async_engine")
+@patch("ypl.backend.llm.reward.get_reward_llm")
+@patch("ypl.backend.llm.reward._get_reward_points")
+@patch("ypl.backend.llm.reward.Session")
+@patch("ypl.backend.config.settings")
+@patch("pydantic.PostgresDsn.build")
+def test_turn_reward_amount(
+    mock_postgres_dsn: Any,
+    mock_settings: Any,
+    mock_get_llm: Any,
+    mock_get_reward_points: Any,
+    mock_session: Any,
+    mock_engine: Any,
+) -> None:
+    daily_points_limit = RULES.get("constants", {}).get("daily_points_limit", None)
+    assert daily_points_limit
+
+    utr_low_points = create_user_turn_reward(
+        points_last_day=10,
+    )
+    utr_mid_points = create_user_turn_reward(
+        points_last_day=daily_points_limit * 0.6,
+    )
+    utr_high_points = create_user_turn_reward(
+        points_last_day=daily_points_limit * 0.85,
+    )
+    amount_low_points = np.mean([utr_low_points.get_amount() for _ in range(20)])
+    amount_mid_points = np.mean([utr_mid_points.get_amount() for _ in range(20)])
+    amount_high_points = np.mean([utr_high_points.get_amount() for _ in range(20)])
+
+    assert amount_low_points > amount_mid_points > amount_high_points

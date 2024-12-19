@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from typing import Any, Literal
 from uuid import UUID
 
+import yaml
 from cachetools.func import ttl_cache
 from dotenv import load_dotenv
 from langchain_core.language_models import BaseChatModel
@@ -55,6 +56,9 @@ POOR_FEEDBACK_SCORE = 2
 AVERAGE_FEEDBACK_SCORE = 3
 GOOD_FEEDBACK_SCORE = 4
 EXCELLENT_FEEDBACK_SCORE = 5
+
+RULE_CONSTANTS: dict[str, Any] = {}
+RULES_PATH = "data/reward_rules.yml"
 
 FEEDBACK_QUALITY_MULTIPLIER = {
     # Poor quality (1)
@@ -240,6 +244,19 @@ class UserTurnReward:
     def _get_probability_rule(self) -> RewardProbabilityRule | None:
         return get_matching_rule(get_reward_probability_rules(self.action_type), self.to_dict())  # type: ignore
 
+    def _maybe_decay_amounts(self, min_value: int, max_value: int, mean_value: float) -> tuple[int, int, float]:
+        if "daily_points_limit" in RULE_CONSTANTS:
+            daily_points_limit = RULE_CONSTANTS["daily_points_limit"]
+            fraction_of_limit = self.points_last_day / daily_points_limit
+            if fraction_of_limit > 0.5:
+                # A higher constant means faster decay.
+                decay_factor = math.exp(-8 * (fraction_of_limit - 0.5))
+                min_value = int(round(min_value * decay_factor, -1))
+                max_value = int(round(max_value * decay_factor, -1))
+                mean_value = round(mean_value * decay_factor, -1)
+
+        return min_value, max_value, mean_value
+
     def get_amount(self, method: Literal["range", "mean"] = "range") -> int:
         rule = self.amount_rule
         if not rule:
@@ -249,11 +266,11 @@ class UserTurnReward:
             }
             logging.warning(json_dumps(log_dict))
             return 0
-        return (
-            get_reward(min_value=rule.min_value, max_value=rule.max_value)
-            if method == "range"
-            else get_reward(rule.mean_value)
-        )
+
+        # Optionally decay the reward amount, as the daily limit approaches.
+        min_value, max_value, mean_value = self._maybe_decay_amounts(rule.min_value, rule.max_value, rule.mean_value)
+
+        return get_reward(min_value=min_value, max_value=max_value) if method == "range" else get_reward(mean_value)
 
     def get_probability(self) -> float:
         rule = self.probability_rule
@@ -818,10 +835,20 @@ async def update_reward_status(reward_id: UUID, user_id: str, new_status: Reward
         await session.commit()
 
 
+def _load_rules_constants() -> Any:
+    global RULE_CONSTANTS
+    if not RULE_CONSTANTS:
+        with open(RULES_PATH) as f:
+            rule_data = yaml.safe_load(f)
+            RULE_CONSTANTS = rule_data.get("constants", {})
+            return rule_data
+
+
 def _get_reward_rules(
     rule_class: type[RewardAmountRule] | type[RewardProbabilityRule], rule_type: RewardActionEnum
 ) -> list[RewardRule]:
     """Get active reward rules of the specified type, sorted by priority."""
+    _load_rules_constants()
     with Session(get_engine()) as session:
         rules = session.exec(
             select(rule_class)

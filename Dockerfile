@@ -12,6 +12,7 @@ RUN pip install poetry==1.8.2 && \
 COPY ./pyproject.toml ./poetry.lock* /app/
 COPY ./ypl/ /app/ypl
 COPY ./data/nltk_data /home/nltk_data
+COPY ./data/ /app/data
 COPY ./.env /app/.env
 COPY ./README.md /app/README.md
 
