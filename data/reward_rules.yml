@@ -142,6 +142,20 @@ amount_rules:
     comments:
       - "Thank you for your feedback."
 
+  - name: base_sign_up_reward
+    priority: 100
+    is_active: true
+    is_default: true
+    action_type: SIGN_UP
+    conditions:
+      all:
+        - name: sign_up_reward_count
+          operator: greater_than_or_equal_to
+          value: 0
+    min_value: 1000
+    max_value: 1200
+    mean_value: 1100
+
 probability_rules:
   - name: under_point_limits_feedback_reward
     priority: 100
@@ -435,3 +449,26 @@ probability_rules:
           operator: greater_than
           value: 0
     probability: 0.5  # can increase this in staging for testing purposes
+
+  - name: base_sign_up_reward
+    priority: 100
+    is_active: true
+    action_type: SIGN_UP
+    conditions:
+      all:
+        - name: sign_up_reward_count
+          operator: equal_to
+          value: 0
+    probability: 1
+
+  - name: no_duplicate_sign_up_reward
+    priority: 0
+    is_active: true
+    is_default: true
+    action_type: SIGN_UP
+    conditions:
+      all:
+        - name: sign_up_reward_count
+          operator: greater_than
+          value: 0
+    probability: 0.0

@@ -179,6 +179,10 @@ class RewardVariables(BaseVariables):  # type: ignore
     def points_last_month(self) -> float | None:
         return self.context.get("points_last_month")
 
+    @numeric_rule_variable
+    def sign_up_reward_count(self) -> int | None:
+        return self.context.get("sign_up_reward_count")
+
 
 class RewardRule(BaseModel, table=False):
     __abstract__ = True

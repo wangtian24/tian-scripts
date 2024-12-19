@@ -642,6 +642,49 @@ async def qt_eval_reward(user_id: str) -> tuple[bool, int, str, RewardAmountRule
     )
 
 
+async def sign_up_reward(user_id: str) -> tuple[bool, int, str, RewardAmountRule | None, RewardProbabilityRule | None]:
+    action_type = RewardActionEnum.SIGN_UP
+    params = {
+        "user_id": user_id,
+        "action_type": action_type,
+        "sign_up_reward_count": await get_user_reward_count_by_action_type(user_id, action_type.name),
+    }
+
+    amount_rule: RewardAmountRule | None = get_matching_rule(get_reward_amount_rules(action_type), params)  # type: ignore
+    probability_rule: RewardProbabilityRule | None = get_matching_rule(  # type: ignore
+        get_reward_probability_rules(action_type), params
+    )
+
+    if probability_rule:
+        should_reward = random.random() < probability_rule.probability
+    else:
+        should_reward = False
+
+    if amount_rule:
+        reward_amount = await generate_bounded_reward(amount_rule.min_value, amount_rule.max_value)
+    else:
+        reward_amount = 0
+
+    reward_comment = f"Sign up reward: {reward_amount} credits."
+
+    post_reward_to_slack(
+        should_reward=should_reward,
+        reward_amount=reward_amount,
+        probability_rule=probability_rule,
+        amount_rule=amount_rule,
+        user_name=None,
+        **params,  # type: ignore
+    )
+
+    return (
+        should_reward,
+        reward_amount,
+        reward_comment,
+        amount_rule,
+        probability_rule,
+    )
+
+
 @dataclass
 class RewardClaimedResponse:
     comment: str
@@ -907,3 +950,25 @@ async def get_reward_action_log_by_user_and_turn(
         )
         result = await session.exec(query)
         return result.one_or_none()
+
+
+async def get_user_reward_count_by_action_type(user_id: str, action_type: str) -> int:
+    """
+    Get the count of rewards created for a user for a specific action type.
+
+    Args:
+        user_id: The ID of the user
+        action_type: The type of reward action to count
+
+    Returns:
+        int: The number of rewards created for the given action type
+    """
+    async with AsyncSession(get_async_engine()) as session:
+        query = select(func.count()).where(
+            RewardActionLog.user_id == user_id,
+            RewardActionLog.action_type == action_type,
+            RewardActionLog.deleted_at.is_(None),  # type: ignore
+            RewardActionLog.associated_reward_id.is_not(None),  # type: ignore
+        )
+        result = await session.exec(query)
+        return result.one() or 0

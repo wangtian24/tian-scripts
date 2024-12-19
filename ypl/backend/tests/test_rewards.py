@@ -21,6 +21,7 @@ from ypl.backend.llm.reward import (
     _load_rules_constants,
     feedback_based_reward,
     qt_eval_reward,
+    sign_up_reward,
 )
 from ypl.backend.tests.test_utils import MockSession
 from ypl.db.rewards import RewardActionEnum, RewardAmountRule, RewardProbabilityRule
@@ -260,6 +261,72 @@ async def test_feedback_and_qt_eval_reward(
             assert should_reward is False
             assert rule_prob is not None
             assert rule_prob.name == expected_rule_name
+
+
+@patch("ypl.backend.llm.reward.get_async_engine")
+@patch("ypl.backend.llm.reward.get_user_reward_count_by_action_type")
+@patch("ypl.backend.llm.reward.Session")
+@patch("ypl.backend.config.settings")
+@patch("pydantic.PostgresDsn.build")
+async def test_sign_up_reward(
+    mock_postgres_dsn: Any,
+    mock_settings: Any,
+    mock_session: Any,
+    mock_get_user_reward_count_by_action_type: Any,
+    mock_engine: Any,
+) -> None:
+    # Mock PostgresDsn.build to return a valid URL string
+    mock_postgres_dsn.return_value.unicode_string.return_value = "postgresql://test_user:test_pass@test_host/test_db"
+
+    # Configure the mock session
+    mock_session.return_value = MockSession()
+
+    # Configure the mock engine to return a mock connection
+    mock_engine_instance = AsyncMock()
+    mock_engine.return_value = mock_engine_instance
+
+    # Configure the user reward count mock
+    mock_get_user_reward_count_by_action_type.side_effect = lambda user_id, action_type: 0
+
+    test_user_id = "test_user"
+
+    result = await sign_up_reward(test_user_id)
+    should_reward, reward_amount, comment, rule_amount, rule_prob = result
+
+    assert should_reward is True  # Should always reward sign up
+    assert 1000 <= reward_amount <= 2000
+    assert isinstance(comment, str)
+    assert rule_amount is not None
+    assert rule_amount.name == "base_sign_up_reward"
+    assert rule_prob is not None
+    assert rule_prob.name == "base_sign_up_reward"
+
+
+@patch("ypl.backend.llm.reward.get_async_engine")
+@patch("ypl.backend.llm.reward.get_user_reward_count_by_action_type")
+@patch("ypl.backend.llm.reward.Session")
+@patch("ypl.backend.config.settings")
+@patch("pydantic.PostgresDsn.build")
+async def test_sign_up_reward_no_repeat(
+    mock_postgres_dsn: Any,
+    mock_settings: Any,
+    mock_session: Any,
+    mock_get_user_reward_count_by_action_type: Any,
+    mock_engine: Any,
+) -> None:
+    # Mock PostgresDsn.build to return a valid URL string
+    mock_postgres_dsn.return_value.unicode_string.return_value = "postgresql://test_user:test_pass@test_host/test_db"
+
+    mock_session.return_value = MockSession()
+    mock_engine.return_value = AsyncMock()
+
+    test_user_id = "test_user"
+
+    mock_get_user_reward_count_by_action_type.side_effect = lambda user_id, action_type: 1
+
+    result = await sign_up_reward(test_user_id)
+    should_reward, reward_amount, comment, rule_amount, rule_prob = result
+    assert should_reward is False  # should only reward once
 
 
 @patch("ypl.backend.llm.reward.get_async_engine")
