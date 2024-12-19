@@ -29,7 +29,7 @@ amount_rules:
       all:
         - name: turn_quality_score
           operator: greater_than_or_equal_to
-          value: 4
+          value: 3
     min_value: 300
     max_value: 2000
     mean_value: 350
