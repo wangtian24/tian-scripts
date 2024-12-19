@@ -387,12 +387,15 @@ def post_reward_to_slack(
 
     probability_rule_str = f"`{probability_rule.name}`" if probability_rule else "[none]"
     amount_rule_str = f"`{amount_rule.name}`" if amount_rule else "[none]"
+    reward_amount_str = f"{reward_amount}"
+    if reward_amount == 0:
+        reward_amount_str += " :red_circle:"
     blocks = [
         {
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f":moneybag: *Reward for {action_type.name} event* ({reward_amount} points)",
+                "text": f":moneybag: *Reward for {action_type.name} event* ({reward_amount_str} points)",
             },
         },
         {

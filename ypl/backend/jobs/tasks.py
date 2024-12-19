@@ -42,4 +42,12 @@ def store_language_code(chat_message_id: str, content: str) -> None:
 
 @celery_app.task
 def post_to_slack_task(message: str | None = None, webhook_url: str | None = None, blocks: list | None = None) -> None:
-    asyncio.get_event_loop().run_until_complete(post_to_slack(message, webhook_url, blocks))
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        asyncio.ensure_future(post_to_slack(message, webhook_url, blocks))
+    else:
+        asyncio.run(post_to_slack(message, webhook_url, blocks))
