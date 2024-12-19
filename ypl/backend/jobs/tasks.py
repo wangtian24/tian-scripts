@@ -47,7 +47,11 @@ def post_to_slack_task(message: str | None = None, webhook_url: str | None = Non
     except RuntimeError:
         loop = None
 
-    if loop and loop.is_running():
-        asyncio.ensure_future(post_to_slack(message, webhook_url, blocks))
-    else:
-        asyncio.run(post_to_slack(message, webhook_url, blocks))
+    try:
+        if loop and loop.is_running():
+            asyncio.ensure_future(post_to_slack(message, webhook_url, blocks))
+        else:
+            asyncio.run(post_to_slack(message, webhook_url, blocks))
+    except Exception as e:
+        log_dict = {"message": "Error posting to Slack", "error": str(e)}
+        logging.error(json_dumps(log_dict))

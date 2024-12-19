@@ -57,6 +57,8 @@ AVERAGE_FEEDBACK_SCORE = 3
 GOOD_FEEDBACK_SCORE = 4
 EXCELLENT_FEEDBACK_SCORE = 5
 
+LIMIT_REWARD_ACTION_TYPES = [PointsActionEnum.REWARD, PointsActionEnum.ADJUSTMENT, PointsActionEnum.SIGN_UP]
+
 RULE_CONSTANTS: dict[str, Any] = {}
 RULES_PATH = "data/reward_rules.yml"
 
@@ -148,6 +150,7 @@ class UserTurnReward:
     points_last_week: int = 0
     points_last_month: int = 0
     action_type: RewardActionEnum = RewardActionEnum.TURN
+    user_name: str | None = None
 
     def __post_init__(self) -> None:
         self._fetch_data_and_set_flags()
@@ -180,6 +183,7 @@ class UserTurnReward:
             self.is_new_user = user.is_new_user()
             self.is_inactive_user = user.is_inactive_user()
             self.points = user.points
+            self.user_name = user.name
 
             self.is_first_eval = not session.exec(
                 select(
@@ -374,6 +378,7 @@ async def turn_based_reward(
 def post_reward_to_slack(
     action_type: RewardActionEnum,
     user_id: str,
+    user_name: str | None,
     should_reward: bool,
     reward_amount: int,
     probability_rule: RewardProbabilityRule | None,
@@ -390,42 +395,18 @@ def post_reward_to_slack(
     reward_amount_str = f"{reward_amount}"
     if reward_amount == 0:
         reward_amount_str += " :red_circle:"
-    blocks = [
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f":moneybag: *Reward for {action_type.name} event* ({reward_amount_str} points)",
-            },
-        },
-        {
-            "type": "section",
-            "fields": [
-                {"type": "mrkdwn", "text": f"*User ID*\n{user_id}"},
-                {"type": "mrkdwn", "text": f"*Should Reward?*\n{should_reward}"},
-            ],
-        },
-        {
-            "type": "section",
-            "fields": [
-                {"type": "mrkdwn", "text": f"*Probability Rule*\n{probability_rule_str}"},
-                {"type": "mrkdwn", "text": f"*Amount Rule*\n{amount_rule_str}"},
-            ],
-        },
-    ]
+    user_str = user_name or f"id={user_id}"
+    message = (
+        f"\nUser: {user_str}\n"
+        f"Type: {action_type.value.lower()}_reward_calculated\n"
+        f"Probability Rule: {probability_rule_str}\n"
+        f"Amount Rule: {amount_rule_str}\n"
+        f"Should Reward: {should_reward}\n"
+        f"Reward Amount: {reward_amount_str}\n"
+        f"Additional Information:\n```{json_dumps(kwargs, indent=2)}```\n"
+    )
 
-    if kwargs:
-        blocks.append(
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f":receipt: *Additional Information*\n```{json_dumps(kwargs, indent=2)}```",
-                },
-            }
-        )
-
-    post_to_slack_task.delay(message=None, blocks=blocks, webhook_url=webhook_url)
+    post_to_slack_task.delay(message=message, webhook_url=webhook_url, user_id=user_id)
 
 
 def get_reward_llm() -> BaseChatModel:
@@ -448,11 +429,13 @@ def _get_reward_points(user_id: str, session: Session, delta: timedelta) -> int:
         select(func.sum(PointTransaction.point_delta)).where(
             PointTransaction.user_id == user_id,
             PointTransaction.deleted_at.is_(None),  # type: ignore
-            PointTransaction.action_type.in_([PointsActionEnum.REWARD, PointsActionEnum.ADJUSTMENT]),  # type: ignore
+            PointTransaction.action_type.in_(LIMIT_REWARD_ACTION_TYPES),  # type: ignore
             PointTransaction.created_at > (datetime.now() - delta),  # type: ignore
         )
     ).one()
-    return result or 0
+    if not result:
+        return 0
+    return max(0, result)
 
 
 def get_llm() -> BaseChatModel:
@@ -601,6 +584,7 @@ async def feedback_based_reward(
         reward_amount=reward_amount,
         probability_rule=probability_rule,
         amount_rule=amount_rule,
+        user_name=None,
         **reward_params,  # type: ignore
     )
 
@@ -645,6 +629,7 @@ async def qt_eval_reward(user_id: str) -> tuple[bool, int, str, RewardAmountRule
         reward_amount=reward_amount,
         probability_rule=None,
         amount_rule=None,
+        user_name=None,
         **params,  # type: ignore
     )
 
@@ -841,6 +826,14 @@ async def update_reward_status(reward_id: UUID, user_id: str, new_status: Reward
 def _load_rules_constants() -> Any:
     global RULE_CONSTANTS
     if not RULE_CONSTANTS:
+        if not os.path.exists(RULES_PATH):
+            log_dict = {
+                "message": "Rules file not found",
+                "rules_path": str(RULES_PATH),
+            }
+            logging.error(json_dumps(log_dict))
+            return
+
         with open(RULES_PATH) as f:
             rule_data = yaml.safe_load(f)
             RULE_CONSTANTS = rule_data.get("constants", {})
