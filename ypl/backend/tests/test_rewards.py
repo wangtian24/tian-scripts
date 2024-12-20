@@ -181,7 +181,8 @@ def mock_chat_model() -> Generator[Any, None, None]:
 
 
 @patch("ypl.backend.llm.reward.get_async_engine")
-@patch("ypl.backend.llm.reward.get_reward_llm")
+@patch("ypl.backend.llm.reward.get_chat_model")
+@patch("ypl.backend.llm.reward.GeminiLangChainAdapter")
 @patch("ypl.backend.llm.reward._get_reward_points")
 @patch("ypl.backend.llm.reward.Session")
 @patch("ypl.backend.config.settings")
@@ -189,9 +190,10 @@ def mock_chat_model() -> Generator[Any, None, None]:
 async def test_feedback_and_qt_eval_reward(
     mock_postgres_dsn: Any,
     mock_settings: Any,
-    mock_get_llm: Any,
-    mock_get_reward_points: Any,
     mock_session: Any,
+    mock_get_reward_points: Any,
+    mock_get_chat_model: Any,
+    mock_gemini_adapter: Any,
     mock_engine: Any,
 ) -> None:
     # Mock PostgresDsn.build to return a valid URL string
@@ -199,6 +201,11 @@ async def test_feedback_and_qt_eval_reward(
 
     mock_session.return_value = MockSession()
     mock_engine.return_value = AsyncMock()
+
+    # Configure both model mocks to return MockLLM
+    mock_llm_instance = MockLLM()
+    mock_get_chat_model.return_value = mock_llm_instance
+    mock_gemini_adapter.return_value = mock_llm_instance
 
     def get_limits(daily: int, weekly: int, monthly: int) -> dict[timedelta, int]:
         return {
@@ -208,12 +215,6 @@ async def test_feedback_and_qt_eval_reward(
         }
 
     mock_get_reward_points.side_effect = lambda user_id, session, delta: get_limits(100, 500, 2000)[delta]
-
-    # Create an AsyncMock that returns our MockLLM instance
-    mock_llm_context = AsyncMock()
-    mock_llm_instance = MockLLM()
-    mock_llm_context.__aenter__.return_value = mock_llm_instance
-    mock_get_llm.return_value = mock_llm_context
 
     test_user_id = "test_user"
     # Test cases
@@ -330,7 +331,8 @@ async def test_sign_up_reward_no_repeat(
 
 
 @patch("ypl.backend.llm.reward.get_async_engine")
-@patch("ypl.backend.llm.reward.get_reward_llm")
+@patch("ypl.backend.llm.reward.get_chat_model")
+@patch("ypl.backend.llm.reward.GeminiLangChainAdapter")
 @patch("ypl.backend.llm.reward._get_reward_points")
 @patch("ypl.backend.llm.reward.Session")
 @patch("ypl.backend.config.settings")
@@ -338,13 +340,19 @@ async def test_sign_up_reward_no_repeat(
 def test_turn_reward_amount(
     mock_postgres_dsn: Any,
     mock_settings: Any,
-    mock_get_llm: Any,
-    mock_get_reward_points: Any,
     mock_session: Any,
+    mock_get_reward_points: Any,
+    mock_get_chat_model: Any,
+    mock_gemini_adapter: Any,
     mock_engine: Any,
 ) -> None:
     daily_points_limit = RULES.get("constants", {}).get("daily_points_limit", None)
     assert daily_points_limit
+
+    # Configure both model mocks to return MockLLM
+    mock_llm_instance = MockLLM()
+    mock_get_chat_model.return_value = mock_llm_instance
+    mock_gemini_adapter.return_value = mock_llm_instance
 
     utr_low_points = create_user_turn_reward(
         points_last_day=10,

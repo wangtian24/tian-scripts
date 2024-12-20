@@ -27,6 +27,8 @@ from ypl.backend.jobs.tasks import post_to_slack_task
 from ypl.backend.llm.chat import ModelInfo, get_chat_model
 from ypl.backend.llm.constants import ChatProvider
 from ypl.backend.llm.judge import FeedbackQualityLabeler
+from ypl.backend.llm.labeler import MultiLLMLabeler
+from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import Chat, Eval, Turn, TurnQuality
 from ypl.db.point_transactions import PointsActionEnum, PointTransaction
@@ -45,8 +47,8 @@ load_dotenv()  # Load environment variables from .env file
 
 # Define mean reward for evals, baseline value for medium tier (method="mean")
 MEAN_EVAL_REWARD = 50
-FEEDBACK_REWARD_LOWER_BOUND = 400
-FEEDBACK_REWARD_UPPER_BOUND = 700
+FEEDBACK_REWARD_LOWER_BOUND = 500
+FEEDBACK_REWARD_UPPER_BOUND = 1000
 QT_EVAL_REWARD_LOWER_BOUND = 100
 QT_EVAL_REWARD_UPPER_BOUND = 200
 
@@ -74,6 +76,55 @@ FEEDBACK_QUALITY_MULTIPLIER = {
     # Excellent quality (5)
     5: 1.0,  # ~1500-2000 range
 }
+
+DEFAULT_QUALITY_SCORE = 3
+FALLBACK_QUALITY_SCORE = 2
+
+_JUDGE_4O_MINI: BaseChatModel | None = None
+_JUDGE_GEMINI: GeminiLangChainAdapter | None = None
+_LABELER_4O_MINI: FeedbackQualityLabeler | None = None
+_LABELER_GEMINI: FeedbackQualityLabeler | None = None
+_MULTI_LABELER: MultiLLMLabeler | None = None
+
+
+def get_multi_labeler() -> MultiLLMLabeler:
+    """Lazy initialization of LLM models and labelers."""
+    global _JUDGE_4O_MINI, _JUDGE_GEMINI, _LABELER_4O_MINI, _LABELER_GEMINI, _MULTI_LABELER
+
+    if _MULTI_LABELER is None:
+        _JUDGE_4O_MINI = get_chat_model(
+            ModelInfo(
+                provider=ChatProvider.OPENAI,
+                model="gpt-4o-mini",
+                api_key=settings.OPENAI_API_KEY,
+            ),
+            temperature=0.0,
+        )
+
+        _JUDGE_GEMINI = GeminiLangChainAdapter(
+            model_info=ModelInfo(
+                provider=ChatProvider.GOOGLE,
+                model="gemini-pro",
+                api_key=settings.GOOGLE_API_KEY,
+            ),
+            model_config_={
+                "project_id": settings.GCP_PROJECT_ID,
+                "region": settings.GCP_REGION,
+                "temperature": 0.0,
+                "candidate_count": 1,
+            },
+        )
+
+        _LABELER_4O_MINI = FeedbackQualityLabeler(_JUDGE_4O_MINI)
+        _LABELER_GEMINI = FeedbackQualityLabeler(_JUDGE_GEMINI)
+
+        _MULTI_LABELER = MultiLLMLabeler(
+            labelers={"gpt4": _LABELER_4O_MINI, "gemini": _LABELER_GEMINI},
+            timeout_secs=FEEDBACK_QUALITY_JUDGING_TIMEOUT,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+
+    return _MULTI_LABELER
 
 
 @dataclass
@@ -406,21 +457,6 @@ def post_reward_to_slack(
         logging.error(json_dumps(log_dict))
 
 
-def get_reward_llm() -> BaseChatModel:
-    """Get the LLM for reward evaluation. Separated for easier testing."""
-    return get_chat_model(
-        ModelInfo(
-            provider=ChatProvider.OPENAI,
-            model="gpt-4o-mini",
-            api_key=settings.OPENAI_API_KEY,
-        ),
-        temperature=0.0,
-    )
-
-
-_cached_llm: BaseChatModel | None = None
-
-
 def _get_reward_points(user_id: str, session: Session, delta: timedelta) -> int:
     result: int | None = session.exec(
         select(func.sum(PointTransaction.point_delta)).where(
@@ -435,53 +471,65 @@ def _get_reward_points(user_id: str, session: Session, delta: timedelta) -> int:
     return max(0, result)
 
 
-def get_llm() -> BaseChatModel:
-    """Get or create the LLM instance."""
-    global _cached_llm
-    if _cached_llm is None:
-        _cached_llm = get_reward_llm()
-    return _cached_llm
+async def get_feedback_quality_score(user_id: str, feedback: str) -> int:
+    """
+    Evaluate the quality of user feedback using multiple LLM models.
+    Uses MultiLLMLabeler to get the fastest response from available models.
 
+    Args:
+        user_id: The ID of the user providing feedback
+        feedback: The feedback text to evaluate
 
-async def get_feedback_quality_score(user_id: str, feedback: str, llm: BaseChatModel | None = None) -> int:
+    Returns:
+        int: Quality score from 1-5, where:
+            1 = Very Poor
+            2 = Poor
+            3 = Average
+            4 = Good
+            5 = Excellent
+    """
+    start_time = time.time()
+
     try:
-        start_time = time.time()
-        labeler = FeedbackQualityLabeler(llm or get_llm())
+        multi_labeler = get_multi_labeler()
+        results = await multi_labeler.alabel(feedback)
 
-        # Wrap the label call with timeout
-        try:
-            score = await asyncio.wait_for(labeler.alabel(feedback), timeout=FEEDBACK_QUALITY_JUDGING_TIMEOUT)
-        except TimeoutError:
-            log_dict = {
+        for model_name, result in results.items():
+            if isinstance(result, int):
+                elapsed_ms = (time.time() - start_time) * 1000
+                logging.info(
+                    {
+                        "message": "Feedback quality score latency",
+                        "feedback": feedback,
+                        "latency_ms": elapsed_ms,
+                        "score": result,
+                        "user_id": user_id,
+                        "winning_model": model_name,
+                    }
+                )
+                return result
+
+        logging.warning(
+            {
                 "message": "Timeout getting feedback quality score",
-                "user_id": user_id,
                 "feedback": feedback,
-                "timeout": FEEDBACK_QUALITY_JUDGING_TIMEOUT,
+                "user_id": user_id,
+                "timeout": time.time() - start_time,
+                "results": str(results),
             }
-            logging.warning(json_dumps(log_dict))
-            return 2  # Return lower score on timeout since it might be spam
+        )
+        return FALLBACK_QUALITY_SCORE
 
-        elapsed_time = (time.time() - start_time) * 1000  # Convert to milliseconds
-
-        log_dict = {
-            "message": "Feedback quality score latency",
-            "latency_ms": elapsed_time,
-            "score": score,
-            "user_id": user_id,
-            "feedback": feedback,
-        }
-        logging.info(json_dumps(log_dict))
-
-        return score
     except Exception as e:
-        log_dict = {
-            "message": "Error getting feedback quality score",
-            "error": str(e),
-            "user_id": user_id,
-            "feedback": feedback,
-        }
-        logging.warning(json_dumps(log_dict))
-        return 2  # Return average score on error
+        logging.exception(
+            {
+                "message": "Error evaluating feedback quality",
+                "error": str(e),
+                "user_id": user_id,
+                "feedback_length": len(feedback),
+            }
+        )
+        return DEFAULT_QUALITY_SCORE
 
 
 async def generate_bounded_reward(lower_bound: int, upper_bound: int, quality_score: int | None = None) -> int:
@@ -505,10 +553,8 @@ async def generate_bounded_reward(lower_bound: int, upper_bound: int, quality_sc
 
     # Calculate the reward range for this quality score
     range_size = upper_bound - lower_bound
-    multiplier = FEEDBACK_QUALITY_MULTIPLIER[quality_score]
-    # Ensure the range stays within bounds
-    score_min = min(upper_bound, lower_bound + (range_size * multiplier * 0.8))
-    score_max = min(upper_bound, lower_bound + (range_size * multiplier * 1.2))
+    score_min = lower_bound + (range_size * FEEDBACK_QUALITY_MULTIPLIER[quality_score] * 0.8)
+    score_max = lower_bound + (range_size * FEEDBACK_QUALITY_MULTIPLIER[quality_score] * 1.2)
 
     # Add small random variation within the quality score's range
     reward_amount = int(round(random.uniform(score_min, score_max), -1))
@@ -549,8 +595,8 @@ async def feedback_based_reward(
     if probability_rule:
         should_reward = random.random() < probability_rule.probability
 
-    min_value = max(FEEDBACK_REWARD_LOWER_BOUND, amount_rule.min_value if amount_rule else FEEDBACK_REWARD_LOWER_BOUND)
-    max_value = min(FEEDBACK_REWARD_UPPER_BOUND, amount_rule.max_value if amount_rule else FEEDBACK_REWARD_UPPER_BOUND)
+    min_value = amount_rule.min_value if amount_rule else FEEDBACK_REWARD_LOWER_BOUND
+    max_value = amount_rule.max_value if amount_rule else FEEDBACK_REWARD_UPPER_BOUND
     reward_amount = await generate_bounded_reward(
         lower_bound=min_value,
         upper_bound=max_value,
