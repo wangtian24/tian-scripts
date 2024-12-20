@@ -1,7 +1,7 @@
 import asyncio
 import logging
+import os
 
-from fast_langdetect import detect
 from sqlmodel import Session, select
 
 from ypl.backend.db import get_engine
@@ -12,9 +12,30 @@ from ypl.db.chats import ChatMessage, LanguageCode
 
 celery_app = init_celery()
 
+models_downloaded = False
+
+
+def maybe_init_langdetect() -> None:
+    global models_downloaded
+    if not models_downloaded:
+        import fast_langdetect
+        from fast_langdetect import detect
+
+        import ypl.db.all_models  # noqa
+
+        # fast_langdetect hardcodes its cache directory.
+        # Prevent multiple instances from using the same cache by appending the process ID.
+        fast_langdetect.ft_detect.infer.FTLANG_CACHE += f"-pid={os.getpid()}"
+        # Force the model to be downloaded by calling detect() for the first time.
+        detect("hello")
+        models_downloaded = True
+
 
 @celery_app.task(max_retries=3)
 def store_language_code(chat_message_id: str, content: str) -> None:
+    maybe_init_langdetect()
+    from fast_langdetect import detect
+
     if not content or not chat_message_id:
         return
 

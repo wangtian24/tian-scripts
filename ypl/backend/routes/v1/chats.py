@@ -13,6 +13,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine
+from ypl.backend.jobs.tasks import store_language_code
 from ypl.backend.llm.chat import ModelInfo, get_chat_history, get_chat_model
 from ypl.backend.llm.constants import ChatProvider
 from ypl.backend.llm.judge import DEFAULT_PROMPT_DIFFICULTY, YuppPromptDifficultyLabeler
@@ -195,6 +196,9 @@ async def label_quality(chat_id: UUID, turn_id: UUID) -> TurnQuality:
         }
         logging.exception(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=f"Error writing turn quality to cache: {e}") from e
+
+    for message in turn.chat_messages:
+        store_language_code.delay(message.message_id, message.content)
 
     return tq
 
