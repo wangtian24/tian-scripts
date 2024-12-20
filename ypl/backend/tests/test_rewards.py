@@ -78,7 +78,7 @@ def create_user_turn_reward(**kwargs: Any) -> UserTurnReward:
         (2, 100, 100, "low"),
         (5, 100, 100, "medium"),
         (9, 100, 100, "high"),
-        (5, 100, 200000, "over_point_limit_last_month_low_reward"),
+        (5, 100, 220000, "over_point_limit_last_month_low_reward"),
     ],
 )
 def test_tiers(turn_quality_score: float | None, points: int, expected_tier_name: str, points_last_month: int) -> None:
@@ -247,9 +247,9 @@ async def test_feedback_and_qt_eval_reward(
 
     # Test no reward for high-point users.
     for args in (
-        (30000, 0, 0),
-        (0, 80000, 0),
-        (0, 0, 200000),
+        (60000, 0, 0),
+        (0, 100005, 0),
+        (0, 0, 200001),
     ):
         mock_get_reward_points.side_effect = lambda user_id, session, delta: get_limits(*args)[delta]  # noqa
 
