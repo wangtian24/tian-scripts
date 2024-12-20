@@ -17,6 +17,9 @@ amount_rules:
     min_value: 80
     max_value: 99
     mean_value: 85
+    high_min_value: 1000
+    high_max_value: 10000
+    high_mean_value: 4000
     comments:
       - "Nice prompt."
       - "Great conversation starter."
@@ -34,6 +37,9 @@ amount_rules:
     min_value: 50
     max_value: 69
     mean_value: 55
+    high_min_value: 500
+    high_max_value: 5000
+    high_mean_value: 2500
     comments:
       - "Thanks for your input on model responses."
       - "Keep engaging for more rewards."
@@ -51,6 +57,9 @@ amount_rules:
     min_value: 20
     max_value: 39
     mean_value: 25
+    high_min_value: 100
+    high_max_value: 149
+    high_mean_value: 120
     comments:
       - "Thank you for participating."
 

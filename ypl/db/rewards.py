@@ -265,8 +265,13 @@ class RewardAmountRule(RewardRule, table=True):
     min_value: int = Field(nullable=True)
     max_value: int = Field(nullable=True)
 
+    # The range of alternative high-value reward amounts, if the rule matches.
+    high_min_value: int = Field(nullable=True)
+    high_max_value: int = Field(nullable=True)
+
     # The mean reward amount, if the rule matches.
     mean_value: float = Field(nullable=True)
+    high_mean_value: float = Field(nullable=True)
 
     # Possible comments.
     comments: list[str] = Field(sa_column=sa.Column(sa.ARRAY(sa.String)))

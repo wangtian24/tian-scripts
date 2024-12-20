@@ -313,7 +313,7 @@ class UserTurnReward:
 
         return min_value, max_value, mean_value
 
-    def get_amount(self, method: Literal["range", "mean"] = "range") -> int:
+    def get_amount(self, method: Literal["range", "mean"] = "range", high_value: bool = False) -> int:
         rule = self.amount_rule
         if not rule:
             log_dict = {
@@ -323,9 +323,15 @@ class UserTurnReward:
             logging.warning(json_dumps(log_dict))
             return 0
 
-        # Optionally decay the reward amount, as the daily limit approaches.
-        min_value, max_value, mean_value = self._maybe_decay_amounts(rule.min_value, rule.max_value, rule.mean_value)
+        # Set min, max, and mean values using conditional expressions
+        min_value = rule.high_min_value if high_value else rule.min_value
+        max_value = rule.high_max_value if high_value else rule.max_value
+        mean_value = rule.high_mean_value if high_value else rule.mean_value
 
+        # Optionally decay the reward amount, as the daily limit approaches.
+        min_value, max_value, mean_value = self._maybe_decay_amounts(min_value, max_value, mean_value)
+
+        # Return the reward based on the specified method
         return get_reward(min_value=min_value, max_value=max_value) if method == "range" else get_reward(mean_value)
 
     def get_probability(self) -> float:
@@ -431,12 +437,15 @@ async def turn_based_reward(
 
     # Get reward amount from rule engine
     reward_amount = user_turn_reward.get_amount()
-
-    # Calculate high value reward (~2x multiplier)
-    high_value_multiplier = 2.0
-    high_value_reward_amount = int(round(reward_amount * high_value_multiplier, -1))
+    high_value_reward_amount = user_turn_reward.get_amount(high_value=True)
 
     reward_comment = user_turn_reward.get_reward_comment()
+
+    # Override reward amounts for local environments
+    if settings.ENVIRONMENT == "local":
+        reward_amount = random.randint(10, 50)
+        high_value_reward_amount = random.randint(100, 500)
+        should_reward = True
 
     # A safety check to prevent negative or zero credit rewards from being given.
     if reward_amount <= 0 or high_value_reward_amount <= 0:
