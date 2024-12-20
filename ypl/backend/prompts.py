@@ -987,3 +987,22 @@ IMPORTANT: Respond in under 20 words in plain text with no formatting, markup, n
 Answer the prompt below:
 {prompt}
 """
+
+SEMANTIC_DIFF_PROMPT = """You are an AI assistant that highlights the semantic differences between two texts.
+
+BEGIN TEXT 1
+{text1}
+
+END TEXT 1
+BEGIN TEXT 2
+{text2}
+
+END TEXT 2
+
+Return the spans of text that are different in the two texts in the following format, where level is a float between 0 and 1 indicating the degree of similarity, with 1 being the most similar:
+[["A-ID...", 0...1], ["B-ID...", 0...1], ...]
+
+Do not explain; only return the list as JSON. Only return the spans that are very different; ignore the rest. Do not include "```json" or "```" in your response.
+"""
+
+SEMANTIC_DIFF_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([("human", SEMANTIC_DIFF_PROMPT)])
