@@ -47,8 +47,8 @@ load_dotenv()  # Load environment variables from .env file
 
 # Define mean reward for evals, baseline value for medium tier (method="mean")
 MEAN_EVAL_REWARD = 50
-FEEDBACK_REWARD_LOWER_BOUND = 500
-FEEDBACK_REWARD_UPPER_BOUND = 1000
+FEEDBACK_REWARD_LOWER_BOUND = 200
+FEEDBACK_REWARD_UPPER_BOUND = 500
 QT_EVAL_REWARD_LOWER_BOUND = 100
 QT_EVAL_REWARD_UPPER_BOUND = 200
 
@@ -551,10 +551,9 @@ async def generate_bounded_reward(lower_bound: int, upper_bound: int, quality_sc
         reward_amount = int(round(random.gauss(mean, std_dev), -1))
         return max(lower_bound, min(upper_bound, reward_amount))
 
-    # Calculate the reward range for this quality score
     range_size = upper_bound - lower_bound
-    score_min = lower_bound + (range_size * FEEDBACK_QUALITY_MULTIPLIER[quality_score] * 0.8)
-    score_max = lower_bound + (range_size * FEEDBACK_QUALITY_MULTIPLIER[quality_score] * 1.2)
+    score_min = min(upper_bound, lower_bound + (range_size * FEEDBACK_QUALITY_MULTIPLIER[quality_score] * 0.8))
+    score_max = min(upper_bound, lower_bound + (range_size * FEEDBACK_QUALITY_MULTIPLIER[quality_score]))
 
     # Add small random variation within the quality score's range
     reward_amount = int(round(random.uniform(score_min, score_max), -1))

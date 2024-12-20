@@ -154,7 +154,7 @@ class MockLLM(BaseChatModel):
     ) -> ChatResult:
         return ChatResult(
             generations=[
-                ChatGeneration(message=ChatMessage(content='{"score": 3}', role="assistant"), generation_info=None)
+                ChatGeneration(message=ChatMessage(content='{"score": 2}', role="assistant"), generation_info=None)
             ]
         )
 
@@ -167,7 +167,7 @@ class MockLLM(BaseChatModel):
     ) -> ChatResult:
         return ChatResult(
             generations=[
-                ChatGeneration(message=ChatMessage(content='{"score": 3}', role="assistant"), generation_info=None)
+                ChatGeneration(message=ChatMessage(content='{"score": 2}', role="assistant"), generation_info=None)
             ]
         )
 

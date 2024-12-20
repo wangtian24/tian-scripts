@@ -114,9 +114,9 @@ amount_rules:
         - name: points_last_month
           operator: less_than
           value: *monthly_points_limit
-    min_value: 500
-    max_value: 1000
-    mean_value: 750
+    min_value: 200
+    max_value: 500
+    mean_value: 350
     comments:
       - "Thank you for your feedback."
 
