@@ -32,8 +32,9 @@ def custom_generate_unique_id(route: APIRoute) -> str:
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    openapi_url=f"{settings.API_PREFIX}/openapi.json",
-    docs_url=f"{settings.API_PREFIX}/docs",
+    openapi_url=None if settings.ENVIRONMENT == "production" else f"{settings.API_PREFIX}/openapi.json",
+    docs_url=None if settings.ENVIRONMENT == "production" else f"{settings.API_PREFIX}/docs",
+    redoc_url=None if settings.ENVIRONMENT == "production" else f"{settings.API_PREFIX}/redoc",
     generate_unique_id_function=custom_generate_unique_id,
     default_response_class=ORJSONResponse,
     lifespan=lifespan,
