@@ -346,12 +346,6 @@ async def turn_based_reward(
 
     reward_comment = user_turn_reward.get_reward_comment()
 
-    # Override reward amounts for local environments
-    if settings.ENVIRONMENT == "local":
-        reward_amount = random.randint(100, 500)
-        high_value_reward_amount = reward_amount * 2
-        should_reward = True
-
     # A safety check to prevent negative or zero credit rewards from being given.
     if reward_amount <= 0 or high_value_reward_amount <= 0:
         should_reward = False
