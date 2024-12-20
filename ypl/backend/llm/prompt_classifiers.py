@@ -95,10 +95,13 @@ def llm_setup() -> tuple[str, type[PromptCategoryResponse]]:
 
 
 @retry(wait=wait_random_exponential(), stop=stop_after_attempt(3))
-def prompt_category_by_llm(user_prompt: str) -> str:
+def prompt_category_by_llm(user_prompt: str, max_length: int = 1000) -> str:
     client = initialize_client()
 
     system_prompt, PromptCategoryResponse = llm_setup()
+
+    if len(user_prompt) > max_length:
+        user_prompt = user_prompt[:max_length] + "..."
 
     completion = client.beta.chat.completions.parse(
         model="gpt-4o-mini",
@@ -106,7 +109,7 @@ def prompt_category_by_llm(user_prompt: str) -> str:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"User prompt: {user_prompt}"},
         ],
-        max_tokens=200,
+        max_tokens=100,
         response_format=PromptCategoryResponse,
     )
 
