@@ -175,6 +175,7 @@ cache_dir = ".mypy_cache"
 addopts = "--ignore ypl/pytorch/tests"  # Skip torch tests on CI box until we have a GPU
 filterwarnings = [
     "ignore::DeprecationWarning:httpx.*:",
+    "ignore::DeprecationWarning:tweepy.*:",
     "ignore::FutureWarning:transformers.*",
     "ignore:Support for class-based `config` is deprecated:DeprecationWarning",
 ]

@@ -1,7 +1,9 @@
+import asyncio
+import inspect
 import time
 from collections.abc import Callable
 from threading import Lock
-from typing import Any, Self, TypeVar, no_type_check
+from typing import Any, Self, TypeVar, Union, no_type_check
 
 import numpy as np
 
@@ -104,3 +106,111 @@ def async_timed_cache(*, seconds: int, maxsize: int = 128) -> Callable[[FuncType
         return wrapper
 
     return decorator
+
+
+T = TypeVar("T")
+Result = Union[T, Exception]  # noqa
+
+
+class EarlyTerminatedException(Exception):
+    pass
+
+
+class Delegator:
+    def __init__(
+        self,
+        delegates: dict[str, Any],
+        timeout_secs: float | None = None,
+        return_when: str = asyncio.ALL_COMPLETED,
+    ) -> None:
+        """
+        Creates a delegator that fans out method calls to underlying named objects.
+
+        Args:
+            delegates: Dictionary mapping names to delegate objects
+            timeout: Timeout for method calls
+            return_when: Whether to return the first result or all results
+        """
+        self.delegates = delegates
+        self.timeout_secs = timeout_secs
+        if return_when not in (asyncio.FIRST_COMPLETED, asyncio.ALL_COMPLETED):
+            raise ValueError(f"Invalid return_when value: {return_when}")
+        self.return_when = return_when
+
+    async def delegate(self, method_name: str, *args: Any, **kwargs: Any) -> dict[str, Result]:
+        """
+        Delegates method calls to underlying objects, with optional timeout.
+
+        Args:
+            method_name: Name of the method to call on delegates
+            *args, **kwargs: Arguments to pass to delegate methods
+
+        Returns:
+            Dictionary mapping delegate names to their results or exceptions
+        """
+
+        async def execute_method(name: str, delegate: Any) -> tuple[str, Result]:
+            """Returns the name of the delegate and the result of the method call."""
+            try:
+                method = getattr(delegate, method_name)
+                if inspect.iscoroutinefunction(method):
+                    coro = method(*args, **kwargs)
+                else:
+                    coro = asyncio.to_thread(method, *args, **kwargs)
+
+                result = await asyncio.wait_for(coro, self.timeout_secs)
+                return name, result
+            except asyncio.CancelledError:
+                # Some other task cancelled this one
+                return name, EarlyTerminatedException()
+            except Exception as e:
+                # Timeout, or underlying method actually raised
+                return name, e
+
+        if self.return_when == asyncio.ALL_COMPLETED:
+            tasks = [execute_method(name, delegate) for name, delegate in self.delegates.items()]
+            task_results = await asyncio.gather(*tasks)
+            return dict(task_results)
+
+        # Otherwise, wait for the first result and then cancel the rest
+        pending = set()
+        results = {}
+
+        for name, delegate in self.delegates.items():
+            task = asyncio.create_task(execute_method(name, delegate))
+            pending.add(task)
+        try:
+            done, pending = await asyncio.wait(pending, return_when=self.return_when)
+
+            first_task = done.pop()
+            name, result = await first_task
+            results[name] = result
+
+            # Kill remaining tasks and wait for them to complete
+            if pending:
+                for task in pending:
+                    task.cancel()
+                done, _ = await asyncio.wait(pending)
+                for task in done:
+                    name, result = await task
+                    results[name] = result
+
+        except Exception as e:
+            # Handle any unexpected errors
+            for task in pending:
+                if not task.done():
+                    task.cancel()
+            results.update({name: e for name in self.delegates.keys() if name not in results})
+
+        # Assume everything else timed out
+        results.update({name: TimeoutError() for name in self.delegates if name not in results})
+
+        return results
+
+    def __getattr__(self, name: str) -> Any:
+        """Delegate any attribute access to the underlying delegates."""
+
+        async def wrapper(*args: Any, **kwargs: Any) -> dict[str, Result]:
+            return await self.delegate(name, *args, **kwargs)
+
+        return wrapper

@@ -1,11 +1,15 @@
+import asyncio
+import time
 from collections.abc import Iterable
 from typing import Any
 from unittest.mock import MagicMock
 
 import numpy as np
+import pytest
 from pytest import approx, raises
 
 from ypl.backend.llm.utils import ThresholdCounter, norm_softmax
+from ypl.utils import Delegator, EarlyTerminatedException
 
 
 def check_array_approx(ar1: Iterable[float], ar2: Iterable[float]) -> None:
@@ -59,6 +63,95 @@ def test_update_ratings_counter() -> None:
     assert counter.total_count == 28
     assert counter.count == 9
     assert counter.threshold == 10
+
+
+@pytest.mark.asyncio
+@pytest.mark.repeat(3)
+async def test_multi_delegate() -> None:
+    class Op:
+        # A base class for operations.
+        def __init__(self, delay: float = 0.0) -> None:
+            self.delay = delay
+
+        def run(self, n: int) -> int:
+            raise NotImplementedError
+
+        async def run_async(self, n: int) -> int:
+            return self.run(n)
+
+    class MultiplyBy2(Op):
+        def run(self, n: int) -> int:
+            if self.delay > 0:
+                time.sleep(self.delay)
+            return n * 2
+
+    class Add3(Op):
+        def run(self, n: int) -> int:
+            time.sleep(self.delay)
+            return n + 3
+
+    class RaiseIfInputIs3(Op):
+        def run(self, n: int) -> int:
+            if n == 3:
+                raise ValueError("input is 3")
+            return n
+
+    delegator = Delegator(
+        delegates={
+            "mul_by_2": MultiplyBy2(delay=0.1),
+            "add_3": Add3(delay=0.1),
+            "raise_if_3": RaiseIfInputIs3(),
+        }
+    )
+
+    # Normal run of sync methods
+    assert await delegator.run(1) == {"mul_by_2": 2, "add_3": 4, "raise_if_3": 1}
+
+    # Normal run of async methods
+    assert await delegator.run_async(2) == {"mul_by_2": 4, "add_3": 5, "raise_if_3": 2}
+
+    # One of the delegates raises an exception
+    results = await delegator.run(3)
+    assert results["mul_by_2"] == 6
+    assert results["add_3"] == 6
+    assert isinstance(results["raise_if_3"], ValueError)
+    assert str(results["raise_if_3"]) == "input is 3"
+
+    # First completed mode - everything except the fast-returning delegate should be cancelled
+    delegator.return_when = asyncio.FIRST_COMPLETED
+    results = await delegator.run(3)
+    assert isinstance(results["mul_by_2"], EarlyTerminatedException)
+    assert isinstance(results["add_3"], EarlyTerminatedException)
+    assert isinstance(results["raise_if_3"], ValueError)
+
+    # Check exception is raised if delegated method does not exist on one of the delegates
+    delegator = Delegator(delegates={"mul_by_2": MultiplyBy2()})
+    results = await delegator.non_existent_method()
+    assert isinstance(results["mul_by_2"], AttributeError)
+
+    # Test timeouts
+    delegator = Delegator(
+        delegates={
+            "add_3_fast_1": Add3(delay=0.0),
+            "add_3_fast_2": Add3(delay=0.0),
+            "add_3_medium": Add3(delay=0.1),
+            "add_3_slow_1": Add3(delay=0.5),
+            "add_3_slow_2": Add3(delay=0.5),
+        },
+        timeout_secs=0.25,
+    )
+    results = await delegator.run(1)
+    assert results["add_3_fast_1"] == results["add_3_fast_2"] == results["add_3_medium"] == 4
+    assert isinstance(results["add_3_slow_1"], TimeoutError)
+    assert isinstance(results["add_3_slow_2"], TimeoutError)
+
+    # Timeouts on first completed mode: at least one fast delegate should returned, others delegates should be cancelled
+    delegator.return_when = asyncio.FIRST_COMPLETED
+    results = await delegator.run(1)
+    assert results["add_3_fast_1"] == 4 or results["add_3_fast_2"] == 4
+    assert isinstance(results["add_3_medium"], EarlyTerminatedException)
+    assert isinstance(results["add_3_slow_1"], EarlyTerminatedException)
+    assert isinstance(results["add_3_slow_2"], EarlyTerminatedException)
 
 
 class MockSession:

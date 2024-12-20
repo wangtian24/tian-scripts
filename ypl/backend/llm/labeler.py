@@ -23,6 +23,7 @@ from ypl.backend.prompts import (
     USER_QUICKTAKE_PROMPT,
     WILDCHAT_REALISM_PROMPT_TEMPLATE,
 )
+from ypl.utils import Delegator
 
 logging.basicConfig(level=logging.WARNING)
 InputType = TypeVar("InputType")
@@ -154,6 +155,20 @@ class LLMLabeler(Generic[InputType, OutputType]):
 
     async def abatch_label(self, inputs: list[InputType], num_parallel: int = 16) -> list[OutputType | None]:
         return [x[0] if x else None for x in await self.abatch_label_full(inputs, num_parallel)]
+
+
+class MultiLLMLabeler(Delegator):
+    """Applies multiple LLMLabelers to the same input and returns a dictionary of results."""
+
+    def __init__(self, labelers: dict[str, LLMLabeler], *args: Any, **kwargs: Any) -> None:
+        """
+        Initializes the MultiLLMLabeler.
+
+        Args:
+            labelers: A dictionary mapping labeler names to LLMLabeler objects
+            **kwargs: Additional keyword arguments to pass to the Delegator
+        """
+        super().__init__(delegates=labelers, **kwargs)
 
 
 class MultistepLLMLabeler(Generic[InputType, OutputType]):
