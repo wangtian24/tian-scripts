@@ -144,19 +144,32 @@ async def _stream_chat_completions(
             completionTokens=response_tokens_num,
         )
 
-        # Add background task to persist the message
-        if chat_request.chat_id and chat_request.turn_id:
-            background_tasks.add_task(
-                persist_chat_message,
+        try:
+            await persist_chat_message(
                 turn_id=chat_request.turn_id,
                 message_id=chat_request.message_id,
                 content=full_response,
                 model=chat_request.model,
                 turn_seq_num=chat_request.turn_seq_num,
-                # creator_user_id=chat_prompt.creator_user_id,
                 streaming_metrics=modelResponseTelemetry.model_dump(),
                 prompt_modifier_ids=chat_request.prompt_modifier_ids,
             )
+            # Send persistence success status
+            yield StreamResponse(
+                {"status": "message_persisted", "timestamp": datetime.now().isoformat(), "model": chat_request.model},
+                "status",
+            ).encode()
+        except Exception as e:
+            logging.error(f"Message persistence error: {str(e)} \n" + traceback.format_exc())
+            yield StreamResponse(
+                {
+                    "error": "Failed to persist message",
+                    "code": "persistence_error",
+                    "model": chat_request.model,
+                    "message_id": chat_request.message_id,
+                },
+                "error",
+            ).encode()
 
     except Exception as e:
         logging.error(f"Streaming Error: {str(e)} \n" + traceback.format_exc())
@@ -167,10 +180,3 @@ async def _stream_chat_completions(
 
 async def error_stream(error_message: str) -> AsyncIterator[str]:
     yield StreamResponse({"error": error_message, "code": "initialization_error"}, "error").encode()
-
-
-class MultiChatRequest(BaseModel):
-    prompt: str = Field(..., min_length=1, description="Prompt string")
-    is_new_chat: bool = True
-    chat_id: uuid.UUID = Field(..., description="Chat Id  of Chat")
-    creator_user_id: str = Field(..., description="User Id")
