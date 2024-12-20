@@ -41,7 +41,13 @@ async def get_crypto_exchange_rate(
         return exchange_rate
 
     except Exception as e:
-        logging.warning(f"Coinbase API failed, trying CoinGecko: {e}")
+        log_dict = {
+            "message": "Coinbase API failed, trying CoinGecko",
+            "source_currency": source_currency.value,
+            "destination_currency": destination_currency.value,
+            "error": str(e),
+        }
+        logging.warning(log_dict)
         # Only if Coinbase fails, try secondary API (CoinGecko)
         source_currency_id = source_currency.value.lower()
         destination_currency_id = CRYPTO_CURRENCY_IDS[destination_currency].lower()
@@ -61,6 +67,13 @@ async def get_crypto_exchange_rate(
             return exchange_rate
 
         except Exception as e:
+            log_dict = {
+                "message": "Failed to get crypto exchange rate from both APIs",
+                "error": str(e),
+                "source_currency": source_currency.value,
+                "destination_currency": destination_currency.value,
+            }
+            logging.error(log_dict)
             raise ValueError(f"Failed to get crypto exchange rate from both APIs: {e}") from e
 
 

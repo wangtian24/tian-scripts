@@ -15,6 +15,7 @@ from ypl.backend.utils.files import (
     read_file,
 )
 from ypl.backend.utils.json import json_dumps
+from ypl.db.payments import CurrencyEnum
 
 POLL_INTERVAL_SECONDS = 5
 MAX_WAIT_TIME_SECONDS = 60
@@ -95,6 +96,12 @@ class CryptoRewardProcessor:
             wallet.load_seed(local_seed_path)
             return wallet
 
+    async def get_asset_balance(self, asset_id: str) -> Decimal:
+        if not self.wallet:
+            await self._init_wallet()
+
+        return self.wallet.balance(asset_id) if self.wallet else Decimal("0")
+
     async def ensure_wallet_funded(self, total_required: Decimal, asset_id: str) -> bool:
         """
         Ensure wallet has sufficient funds for pending transfers.
@@ -111,6 +118,9 @@ class CryptoRewardProcessor:
         """
         start_time = time.time()
         attempts = 0
+
+        if not self.wallet:
+            await self._init_wallet()
 
         while time.time() - start_time < MAX_WAIT_TIME_SECONDS:
             attempts += 1
@@ -279,3 +289,9 @@ async def get_processor() -> CryptoRewardProcessor:
         }
         logging.info(json_dumps(log_dict))
         return _processor_instance
+
+
+async def get_crypto_balance(asset_id: CurrencyEnum) -> Decimal:
+    """Get the balance of crypto currency in the system wallet."""
+    processor = await get_processor()
+    return await processor.get_asset_balance(asset_id.value.lower())

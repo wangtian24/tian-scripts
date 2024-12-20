@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tenacity import retry, stop_after_attempt, wait_exponential
 from ypl.backend.db import get_async_engine
-from ypl.backend.payment.crypto_rewards import CryptoReward, process_single_crypto_reward
+from ypl.backend.payment.crypto_rewards import CryptoReward, get_crypto_balance, process_single_crypto_reward
 from ypl.backend.payment.payment import (
     PaymentTransactionRequest,
     create_payment_transaction,
@@ -245,8 +245,8 @@ class OnChainFacilitator(Facilitator):
             return instrument.payment_instrument_id
 
     async def get_balance(self, currency: CurrencyEnum) -> Decimal:
-        # TODO: Implement this
-        return Decimal(1000)
+        crypto_balance = await get_crypto_balance(currency)
+        return crypto_balance
 
     async def _send_payment_request(
         self,
@@ -257,6 +257,7 @@ class OnChainFacilitator(Facilitator):
         destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
     ) -> str:
         # Flow of the function
+        # 0. Get the balance of the source instrument
         # 1. Get the source and destination instrument ids
         # 2. Create a payment transaction
         # 3. Update the user points
@@ -267,6 +268,19 @@ class OnChainFacilitator(Facilitator):
         start_time = time.time()
         try:
             try:
+                # 0. Get the balance of the source instrument
+                source_instrument_balance = await self.get_balance(self.currency)
+
+                if source_instrument_balance < amount:
+                    log_dict = {
+                        "message": "Source instrument does not have enough balance",
+                        "user_id": user_id,
+                        "amount": str(amount),
+                        "source_instrument_balance": str(source_instrument_balance),
+                    }
+                    logging.error(json_dumps(log_dict))
+                    raise ValueError("Source instrument does not have enough balance")
+
                 source_instrument_id = await self.get_source_instrument_id()
                 destination_instrument_id = await self.get_destination_instrument_id(
                     user_id, destination_identifier, destination_identifier_type

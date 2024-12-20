@@ -77,11 +77,25 @@ async def convert_credits_to_currency(credits: int, currency: CurrencyEnum) -> D
 async def validate_cashout_request(request: CashoutCreditsRequest) -> None:
     user_credit_balance = await get_user_credit_balance(request.user_id)
     if request.credits_to_cashout > user_credit_balance - SIGNUP_CREDITS:
+        log_dict = {
+            "message": "User does not have enough credits",
+            "user_id": request.user_id,
+            "credits_to_cashout": request.credits_to_cashout,
+            "user_credit_balance": user_credit_balance,
+        }
+        logging.info(log_dict)
         raise HTTPException(status_code=400, detail="User does not have enough credits")
 
     try:
         validate_destination_identifier_for_currency(request.cashout_currency, request.destination_identifier_type)
     except ValueError as e:
+        log_dict = {
+            "message": "Invalid destination identifier for currency",
+            "user_id": request.user_id,
+            "currency": request.cashout_currency,
+            "identifier_type": request.destination_identifier_type,
+        }
+        logging.info(log_dict)
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
@@ -92,6 +106,14 @@ async def cashout_credits(request: CashoutCreditsRequest) -> str:
     try:
         amount_in_currency = await convert_credits_to_currency(request.credits_to_cashout, request.cashout_currency)
     except Exception as e:
+        log_dict = {
+            "message": "Error converting credits to currency",
+            "error": str(e),
+            "user_id": request.user_id,
+            "credits_to_cashout": request.credits_to_cashout,
+            "cashout_currency": request.cashout_currency,
+        }
+        logging.exception(log_dict)
         raise HTTPException(
             status_code=500, detail=f"Error converting credits to currency {request.cashout_currency}"
         ) from e
