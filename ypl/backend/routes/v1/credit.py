@@ -75,6 +75,9 @@ async def convert_credits_to_currency(credits: int, currency: CurrencyEnum) -> D
 
 
 async def validate_cashout_request(request: CashoutCreditsRequest) -> None:
+    if request.credits_to_cashout <= 0:
+        raise HTTPException(status_code=400, detail="You need to select at least a few credits to cash out.")
+
     user_credit_balance = await get_user_credit_balance(request.user_id)
     if request.credits_to_cashout > user_credit_balance - SIGNUP_CREDITS:
         log_dict = {
