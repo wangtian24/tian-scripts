@@ -70,9 +70,6 @@ PYTORCH_SERVE_GCP_URL=https://backend-pytorch-service-staging-451082535721.us-ce
 ```
 if it is not present in your `.env` file.
 
-Also add the following environment variables in your `.env` file:
-CRYPTO_WALLET_PATH, CDP_API_KEY_NAME & CDP_API_KEY_PRIVATE_KEY as per 1Password
-
 To add new dependencies or update the versions of existings ones, modify the `[poetry]` section in [pyproject.toml] and run `poetry update`. This will modify the locked package versions in [poetry.lock]. Do not modify that file directly.
 
 Finally, install `ypl` as a package in the `ys-dev` environment:
