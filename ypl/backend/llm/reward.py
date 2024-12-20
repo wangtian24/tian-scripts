@@ -405,8 +405,11 @@ def post_reward_to_slack(
         f"Reward Amount: {reward_amount_str}\n"
         f"Additional Information:\n```{json_dumps(kwargs, indent=2)}```\n"
     )
-
-    post_to_slack_task.delay(message=message, webhook_url=webhook_url, user_id=user_id)
+    try:
+        post_to_slack_task.delay(message=message, webhook_url=webhook_url)
+    except Exception as e:
+        log_dict = {"message": "Error posting to Slack", "error": str(e)}
+        logging.error(json_dumps(log_dict))
 
 
 def get_reward_llm() -> BaseChatModel:
