@@ -1199,7 +1199,7 @@ def judge_quick_response_quality(
                                 (ChatMessage.message_type == MessageType.QUICK_RESPONSE_MESSAGE),  # type: ignore
                                 is_qt_refusal(ChatMessage.content),
                             ),
-                            "[NULL]",  # QT refusal text corresponding to JUDGE_QUICK_RESPONSE_QUALITY_SYSTEM_PROMPT
+                            "<CANT_ANSWER>",  # QT refusal text
                         ),
                         else_=ChatMessage.content,
                     ).label("content"),

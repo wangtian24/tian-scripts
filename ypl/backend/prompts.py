@@ -856,7 +856,7 @@ Consider these factors:
 - Relevance: Does the response address the user's prompt?
 - Tone: Is the response appropriate and friendly?
 
-Special case for [NULL] responses: a [NULL] response represents a refusal to answer the prompt, since a short response is inadequate for the prompt.
+Special case for <CANT_ANSWER> responses: a <CANT_ANSWER> response represents a refusal to answer the prompt, since a short response is inadequate for the prompt.
 - POOR: If the prompt could be answered briefly but wasn't.
 - ACCEPTABLE: If it's unclear whether a brief answer was possible.
 - EXCELLENT: If a long answer is required and the AI correctly refuses.
@@ -902,7 +902,7 @@ Rules:
 - For technical questions, show minimal work (e.g., "2+2=4")
 - Match the prompt's language and tone
 - Stay factual and accurate, even when brief
-- Use "[NULL]" only when unable to give a valid short answer
+- Use "<CANT_ANSWER>" only when unable to give a valid short answer
 """
 
 QUICKTAKE_SUMMARIZING_PROMPT_TEMPLATE_2 = ChatPromptTemplate.from_messages(
