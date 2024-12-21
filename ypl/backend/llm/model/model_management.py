@@ -125,7 +125,7 @@ async def verify_and_update_model_status(
 
             slack_message = (
                 f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} "
-                "is not running at the inference endpoint on {provider_name}. Please investigate."
+                f"is not running at the inference endpoint on {provider_name}. Please investigate."
             )
 
             if has_billing_error:
