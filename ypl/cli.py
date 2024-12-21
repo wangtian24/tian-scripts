@@ -1218,18 +1218,20 @@ def judge_quick_response_quality(
             if len(messages) < 2:  # Need at least a prompt and response
                 continue
 
-            # Last two messages are the current turn's prompt and response
-            *history_messages, prompt_msg, response_msg = messages
-            assert prompt_msg.message_type == MessageType.USER_MESSAGE
-            assert response_msg.message_type == MessageType.QUICK_RESPONSE_MESSAGE
-
-            chat_history = [
-                {
-                    "role": "user" if msg.message_type == MessageType.USER_MESSAGE else "assistant",
-                    "content": msg.content,
-                }
-                for msg in history_messages
-            ]
+            chat_history = []
+            for message in messages:
+                if message.sequence_id < sequence_id:
+                    chat_history.append(
+                        {
+                            "role": "user" if message.message_type == MessageType.USER_MESSAGE else "assistant",
+                            "content": message.content,
+                        }
+                    )
+                elif message.sequence_id == sequence_id:
+                    if message.message_type == MessageType.USER_MESSAGE:
+                        prompt_msg = message
+                    elif message.message_type == MessageType.QUICK_RESPONSE_MESSAGE:
+                        response_msg = message
 
             prompts.append(prompt_msg.content)
             responses.append(response_msg.content)
