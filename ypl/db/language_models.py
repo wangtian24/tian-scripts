@@ -303,7 +303,11 @@ class LanguageModelResponseStatusEnum(str, Enum):
     CONNECTION_REFUSED = "CONNECTION_REFUSED"
     STREAMING_INTERRUPTED = "STREAMING_INTERRUPTED"
     INFERENCE_FAILED = "INFERENCE_FAILED"
+    INFERENCE_SUCCEEDED = "INFERENCE_SUCCEEDED"
     OTHER = "OTHER"
+
+    def is_ok(self) -> bool:
+        return self in (LanguageModelResponseStatusEnum.OK, LanguageModelResponseStatusEnum.INFERENCE_SUCCEEDED)
 
 
 class LanguageModelResponseStatus(BaseModel, table=True):

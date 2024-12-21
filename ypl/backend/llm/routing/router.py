@@ -1493,7 +1493,9 @@ class HighErrorRateFilter(RNGMixin, ModelFilter):
             model_error_map[model_internal_name][status_type] = error_count
 
         return {
-            model_internal_name: sum(v for c, v in error_counts.items() if c != LanguageModelResponseStatusEnum.OK)
+            model_internal_name: sum(
+                v for c, v in error_counts.items() if not LanguageModelResponseStatusEnum(c).is_ok()
+            )
             / sum(error_counts.values())
             for model_internal_name, error_counts in model_error_map.items()
             if sum(error_counts.values()) >= self.min_count
