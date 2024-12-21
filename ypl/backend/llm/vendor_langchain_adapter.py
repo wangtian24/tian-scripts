@@ -9,7 +9,7 @@ from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatResult
 from langchain_core.outputs.chat_generation import ChatGeneration
 from openai import AsyncOpenAI, OpenAI
-from vertexai.preview.generative_models import GenerationConfig, GenerativeModel
+from vertexai.preview.generative_models import Content, GenerationConfig, GenerativeModel, Part
 
 from ypl.backend.llm.chat import ModelInfo
 
@@ -65,18 +65,42 @@ class GeminiLangChainAdapter(VendorLangChainAdapter):
         run_manager: CallbackManagerForLLMRun | None = None,
         **kwargs: Any,
     ) -> ChatResult:
-        goog_messages = [
-            dict(content=str(message.content), role=GOOGLE_ROLE_MAP.get(message.type, message.type))
-            for message in messages[:-1]
-        ]
+        system_message = next((message for message in messages if message.type == "system"), None)
 
-        chat = self.model.start_chat(history=goog_messages)
-        response = chat.send_message(
-            messages[-1].content,
-            generation_config=GenerationConfig(
-                **self.model_config_,
-            ),
-        )
+        if system_message:
+            messages = [message for message in messages if message.type != "system"]
+            request = self.model._prepare_request(
+                contents=[
+                    Content(
+                        role=GOOGLE_ROLE_MAP.get(message.type, message.type),
+                        parts=[Part.from_text(str(message.content))],
+                    )
+                    for message in messages
+                ],
+                generation_config=self.model._generation_config,
+                safety_settings=self.model._safety_settings,
+                tools=self.model._tools,
+                tool_config=self.model._tool_config,
+                labels=self.model._labels,
+                system_instruction=Part.from_text(str(system_message.content)),
+            )
+            gapic_response = self.model._prediction_client.generate_content(request=request)
+            response = self.model._parse_response(gapic_response)
+        else:
+            goog_messages = [
+                Content(
+                    role=GOOGLE_ROLE_MAP.get(message.type, message.type),
+                    parts=[Part.from_text(str(message.content))],
+                )
+                for message in messages[:-1]
+            ]
+            chat = self.model.start_chat(history=goog_messages)
+            response = chat.send_message(
+                messages[-1].content,
+                generation_config=GenerationConfig(
+                    **self.model_config_,
+                ),
+            )
 
         return ChatResult(generations=[ChatGeneration(message=AIMessage(content=response.text))])
 
