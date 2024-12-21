@@ -95,7 +95,7 @@ class LLMLabeler(Generic[InputType, OutputType]):
             if self.on_error == "raise":
                 raise e
             else:
-                logging.warning(f"Error labeling input {input}: {e}")
+                logging.warning(f"Error labeling input '{input}': {e}")
                 return self.error_value, ""
 
     def label(self, input: InputType) -> OutputType:

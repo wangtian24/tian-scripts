@@ -58,7 +58,7 @@ openai_llm = OpenAILangChainAdapter(
     ),
 )
 
-gemini_15_flash_002_llm = GeminiLangChainAdapter(
+gemini_15_flash_llm = GeminiLangChainAdapter(
     model_info=ModelInfo(
         provider=ChatProvider.GOOGLE,
         model="gemini-1.5-flash-002",
@@ -74,10 +74,26 @@ gemini_15_flash_002_llm = GeminiLangChainAdapter(
 )
 
 
+gemini_2_flash_llm = GeminiLangChainAdapter(
+    model_info=ModelInfo(
+        provider=ChatProvider.GOOGLE,
+        model="gemini-2.0-flash-exp",
+        api_key=settings.GOOGLE_API_KEY,
+    ),
+    model_config_=dict(
+        project_id=settings.GCP_PROJECT_ID,
+        region=settings.GCP_REGION_GEMINI_2,
+        temperature=0.0,
+        max_output_tokens=40,
+        top_k=1,
+    ),
+)
+
 QT_LLMS = {
     "gpt-4o": openai_llm,
     "gpt-4o-mini": gpt_4o_mini_llm,
-    "gemini-1.5-flash-002": gemini_15_flash_002_llm,
+    "gemini-1.5-flash": gemini_15_flash_llm,
+    "gemini-2.0-flash": gemini_2_flash_llm,
 }
 
 
@@ -114,7 +130,7 @@ async def generate_quicktake(
             # Multiple models requested.
             model_names = [m.strip() for m in request.model.split(",")]
             if not all(m in QT_LLMS for m in model_names):
-                raise ValueError(f"Unsupported model: {request.model}")
+                raise ValueError(f"Unsupported model: {request.model}; supported: {','.join(QT_LLMS.keys())}")
             multi_generator = MultiLLMLabeler(
                 labelers={model: get_quicktake_generator(model, chat_history) for model in model_names},
                 timeout_secs=5.0,

@@ -103,6 +103,7 @@ class Settings(BaseSettings):
     # The cloud run project ID and region
     GCP_PROJECT_ID: str = ""
     GCP_REGION: str = "us-east4"
+    GCP_REGION_GEMINI_2: str = "us-central1"
 
     CDP_API_KEY_NAME: str = os.getenv("CDP_API_KEY_NAME", "")
     CDP_API_KEY_PRIVATE_KEY: str = os.getenv("CDP_API_KEY_PRIVATE_KEY", "")
