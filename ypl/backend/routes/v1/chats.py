@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
@@ -17,7 +17,7 @@ from ypl.backend.jobs.tasks import store_language_code
 from ypl.backend.llm.chat import ModelInfo, get_chat_history, get_chat_model
 from ypl.backend.llm.constants import ChatProvider
 from ypl.backend.llm.judge import DEFAULT_PROMPT_DIFFICULTY, YuppPromptDifficultyLabeler
-from ypl.backend.llm.labeler import QuickTakeGenerator
+from ypl.backend.llm.labeler import MultiLLMLabeler, QuickTakeGenerator
 from ypl.backend.llm.moderation import DEFAULT_MODERATION_RESULT, amoderate
 from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter, OpenAILangChainAdapter
 from ypl.backend.rw_cache import TurnQualityCache
@@ -73,11 +73,20 @@ gemini_15_flash_002_llm = GeminiLangChainAdapter(
     ),
 )
 
+
+QT_LLMS = {
+    "gpt-4o": openai_llm,
+    "gpt-4o-mini": gpt_4o_mini_llm,
+    "gemini-1.5-flash-002": gemini_15_flash_002_llm,
+}
+
+
 MAX_PINNED_CHATS = 10
 
 
 class QuickTakeResponse(BaseModel):
     quicktake: str
+    model: str
 
 
 class QuickTakeRequest(BaseModel):
@@ -85,24 +94,50 @@ class QuickTakeRequest(BaseModel):
     model: str = "gpt-4o"  # one of "gpt-4o", "gpt-4o-mini", "gemini-1.5-flash-002"
 
 
+def get_quicktake_generator(model: str, chat_history: list[dict[str, Any]]) -> QuickTakeGenerator:
+    """Get a quicktake generator for a given model, or raise if the model is not supported."""
+    return QuickTakeGenerator(QT_LLMS[model], chat_history, timeout_secs=5.0)
+
+
 async def generate_quicktake(
     request: QuickTakeRequest, chat_id: str | None = None, turn_id: str | None = None
 ) -> QuickTakeResponse:
     chat_history = [] if chat_id is None else get_chat_history(chat_id, turn_id)
 
-    match request.model:
-        case "gpt-4o":
-            quicktake_generator = QuickTakeGenerator(openai_llm, chat_history, timeout_secs=5.0)
-        case "gpt-4o-mini":
-            quicktake_generator = QuickTakeGenerator(gpt_4o_mini_llm, chat_history, timeout_secs=5.0)
-        case "gemini-1.5-flash-002":
-            quicktake_generator = QuickTakeGenerator(gemini_15_flash_002_llm, chat_history, timeout_secs=5.0)
-        case _:
-            raise HTTPException(status_code=400, detail="Invalid model")
+    response_model = ""
+    try:
+        if request.model in QT_LLMS:
+            generator = get_quicktake_generator(request.model, chat_history)
+            quicktake = await generator.alabel(request.prompt or "")
+            response_model = request.model
+        elif "," in request.model:
+            # Multiple models requested.
+            model_names = [m.strip() for m in request.model.split(",")]
+            if not all(m in QT_LLMS for m in model_names):
+                raise ValueError(f"Unsupported model: {request.model}")
+            multi_generator = MultiLLMLabeler(
+                labelers={model: get_quicktake_generator(model, chat_history) for model in model_names},
+                timeout_secs=5.0,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            quicktakes = await multi_generator.alabel(request.prompt or "")
+            for model, response in quicktakes.items():
+                if response and not isinstance(response, Exception):
+                    response_model = model
+                    quicktake = response
+                    break
+        else:
+            raise ValueError(f"Unsupported model: {request.model}")
+    except Exception as e:
+        log_dict = {
+            "message": "Error generating quicktake",
+            "model": request.model,
+            "error": str(e),
+        }
+        logging.exception(json_dumps(log_dict))
+        raise HTTPException(status_code=400, detail="Error generating quicktake") from e
 
-    quicktake = await quicktake_generator.alabel(request.prompt or "")
-
-    return QuickTakeResponse(quicktake=quicktake)
+    return QuickTakeResponse(quicktake=quicktake, model=response_model)
 
 
 @router.post("/chats/{chat_id}/generate_quicktake", response_model=QuickTakeResponse)
