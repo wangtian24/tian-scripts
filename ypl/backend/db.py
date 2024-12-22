@@ -1,11 +1,13 @@
 import uuid
-from collections.abc import Generator
+from collections.abc import AsyncGenerator, Generator
+from contextlib import asynccontextmanager
 from typing import Annotated
 
 from fastapi import Depends
 from sqlalchemy import ClauseElement, Compiled, Engine
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlmodel import Session, create_engine
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ypl.backend.config import settings
 
@@ -55,18 +57,18 @@ def get_async_engine() -> AsyncEngine:
     return async_engine
 
 
-# TODO(arawind): Remove this once we've done the performance testing.
+async_session_maker = async_sessionmaker(
+    get_async_engine(),
+    # Uses the SQLModel AsyncSession class to ensure that the session is compatible with SQLModel
+    class_=AsyncSession,
+    expire_on_commit=False,
+)
 
 
-def get_direct_engine() -> Engine:
-    global direct_engine
-    if direct_engine is None:
-        direct_engine = create_engine(str(settings.db_url_direct))
-    return direct_engine
-
-
-def get_direct_async_engine() -> AsyncEngine:
-    global direct_async_engine
-    if direct_async_engine is None:
-        direct_async_engine = create_async_engine(str(settings.db_url_direct_async))
-    return direct_async_engine
+@asynccontextmanager
+async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
+    session = async_session_maker()
+    try:
+        yield session
+    finally:
+        await session.close()

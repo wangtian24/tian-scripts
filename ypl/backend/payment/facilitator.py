@@ -7,10 +7,9 @@ from decimal import Decimal
 
 from cdp.transaction import Transaction
 from cdp.transfer import Transfer
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
 from tenacity import retry, stop_after_attempt, wait_exponential
-from ypl.backend.db import get_async_engine
+from ypl.backend.db import get_async_session
 from ypl.backend.payment.crypto_rewards import CryptoReward, get_crypto_balance, process_single_crypto_reward
 from ypl.backend.payment.payment import (
     PaymentTransactionRequest,
@@ -194,15 +193,16 @@ class OnChainFacilitator(Facilitator):
     )
     async def get_source_instrument_id(self) -> uuid.UUID:
         # TODO Check if some of this can be moved to payment module as similar logic is repeated for all facilitators
-        async with AsyncSession(get_async_engine()) as session:
+        async with get_async_session() as session:
             query = select(PaymentInstrument).where(
-                PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.ON_CHAIN,  # type: ignore
-                PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS,  # type: ignore
-                PaymentInstrument.user_id == SYSTEM_USER_ID,  # type: ignore
+                PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.ON_CHAIN,
+                PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS,
+                PaymentInstrument.user_id == SYSTEM_USER_ID,
                 PaymentInstrument.deleted_at.is_(None),  # type: ignore
             )
-            result = await session.execute(query)
-            instrument = result.scalar_one_or_none()
+
+            result = await session.exec(query)
+            instrument = result.first()
             if not instrument:
                 log_dict = {
                     "message": "Source payment instrument not found",
@@ -214,7 +214,7 @@ class OnChainFacilitator(Facilitator):
                 raise PaymentInstrumentNotFoundError(
                     f"Payment instrument not found for {PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS}"
                 )
-        return instrument.payment_instrument_id
+            return instrument.payment_instrument_id
 
     async def get_destination_instrument_id(
         self,
@@ -223,16 +223,16 @@ class OnChainFacilitator(Facilitator):
         destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
     ) -> uuid.UUID:
         # TODO Check if some of this can be moved to payment module as similar logic is repeated for all facilitators
-        async with AsyncSession(get_async_engine()) as session:
+        async with get_async_session() as session:
             query = select(PaymentInstrument).where(
-                PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.ON_CHAIN,  # type: ignore
-                PaymentInstrument.identifier_type == destination_identifier_type,  # type: ignore
-                PaymentInstrument.identifier == destination_identifier,  # type: ignore
-                PaymentInstrument.user_id == user_id,  # type: ignore
+                PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.ON_CHAIN,
+                PaymentInstrument.identifier_type == destination_identifier_type,
+                PaymentInstrument.identifier == destination_identifier,
+                PaymentInstrument.user_id == user_id,
                 PaymentInstrument.deleted_at.is_(None),  # type: ignore
             )
-            result = await session.execute(query)
-            instrument = result.scalar_one_or_none()
+            result = await session.exec(query)
+            instrument = result.first()
             if not instrument:
                 log_dict = {
                     "message": "Destination payment instrument not found. Creating a new one.",
