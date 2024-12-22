@@ -14,6 +14,7 @@ from ypl.backend.payment.validation import validate_destination_identifier_for_c
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import (
     CurrencyEnum,
+    PaymentInstrumentFacilitatorEnum,
     PaymentInstrumentIdentifierTypeEnum,
     PaymentTransactionStatusEnum,
 )
@@ -46,6 +47,7 @@ class CashoutCreditsRequest:
     cashout_currency: CurrencyEnum
     destination_identifier: str
     destination_identifier_type: PaymentInstrumentIdentifierTypeEnum
+    facilitator: PaymentInstrumentFacilitatorEnum | None = None
 
 
 async def convert_credits_to_currency(credits: int, currency: CurrencyEnum) -> Decimal:
@@ -121,7 +123,7 @@ async def cashout_credits(request: CashoutCreditsRequest) -> str:
             status_code=500, detail=f"Error converting credits to currency {request.cashout_currency}"
         ) from e
 
-    facilitator = Facilitator.init(request.cashout_currency, request.destination_identifier_type)
+    facilitator = Facilitator.init(request.cashout_currency, request.destination_identifier_type, request.facilitator)
     transaction_reference_id = await facilitator.make_payment(
         request.user_id,
         request.credits_to_cashout,

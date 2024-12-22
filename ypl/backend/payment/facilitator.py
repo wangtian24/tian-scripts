@@ -69,8 +69,10 @@ class Facilitator(ABC):
         self,
         currency: CurrencyEnum,
         destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
+        facilitator: PaymentInstrumentFacilitatorEnum | None = None,
     ):
         self.currency = currency
+        self.facilitator = facilitator
         self.destination_identifier_type = destination_identifier_type
 
     @abstractmethod
@@ -125,14 +127,19 @@ class Facilitator(ABC):
     def init(
         currency: CurrencyEnum,
         destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
+        facilitator: PaymentInstrumentFacilitatorEnum | None = None,
     ) -> "Facilitator":
         if currency == CurrencyEnum.INR:
-            return UpiFacilitator(currency, destination_identifier_type)
+            return UpiFacilitator(currency, destination_identifier_type, facilitator)
         elif currency in (CurrencyEnum.USDC, CurrencyEnum.BTC, CurrencyEnum.ETH):
-            if destination_identifier_type == PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS:
-                return OnChainFacilitator(currency, destination_identifier_type)
+            if facilitator == PaymentInstrumentFacilitatorEnum.COINBASE:
+                return CoinbaseFacilitator(currency, destination_identifier_type, facilitator)
+            elif facilitator == PaymentInstrumentFacilitatorEnum.BINANCE:
+                return BinanceFacilitator(currency, destination_identifier_type, facilitator)
+            elif facilitator == PaymentInstrumentFacilitatorEnum.CRYPTO_COM:
+                return CryptoComFacilitator(currency, destination_identifier_type, facilitator)
             else:
-                return CoinbaseFacilitator(currency, destination_identifier_type)
+                return OnChainFacilitator(currency, destination_identifier_type, facilitator)
 
         raise ValueError(f"Unsupported currency: {currency}")
 
@@ -141,7 +148,9 @@ class Facilitator(ABC):
         # TODO: Implement this
         # 1. Fetch the transaction details from the db.
         # 2. Return the facilitator for the transaction.
-        return UpiFacilitator(CurrencyEnum.INR, PaymentInstrumentIdentifierTypeEnum.PHONE_NUMBER)
+        return UpiFacilitator(
+            CurrencyEnum.INR, PaymentInstrumentIdentifierTypeEnum.PHONE_NUMBER, PaymentInstrumentFacilitatorEnum.UPI
+        )
 
 
 class UpiFacilitator(Facilitator):
@@ -560,6 +569,82 @@ class OnChainFacilitator(Facilitator):
 
 
 class CoinbaseFacilitator(Facilitator):
+    async def get_balance(self, currency: CurrencyEnum) -> Decimal:
+        # TODO: Implement this
+        return Decimal(1000)
+
+    async def get_source_instrument_id(self) -> uuid.UUID:
+        # TODO: Implement this
+        return uuid.uuid4()
+
+    async def get_destination_instrument_id(
+        self,
+        user_id: str,
+        destination_identifier: str,
+        destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
+    ) -> uuid.UUID:
+        # TODO: Implement this
+        return uuid.uuid4()
+
+    async def _create_payment_transaction(self, payment_transaction_request: PaymentTransactionRequest) -> uuid.UUID:
+        # TODO: Implement this
+        return uuid.uuid4()
+
+    async def _send_payment_request(
+        self,
+        user_id: str,
+        credits_to_cashout: int,
+        amount: Decimal,
+        destination_identifier: str,
+        destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
+    ) -> str:
+        # TODO: Implement this
+        return "1234567890"
+
+    async def get_payment_status(self, payment_reference_id: str) -> PaymentTransactionStatusEnum:
+        # TODO: Implement this
+        return PaymentTransactionStatusEnum.SUCCESS
+
+
+class BinanceFacilitator(Facilitator):
+    async def get_balance(self, currency: CurrencyEnum) -> Decimal:
+        # TODO: Implement this
+        return Decimal(1000)
+
+    async def get_source_instrument_id(self) -> uuid.UUID:
+        # TODO: Implement this
+        return uuid.uuid4()
+
+    async def get_destination_instrument_id(
+        self,
+        user_id: str,
+        destination_identifier: str,
+        destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
+    ) -> uuid.UUID:
+        # TODO: Implement this
+        return uuid.uuid4()
+
+    async def _create_payment_transaction(self, payment_transaction_request: PaymentTransactionRequest) -> uuid.UUID:
+        # TODO: Implement this
+        return uuid.uuid4()
+
+    async def _send_payment_request(
+        self,
+        user_id: str,
+        credits_to_cashout: int,
+        amount: Decimal,
+        destination_identifier: str,
+        destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
+    ) -> str:
+        # TODO: Implement this
+        return "1234567890"
+
+    async def get_payment_status(self, payment_reference_id: str) -> PaymentTransactionStatusEnum:
+        # TODO: Implement this
+        return PaymentTransactionStatusEnum.SUCCESS
+
+
+class CryptoComFacilitator(Facilitator):
     async def get_balance(self, currency: CurrencyEnum) -> Decimal:
         # TODO: Implement this
         return Decimal(1000)
