@@ -32,6 +32,9 @@ class PaymentInstrumentFacilitatorEnum(enum.Enum):
     COINBASE = "coinbase"
     PAYPAL = "paypal"
     ON_CHAIN = "on_chain"
+    BINANCE = "binance"
+    CRYPTO_COM = "crypto_com"
+    UPI = "upi"
 
 
 class PaymentInstrumentIdentifierTypeEnum(enum.Enum):
