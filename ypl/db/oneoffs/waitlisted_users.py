@@ -11,13 +11,13 @@ from ypl.db.users import WaitlistStatus
 # manually.
 # Run it with `python -m ypl.db.oneoffs.waitlisted_users`
 EMAIL_TO_DISCORD_ID: dict[str, str] = {
-    "example@yupp.ai": "1234123412341234123",
-    # Add more as needed
+    # "example@yupp.ai": "1234123412341234123",
+    # Add more as needed, in the same format as the example above.
 }
 
 WAITLISTED_USER_INFO: dict[str, tuple[str, WaitlistStatus, str]] = {
-    "guest@gmail.com": ("yuppster@yupp.ai", WaitlistStatus.ALLOWED, "sibling who is in college"),
-    # Add more as needed
+    # "guest@gmail.com": ("yuppster@yupp.ai", WaitlistStatus.ALLOWED, "sibling who is in college"),
+    # Add more as needed, in the same format as the example above.
 }
 
 
