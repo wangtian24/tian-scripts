@@ -23,11 +23,11 @@ async def leaderboard(
     language_codes: list[str] | None = Query(default=None, description="The language codes to filter by"),  # noqa: B008
 ) -> dict[str, list[RatedModel]] | list[RatedModel]:
     try:
-        start_time = time.time()
         params = locals()
         if can_use_global_rankers(params):
             return get_ranker().leaderboard_all_categories()
 
+        start_time = time.time()
         ranker = get_default_ranker()
         ranker.add_evals_from_db(**params)
         end_time = time.time()

@@ -297,21 +297,30 @@ class Ranker:
 
         # Replay evals from the database.
         for eval_id, eval in evals.items():
-            if len(eval["scores"]) != 2:
+            if len(eval["scores"]) < 2:
                 logging.debug(f"Skipping eval {eval_id=} with {len(eval['scores'])} scores: {eval['scores']}")
                 continue
 
             if exclude_ties and len(set(eval["scores"].values())) == 1:
                 continue
 
-            model_a, model_b = list(eval["scores"].keys())
-            result_a = list(eval["scores"].values())[0]
-            self.update(
-                model_a=model_a,
-                model_b=model_b,
-                result_a=result_a,
-            )
-            counts_by_user[eval["email"]] += 1
+            # Find the winner, create battles for each winner-loser pair.
+            scores = eval["scores"]
+            winner_model = max(scores.items(), key=lambda x: x[1])[0]
+            winner_score = scores[winner_model]
+
+            for model, score in scores.items():
+                if model == winner_model:
+                    continue
+                if score >= winner_score:
+                    continue
+
+                self.update(
+                    model_a=winner_model,
+                    model_b=model,
+                    result_a=winner_score,
+                )
+                counts_by_user[eval["email"]] += 1
 
         added = sum(counts_by_user.values())
         log_dict = {
