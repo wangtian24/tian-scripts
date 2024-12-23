@@ -1,4 +1,3 @@
-import asyncio
 import time
 from collections.abc import Iterable
 from typing import Any
@@ -118,9 +117,10 @@ async def test_multi_delegate() -> None:
     assert str(results["raise_if_3"]) == "input is 3"
 
     # First completed mode - everything except the fast-returning delegate should be cancelled
-    delegator.return_when = asyncio.FIRST_COMPLETED
+    delegator.early_terminate_on = {"mul_by_2"}
+    delegator.delegates["add_3"].delay = 0.2
     results = await delegator.run(3)
-    assert isinstance(results["mul_by_2"], EarlyTerminatedException)
+    assert results["mul_by_2"] == 6
     assert isinstance(results["add_3"], EarlyTerminatedException)
     assert isinstance(results["raise_if_3"], ValueError)
 
@@ -146,10 +146,18 @@ async def test_multi_delegate() -> None:
     assert isinstance(results["add_3_slow_2"], TimeoutError)
 
     # Timeouts on first completed mode: at least one fast delegate should returned, others delegates should be cancelled
-    delegator.return_when = asyncio.FIRST_COMPLETED
+    delegator.early_terminate_on = {"add_3_fast_1", "add_3_fast_2"}
     results = await delegator.run(1)
     assert results["add_3_fast_1"] == 4 or results["add_3_fast_2"] == 4
     assert isinstance(results["add_3_medium"], EarlyTerminatedException)
+    assert isinstance(results["add_3_slow_1"], EarlyTerminatedException)
+    assert isinstance(results["add_3_slow_2"], EarlyTerminatedException)
+
+    delegator.early_terminate_on = {"add_3_medium"}
+    results = await delegator.run(1)
+    assert results["add_3_fast_1"] == 4
+    assert results["add_3_fast_2"] == 4
+    assert results["add_3_medium"] == 4
     assert isinstance(results["add_3_slow_1"], EarlyTerminatedException)
     assert isinstance(results["add_3_slow_2"], EarlyTerminatedException)
 

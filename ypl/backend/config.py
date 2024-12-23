@@ -112,6 +112,8 @@ class Settings(BaseSettings):
     CRYPTO_EXCHANGE_PRICE_API_URL_COINBASE: str = os.getenv("CRYPTO_EXCHANGE_PRICE_API_URL_COINBASE", "")
     CRYPTO_EXCHANGE_PRICE_API_URL_COINGECKO: str = os.getenv("CRYPTO_EXCHANGE_PRICE_API_URL_COINGECKO", "")
 
+    DEFAULT_QT_TIMEOUT_SECS: float = 1.5
+
     # The base URL of the yupp-head app, set to staging by default.
     # Example use case: when updating models on yupp-mind, we need to revalidate the model caches on yupp-head too.
     YUPP_HEAD_APP_BASE_URL: str = "https://chaos.yupp.ai"

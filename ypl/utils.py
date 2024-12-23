@@ -122,7 +122,7 @@ class Delegator:
         self,
         delegates: dict[str, Any],
         timeout_secs: float | None = None,
-        return_when: str = asyncio.ALL_COMPLETED,
+        early_terminate_on: list[str] | None = None,
     ) -> None:
         """
         Creates a delegator that fans out method calls to underlying named objects.
@@ -131,12 +131,15 @@ class Delegator:
             delegates: Dictionary mapping names to delegate objects
             timeout: Timeout for method calls
             return_when: Whether to return the first result or all results
+            early_terminate_on: List of delegate names that will trigger early termination
         """
         self.delegates = delegates
         self.timeout_secs = timeout_secs
-        if return_when not in (asyncio.FIRST_COMPLETED, asyncio.ALL_COMPLETED):
-            raise ValueError(f"Invalid return_when value: {return_when}")
-        self.return_when = return_when
+        if early_terminate_on:
+            missing_names = set(early_terminate_on) - set(self.delegates.keys())
+            if missing_names:
+                raise ValueError(f"early_terminate_on contains names that are not in delegates: {missing_names}")
+        self.early_terminate_on = set(early_terminate_on or [])
 
     async def delegate(self, method_name: str, *args: Any, **kwargs: Any) -> dict[str, Result]:
         """
@@ -168,33 +171,39 @@ class Delegator:
                 # Timeout, or underlying method actually raised
                 return name, e
 
-        if self.return_when == asyncio.ALL_COMPLETED:
-            tasks = [execute_method(name, delegate) for name, delegate in self.delegates.items()]
-            task_results = await asyncio.gather(*tasks)
-            return dict(task_results)
-
-        # Otherwise, wait for the first result and then cancel the rest
-        pending = set()
-        results = {}
-
-        for name, delegate in self.delegates.items():
-            task = asyncio.create_task(execute_method(name, delegate))
-            pending.add(task)
         try:
-            done, pending = await asyncio.wait(pending, return_when=self.return_when)
+            pending = set()
+            results = {}
 
-            first_task = done.pop()
-            name, result = await first_task
-            results[name] = result
+            # Create tasks for all delegates
+            for name, delegate in self.delegates.items():
+                task = asyncio.create_task(execute_method(name, delegate))
+                pending.add(task)
 
-            # Kill remaining tasks and wait for them to complete
-            if pending:
-                for task in pending:
-                    task.cancel()
-                done, _ = await asyncio.wait(pending)
+            # Keep processing until all tasks complete or early termination
+            while pending:
+                # Wait for any tasks to complete
+                done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+
+                # Process completed tasks
                 for task in done:
                     name, result = await task
                     results[name] = result
+                    # Check if this result should trigger early termination
+                    if name in self.early_terminate_on and not isinstance(result, Exception):
+                        # Cancel remaining tasks
+                        for task in pending:
+                            task.cancel()
+                        # Wait for cancellations to complete
+                        if pending:
+                            cancelled_done, _ = await asyncio.wait(pending, return_when=asyncio.ALL_COMPLETED)
+                            for task in cancelled_done:
+                                name, result = await task
+                                results[name] = result
+                        break
+
+                # Continue processing remaining tasks in next iteration
+                continue
 
         except Exception as e:
             # Handle any unexpected errors
@@ -204,7 +213,7 @@ class Delegator:
             results.update({name: e for name in self.delegates.keys() if name not in results})
 
         # Assume everything else timed out
-        results.update({name: TimeoutError() for name in self.delegates if name not in results})
+        results.update({name: TimeoutError() for name in self.delegates if not results.get(name)})
 
         return results
 

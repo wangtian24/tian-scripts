@@ -95,8 +95,11 @@ QT_LLMS = {
     "gemini-1.5-flash": gemini_15_flash_llm,
     "gemini-2.0-flash": gemini_2_flash_llm,
 }
-
-
+# Models to use if no specific model was requested.
+MODELS_FOR_DEFAULT_QT = ["gpt-4o", "gpt-4o-mini"]
+# Model to use while supplying only the prompts from the chat history, instead of the full chat history.
+MODEL_FOR_PROMPT_ONLY = "gpt-4o"
+# Maximum number of pinned chats for a user.
 MAX_PINNED_CHATS = 10
 
 
@@ -107,43 +110,59 @@ class QuickTakeResponse(BaseModel):
 
 class QuickTakeRequest(BaseModel):
     prompt: str | None = None
-    model: str = "gpt-4o"  # one of "gpt-4o", "gpt-4o-mini", "gemini-1.5-flash-002"
+    model: str | None = None  # one of the entries in QT_LLMS; if none, use MODELS_FOR_DEFAULT_QT
+    timeout_secs: float = settings.DEFAULT_QT_TIMEOUT_SECS
 
 
-def get_quicktake_generator(model: str, chat_history: list[dict[str, Any]]) -> QuickTakeGenerator:
+def get_quicktake_generator(
+    model: str,
+    chat_history: list[dict[str, Any]],
+    prompt_only: bool = False,
+    timeout_secs: float = settings.DEFAULT_QT_TIMEOUT_SECS,
+) -> QuickTakeGenerator:
     """Get a quicktake generator for a given model, or raise if the model is not supported."""
-    return QuickTakeGenerator(QT_LLMS[model], chat_history, timeout_secs=5.0)
+    if prompt_only:
+        # Use only the prompts from the chat history.
+        chat_history = [m for m in chat_history if m["role"] == "user"]
+    return QuickTakeGenerator(QT_LLMS[model], chat_history, timeout_secs=timeout_secs)
 
 
 async def generate_quicktake(
     request: QuickTakeRequest, chat_id: str | None = None, turn_id: str | None = None
 ) -> QuickTakeResponse:
     chat_history = [] if chat_id is None else get_chat_history(chat_id, turn_id)
-
     response_model = ""
+    timeout_secs = request.timeout_secs
     try:
-        if request.model in QT_LLMS:
-            generator = get_quicktake_generator(request.model, chat_history)
-            quicktake = await generator.alabel(request.prompt or "")
-            response_model = request.model
-        elif "," in request.model:
-            # Multiple models requested.
-            model_names = [m.strip() for m in request.model.split(",")]
-            if not all(m in QT_LLMS for m in model_names):
-                raise ValueError(f"Unsupported model: {request.model}; supported: {','.join(QT_LLMS.keys())}")
+        if not request.model:
+            # Default: use multiple models
+            labelers: dict[str, Any] = {
+                model: get_quicktake_generator(model, chat_history, timeout_secs=timeout_secs)
+                for model in MODELS_FOR_DEFAULT_QT
+            }
+            # Add a fast model that uses the prompts onlt in the chat history.
+            labelers[MODEL_FOR_PROMPT_ONLY + ":prompt-only"] = get_quicktake_generator(
+                MODEL_FOR_PROMPT_ONLY, chat_history, prompt_only=True, timeout_secs=timeout_secs
+            )
             multi_generator = MultiLLMLabeler(
-                labelers={model: get_quicktake_generator(model, chat_history) for model in model_names},
-                timeout_secs=5.0,
-                return_when=asyncio.FIRST_COMPLETED,
+                labelers=labelers,
+                timeout_secs=timeout_secs,
+                early_terminate_on=MODELS_FOR_DEFAULT_QT,
             )
             quicktakes = await multi_generator.alabel(request.prompt or "")
-            for model, response in quicktakes.items():
+            for model in labelers:
+                response = quicktakes.get(model)
                 if response and not isinstance(response, Exception):
                     response_model = model
                     quicktake = response
                     break
+        elif request.model in QT_LLMS:
+            # Specific model requested.
+            generator = get_quicktake_generator(request.model, chat_history)
+            quicktake = await generator.alabel(request.prompt or "")
+            response_model = request.model
         else:
-            raise ValueError(f"Unsupported model: {request.model}")
+            raise ValueError(f"Unsupported model: {request.model}; supported: {','.join(QT_LLMS.keys())}")
     except Exception as e:
         log_dict = {
             "message": "Error generating quicktake",

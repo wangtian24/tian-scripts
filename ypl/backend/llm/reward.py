@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import math
 import os
@@ -122,7 +121,7 @@ def get_multi_labeler() -> MultiLLMLabeler:
         _MULTI_LABELER = MultiLLMLabeler(
             labelers={"gpt4": _LABELER_4O_MINI, "gemini": _LABELER_GEMINI},
             timeout_secs=FEEDBACK_QUALITY_JUDGING_TIMEOUT,
-            return_when=asyncio.FIRST_COMPLETED,
+            early_terminate_on=["gpt4", "gemini"],
         )
 
     return _MULTI_LABELER
