@@ -601,8 +601,14 @@ async def generate_bounded_reward(lower_bound: int, upper_bound: int, quality_sc
         return max(lower_bound, min(upper_bound, reward_amount))
 
     range_size = upper_bound - lower_bound
-    score_min = min(upper_bound, lower_bound + (range_size * FEEDBACK_QUALITY_MULTIPLIER[quality_score] * 0.8))
-    score_max = min(upper_bound, lower_bound + (range_size * FEEDBACK_QUALITY_MULTIPLIER[quality_score]))
+
+    # Calculate score-based bounds while ensuring they stay within global bounds
+    score_min = lower_bound + (range_size * FEEDBACK_QUALITY_MULTIPLIER[quality_score] * 0.8)
+    score_max = lower_bound + (range_size * FEEDBACK_QUALITY_MULTIPLIER[quality_score])
+
+    # Ensure score-based bounds don't exceed global bounds
+    score_min = max(lower_bound, min(upper_bound, score_min))
+    score_max = max(lower_bound, min(upper_bound, score_max))
 
     # Add small random variation within the quality score's range
     reward_amount = int(round(random.uniform(score_min, score_max), -1))
@@ -643,8 +649,8 @@ async def feedback_based_reward(
     if probability_rule:
         should_reward = random.random() < probability_rule.probability
 
-    min_value = amount_rule.min_value if amount_rule else FEEDBACK_REWARD_LOWER_BOUND
-    max_value = amount_rule.max_value if amount_rule else FEEDBACK_REWARD_UPPER_BOUND
+    min_value = max(FEEDBACK_REWARD_LOWER_BOUND, amount_rule.min_value if amount_rule else FEEDBACK_REWARD_LOWER_BOUND)
+    max_value = min(FEEDBACK_REWARD_UPPER_BOUND, amount_rule.max_value if amount_rule else FEEDBACK_REWARD_UPPER_BOUND)
     reward_amount = await generate_bounded_reward(
         lower_bound=min_value,
         upper_bound=max_value,
