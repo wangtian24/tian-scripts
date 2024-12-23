@@ -87,7 +87,9 @@ ALL_MODELS_BY_PROVIDER = {
     ],
 }
 
-ALL_EMBEDDING_MODELS_BY_PROVIDER = {ChatProvider.OPENAI: ["text-embedding-ada-002"]}
+ALL_EMBEDDING_MODELS_BY_PROVIDER = {
+    ChatProvider.OPENAI: ["text-embedding-ada-002", "text-embedding-3-large", "text-embedding-3-small"]
+}
 
 # fmt: off
 FIRST_NAMES = [

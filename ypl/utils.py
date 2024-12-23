@@ -1,7 +1,8 @@
 import asyncio
 import inspect
+import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Generator
 from threading import Lock
 from typing import Any, Self, TypeVar, Union, no_type_check
 
@@ -214,3 +215,24 @@ class Delegator:
             return await self.delegate(name, *args, **kwargs)
 
         return wrapper
+
+
+SPACE_REGEX = re.compile(r"\s+")
+PUNCT_REGEX = re.compile(r"(\*|:|\.|,|!|;|\?|&|#|%|@|~|`|\(|\)|\"|')")
+
+
+def simple_strip(text: str) -> str:
+    return SPACE_REGEX.sub(" ", PUNCT_REGEX.sub("", text.lower().strip()))
+
+
+MARKDOWN_REGEX = re.compile(r"(^|\n+)\s*(\*\*|\*\s|-|[0-9]+\.)(?P<content>[^\n]*)(\n|$)", re.MULTILINE)
+
+
+def split_markdown_list(text: str, max_length: int = 500) -> Generator[tuple[int, int], None, None]:
+    for match in MARKDOWN_REGEX.finditer(text):
+        a, b = match.start("content"), match.end("content")
+
+        if b - a > max_length:
+            continue
+
+        yield a, b
