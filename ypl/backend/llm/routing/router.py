@@ -1644,11 +1644,7 @@ async def get_simple_pro_router(
                     always_include=True,
                     offset=10000000,
                 )
-                & (
-                    rule_proposer.with_flags(always_include=True)
-                    | error_filter
-                    | RandomJitter(jitter_range=1)
-                )
+                & (rule_proposer.with_flags(always_include=True) | error_filter | RandomJitter(jitter_range=1))
                 & (
                     (ProModelProposer() | Exclude(models=all_bad_models) | error_filter | TopK(1)).with_flags(
                         always_include=True, offset=10000
