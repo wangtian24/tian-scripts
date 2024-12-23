@@ -12,7 +12,7 @@ from ypl.backend.llm.routing.router import ModelFilter, ModelProposer, RouterSta
 from ypl.backend.llm.utils import dict_shuffled
 from ypl.db.all_models import *  # noqa: F403
 from ypl.db.language_models import RoutingAction, RoutingRule
-from ypl.utils import RNGMixin
+from ypl.utils import RNGMixin, compiled_regex
 
 
 class RoutingTable(RNGMixin):
@@ -20,9 +20,9 @@ class RoutingTable(RNGMixin):
         self.rules_cat_map: defaultdict[str, list[RoutingRule]] = defaultdict(list)
 
         for rule in rules:
-            self.rules_cat_map[rule.source_category].append(rule)
+            self.rules_cat_map[rule.source_category.lower()].append(rule)
 
-    def apply(self, category: str, models: set[str]) -> tuple[dict[str, float], set[str]]:
+    def apply(self, categories: tuple[str, ...], models: set[str]) -> tuple[dict[str, float], set[str]]:
         """
         Apply the routing rules to the given models and return a dictionary of model scores. The score is the sum of
         the z-indices of the rules that matched the model. If none of the rules match, the score is 0.
@@ -44,8 +44,9 @@ class RoutingTable(RNGMixin):
 
         all_rules = deepcopy(self.rules_cat_map["*"])
 
-        if category != "*":
-            all_rules.extend(self.rules_cat_map[category])
+        for category in set(categories):
+            if category != "*":
+                all_rules.extend(self.rules_cat_map.get(category.lower(), []))
 
         all_rules.sort(key=lambda x: x.z_index, reverse=True)
 
@@ -65,7 +66,9 @@ class RoutingTable(RNGMixin):
                     dest_provider = standardize_provider_name(dest_provider)
                     dest_model_pattern = rf"^{dest_model.replace('*', '.+')}$"
 
-                    if provider == dest_provider and (dest_model == "*" or re.match(dest_model_pattern, model)):
+                    if provider == dest_provider and (
+                        dest_model == "*" or compiled_regex(dest_model_pattern, re.IGNORECASE).match(model)
+                    ):
                         matched = True
 
                 if (
@@ -96,12 +99,12 @@ def get_routing_table() -> RoutingTable:
 
 
 class RoutingRuleProposer(ModelProposer):
-    def __init__(self, prompt_category: str) -> None:
-        self.prompt_category = prompt_category
+    def __init__(self, *prompt_categories: str) -> None:
+        self.prompt_categories = prompt_categories
         self.routing_table = get_routing_table()
 
     def _propose_models(self, models_to_select: set[str], state: RouterState) -> RouterState:
-        selected_models, _ = self.routing_table.apply(self.prompt_category, models_to_select)
+        selected_models, _ = self.routing_table.apply(self.prompt_categories, models_to_select)
 
         return state.emplaced(
             selected_models={
@@ -111,11 +114,11 @@ class RoutingRuleProposer(ModelProposer):
 
 
 class RoutingRuleFilter(ModelFilter):
-    def __init__(self, prompt_category: str) -> None:
+    def __init__(self, *prompt_categories: str) -> None:
         super().__init__(persist=True)
-        self.prompt_category = prompt_category
+        self.prompt_categories = prompt_categories
         self.routing_table = get_routing_table()
 
     def _filter(self, state: RouterState) -> tuple[RouterState, set[str]]:
-        _, rejected_models = self.routing_table.apply(self.prompt_category, state.get_selectable_models())
+        _, rejected_models = self.routing_table.apply(self.prompt_categories, state.get_selectable_models())
         return state.emplaced(excluded_models=rejected_models), rejected_models

@@ -444,7 +444,7 @@ PROMPT_MULTILABEL_CLASSIFICATION_PROMPT = """You are given the categories below:
 - Small Talk
 - Gibberish
 
-Classify the following prompt into one or more categories. Think step by step, but don't write too much. On the final line, return a JSON response {{"categories": [...]}}.
+Classify the following prompt into one or more categories. Do not explain; return a JSON response {{"categories": [...]}}.
 
 Prompt: {prompt}
 """

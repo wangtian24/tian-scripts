@@ -1,3 +1,4 @@
+import asyncio
 import heapq
 import logging
 from abc import ABC, abstractmethod
@@ -27,7 +28,7 @@ from ypl.backend.llm.chat import (
     get_all_strong_models,
 )
 from ypl.backend.llm.constants import MODEL_HEURISTICS, ChatProvider
-from ypl.backend.llm.judge import YuppOnlinePromptLabeler
+from ypl.backend.llm.judge import YuppMultilabelClassifier, YuppOnlinePromptLabeler
 from ypl.backend.llm.ranking import ConfidenceIntervalRankerMixin, Ranker, get_ranker
 from ypl.backend.llm.routing.policy import SelectionCriteria, decayed_random_fraction
 from ypl.backend.llm.routing.route_data_type import RoutingPreference
@@ -1514,8 +1515,26 @@ class HighErrorRateFilter(RNGMixin, ModelFilter):
         return Exclude(models=rejected_models)._filter(state)
 
 
-# Begin get simple pro router routine ###################################
+# Begin pro router logic and routine
 online_yupp_model = YuppOnlinePromptLabeler(
+    GeminiLangChainAdapter(
+        model_info=ModelInfo(
+            provider=ChatProvider.GOOGLE,
+            model="gemini-1.5-flash-002",
+            api_key=settings.GOOGLE_API_KEY,
+        ),
+        model_config_=dict(
+            project_id=settings.GCP_PROJECT_ID,
+            region=settings.GCP_REGION,
+            temperature=0.0,
+            max_output_tokens=16,
+            top_k=1,
+        ),
+    ),
+    timeout_secs=settings.ROUTING_TIMEOUT_SECS,
+)
+
+topic_categorizer = YuppMultilabelClassifier(
     GeminiLangChainAdapter(
         model_info=ModelInfo(
             provider=ChatProvider.GOOGLE,
@@ -1546,10 +1565,16 @@ async def get_simple_pro_router(
 
     preference = routing_preference or RoutingPreference(turns=[])
     reputable_proposer = RandomModelProposer(providers=reputable_providers or set(settings.ROUTING_REPUTABLE_PROVIDERS))
-    category = "online" if await online_yupp_model.alabel(prompt) else "offline"
+    responses: tuple[bool, list[str]] = await asyncio.gather(
+        online_yupp_model.alabel(prompt),
+        topic_categorizer.alabel(prompt),
+    )
 
-    rule_proposer = RoutingRuleProposer(category)
-    rule_filter = RoutingRuleFilter(category)
+    online_category = "online" if responses[0] else "offline"
+    categories = [online_category] + responses[1]
+
+    rule_proposer = RoutingRuleProposer(*categories)
+    rule_filter = RoutingRuleFilter(*categories)
     error_filter = HighErrorRateFilter()
     pro_proposer = ProModelProposer()
     num_pro = int(pro_proposer.get_rng().random() * 2 + 1)
@@ -1582,7 +1607,13 @@ async def get_simple_pro_router(
             | OnePerSemanticGroupFilter()
             | ProviderFilter(one_per_provider=True)
             | TopK(num_models)
-            | RoutingDecisionLogger(enabled=settings.ROUTING_DO_LOGGING, prefix="first-prompt-simple-pro-router")
+            | RoutingDecisionLogger(
+                enabled=settings.ROUTING_DO_LOGGING,
+                prefix="first-prompt-simple-pro-router",
+                metadata={
+                    "categories": categories,
+                },
+            )
         )
     else:
         # This is the router for all turns after the first; construct it based on the preference
@@ -1652,6 +1683,7 @@ async def get_simple_pro_router(
                     "all_good_models": list(all_good_models),
                     "all_bad_models": list(all_bad_models),
                     "user_selected_models": user_selected_models or [],
+                    "categories": categories,
                 },
             )
         )

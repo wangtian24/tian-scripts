@@ -263,6 +263,7 @@ def test_fast_compute_all_conf_overlap_diffs() -> None:
     assert vals.tolist() == approx([0.0])
 
 
+@patch("ypl.backend.llm.routing.router.YuppMultilabelClassifier.alabel")
 @patch("ypl.backend.llm.routing.router.YuppOnlinePromptLabeler.alabel")
 @patch("ypl.backend.llm.routing.router.HighErrorRateFilter.select_models")
 @patch("ypl.backend.llm.routing.router.get_all_strong_models")
@@ -281,10 +282,12 @@ async def test_simple_pro_router(
     mock_get_all_strong_models: Mock,
     mock_error_filter: Mock,
     mock_alabel: Mock,
+    mock_topic_categorizer: Mock,
 ) -> None:
     # Test that we get different models
     mock_alabel.return_value = asyncio.Future()
     mock_alabel.return_value.set_result("advice")
+    mock_topic_categorizer.return_value = []
     mock_routing_table.return_value = RoutingTable([])
     pro_models = {"pro1", "pro2", "pro3", "pro4"}
     mock_get_all_pro_models.return_value = pro_models
@@ -368,12 +371,12 @@ def test_routing_table(mock_deduce_providers: Mock) -> None:
     )
 
     # Accept 1 and 3; reject 2
-    accept_map, rejected_models = routing_table.apply("*", {"model1", "model2", "model3"})
+    accept_map, rejected_models = routing_table.apply(("*",), {"model1", "model2", "model3"})
     assert accept_map == {"model1": approx(1000.0), "model3": approx(0.0)}
     assert rejected_models == {"model2"}
 
     # Accept 1 with score 1k and 3 with score 200; reject 2
-    accept_map, rejected_models = routing_table.apply("advice", {"model1", "model2", "model3"})
+    accept_map, rejected_models = routing_table.apply(("advice",), {"model1", "model2", "model3"})
     assert accept_map == {"model1": approx(1000.0), "model3": approx(200.0)}
     assert rejected_models == {"model2"}
 
@@ -394,7 +397,7 @@ def test_routing_table(mock_deduce_providers: Mock) -> None:
         ]
     )
 
-    accept_map, rejected_models = routing_table.apply("*", {"model1-1", "model1-2", "model2", "model3"})
+    accept_map, rejected_models = routing_table.apply(("*",), {"model1-1", "model1-2", "model2", "model3"})
 
     # Accept no-op model2 (score of 0), and model1-1 and model1-2 with score 1k.
     assert accept_map == {"model1-1": approx(1000.0), "model1-2": approx(1000.0), "model2": approx(0.0)}
@@ -416,7 +419,7 @@ def test_routing_table(mock_deduce_providers: Mock) -> None:
     reject_count = 0
 
     for _ in range(100):
-        accept_map, rejected_models = routing_table.apply("*", {"model1-1", "model1-2", "model2", "model3"})
+        accept_map, rejected_models = routing_table.apply(("*",), {"model1-1", "model1-2", "model2", "model3"})
         reject_count += len(rejected_models)
 
     # With 50% probability, model2 should be rejected.

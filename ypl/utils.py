@@ -3,6 +3,7 @@ import inspect
 import re
 import time
 from collections.abc import Callable, Generator
+from functools import lru_cache
 from threading import Lock
 from typing import Any, Self, TypeVar, Union, no_type_check
 
@@ -224,6 +225,11 @@ class Delegator:
             return await self.delegate(name, *args, **kwargs)
 
         return wrapper
+
+
+@lru_cache(maxsize=1000)
+def compiled_regex(pattern: str, flags: int = 0) -> re.Pattern:
+    return re.compile(pattern, flags)
 
 
 SPACE_REGEX = re.compile(r"\s+")
