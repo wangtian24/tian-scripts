@@ -3,6 +3,7 @@ import logging
 import time
 import uuid
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from decimal import Decimal
 
 from cdp.transaction import Transaction
@@ -63,6 +64,20 @@ class PaymentInstrumentNotFoundError(PaymentProcessingError):
     pass
 
 
+@dataclass
+class PaymentResponse:
+    # The internal transaction ID that we use to track the transaction in our system.
+    payment_transaction_id: uuid.UUID
+
+    # The status of the transaction.
+    transaction_status: PaymentTransactionStatusEnum
+
+    # The ID that the customer can use to track the transaction.
+    # E.g. "transaction hash" in crypto, UTR Number in UPI.
+    # May not be available immediately in all cases, so we set it only if it is available.
+    customer_reference_id: str | None = None
+
+
 class Facilitator(ABC):
     def __init__(
         self,
@@ -99,7 +114,7 @@ class Facilitator(ABC):
         amount: Decimal,
         destination_identifier: str,
         destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
-    ) -> str:
+    ) -> PaymentResponse:
         pass
 
     @abstractmethod
@@ -113,11 +128,11 @@ class Facilitator(ABC):
         amount: Decimal,
         destination_identifier: str,
         destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
-    ) -> str:
+    ) -> PaymentResponse:
         # TODO: Implement this
         # 0. Check the balance of the source account.
         # 1. Send the request to the facilitator.
-        # 2. Return the transaction reference id.
+        # 2. Return the facilitator response.
         return await self._send_payment_request(
             user_id, credits_to_cashout, amount, destination_identifier, destination_identifier_type
         )
@@ -130,15 +145,11 @@ class Facilitator(ABC):
     ) -> "Facilitator":
         if currency == CurrencyEnum.INR:
             return UpiFacilitator(currency, destination_identifier_type, facilitator)
-        elif currency in (CurrencyEnum.USDC, CurrencyEnum.BTC, CurrencyEnum.ETH):
-            if facilitator == PaymentInstrumentFacilitatorEnum.COINBASE:
-                return CoinbaseFacilitator(currency, destination_identifier_type, facilitator)
-            elif facilitator == PaymentInstrumentFacilitatorEnum.BINANCE:
-                return BinanceFacilitator(currency, destination_identifier_type, facilitator)
-            elif facilitator == PaymentInstrumentFacilitatorEnum.CRYPTO_COM:
-                return CryptoComFacilitator(currency, destination_identifier_type, facilitator)
-            else:
-                return OnChainFacilitator(currency, destination_identifier_type, facilitator)
+        elif (
+            currency in (CurrencyEnum.USDC, CurrencyEnum.BTC, CurrencyEnum.ETH)
+            and facilitator == PaymentInstrumentFacilitatorEnum.ON_CHAIN
+        ):
+            return OnChainFacilitator(currency, destination_identifier_type, facilitator)
 
         raise ValueError(f"Unsupported currency: {currency}")
 
@@ -177,9 +188,13 @@ class UpiFacilitator(Facilitator):
         amount: Decimal,
         destination_identifier: str,
         destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
-    ) -> str:
+    ) -> PaymentResponse:
         # TODO: Implement this
-        return "1234567890"
+        return PaymentResponse(
+            payment_transaction_id=uuid.uuid4(),
+            transaction_status=PaymentTransactionStatusEnum.SUCCESS,
+            customer_reference_id="1234567890",
+        )
 
     async def get_payment_status(self, payment_reference_id: str) -> PaymentTransactionStatusEnum:
         # TODO: Implement this
@@ -264,7 +279,7 @@ class OnChainFacilitator(Facilitator):
         amount: Decimal,
         destination_identifier: str,
         destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
-    ) -> str:
+    ) -> PaymentResponse:
         # Flow of the function
         # 0. Get the balance of the source instrument
         # 1. Get the source and destination instrument ids
@@ -392,10 +407,14 @@ class OnChainFacilitator(Facilitator):
                     "amount": str(amount),
                     "destination_identifier": destination_identifier,
                     "currency": self.currency.value,
-                    "tx_hash": tx_hash,
+                    "tx_hash": str(tx_hash),
                 }
                 logging.info(json_dumps(log_dict))
-                return tx_hash
+                return PaymentResponse(
+                    payment_transaction_id=payment_transaction_id,
+                    transaction_status=PaymentTransactionStatusEnum.PENDING,
+                    customer_reference_id=tx_hash,
+                )
 
             except Exception as e:
                 log_dict = {
@@ -566,117 +585,3 @@ class OnChainFacilitator(Facilitator):
             }
             logging.error(json_dumps(log_dict))
             raise PaymentProcessingError("Failed to monitor transfer completion") from e
-
-
-class CoinbaseFacilitator(Facilitator):
-    async def get_balance(self, currency: CurrencyEnum) -> Decimal:
-        # TODO: Implement this
-        return Decimal(1000)
-
-    async def get_source_instrument_id(self) -> uuid.UUID:
-        # TODO: Implement this
-        return uuid.uuid4()
-
-    async def get_destination_instrument_id(
-        self,
-        user_id: str,
-        destination_identifier: str,
-        destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
-    ) -> uuid.UUID:
-        # TODO: Implement this
-        return uuid.uuid4()
-
-    async def _create_payment_transaction(self, payment_transaction_request: PaymentTransactionRequest) -> uuid.UUID:
-        # TODO: Implement this
-        return uuid.uuid4()
-
-    async def _send_payment_request(
-        self,
-        user_id: str,
-        credits_to_cashout: int,
-        amount: Decimal,
-        destination_identifier: str,
-        destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
-    ) -> str:
-        # TODO: Implement this
-        return "1234567890"
-
-    async def get_payment_status(self, payment_reference_id: str) -> PaymentTransactionStatusEnum:
-        # TODO: Implement this
-        return PaymentTransactionStatusEnum.SUCCESS
-
-
-class BinanceFacilitator(Facilitator):
-    async def get_balance(self, currency: CurrencyEnum) -> Decimal:
-        # TODO: Implement this
-        return Decimal(1000)
-
-    async def get_source_instrument_id(self) -> uuid.UUID:
-        # TODO: Implement this
-        return uuid.uuid4()
-
-    async def get_destination_instrument_id(
-        self,
-        user_id: str,
-        destination_identifier: str,
-        destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
-    ) -> uuid.UUID:
-        # TODO: Implement this
-        return uuid.uuid4()
-
-    async def _create_payment_transaction(self, payment_transaction_request: PaymentTransactionRequest) -> uuid.UUID:
-        # TODO: Implement this
-        return uuid.uuid4()
-
-    async def _send_payment_request(
-        self,
-        user_id: str,
-        credits_to_cashout: int,
-        amount: Decimal,
-        destination_identifier: str,
-        destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
-    ) -> str:
-        # TODO: Implement this
-        return "1234567890"
-
-    async def get_payment_status(self, payment_reference_id: str) -> PaymentTransactionStatusEnum:
-        # TODO: Implement this
-        return PaymentTransactionStatusEnum.SUCCESS
-
-
-class CryptoComFacilitator(Facilitator):
-    async def get_balance(self, currency: CurrencyEnum) -> Decimal:
-        # TODO: Implement this
-        return Decimal(1000)
-
-    async def get_source_instrument_id(self) -> uuid.UUID:
-        # TODO: Implement this
-        return uuid.uuid4()
-
-    async def get_destination_instrument_id(
-        self,
-        user_id: str,
-        destination_identifier: str,
-        destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
-    ) -> uuid.UUID:
-        # TODO: Implement this
-        return uuid.uuid4()
-
-    async def _create_payment_transaction(self, payment_transaction_request: PaymentTransactionRequest) -> uuid.UUID:
-        # TODO: Implement this
-        return uuid.uuid4()
-
-    async def _send_payment_request(
-        self,
-        user_id: str,
-        credits_to_cashout: int,
-        amount: Decimal,
-        destination_identifier: str,
-        destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
-    ) -> str:
-        # TODO: Implement this
-        return "1234567890"
-
-    async def get_payment_status(self, payment_reference_id: str) -> PaymentTransactionStatusEnum:
-        # TODO: Implement this
-        return PaymentTransactionStatusEnum.SUCCESS

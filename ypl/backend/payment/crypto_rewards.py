@@ -167,7 +167,7 @@ class CryptoRewardProcessor:
         logging.error(json_dumps(log_dict))
         return False
 
-    async def process_reward(self, reward: CryptoReward) -> tuple[str, Transfer]:
+    async def process_reward(self, reward: CryptoReward) -> tuple[str | None, Transfer]:
         """Process a single crypto reward
 
         Returns:
@@ -208,7 +208,7 @@ class CryptoRewardProcessor:
                 "duration": str(duration),
             }
             logging.info(json_dumps(log_dict))
-            return str(transfer.transaction_hash), transfer
+            return str(transfer.transaction_hash) if transfer.transaction_hash else None, transfer
 
         except Exception as e:
             log_dict = {
@@ -242,7 +242,7 @@ async def process_pending_crypto_rewards() -> None:
         await processor.process_reward(reward)
 
 
-async def process_single_crypto_reward(reward: CryptoReward) -> tuple[str, Transfer]:
+async def process_single_crypto_reward(reward: CryptoReward) -> tuple[str | None, Transfer]:
     """Process a single cryptocurrency reward payment.
 
     Args:

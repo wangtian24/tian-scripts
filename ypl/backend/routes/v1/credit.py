@@ -9,7 +9,7 @@ from ypl.backend.llm.credit import (
     get_user_credit_balance,
 )
 from ypl.backend.payment.exchange_rates import get_exchange_rate
-from ypl.backend.payment.facilitator import Facilitator
+from ypl.backend.payment.facilitator import Facilitator, PaymentResponse
 from ypl.backend.payment.validation import validate_destination_identifier_for_currency
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import (
@@ -47,7 +47,9 @@ class CashoutCreditsRequest:
     cashout_currency: CurrencyEnum
     destination_identifier: str
     destination_identifier_type: PaymentInstrumentIdentifierTypeEnum
-    facilitator: PaymentInstrumentFacilitatorEnum | None = None
+    facilitator: PaymentInstrumentFacilitatorEnum
+    # If True, return the response object instead of just the string.
+    return_response_as_object: bool = False
 
 
 async def convert_credits_to_currency(credits: int, currency: CurrencyEnum) -> Decimal:
@@ -105,7 +107,7 @@ async def validate_cashout_request(request: CashoutCreditsRequest) -> None:
 
 
 @router.post("/credits/cashout")
-async def cashout_credits(request: CashoutCreditsRequest) -> str:
+async def cashout_credits(request: CashoutCreditsRequest) -> str | None | PaymentResponse:
     await validate_cashout_request(request)
 
     try:
@@ -124,7 +126,7 @@ async def cashout_credits(request: CashoutCreditsRequest) -> str:
         ) from e
 
     facilitator = Facilitator.init(request.cashout_currency, request.destination_identifier_type, request.facilitator)
-    transaction_reference_id = await facilitator.make_payment(
+    payment_response = await facilitator.make_payment(
         request.user_id,
         request.credits_to_cashout,
         amount_in_currency,
@@ -132,8 +134,9 @@ async def cashout_credits(request: CashoutCreditsRequest) -> str:
         request.destination_identifier_type,
     )
 
-    # TODO: Figure out the response format.
-    return transaction_reference_id
+    # Hack to continue returning 'None' when the customer reference ID is not available,
+    # as the older client will expect it.
+    return payment_response if request.return_response_as_object else str(payment_response.customer_reference_id)
 
 
 @router.get("/credits/cashout/transaction/{transaction_reference_id}/status")
