@@ -65,6 +65,7 @@ class AmplitudeError(Exception):
 AMPLITUDE_COHORTS: Final[dict[str, CohortInfo]] = {
     "daily_active_guests": {"id": "scljjdk9", "description": "Daily Active Guests"},
     "weekly_active_guests": {"id": "wmr7jmrw", "description": "Weekly Active Guests"},
+    "daily_transacting_guests": {"id": "aeja2n3d", "description": "Daily Transacting Guests"},
 }
 
 
@@ -254,7 +255,7 @@ async def fetch_user_names(user_ids: list[str]) -> dict[str, str]:
 
 async def post_data_from_cohorts(auth: str, start_date: datetime, end_date: datetime) -> None:
     """Fetch metrics for multiple Amplitude cohorts and post them to Slack."""
-    message = f"*Daily Active Guests for {start_date.date()}*"
+    message = f"*Guest report for {start_date.date()}*"
     log_dict: dict[str, int] = {}
 
     try:
@@ -274,7 +275,7 @@ async def post_data_from_cohorts(auth: str, start_date: datetime, end_date: date
                 user_ids = cohort_data.get("ids", [])
                 total_users = len(user_ids)
                 metrics[cohort_name] = total_users
-                message += f"\n{cohort_info['description']}: {total_users}\n"
+                message += f"\n*{cohort_info['description']}: {total_users}*\n"
                 user_names = await fetch_user_names(user_ids)
                 message += ", ".join(user_names.values())
             except (KeyError, RequestException) as e:
