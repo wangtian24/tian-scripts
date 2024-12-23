@@ -48,7 +48,7 @@ class RoutingTable(RNGMixin):
             if category != "*":
                 all_rules.extend(self.rules_cat_map.get(category.lower(), []))
 
-        all_rules.sort(key=lambda x: x.z_index, reverse=True)
+        all_rules.sort(key=lambda x: (x.z_index, x.probability), reverse=True)
 
         for rule in all_rules:
             if rule.target.noop():

@@ -1589,7 +1589,7 @@ async def get_simple_pro_router(
         router: RouterModule = (
             rule_filter
             | (
-                (rule_proposer.with_flags(always_include=True, multiplier=100000) | RandomJitter(jitter_range=1))
+                (rule_proposer.with_flags(always_include=True) | RandomJitter(jitter_range=1))
                 & (pro_proposer | error_filter | TopK(num_pro)).with_flags(always_include=True, offset=100000)
                 & (StrongModelProposer() | error_filter | TopK(1)).with_flags(always_include=True, offset=50000)
                 & (
