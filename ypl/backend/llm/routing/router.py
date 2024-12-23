@@ -1645,7 +1645,7 @@ async def get_simple_pro_router(
                     offset=10000000,
                 )
                 & (
-                    rule_proposer.with_flags(always_include=True, multiplier=10000)
+                    rule_proposer.with_flags(always_include=True)
                     | error_filter
                     | RandomJitter(jitter_range=1)
                 )
