@@ -301,7 +301,7 @@ on a scale of 1 to 10, where 1 is very easy and 10 is extremely challenging.
 Additionally, provide a brief, positive comment on what makes this prompt challenging (or easy).
 The comment should be a single sentence, ideally under 12 words.
 
-Lastly, provide 1-3 words with emojis that can be used by a user to mark a response for this particular prompt as good or bad, such as:
+Lastly, provide 1-4 words with emojis that can be used by a user to mark a response for this particular prompt as good or bad, such as:
 
 positive_notes:
   - Accurate ✅
@@ -347,7 +347,7 @@ Example inputs:
 
 Prompt: What do you know about Sonic and Sega All Stars Racing?
 Output: {{"overall": 5, "comment": "Nice -- a fun and niche question that explores details about a specific game.",
-"positive_notes": ["Surprising 😮", "Detailed 📖"], "negative_notes": ["Boring 😴", "Uninformative 🤷"]}}
+"positive_notes": ["Surprising 😮", "Detailed 📖", "Niche 🧠"], "negative_notes": ["Boring 😴", "Uninformative 🤷"]}}
 
 Prompt: How to fix the error “The underlying connection was closed: An unexpected error occurred on a receive.”
 Output: {{"overall": 6, "comment": "A practical troubleshooting question for a common but tricky error.",

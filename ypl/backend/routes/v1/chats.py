@@ -16,7 +16,7 @@ from ypl.backend.db import get_async_engine
 from ypl.backend.jobs.tasks import store_language_code
 from ypl.backend.llm.chat import ModelInfo, get_chat_history, get_chat_model
 from ypl.backend.llm.constants import ChatProvider
-from ypl.backend.llm.judge import DEFAULT_PROMPT_DIFFICULTY, YuppPromptDifficultyLabeler
+from ypl.backend.llm.judge import DEFAULT_PROMPT_DIFFICULTY, YuppPromptDifficultyWithCommentLabeler
 from ypl.backend.llm.labeler import MultiLLMLabeler, QuickTakeGenerator
 from ypl.backend.llm.moderation import DEFAULT_MODERATION_RESULT, amoderate
 from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter, OpenAILangChainAdapter
@@ -195,8 +195,6 @@ async def generate_quicktake_turn_id(
 @router.post("/chats/{chat_id}/turns/{turn_id}:label_quality", response_model=TurnQuality)
 async def label_quality(chat_id: UUID, turn_id: UUID) -> TurnQuality:
     cache = TurnQualityCache.get_instance()
-    labeler = YuppPromptDifficultyLabeler(llm)
-
     tq = await cache.aread(turn_id, deep=True)
 
     if not tq:
@@ -210,6 +208,10 @@ async def label_quality(chat_id: UUID, turn_id: UUID) -> TurnQuality:
             await session.commit()
             await session.refresh(tq)
             session.expunge(tq)
+    else:
+        # Only return if we have both moderation and difficulty results.
+        if tq.prompt_difficulty is not None and tq.prompt_is_safe is not None:
+            return tq
 
     turn = tq.turn
 
@@ -224,37 +226,44 @@ async def label_quality(chat_id: UUID, turn_id: UUID) -> TurnQuality:
 
     responses += ["", ""]  # ensure at least two responses
 
-    label_task = asyncio.create_task(labeler.alabel_full((prompt,) + tuple(responses[:2])))  # type: ignore
-    moderate_task = asyncio.create_task(amoderate(prompt))
+    tasks: list[tuple[str, Any]] = []
+    if tq.prompt_difficulty is None:
+        labeler = YuppPromptDifficultyWithCommentLabeler(llm)
+        tasks.append(("difficulty", labeler.alabel_full((prompt,) + tuple(responses[:2]))))
 
-    try:
-        prompt_difficulty, prompt_difficulty_details = await label_task
-    except Exception as e:
-        log_dict = {
-            "message": "Error labeling prompt difficulty; assigning default value",
-            "turn_id": str(turn_id),
-            "error": str(e),
-        }
-        logging.warning(json_dumps(log_dict))
-        prompt_difficulty = DEFAULT_PROMPT_DIFFICULTY
+    if tq.prompt_is_safe is None:
+        tasks.append(("moderate", amoderate(prompt)))
 
-    try:
-        moderation_result = await moderate_task
-    except Exception as e:
-        log_dict = {
-            "message": "Error getting moderation result; assigning default value",
-            "turn_id": str(turn_id),
-            "error": str(e),
-        }
-        logging.warning(json_dumps(log_dict))
-        moderation_result = DEFAULT_MODERATION_RESULT
+    if tasks:
+        results = await asyncio.gather(*(task[1] for task in tasks), return_exceptions=True)
 
-    tq.prompt_difficulty = prompt_difficulty
-    tq.prompt_difficulty_details = prompt_difficulty_details
-    tq.prompt_is_safe = moderation_result.safe
-    tq.prompt_moderation_model_name = moderation_result.model_name
-    if not moderation_result.safe:
-        tq.prompt_unsafe_reasons = moderation_result.reasons
+        for (task_type, _), result in zip(tasks, results, strict=True):
+            if isinstance(result, Exception):
+                log_dict = {
+                    "message": f"Error in {task_type} task; using default value",
+                    "turn_id": str(turn_id),
+                    "error": str(result),
+                }
+                logging.warning(json_dumps(log_dict))
+                if task_type == "difficulty":
+                    prompt_difficulty = DEFAULT_PROMPT_DIFFICULTY
+                elif task_type == "moderate":
+                    moderation_result = DEFAULT_MODERATION_RESULT
+                else:
+                    raise ValueError(f"Unknown task type: {task_type}")
+            else:
+                if task_type == "difficulty":
+                    prompt_difficulty, prompt_difficulty_details = result  # type: ignore
+                    tq.prompt_difficulty = prompt_difficulty
+                    tq.prompt_difficulty_details = prompt_difficulty_details
+                elif task_type == "moderate":
+                    moderation_result = result  # type: ignore
+                    tq.prompt_is_safe = moderation_result.safe
+                    tq.prompt_moderation_model_name = moderation_result.model_name
+                    if not moderation_result.safe:
+                        tq.prompt_unsafe_reasons = moderation_result.reasons
+                else:
+                    raise ValueError(f"Unknown task type: {task_type}")
 
     try:
         cache.write(key=turn_id, value=tq)
