@@ -15,14 +15,19 @@ if TYPE_CHECKING:
 
 class PointsActionEnum(Enum):
     UNKNOWN = "unknown"
-    SIGN_UP = "sign_up"
+    # Negative: when user spends credits.
+    PROMPT = "prompt"
+    # Positive: when user earns credits via multiple ways. Check RewardActionLog for the split.
     REWARD = "reward"
+    # Negative: when user cashes out credits.
     CASHOUT = "cashout"
+    # Positive or negative: when admin adjusts user's credits.
     ADJUSTMENT = "adjustment"
 
-    # Not used anymore. Kept for historical reasons.
-    PROMPT = "prompt"
-    EVALUATION = "evaluation"
+    # Deprecated values: Do not use these for new transactions.
+    # These are kept only for historical database records.
+    EVALUATION = "evaluation"  # Used until Nov 28, 2024.
+    SIGN_UP = "sign_up"  # Never used in prod.
 
 
 class PointTransaction(BaseModel, table=True):

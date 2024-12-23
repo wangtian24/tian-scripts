@@ -19,8 +19,6 @@ class RewardActionEnum(Enum):
     # User signs up.
     SIGN_UP = "sign_up"
     # Deprecated. Use TURN instead.
-    PROMPT = "prompt"
-    # Deprecated. Use TURN instead.
     EVALUATION = "evaluation"
     # Thumbs up/down on a QT response.
     QT_EVAL = "qt_eval"
