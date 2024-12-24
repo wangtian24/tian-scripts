@@ -15,6 +15,7 @@ from ypl.backend.llm.chat import get_curated_chat_context, persist_chat_message
 from ypl.backend.llm.model.model import ModelResponseTelemetry
 from ypl.backend.llm.provider.provider_clients import get_provider_client
 from ypl.backend.prompts import get_system_prompt_with_modifiers
+from ypl.db.chats import AssistantSelectionSource
 
 
 class StreamResponse:
@@ -43,6 +44,10 @@ class ChatRequest(BaseModel):
     message_id: uuid.UUID = Field(..., description="Message Id generated on client")
     creator_user_id: str = Field(..., description="User Id")
     turn_seq_num: int = Field(..., description="Turn Sequence Number generated on client")
+    assistant_selection_source: AssistantSelectionSource = Field(
+        default=AssistantSelectionSource.UNKNOWN,
+        description="Assistant selection source of model, if it were User/Router selected",
+    )
     # TODO(bhanu) - make below mandatory after UI change
     prompt_modifier_ids: list[uuid.UUID] | None = Field(None, description="List of Prompt Modifier IDs")
 
@@ -153,6 +158,7 @@ async def _stream_chat_completions(
                 turn_seq_num=chat_request.turn_seq_num,
                 streaming_metrics=modelResponseTelemetry.model_dump(),
                 prompt_modifier_ids=chat_request.prompt_modifier_ids,
+                assistant_selection_source=chat_request.assistant_selection_source,
             )
             # Send persistence success status
             yield StreamResponse(

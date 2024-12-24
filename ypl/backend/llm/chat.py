@@ -27,7 +27,15 @@ from ypl.backend.db import get_async_engine, get_engine
 from ypl.backend.llm.constants import ACTIVE_MODELS_BY_PROVIDER, PROVIDER_MODEL_PATTERNS, ChatProvider
 from ypl.backend.llm.provider.provider_clients import get_model_provider_tuple
 from ypl.backend.llm.routing.route_data_type import PreferredModel, RoutingPreference
-from ypl.db.chats import Chat, ChatMessage, MessageType, MessageUIStatus, PromptModifierAssoc, Turn
+from ypl.db.chats import (
+    AssistantSelectionSource,
+    Chat,
+    ChatMessage,
+    MessageType,
+    MessageUIStatus,
+    PromptModifierAssoc,
+    Turn,
+)
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
 from ypl.utils import async_timed_cache
 
@@ -790,10 +798,11 @@ async def persist_chat_message(
     content: str,
     model: str,
     turn_seq_num: int,
+    assistant_selection_source: AssistantSelectionSource,
     streaming_metrics: dict[str, str] | None = None,
     prompt_modifier_ids: list[UUID] | None = None,
 ) -> None:
-    result = get_model_provider_tuple(model)  # accessed cached LanguageModel
+    result = get_model_provider_tuple(model)  # access cached LanguageModel
 
     if result is None:
         raise ValueError(f"No model and provider found for {model}")
@@ -808,10 +817,11 @@ async def persist_chat_message(
                 message_id=message_id,
                 message_type=MessageType.ASSISTANT_MESSAGE,
                 content=content,
-                assistant_model_name=model,  # Deprecated but still used
+                assistant_model_name=model,
                 streaming_metrics=streaming_metrics or {},
-                turn_sequence_number=turn_seq_num,  # TODO(bhanu) First message in the turn
+                turn_sequence_number=turn_seq_num,
                 assistant_language_model_id=language_model.language_model_id,
+                assistant_selection_source=assistant_selection_source,
             )
 
             # Add prompt modifier associations if provided
