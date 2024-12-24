@@ -52,7 +52,7 @@ FEEDBACK_REWARD_UPPER_BOUND = 500
 QT_EVAL_REWARD_LOWER_BOUND = 400
 QT_EVAL_REWARD_UPPER_BOUND = 800
 
-FEEDBACK_QUALITY_JUDGING_TIMEOUT = 0.2
+FEEDBACK_QUALITY_JUDGING_TIMEOUT = 0.1
 VERY_POOR_FEEDBACK_SCORE = 1
 POOR_FEEDBACK_SCORE = 2
 AVERAGE_FEEDBACK_SCORE = 3
@@ -66,18 +66,17 @@ RULES_PATH = "data/reward_rules.yml"
 
 FEEDBACK_QUALITY_MULTIPLIER = {
     # Poor quality (1)
-    1: 0.25,  # ~300-400 range
+    1: 0.25,
     # Below average quality (2)
-    2: 0.35,  # ~400-600 range
+    2: 0.35,
     # Average quality (3)
-    3: 0.45,  # ~600-800 range
+    3: 0.45,
     # Good quality (4)
-    4: 0.75,  # ~1000-1500 range
+    4: 0.75,
     # Excellent quality (5)
-    5: 1.0,  # ~1500-2000 range
+    5: 1.0,
 }
 
-DEFAULT_QUALITY_SCORE = 3
 FALLBACK_QUALITY_SCORE = 2
 
 _JUDGE_4O_MINI: BaseChatModel | None = None
@@ -545,39 +544,45 @@ async def get_feedback_quality_score(user_id: str, feedback: str) -> int:
         for model_name, result in results.items():
             if isinstance(result, int):
                 elapsed_ms = (time.time() - start_time) * 1000
-                logging.info(
-                    {
-                        "message": "Feedback quality score latency",
-                        "feedback": feedback,
-                        "latency_ms": elapsed_ms,
-                        "score": result,
+                log_dict = {
+                    "message": "Feedback quality score latency",
+                    "feedback": feedback,
+                    "latency_ms": elapsed_ms,
+                    "score": result,
+                    "user_id": user_id,
+                    "winning_model": model_name,
+                }
+                logging.info(json_dumps(log_dict))
+                if result == -1:
+                    log_dict = {
+                        "message": "Error evaluating feedback quality",
+                        "error": "Fallback quality score",
                         "user_id": user_id,
-                        "winning_model": model_name,
+                        "feedback_length": len(feedback),
                     }
-                )
+                    logging.warning(json_dumps(log_dict))
+                    return FALLBACK_QUALITY_SCORE
                 return result
 
-        logging.warning(
-            {
-                "message": "Timeout getting feedback quality score",
-                "feedback": feedback,
-                "user_id": user_id,
-                "timeout": time.time() - start_time,
-                "results": str(results),
-            }
-        )
+        log_dict = {
+            "message": "Timeout getting feedback quality score",
+            "feedback": feedback,
+            "user_id": user_id,
+            "timeout": time.time() - start_time,
+            "results": str(results),
+        }
+        logging.warning(json_dumps(log_dict))
         return FALLBACK_QUALITY_SCORE
 
     except Exception as e:
-        logging.exception(
-            {
-                "message": "Error evaluating feedback quality",
-                "error": str(e),
-                "user_id": user_id,
-                "feedback_length": len(feedback),
-            }
-        )
-        return DEFAULT_QUALITY_SCORE
+        log_dict = {
+            "message": "Error evaluating feedback quality",
+            "error": str(e),
+            "user_id": user_id,
+            "feedback_length": len(feedback),
+        }
+        logging.warning(json_dumps(log_dict))
+        return FALLBACK_QUALITY_SCORE
 
 
 async def generate_bounded_reward(lower_bound: int, upper_bound: int, quality_score: int | None = None) -> int:
@@ -602,7 +607,7 @@ async def generate_bounded_reward(lower_bound: int, upper_bound: int, quality_sc
     range_size = upper_bound - lower_bound
 
     # Calculate score-based bounds while ensuring they stay within global bounds
-    default_multiplier = FEEDBACK_QUALITY_MULTIPLIER[AVERAGE_FEEDBACK_SCORE]
+    default_multiplier = FEEDBACK_QUALITY_MULTIPLIER[FALLBACK_QUALITY_SCORE]
     quality_multiplier = FEEDBACK_QUALITY_MULTIPLIER.get(quality_score, default_multiplier)
     score_min = lower_bound + (range_size * quality_multiplier * 0.8)
     score_max = lower_bound + (range_size * quality_multiplier)
