@@ -783,8 +783,7 @@ async def get_curated_chat_context(chat_id: UUID) -> list[dict]:
                 (msg for msg in assistant_msgs if msg.ui_status == MessageUIStatus.SELECTED),
                 assistant_msgs[0],  # Fallback to first message if none selected
             )
-            # TODO(bhanu) - add defensive check for null content and add placeholder.
-            # Note - UI already adds a placeholder Err text and persists
+            # if content is null, a place holder is added as part of sanitize_messages.py/replace_empty_messages()
             formatted_messages.append({"role": "assistant", "content": selected_msg.content})
 
     return formatted_messages

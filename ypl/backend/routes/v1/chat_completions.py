@@ -6,14 +6,15 @@ from collections.abc import AsyncIterator
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks
+from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from ypl.backend.config import settings
 from ypl.backend.llm.chat import get_curated_chat_context, persist_chat_message
 from ypl.backend.llm.model.model import ModelResponseTelemetry
-from ypl.backend.llm.provider.provider_clients import get_provider_client
+from ypl.backend.llm.provider.provider_clients import get_language_model, get_provider_client
+from ypl.backend.llm.sanitize_messages import sanitize_messages
 from ypl.backend.prompts import get_system_prompt_with_modifiers
 from ypl.db.chats import AssistantSelectionSource
 
@@ -58,7 +59,6 @@ router = APIRouter()
 @router.post("/chat/completions")
 async def chat_completions(
     chat_request: ChatRequest,
-    background_tasks: BackgroundTasks,
 ) -> StreamingResponse:
     """
     Unified streaming endpoint that supports multiple model providers
@@ -69,9 +69,7 @@ async def chat_completions(
     """
     try:
         client = await get_provider_client(chat_request.model)
-        return StreamingResponse(
-            _stream_chat_completions(client, chat_request, background_tasks), media_type="text/event-stream"
-        )
+        return StreamingResponse(_stream_chat_completions(client, chat_request), media_type="text/event-stream")
     except Exception as e:
         logging.error(f"Error initializing model: {e} \n" + traceback.format_exc())
         return StreamingResponse(
@@ -79,9 +77,7 @@ async def chat_completions(
         )
 
 
-async def _stream_chat_completions(
-    client: Any, chat_request: ChatRequest, background_tasks: BackgroundTasks
-) -> AsyncIterator[str]:
+async def _stream_chat_completions(client: Any, chat_request: ChatRequest) -> AsyncIterator[str]:
     try:
         start_time = datetime.now()
 
@@ -90,12 +86,15 @@ async def _stream_chat_completions(
             {"status": "started", "timestamp": start_time.isoformat(), "model": chat_request.model}, "status"
         ).encode()
         system_prompt = get_system_prompt_with_modifiers(chat_request.model, chat_request.prompt_modifier_ids)
-        messages = []
+
+        messages: list[dict[str, str]] = []
         if system_prompt and not chat_request.model.startswith("o1"):
             # use system prompt for non o1 models. o1 doesn't support system prompt
             messages.append({"role": "system", "content": system_prompt})
         if not chat_request.is_new_chat:
-            chat_context = await get_curated_chat_context(chat_request.chat_id)
+            chat_history = await get_curated_chat_context(chat_request.chat_id)
+            language_model = await get_language_model(chat_request.model)
+            chat_context = sanitize_messages(chat_history, system_prompt, language_model.context_window_tokens)  # type: ignore[arg-type]
             messages.extend(chat_context)
             # defensive check for race condition that user message is inserted by FE and loaded as part of history
             # so the user prompt will appear twice consecutively, which will fail for llama models.
@@ -127,7 +126,7 @@ async def _stream_chat_completions(
                 # Only log in local environment
                 if settings.ENVIRONMENT == "local":
                     logging.info(chunk.content)
-                full_response += content
+                full_response += str(content)
                 yield StreamResponse({"content": content, "model": chat_request.model}).encode()
 
         # Send completion status
@@ -178,7 +177,10 @@ async def _stream_chat_completions(
             ).encode()
 
     except Exception as e:
-        logging.error(f"Streaming Error: {str(e)} \n" + traceback.format_exc())
+        logging.error(
+            f"Streaming Error for model {chat_request.model} with prompt {chat_request.prompt}: {str(e)} \n"
+            + traceback.format_exc()
+        )
         yield StreamResponse(
             {"error": f"Streaming error: {str(e)}", "code": "stream_error", "model": chat_request.model}, "error"
         ).encode()

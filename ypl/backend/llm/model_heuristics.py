@@ -9,8 +9,8 @@ from vertexai.preview import tokenization
 
 
 class ModelHeuristics(BaseModelV1):
-    dollars_per_million_input_tokens: float
-    dollars_per_million_output_tokens: float
+    dollars_per_million_input_tokens: float = 0.0
+    dollars_per_million_output_tokens: float = 0.0
     tokens_per_second: float = 0.0  # number of tokens output per second
     can_stream: bool = True  # whether the model supports a streaming api
 
@@ -109,3 +109,21 @@ class ModelHeuristics(BaseModelV1):
             time += tokenizer_counter(output_string) / self.tokens_per_second
 
         return time
+
+    def encode_tokens(self, text: str) -> list[int]:
+        """Encode text into tokens."""
+        if self.tokenizer_type == "huggingface":
+            return list(AutoTokenizer.from_pretrained(self.tokenizer_name).encode(text))
+        elif self.tokenizer_type == "tiktoken":
+            return list(tiktoken.encoding_for_model(self.tokenizer_name).encode(text))
+        else:
+            raise ValueError(f"Unsupported tokenizer type: {self.tokenizer_type}")
+
+    def decode_tokens(self, tokens: list[int]) -> str:
+        """Decode tokens back to text using tiktoken."""
+        if self.tokenizer_type == "huggingface":
+            return str(AutoTokenizer.from_pretrained(self.tokenizer_name).decode(tokens))
+        elif self.tokenizer_type == "tiktoken":
+            return str(tiktoken.encoding_for_model(self.tokenizer_name).decode(tokens))
+        else:
+            raise ValueError(f"Unsupported tokenizer type: {self.tokenizer_type}")

@@ -116,3 +116,23 @@ async def get_provider_client(model_name: str) -> BaseChatModel:
         # TODO(bhanu) - review inactive providers in DB - Azure, Nvidia, Fireworks
         case _:
             raise ValueError(f"Unsupported provider: {provider.name}")
+
+
+async def get_language_model(model_name: str) -> LanguageModel:
+    """Get the language model details from the database.
+
+    Args:
+        model_name: The name of the model to retrieve
+
+    Returns:
+        LanguageModel: The language model details
+
+    Raises:
+        ValueError: If model is not found
+    """
+    result = get_model_provider_tuple(model_name)
+    if result is None:
+        raise ValueError(f"No language model found for model name: {model_name}")
+
+    language_model, _ = result
+    return language_model
