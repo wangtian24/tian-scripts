@@ -297,6 +297,9 @@ jobs:
         path: .venv
         key: pydeps-${{ hashFiles('**/poetry.lock') }}
 
+    - name: Install dependencies
+      run: poetry install --no-interaction --no-root --sync
+
     - name: Run migrations
       if: env.ENVIRONMENT == 'staging'
       run: |
