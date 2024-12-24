@@ -13,7 +13,7 @@ amount_rules:
       all:
         - name: turn_quality_score
           operator: greater_than_or_equal_to
-          value: 8
+          value: 7
     min_value: 80
     max_value: 99
     mean_value: 85
@@ -33,7 +33,7 @@ amount_rules:
       all:
         - name: turn_quality_score
           operator: greater_than_or_equal_to
-          value: 4
+          value: 3
     min_value: 50
     max_value: 69
     mean_value: 55
@@ -124,9 +124,9 @@ amount_rules:
         - name: points_last_month
           operator: less_than
           value: *monthly_points_limit
-    min_value: 200
+    min_value: 100
     max_value: 500
-    mean_value: 350
+    mean_value: 300
     comments:
       - "Thank you for your feedback."
 
@@ -146,11 +146,11 @@ amount_rules:
         - name: points_last_month
           operator: less_than
           value: *monthly_points_limit
-    min_value: 100
-    max_value: 200
-    mean_value: 150
+    min_value: 400
+    max_value: 800
+    mean_value: 600
     comments:
-      - "Thank you for your feedback."
+      - "Thank you. Your feedback makes this AI serve you better!"
 
   - name: base_sign_up_reward
     priority: 100
