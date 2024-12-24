@@ -21,6 +21,7 @@ class CurrencyEnum(enum.Enum):
     USDC = "USDC"
     ETH = "ETH"
     BTC = "BTC"
+    CBBTC = "CBBTC"
 
     # Keep these updated whenever a new crypto currency is added above.
     def is_crypto(self) -> bool:

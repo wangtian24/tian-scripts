@@ -183,7 +183,10 @@ class CryptoRewardProcessor:
                     raise CryptoWalletError("Wallet not initialized")
 
             await self.ensure_wallet_funded(reward.amount, reward.asset_id)
-            if reward.asset_id.lower() == CurrencyEnum.USDC.value.lower():
+            if (
+                reward.asset_id.lower() == CurrencyEnum.USDC.value.lower()
+                or reward.asset_id.lower() == CurrencyEnum.CBBTC.value.lower()
+            ):
                 transfer = self.wallet.transfer(
                     amount=reward.amount, asset_id=reward.asset_id, destination=reward.wallet_address, gasless=True
                 )
