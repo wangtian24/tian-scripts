@@ -121,7 +121,7 @@ class LanguageCodeEnum(enum.Enum):
             return None
 
 
-language_codes = sorted([label.replace("__label__", "") for label in get_model_loaded().get_labels()])
+language_codes = sorted([label.replace("__label__", "") for label in get_model_loaded(low_memory=True).get_labels()])
 
 LanguageCode: type[LanguageCodeEnum] = enum.Enum(  # type: ignore
     "LanguageCode",
