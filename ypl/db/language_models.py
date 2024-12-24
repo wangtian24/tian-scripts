@@ -280,7 +280,9 @@ class RoutingRule(BaseModel, table=True):
     # The z-index of the rule, used to resolve conflicts. Higher values take precedence.
     z_index: int = Field(sa_column=Column(Integer(), server_default="0"))
 
-    # The category of the source prompt of the form "category" or "*"
+    # The category of the source prompt of the form "category" or "*". Categories prepended with
+    # "-" means to match the negation of the category, e.g. "-category" matches any prompt that is not
+    # in the category "category".
     source_category: str = Field(nullable=False, index=True)
 
     # A destination of the form "provider/model_name", "provider/*", or "*"

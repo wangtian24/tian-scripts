@@ -18,9 +18,13 @@ from ypl.utils import RNGMixin, compiled_regex
 class RoutingTable(RNGMixin):
     def __init__(self, rules: list[RoutingRule]):
         self.rules_cat_map: defaultdict[str, list[RoutingRule]] = defaultdict(list)
+        self.rules_neg_cat_map: defaultdict[str, list[RoutingRule]] = defaultdict(list)
 
         for rule in rules:
-            self.rules_cat_map[rule.source_category.lower()].append(rule)
+            if rule.source_category.startswith("-"):
+                self.rules_neg_cat_map[rule.source_category[1:].lower()].append(rule)
+            else:
+                self.rules_cat_map[rule.source_category.lower()].append(rule)
 
     def apply(self, categories: tuple[str, ...], models: set[str]) -> tuple[dict[str, float], set[str]]:
         """
@@ -47,6 +51,10 @@ class RoutingTable(RNGMixin):
         for category in set(categories):
             if category != "*":
                 all_rules.extend(self.rules_cat_map.get(category.lower(), []))
+
+        for inv_cat, rules in self.rules_neg_cat_map.items():
+            if inv_cat not in categories:
+                all_rules.extend(rules)
 
         all_rules.sort(key=lambda x: (x.z_index, x.probability), reverse=True)
 
