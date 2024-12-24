@@ -303,7 +303,7 @@ jobs:
     - name: Run migrations
       if: env.ENVIRONMENT == 'staging'
       run: |
-        poetry run echo "yupp" | alembic upgrade head
+        echo "yupp" | poetry run alembic upgrade head
 
     - name: Refresh reward rules
       run: poetry run python -m ypl.cli refresh-rewards-rules
