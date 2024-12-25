@@ -17,6 +17,11 @@ supported_currency_to_instrument_identifier_type = {
         PaymentInstrumentIdentifierTypeEnum.EMAIL,
         PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS,
     ],
+    CurrencyEnum.CBBTC: [
+        PaymentInstrumentIdentifierTypeEnum.PHONE_NUMBER,
+        PaymentInstrumentIdentifierTypeEnum.EMAIL,
+        PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS,
+    ],
 }
 
 

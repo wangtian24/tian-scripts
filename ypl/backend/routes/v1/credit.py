@@ -5,6 +5,7 @@ from decimal import Decimal
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy.exc import NoResultFound
 
+from ypl.backend.config import settings
 from ypl.backend.llm.credit import (
     get_user_credit_balance,
 )
@@ -19,7 +20,6 @@ from ypl.db.payments import (
     PaymentTransactionStatusEnum,
 )
 from ypl.db.users import SIGNUP_CREDITS
-from ypl.settings import settings
 
 router = APIRouter()
 
