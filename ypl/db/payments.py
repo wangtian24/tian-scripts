@@ -83,6 +83,9 @@ class PaymentTransactionStatusEnum(enum.Enum):
     # Facilitator has confirmed the transaction has failed.
     FAILED = "failed"
 
+    # The transaction has been reversed.
+    REVERSED = "reversed"
+
 
 class PaymentTransaction(BaseModel, table=True):
     __tablename__ = "payment_transactions"
