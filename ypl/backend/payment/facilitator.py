@@ -469,7 +469,7 @@ class OnChainFacilitator(Facilitator):
                 amount=amount,
                 source_instrument_id=source_instrument_id,
                 destination_instrument_id=destination_instrument_id,
-                status=PaymentTransactionStatusEnum.SUCCESS,
+                status=PaymentTransactionStatusEnum.REVERSED,
                 additional_info={
                     "user_id": user_id,
                     "destination_identifier": destination_identifier,
