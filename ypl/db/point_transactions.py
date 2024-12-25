@@ -21,6 +21,8 @@ class PointsActionEnum(Enum):
     REWARD = "reward"
     # Negative: when user cashes out credits.
     CASHOUT = "cashout"
+    # Positive: when user cashout is reversed.
+    CASHOUT_REVERSED = "cashout_reversed"
     # Positive or negative: when admin adjusts user's credits.
     ADJUSTMENT = "adjustment"
 
