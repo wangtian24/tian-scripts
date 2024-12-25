@@ -13,7 +13,9 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from ypl.backend.db import get_async_session
 from ypl.backend.payment.crypto_rewards import CryptoReward, get_crypto_balance, process_single_crypto_reward
 from ypl.backend.payment.payment import (
+    CashoutPointTransactionRequest,
     PaymentTransactionRequest,
+    create_cashout_point_transaction,
     create_payment_transaction,
     update_payment_transaction,
     update_user_points,
@@ -26,6 +28,7 @@ from ypl.db.payments import (
     PaymentInstrumentIdentifierTypeEnum,
     PaymentTransactionStatusEnum,
 )
+from ypl.db.point_transactions import PointsActionEnum
 
 SYSTEM_USER_ID = "SYSTEM"
 RETRY_ATTEMPTS = 3
@@ -60,6 +63,12 @@ class CryptoRewardProcessingError(PaymentProcessingError):
 
 class PaymentInstrumentNotFoundError(PaymentProcessingError):
     """Exception raised when a payment instrument is not found."""
+
+    pass
+
+
+class PointTransactionCreationError(PaymentProcessingError):
+    """Error creating point transaction"""
 
     pass
 
@@ -281,11 +290,12 @@ class OnChainFacilitator(Facilitator):
         # 0. Get the balance of the source instrument
         # 1. Get the source and destination instrument ids
         # 2. Create a payment transaction
-        # 3. Update the user points
-        # 4. Process the crypto reward
-        # 5. Monitor the transfer completion
-        # 6. If success then update the payment transaction status
-        # 7. If failure then reverse the payment transaction and update the user points
+        # 3. Create a point transaction entry for the cashout
+        # 4. Update the user points
+        # 5. Process the crypto reward
+        # 6. Monitor the transfer completion
+        # 7. If success then update the payment transaction status
+        # 8. If failure then reverse the payment transaction, point transaction and update the user points
         start_time = time.time()
         try:
             try:
@@ -341,6 +351,35 @@ class OnChainFacilitator(Facilitator):
                 raise TransactionCreationError("Failed to create payment transaction") from e
 
             try:
+                point_transaction_request = CashoutPointTransactionRequest(
+                    user_id=user_id,
+                    point_delta=-credits_to_cashout,
+                    action_type=PointsActionEnum.CASHOUT,
+                    cashout_payment_transaction_id=payment_transaction_id,
+                )
+                point_transaction_id = await create_cashout_point_transaction(point_transaction_request)
+            except Exception as e:
+                log_dict = {
+                    "message": "Failed to create point transaction",
+                    "user_id": user_id,
+                    "error": str(e),
+                }
+                logging.exception(json_dumps(log_dict))
+                await self._handle_failed_transaction(
+                    payment_transaction_id,
+                    None,
+                    user_id,
+                    credits_to_cashout,
+                    amount,
+                    source_instrument_id,
+                    destination_instrument_id,
+                    destination_identifier,
+                    destination_identifier_type,
+                    update_points=False,
+                )
+                raise PointTransactionCreationError("Failed to create point transaction") from e
+
+            try:
                 await update_user_points(user_id, -credits_to_cashout)
             except Exception as e:
                 log_dict = {
@@ -352,6 +391,7 @@ class OnChainFacilitator(Facilitator):
                 logging.exception(json_dumps(log_dict))
                 await self._handle_failed_transaction(
                     payment_transaction_id,
+                    point_transaction_id,
                     user_id,
                     credits_to_cashout,
                     amount,
@@ -385,6 +425,7 @@ class OnChainFacilitator(Facilitator):
                         self._monitor_transfer_completion(
                             transfer=transfer,
                             payment_transaction_id=payment_transaction_id,
+                            points_transaction_id=point_transaction_id,
                             user_id=user_id,
                             credits_to_cashout=credits_to_cashout,
                             amount=amount,
@@ -424,6 +465,7 @@ class OnChainFacilitator(Facilitator):
                 logging.exception(json_dumps(log_dict))
                 await self._handle_failed_transaction(
                     payment_transaction_id,
+                    point_transaction_id,
                     user_id,
                     credits_to_cashout,
                     amount,
@@ -449,6 +491,7 @@ class OnChainFacilitator(Facilitator):
     async def _handle_failed_transaction(
         self,
         payment_transaction_id: uuid.UUID,
+        points_transaction_id: uuid.UUID | None,
         user_id: str,
         credits_to_cashout: int,
         amount: Decimal,
@@ -477,11 +520,28 @@ class OnChainFacilitator(Facilitator):
                     "reversal_transaction_id": payment_transaction_id,
                 },
             )
-            await create_payment_transaction(reversal_request)
+            payment_transaction_id = await create_payment_transaction(reversal_request)
+            if points_transaction_id:
+                points_transaction_id = await create_cashout_point_transaction(
+                    CashoutPointTransactionRequest(
+                        user_id=user_id,
+                        point_delta=credits_to_cashout,
+                        action_type=PointsActionEnum.CASHOUT_REVERSED,
+                        cashout_payment_transaction_id=payment_transaction_id,
+                    )
+                )
+            log_dict = {
+                "message": "Successfully reversed transaction",
+                "payment_transaction_id": str(payment_transaction_id),
+                "points_transaction_id": str(points_transaction_id),
+                "user_id": user_id,
+            }
+            logging.info(json_dumps(log_dict))
         except Exception as e:
             log_dict = {
                 "message": "Failed to handle failed transaction cleanup",
                 "payment_transaction_id": str(payment_transaction_id),
+                "points_transaction_id": str(points_transaction_id),
                 "user_id": user_id,
                 "error": str(e),
             }
@@ -495,6 +555,7 @@ class OnChainFacilitator(Facilitator):
         self,
         transfer: Transfer,
         payment_transaction_id: uuid.UUID,
+        points_transaction_id: uuid.UUID,
         user_id: str,
         credits_to_cashout: int,
         amount: Decimal,
@@ -562,6 +623,7 @@ class OnChainFacilitator(Facilitator):
                 # Handle the failed transaction
                 await self._handle_failed_transaction(
                     payment_transaction_id=payment_transaction_id,
+                    points_transaction_id=points_transaction_id,
                     user_id=user_id,
                     credits_to_cashout=credits_to_cashout,
                     amount=amount,

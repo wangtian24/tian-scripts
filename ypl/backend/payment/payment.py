@@ -14,6 +14,7 @@ from ypl.db.payments import (
     PaymentTransaction,
     PaymentTransactionStatusEnum,
 )
+from ypl.db.point_transactions import PointsActionEnum, PointTransaction
 from ypl.db.users import User
 
 
@@ -25,6 +26,14 @@ class PaymentTransactionRequest:
     destination_instrument_id: UUID
     status: PaymentTransactionStatusEnum
     additional_info: dict
+
+
+@dataclass
+class CashoutPointTransactionRequest:
+    user_id: str
+    point_delta: int
+    action_type: PointsActionEnum
+    cashout_payment_transaction_id: UUID
 
 
 @retry(
@@ -95,3 +104,27 @@ async def update_user_points(user_id: str, amount: int) -> None:
         user_row = user_record.scalar_one()
         user_row.points += amount
         await session.commit()
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_fixed(0.1),
+    after=after_log(logging.getLogger(), logging.WARNING),
+    retry=retry_if_exception_type((OperationalError, DatabaseError)),
+)
+async def create_cashout_point_transaction(cashout_point_transaction_request: CashoutPointTransactionRequest) -> UUID:
+    """
+    Create a new point transaction for cashout with retry logic.
+
+    Args:
+        cashout_point_transaction_request: The CashoutPointTransactionRequest instance to create
+
+    Returns:
+        UUID: The point transaction id
+    """
+    async with get_async_session() as session:
+        point_transaction_data = asdict(cashout_point_transaction_request)
+        point_transaction_db = PointTransaction(**point_transaction_data)
+        session.add(point_transaction_db)
+        await session.commit()
+        return point_transaction_db.transaction_id
