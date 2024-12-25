@@ -18,7 +18,7 @@ from ypl.pytorch.model.response_length import ResponseLengthModel
 from ypl.pytorch.model.routing import RoutingModel, RoutingMultilabelClassificationModel
 
 
-class ResponseLengthTrainer(Trainer):  # type: ignore[misc]
+class ResponseLengthTrainer(Trainer):
     """Transformers trainer for response length models."""
 
     def compute_loss(
@@ -58,7 +58,7 @@ class ResponseLengthTrainer(Trainer):  # type: ignore[misc]
         return dict(accuracy=sum(accuracy) / len(accuracy), rho=spearmanr(truths, preds).correlation)
 
 
-class OnlineClassifierTrainer(Trainer):  # type: ignore[misc]
+class OnlineClassifierTrainer(Trainer):
     """Transformers trainer for online classifier models."""
 
     def compute_loss(
@@ -106,7 +106,7 @@ class OnlineClassifierTrainer(Trainer):  # type: ignore[misc]
         )
 
 
-class RoutingMultilabelTrainer(Trainer):  # type: ignore[misc]
+class RoutingMultilabelTrainer(Trainer):
     """Transformers trainer for routing multilabel classification models."""
 
     def compute_loss(
@@ -145,7 +145,7 @@ class RoutingMultilabelTrainer(Trainer):  # type: ignore[misc]
         return dict(accuracy=sum(accuracy) / len(accuracy))
 
 
-class CategorizerTrainer(Trainer):  # type: ignore[misc]
+class CategorizerTrainer(Trainer):
     """Transformers trainer for categorizer models."""
 
     def __init__(self, pos_weights: torch.Tensor, *args: Any, **kwargs: Any):

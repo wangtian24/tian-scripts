@@ -48,6 +48,9 @@ jobs:
         with:
           path: .venv
           key: pydeps-${{ hashFiles('**/poetry.lock') }}
+          restore-keys: |
+            pydeps-${{ hashFiles('**/poetry.lock') }}-
+            pydeps
 
       - name: Install dependencies
         run: poetry install --no-interaction --no-root --sync
@@ -63,7 +66,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .mypy_cache
-          key: mypy-${{ hashFiles('pyproject.toml') }}
+          key: mypy-cache-${{ hashFiles('**/pyproject.toml') }}
+          restore-keys: |
+            mypy-cache-${{ hashFiles('**/pyproject.toml') }}-
+            mypy-cache
 
       - name: Run Mypy
         run: poetry run mypy --config-file=pyproject.toml .

@@ -119,7 +119,7 @@ class Reward(BaseModel, table=True):
     reward_amount_rule: "RewardAmountRule" = Relationship(back_populates="rewards")
 
 
-class RewardVariables(BaseVariables):  # type: ignore
+class RewardVariables(BaseVariables):
     def __init__(self, context: dict[str, Any]):
         self.context = context
 

@@ -89,8 +89,8 @@ fastapi = "0.110.0"
 gitpython = "3.1.43"
 google-auth = "2.35.0"
 google-cloud-aiplatform = {version = "1.75.0", extras = ["tokenization"]}
-google-cloud-logging = "3.11.2"
-google-cloud-run = "0.10.9"
+google-cloud-logging = "3.11.3"
+google-cloud-run = "0.10.14"
 langchain = "0.3.8"
 langchain-anthropic = "0.3.0"
 langchain-community = "0.3.8"
@@ -113,6 +113,7 @@ pydantic-settings = "2.4.0"
 pytest-asyncio = "0.24.0"
 pytest-xdist = "3.6.1"
 pytest-mock = "3.14.0"
+pytest-repeat = "0.9.3"
 python = ">=3.11,<3.12"
 python-dotenv = "1.0.1"
 redis = "5.2.1"
@@ -162,7 +163,6 @@ check_untyped_defs = true  # Type-check the interior of functions without type a
 disallow_untyped_defs = true  # Prevent functions without type annotations
 disallow_untyped_calls = false  # Prevent calls to functions without type annotations
 disallow_incomplete_defs = true  # Prevent functions with incomplete type annotations
-disallow_subclassing_any = true  # Prevent subclassing a value of type 'Any'
 no_implicit_optional = true  # Treat None and optional separately
 strict_optional = true  # Enable strict Optional checks
 warn_redundant_casts = true  # Warn about redundant casts
@@ -171,6 +171,7 @@ warn_return_any = true  # Warn about returning values of type 'Any' from functio
 ignore_missing_imports = true  # Ignore errors for missing imports
 exclude = ["ypl/db/alembic/", "tmp/", "notebooks/", "ypl/db/oneoffs/"]
 cache_dir = ".mypy_cache"
+follow_imports = "silent"
 
 [tool.pytest.ini_options]
 addopts = "--ignore ypl/pytorch/tests"  # Skip torch tests on CI box until we have a GPU

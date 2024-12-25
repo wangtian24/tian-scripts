@@ -43,7 +43,8 @@ from ypl.db.rewards import (
 )
 from ypl.db.users import User
 
-load_dotenv()  # Load environment variables from .env file
+# Load environment variables from .env file
+load_dotenv()
 
 # Define mean reward for evals, baseline value for medium tier (method="mean")
 MEAN_EVAL_REWARD = 50
@@ -59,8 +60,10 @@ AVERAGE_FEEDBACK_SCORE = 3
 GOOD_FEEDBACK_SCORE = 4
 EXCELLENT_FEEDBACK_SCORE = 5
 
+# Reward types that count towards point limits.
 LIMIT_REWARD_ACTION_TYPES = [PointsActionEnum.REWARD, PointsActionEnum.ADJUSTMENT]
 
+# Constants for reward rules; populated from data/reward_rules.yml.
 RULE_CONSTANTS: dict[str, Any] = {}
 RULES_PATH = "data/reward_rules.yml"
 

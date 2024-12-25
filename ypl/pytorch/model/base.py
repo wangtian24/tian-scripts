@@ -13,7 +13,7 @@ from ypl.pytorch.torch_utils import DeviceMixin
 
 
 # For now, assume that all models can fit on a single device.
-class YuppModel(PyTorchModelHubMixin, DeviceMixin, nn.Module):  # type: ignore[misc]
+class YuppModel(PyTorchModelHubMixin, DeviceMixin, nn.Module):
     def __init__(self) -> None:
         super().__init__()
 
