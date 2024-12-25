@@ -9,6 +9,7 @@ from decimal import Decimal
 from cdp import Cdp, Transfer, Wallet
 from dotenv import load_dotenv
 from ypl.backend.config import settings
+from ypl.backend.llm.utils import post_to_slack
 from ypl.backend.utils.files import (
     download_gcs_to_local_temp,
     file_exists,
@@ -25,6 +26,11 @@ WALLET_FILE_NAME = "wallet.json"
 CRYPTO_WALLET_PATH = settings.CRYPTO_WALLET_PATH
 SEED_FILE_PATH = os.path.join(CRYPTO_WALLET_PATH, SEED_FILE_NAME)
 WALLET_FILE_PATH = os.path.join(CRYPTO_WALLET_PATH, WALLET_FILE_NAME)
+
+MIN_BALANCES: dict[CurrencyEnum, Decimal] = {
+    CurrencyEnum.ETH: Decimal(0.5),
+    CurrencyEnum.USDC: Decimal(200),
+}
 
 
 @dataclass
@@ -125,6 +131,18 @@ class CryptoRewardProcessor:
         while time.time() - start_time < MAX_WAIT_TIME_SECONDS:
             attempts += 1
             asset_balance = self.wallet.balance(asset_id) if self.wallet else Decimal("0")
+
+            # Check for low balance condition
+            min_balance = MIN_BALANCES.get(CurrencyEnum(asset_id.upper()), Decimal("0"))
+            if asset_balance < min_balance + total_required:
+                message = (
+                    f"🔴 *Low Balance Alert*\n"
+                    f"Asset: {asset_id.upper()}\n"
+                    f"Current Balance: {asset_balance}\n"
+                    f"Current Transaction Required: {total_required}\n"
+                    f"Minimum Required: {min_balance}"
+                )
+                asyncio.create_task(post_to_slack(message))
 
             if asset_balance >= total_required:
                 return True
