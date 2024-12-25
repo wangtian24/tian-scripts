@@ -180,6 +180,9 @@ class ChatMessage(BaseModel, table=True):
             nullable=True,
         )
     )
+    # Intended to store content attributes like citations, etc.
+    # just 'metadata' is a reserved keyword.
+    message_metadata: dict[str, Any] = Field(default_factory=dict, sa_type=JSONB, nullable=True)
 
     # Streaming metrics for display purposes in the UI, such as average streaming speed.
     streaming_metrics: dict[str, str] = Field(default_factory=dict, sa_type=JSON, nullable=True)
