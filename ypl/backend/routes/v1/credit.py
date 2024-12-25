@@ -19,6 +19,7 @@ from ypl.db.payments import (
     PaymentTransactionStatusEnum,
 )
 from ypl.db.users import SIGNUP_CREDITS
+from ypl.settings import settings
 
 router = APIRouter()
 
@@ -48,6 +49,7 @@ class CashoutCreditsRequest:
     destination_identifier: str
     destination_identifier_type: PaymentInstrumentIdentifierTypeEnum
     facilitator: PaymentInstrumentFacilitatorEnum
+    country_code: str | None
     # If True, return the response object instead of just the string.
     return_response_as_object: bool = False
 
@@ -81,6 +83,13 @@ async def convert_credits_to_currency(credits: int, currency: CurrencyEnum) -> D
 async def validate_cashout_request(request: CashoutCreditsRequest) -> None:
     if request.credits_to_cashout <= 0:
         raise HTTPException(status_code=400, detail="You need to select at least a few credits to cash out.")
+
+    if (
+        (request.country_code is None or request.country_code == "IN")
+        and settings.ENVIRONMENT == "production"
+        and request.cashout_currency.is_crypto()
+    ):
+        raise HTTPException(status_code=400, detail="Crypto cashout is not supported in India")
 
     user_credit_balance = await get_user_credit_balance(request.user_id)
     if request.credits_to_cashout > user_credit_balance - SIGNUP_CREDITS:

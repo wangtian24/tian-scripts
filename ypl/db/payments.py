@@ -25,7 +25,7 @@ class CurrencyEnum(enum.Enum):
 
     # Keep these updated whenever a new crypto currency is added above.
     def is_crypto(self) -> bool:
-        return self in [CurrencyEnum.ETH, CurrencyEnum.BTC, CurrencyEnum.USDC]
+        return self in [CurrencyEnum.ETH, CurrencyEnum.BTC, CurrencyEnum.USDC, CurrencyEnum.CBBTC]
 
 
 class PaymentInstrumentFacilitatorEnum(enum.Enum):
