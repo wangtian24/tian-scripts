@@ -23,6 +23,7 @@ from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter, Ope
 from ypl.backend.rw_cache import TurnQualityCache
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import Chat, ChatMessage, MessageType, TurnQuality
+from ypl.utils import tiktoken_trim
 
 router = APIRouter()
 llm = get_chat_model(
@@ -95,6 +96,11 @@ QT_LLMS = {
     "gemini-1.5-flash": gemini_15_flash_llm,
     "gemini-2.0-flash": gemini_2_flash_llm,
 }
+
+QT_MAX_CONTEXT_LENGTH = {
+    "gpt-4o": 128000,
+    "gpt-4o-mini": 16000,
+}
 # Models to use if no specific model was requested.
 MODELS_FOR_DEFAULT_QT = ["gpt-4o", "gpt-4o-mini"]
 # Model to use while supplying only the prompts from the chat history, instead of the full chat history.
@@ -149,7 +155,10 @@ async def generate_quicktake(
                 timeout_secs=timeout_secs,
                 early_terminate_on=MODELS_FOR_DEFAULT_QT,
             )
-            quicktakes = await multi_generator.alabel(request.prompt or "")
+            max_context_length = min((QT_MAX_CONTEXT_LENGTH[model] for model in MODELS_FOR_DEFAULT_QT), default=16000)
+            quicktakes = await multi_generator.alabel(
+                tiktoken_trim(request.prompt or "", int(max_context_length * 0.75), direction="right")
+            )
             for model in labelers:
                 response = quicktakes.get(model)
                 if response and not isinstance(response, Exception):
@@ -159,7 +168,10 @@ async def generate_quicktake(
         elif request.model in QT_LLMS:
             # Specific model requested.
             generator = get_quicktake_generator(request.model, chat_history)
-            quicktake = await generator.alabel(request.prompt or "")
+            max_context_length = QT_MAX_CONTEXT_LENGTH.get(request.model, min(QT_MAX_CONTEXT_LENGTH.values()))
+            quicktake = await generator.alabel(
+                tiktoken_trim(request.prompt or "", int(max_context_length * 0.75), direction="right")
+            )
             response_model = request.model
         else:
             raise ValueError(f"Unsupported model: {request.model}; supported: {','.join(QT_LLMS.keys())}")

@@ -5,9 +5,10 @@ import time
 from collections.abc import Callable, Generator
 from functools import lru_cache
 from threading import Lock
-from typing import Any, Self, TypeVar, Union, no_type_check
+from typing import Any, Literal, Self, TypeVar, Union, no_type_check
 
 import numpy as np
+import tiktoken
 
 
 class SingletonMixin:
@@ -251,3 +252,17 @@ def split_markdown_list(text: str, max_length: int = 500) -> Generator[tuple[int
             continue
 
         yield a, b
+
+
+def tiktoken_trim(
+    text: str, max_length: int, *, model: str = "gpt-4o", direction: Literal["left", "right"] = "left"
+) -> str:
+    enc = tiktoken.encoding_for_model(model)
+
+    match direction:
+        case "left":
+            return enc.decode(enc.encode(text)[:max_length])
+        case "right":
+            return enc.decode(enc.encode(text)[-max_length:])
+        case _:
+            raise ValueError(f"Invalid direction: {direction}")
