@@ -10,6 +10,7 @@ CRYPTO_CURRENCY_IDS: Final[dict[CurrencyEnum, str]] = {
     CurrencyEnum.BTC: "bitcoin",
     CurrencyEnum.ETH: "ethereum",
     CurrencyEnum.USDC: "usd-coin",
+    CurrencyEnum.CBBTC: "bitcoin",
 }
 
 
@@ -28,7 +29,11 @@ async def get_crypto_exchange_rate(
     # Try primary API (Coinbase) first
     try:
         source_currency_id = source_currency.value.upper()
-        destination_currency_id = destination_currency.value.upper()
+
+        if destination_currency == CurrencyEnum.CBBTC:
+            destination_currency_id = "BTC"
+        else:
+            destination_currency_id = destination_currency.value.upper()
 
         response = await client.get(
             settings.CRYPTO_EXCHANGE_PRICE_API_URL_COINBASE.format(source_currency_id, destination_currency_id)

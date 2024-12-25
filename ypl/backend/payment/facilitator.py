@@ -145,10 +145,7 @@ class Facilitator(ABC):
     ) -> "Facilitator":
         if currency == CurrencyEnum.INR:
             return UpiFacilitator(currency, destination_identifier_type, facilitator)
-        elif (
-            currency in (CurrencyEnum.USDC, CurrencyEnum.BTC, CurrencyEnum.ETH)
-            and facilitator == PaymentInstrumentFacilitatorEnum.ON_CHAIN
-        ):
+        elif currency.is_crypto() and facilitator == PaymentInstrumentFacilitatorEnum.ON_CHAIN:
             return OnChainFacilitator(currency, destination_identifier_type, facilitator)
 
         raise ValueError(f"Unsupported currency: {currency}")
