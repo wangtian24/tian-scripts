@@ -117,6 +117,19 @@ async def validate_cashout_request(request: CashoutCreditsRequest) -> None:
 
 @router.post("/credits/cashout")
 async def cashout_credits(request: CashoutCreditsRequest) -> str | None | PaymentResponse:
+    # TODO: Remove this once things stabilize.
+    log_dict = {
+        "message": "Cashout request",
+        "user_id": request.user_id,
+        "credits_to_cashout": request.credits_to_cashout,
+        "cashout_currency": request.cashout_currency,
+        "destination_identifier": request.destination_identifier,
+        "destination_identifier_type": request.destination_identifier_type,
+        "facilitator": request.facilitator,
+        "country_code": request.country_code,
+    }
+    logging.info(json_dumps(log_dict))
+
     await validate_cashout_request(request)
 
     try:
