@@ -8,6 +8,8 @@ from google.cloud.logging_v2.handlers.transports.background_thread import Backgr
 
 from ypl.backend.config import settings
 
+MAX_LOGGED_FIELD_LENGTH_CHARS = 1000
+
 
 def redact_sensitive_data(text: str) -> str:
     if settings.ENVIRONMENT == "local":
@@ -49,17 +51,48 @@ class RedactingStreamHandler(RedactingMixin, logging.StreamHandler):
         super().emit(record)
 
 
+class TruncatingMixin:
+    def truncate_value(self, value: str) -> str:
+        if len(value) > MAX_LOGGED_FIELD_LENGTH_CHARS:
+            return value[:MAX_LOGGED_FIELD_LENGTH_CHARS] + "... (truncated)"
+        return value
+
+    def truncate_record(self, record: logging.LogRecord) -> None:
+        if isinstance(record.msg, str):
+            record.msg = self.truncate_value(record.msg)
+        elif isinstance(record.msg, dict):
+            record.msg = {k: self.truncate_value(str(v)) for k, v in record.msg.items()}
+
+        # Handle extra parameters
+        if hasattr(record, "extra"):
+            for k, v in record.extra.items():
+                setattr(record, k, self.truncate_value(str(v)))
+
+
+class TruncatingHandler(TruncatingMixin, CloudLoggingHandler):
+    def emit(self, record: logging.LogRecord) -> None:
+        self.truncate_record(record)
+        super().emit(record)
+
+
+class TruncatingStreamHandler(TruncatingMixin, logging.StreamHandler):
+    def emit(self, record: logging.LogRecord) -> None:
+        self.truncate_record(record)
+        super().emit(record)
+
+
 def setup_google_cloud_logging() -> None:
     try:
         client = google_logging.Client()
-        handler = RedactingHandler(
-            client, name=os.environ.get("GCP_PROJECT_ID") or "default", transport=BackgroundThreadTransport
-        )
+        name = os.environ.get("GCP_PROJECT_ID") or "default"
+        truncating_handler = TruncatingHandler(client, name=name, transport=BackgroundThreadTransport)
+        redacting_handler = RedactingHandler(client, name=name, transport=BackgroundThreadTransport)
 
         root_logger = logging.getLogger()
         root_logger.handlers.clear()
         root_logger.setLevel(logging.INFO)
-        root_logger.addHandler(handler)
+        root_logger.addHandler(redacting_handler)
+        root_logger.addHandler(truncating_handler)
     except Exception as e:
         logging.basicConfig(level=logging.INFO)
         logging.error(f"Google Cloud Logging setup failed: {e}")
@@ -71,5 +104,5 @@ else:
     root_logger = logging.getLogger()
     root_logger.handlers.clear()
     root_logger.setLevel(logging.INFO)
-    handler = RedactingStreamHandler()
-    root_logger.addHandler(handler)
+    root_logger.addHandler(RedactingStreamHandler())
+    root_logger.addHandler(TruncatingStreamHandler())
