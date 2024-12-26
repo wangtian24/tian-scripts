@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import time
 import uuid
 from abc import ABC, abstractmethod
@@ -11,6 +12,7 @@ from cdp.transfer import Transfer
 from sqlmodel import select
 from tenacity import retry, stop_after_attempt, wait_exponential
 from ypl.backend.db import get_async_session
+from ypl.backend.llm.utils import post_to_slack
 from ypl.backend.payment.crypto_rewards import CryptoReward, get_crypto_balance, process_single_crypto_reward
 from ypl.backend.payment.payment import (
     CashoutPointTransactionRequest,
@@ -35,6 +37,7 @@ RETRY_ATTEMPTS = 3
 RETRY_WAIT_MULTIPLIER = 1
 RETRY_WAIT_MIN = 4
 RETRY_WAIT_MAX = 15
+SLACK_WEBHOOK_CRYPTO_CASHOUT = os.getenv("SLACK_WEBHOOK_CRYPTO_CASHOUT")
 
 
 class PaymentProcessingError(Exception):
@@ -443,11 +446,15 @@ class OnChainFacilitator(Facilitator):
                     "duration": str(end_time - start_time),
                     "user_id": user_id,
                     "amount": str(amount),
+                    "credits_to_cashout": str(credits_to_cashout),
+                    "source_instrument_id": str(source_instrument_id),
+                    "destination_instrument_id": str(destination_instrument_id),
                     "destination_identifier": destination_identifier,
                     "currency": self.currency.value,
                     "tx_hash": str(tx_hash),
                 }
                 logging.info(json_dumps(log_dict))
+                asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CRYPTO_CASHOUT))
                 return PaymentResponse(
                     payment_transaction_id=payment_transaction_id,
                     transaction_status=PaymentTransactionStatusEnum.PENDING,
@@ -503,6 +510,21 @@ class OnChainFacilitator(Facilitator):
     ) -> None:
         """Handle cleanup for failed transactions"""
         try:
+            log_dict = {
+                "message": "Failed to process crypto reward. Reversing transaction.",
+                "user_id": user_id,
+                "payment_transaction_id": str(payment_transaction_id),
+                "points_transaction_id": str(points_transaction_id),
+                "credits_to_cashout": str(credits_to_cashout),
+                "amount": str(amount),
+                "source_instrument_id": str(source_instrument_id),
+                "destination_instrument_id": str(destination_instrument_id),
+                "destination_identifier": destination_identifier,
+                "destination_identifier_type": destination_identifier_type,
+            }
+            logging.info(json_dumps(log_dict))
+            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CRYPTO_CASHOUT))
+
             await update_payment_transaction(payment_transaction_id, status=PaymentTransactionStatusEnum.FAILED)
             if update_points:
                 await update_user_points(user_id, credits_to_cashout)
@@ -535,17 +557,30 @@ class OnChainFacilitator(Facilitator):
                 "payment_transaction_id": str(payment_transaction_id),
                 "points_transaction_id": str(points_transaction_id),
                 "user_id": user_id,
+                "amount": str(amount),
+                "source_instrument_id": str(source_instrument_id),
+                "destination_instrument_id": str(destination_instrument_id),
+                "destination_identifier": destination_identifier,
+                "destination_identifier_type": destination_identifier_type,
             }
             logging.info(json_dumps(log_dict))
+            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CRYPTO_CASHOUT))
         except Exception as e:
+            error_message = str(e)
             log_dict = {
                 "message": "Failed to handle failed transaction cleanup",
                 "payment_transaction_id": str(payment_transaction_id),
                 "points_transaction_id": str(points_transaction_id),
                 "user_id": user_id,
-                "error": str(e),
+                "amount": str(amount),
+                "source_instrument_id": str(source_instrument_id),
+                "destination_instrument_id": str(destination_instrument_id),
+                "destination_identifier": destination_identifier,
+                "destination_identifier_type": destination_identifier_type,
+                "error": error_message,
             }
             logging.exception(json_dumps(log_dict))
+            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CRYPTO_CASHOUT))
 
     async def get_payment_status(self, payment_reference_id: str) -> PaymentTransactionStatusEnum:
         # TODO: Implement this
