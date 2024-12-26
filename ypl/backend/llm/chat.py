@@ -800,6 +800,7 @@ async def persist_chat_message(
     assistant_selection_source: AssistantSelectionSource,
     streaming_metrics: dict[str, str] | None = None,
     prompt_modifier_ids: list[UUID] | None = None,
+    message_metadata: dict[str, str] | None = None,
 ) -> None:
     result = get_model_provider_tuple(model)  # access cached LanguageModel
 
@@ -821,6 +822,7 @@ async def persist_chat_message(
                 turn_sequence_number=turn_seq_num,
                 assistant_language_model_id=language_model.language_model_id,
                 assistant_selection_source=assistant_selection_source,
+                message_metadata=message_metadata,
             )
 
             # Add prompt modifier associations if provided

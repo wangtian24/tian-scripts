@@ -12,6 +12,7 @@ from pydantic import SecretStr
 from sqlalchemy import select
 from sqlmodel import Session
 from ypl.backend.db import get_engine
+from ypl.backend.llm.provider.perplexity import CustomChatPerplexity
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
 
 load_dotenv()  # Load environment variables from .env file
@@ -87,11 +88,12 @@ async def get_provider_client(model_name: str) -> BaseChatModel:
                 model=model.internal_name, huggingfacehub_api_token=os.getenv("HUGGINGFACE_API_KEY", "")
             )
             return ChatHuggingFace(llm=llm)
+        case "Perplexity":
+            return CustomChatPerplexity(model=model.internal_name, api_key=os.getenv("PERPLEXITY_API_KEY", ""))  # type: ignore[call-arg]
 
         case provider_name if provider_name in [
             "OpenRouter",
             "Together AI",
-            "Perplexity",
             "Alibaba",
             "DeepSeek",
             "Groq",

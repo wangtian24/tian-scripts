@@ -14,7 +14,7 @@ from ypl.backend.config import settings
 from ypl.backend.llm.chat import get_curated_chat_context, persist_chat_message
 from ypl.backend.llm.model.model import ModelResponseTelemetry
 from ypl.backend.llm.provider.provider_clients import get_language_model, get_provider_client
-from ypl.backend.llm.sanitize_messages import sanitize_messages
+from ypl.backend.llm.sanitize_messages import DEFAULT_MAX_TOKENS, sanitize_messages
 from ypl.backend.prompts import get_system_prompt_with_modifiers
 from ypl.db.chats import AssistantSelectionSource
 
@@ -96,7 +96,9 @@ async def _stream_chat_completions(client: Any, chat_request: ChatRequest) -> As
         if not chat_request.is_new_chat:
             chat_history = await get_curated_chat_context(chat_request.chat_id)
             language_model = await get_language_model(chat_request.model)
-            chat_context = sanitize_messages(chat_history, system_prompt, language_model.context_window_tokens)  # type: ignore[arg-type]
+            chat_context = sanitize_messages(
+                chat_history, system_prompt, language_model.context_window_tokens or DEFAULT_MAX_TOKENS
+            )
             messages.extend(chat_context)
             # defensive check for race condition that user message is inserted by FE and loaded as part of history
             # so the user prompt will appear twice consecutively, which will fail for llama models.
@@ -118,6 +120,7 @@ async def _stream_chat_completions(client: Any, chat_request: ChatRequest) -> As
         first_token_timestamp: float = 0
         response_tokens_num = 0
         full_response = ""
+        message_metadata = dict[str, Any]()
         try:
             async for chunk in client.astream(messages):
                 # TODO(bhanu) - assess if we should customize chunking for optimal network performance
@@ -131,6 +134,12 @@ async def _stream_chat_completions(client: Any, chat_request: ChatRequest) -> As
                         logging.info(chunk.content)
                     full_response += str(content)
                     yield StreamResponse({"content": content, "model": chat_request.model}).encode()
+                if hasattr(chunk, "response_metadata") and chunk.response_metadata is not None:
+                    if chunk.response_metadata:
+                        message_metadata = add_metadata(message_metadata, chunk.response_metadata)
+                        yield StreamResponse(
+                            {"metadata": chunk.response_metadata, "model": chat_request.model}
+                        ).encode()
         except Exception as e:
             full_response += STREAMING_ERROR_TEXT
             logging.error(
@@ -171,6 +180,7 @@ async def _stream_chat_completions(client: Any, chat_request: ChatRequest) -> As
                 streaming_metrics=modelResponseTelemetry.model_dump(),
                 prompt_modifier_ids=chat_request.prompt_modifier_ids,
                 assistant_selection_source=chat_request.assistant_selection_source,
+                message_metadata=message_metadata,
             )
             # Send persistence success status
             yield StreamResponse(
@@ -201,3 +211,10 @@ async def _stream_chat_completions(client: Any, chat_request: ChatRequest) -> As
 
 async def error_stream(error_message: str) -> AsyncIterator[str]:
     yield StreamResponse({"error": error_message, "code": "initialization_error"}, "error").encode()
+
+
+def add_metadata(message_metadata: dict[str, Any], metadata: dict[str, Any]) -> dict[str, Any]:
+    merged_metadata = message_metadata.copy()
+    if "citations" in metadata and metadata["citations"]:
+        merged_metadata.update({"citations": metadata["citations"]})
+    return merged_metadata
