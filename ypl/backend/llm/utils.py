@@ -158,8 +158,8 @@ async def post_to_slack(message: str | None = None, webhook_url: str | None = No
         webhook_url (str | None): Optional webhook URL. If not provided, uses the URL from environment variables.
         blocks: Optional blocks to post to Slack.
     """
-    if os.environ.get("ENVIRONMENT") != "production":
-        print(f"Skipping Slack posting in non-production environment: \n{message}")
+    if os.environ.get("ENVIRONMENT") == "local":
+        print(f"Skipping Slack posting in local environment: \n{message}")
         return
 
     url_to_use = webhook_url or os.environ.get("SLACK_WEBHOOK_URL")
