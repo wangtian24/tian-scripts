@@ -53,6 +53,8 @@ class ChatRequest(BaseModel):
     prompt_modifier_ids: list[uuid.UUID] | None = Field(None, description="List of Prompt Modifier IDs")
 
 
+STREAMING_ERROR_TEXT: str = "\n\\<streaming stopped unexpectedly\\>"
+
 router = APIRouter()
 
 
@@ -116,18 +118,29 @@ async def _stream_chat_completions(client: Any, chat_request: ChatRequest) -> As
         first_token_timestamp: float = 0
         response_tokens_num = 0
         full_response = ""
-        async for chunk in client.astream(messages):
-            # TODO(bhanu) - assess if we should customize chunking for optimal network performance
-            if hasattr(chunk, "content") and chunk.content:
-                if first_token_timestamp == 0:
-                    first_token_timestamp = datetime.now().timestamp()
-                response_tokens_num += 1
-                content = chunk.content
-                # Only log in local environment
-                if settings.ENVIRONMENT == "local":
-                    logging.info(chunk.content)
-                full_response += str(content)
-                yield StreamResponse({"content": content, "model": chat_request.model}).encode()
+        try:
+            async for chunk in client.astream(messages):
+                # TODO(bhanu) - assess if we should customize chunking for optimal network performance
+                if hasattr(chunk, "content") and chunk.content:
+                    if first_token_timestamp == 0:
+                        first_token_timestamp = datetime.now().timestamp()
+                    response_tokens_num += 1
+                    content = chunk.content
+                    # Only log in local environment
+                    if settings.ENVIRONMENT == "local":
+                        logging.info(chunk.content)
+                    full_response += str(content)
+                    yield StreamResponse({"content": content, "model": chat_request.model}).encode()
+        except Exception as e:
+            full_response += STREAMING_ERROR_TEXT
+            logging.error(
+                f"Streaming Error for model {chat_request.model} with prompt {chat_request.prompt}: {str(e)} \n +chunk:"
+                + str(content)
+                + traceback.format_exc()
+            )
+            yield StreamResponse(
+                {"error": f"Streaming error: {str(e)}", "code": "stream_error", "model": chat_request.model}, "error"
+            ).encode()
 
         # Send completion status
         end_time = datetime.now()
@@ -178,11 +191,11 @@ async def _stream_chat_completions(client: Any, chat_request: ChatRequest) -> As
 
     except Exception as e:
         logging.error(
-            f"Streaming Error for model {chat_request.model} with prompt {chat_request.prompt}: {str(e)} \n"
+            f"Error for model {chat_request.model} with prompt {chat_request.prompt}: {str(e)} \n"
             + traceback.format_exc()
         )
         yield StreamResponse(
-            {"error": f"Streaming error: {str(e)}", "code": "stream_error", "model": chat_request.model}, "error"
+            {"error": f"Error: {str(e)}", "code": "error", "model": chat_request.model}, "error"
         ).encode()
 
 
