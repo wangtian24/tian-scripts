@@ -35,7 +35,7 @@ class CustomChatPerplexity(ChatPerplexity):
                 chunk = chunk.dict()
             if len(chunk["choices"]) == 0:
                 continue
-            citations = chunk["citations"]
+            citations = chunk.get("citations", None)
             choice = chunk["choices"][0]
             chunk = self._convert_delta_to_message_chunk(choice["delta"], default_chunk_class)
             finish_reason = choice.get("finish_reason")
