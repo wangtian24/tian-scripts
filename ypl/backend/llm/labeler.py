@@ -33,6 +33,8 @@ OnErrorBehavior = Literal[
     "use_error_value",  # Swallow the exception and return the defined error_value.
 ]
 
+QT_CANT_ANSWER = "<CANT_ANSWER>"
+
 
 class StopMultistepProcessing(Exception):
     """
@@ -510,7 +512,7 @@ class QuickTakeGenerator(LLMLabeler[str, str]):
 
     @property
     def error_value(self) -> str:
-        return "<CANT_ANSWER>"
+        return QT_CANT_ANSWER
 
     def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
         keep_roles = {"user", self.keep_role} if self.keep_role else {"user", "assistant", "quicktake"}

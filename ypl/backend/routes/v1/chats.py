@@ -17,7 +17,7 @@ from ypl.backend.jobs.tasks import store_language_code
 from ypl.backend.llm.chat import ModelInfo, get_chat_history, get_chat_model
 from ypl.backend.llm.constants import ChatProvider
 from ypl.backend.llm.judge import DEFAULT_PROMPT_DIFFICULTY, YuppPromptDifficultyWithCommentLabeler
-from ypl.backend.llm.labeler import MultiLLMLabeler, QuickTakeGenerator
+from ypl.backend.llm.labeler import QT_CANT_ANSWER, MultiLLMLabeler, QuickTakeGenerator
 from ypl.backend.llm.moderation import DEFAULT_MODERATION_RESULT, amoderate
 from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter, OpenAILangChainAdapter
 from ypl.backend.rw_cache import TurnQualityCache
@@ -146,7 +146,7 @@ async def generate_quicktake(
                 model: get_quicktake_generator(model, chat_history, timeout_secs=timeout_secs)
                 for model in MODELS_FOR_DEFAULT_QT
             }
-            # Add a fast model that uses the prompts onlt in the chat history.
+            # Add a fast model that uses the prompts only in the chat history.
             labelers[MODEL_FOR_PROMPT_ONLY + ":prompt-only"] = get_quicktake_generator(
                 MODEL_FOR_PROMPT_ONLY, chat_history, prompt_only=True, timeout_secs=timeout_secs
             )
@@ -159,6 +159,7 @@ async def generate_quicktake(
             quicktakes = await multi_generator.alabel(
                 tiktoken_trim(request.prompt or "", int(max_context_length * 0.75), direction="right")
             )
+            quicktake = QT_CANT_ANSWER
             for model in labelers:
                 response = quicktakes.get(model)
                 if response and not isinstance(response, Exception):
