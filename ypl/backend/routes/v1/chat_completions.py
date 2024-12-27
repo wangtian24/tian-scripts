@@ -8,6 +8,7 @@ from typing import Any
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
+from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import BaseModel, Field
 
 from ypl.backend.config import settings
@@ -70,7 +71,7 @@ async def chat_completions(
         background_tasks: FastAPI background tasks
     """
     try:
-        client = await get_provider_client(chat_request.model)
+        client: BaseChatModel = await get_provider_client(chat_request.model)
         return StreamingResponse(_stream_chat_completions(client, chat_request), media_type="text/event-stream")
     except Exception as e:
         logging.error(f"Error initializing model: {e} \n" + traceback.format_exc())
@@ -79,7 +80,7 @@ async def chat_completions(
         )
 
 
-async def _stream_chat_completions(client: Any, chat_request: ChatRequest) -> AsyncIterator[str]:
+async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequest) -> AsyncIterator[str]:
     try:
         start_time = datetime.now()
 
@@ -121,6 +122,7 @@ async def _stream_chat_completions(client: Any, chat_request: ChatRequest) -> As
         response_tokens_num = 0
         full_response = ""
         message_metadata = dict[str, Any]()
+        chunk = None  # Define chunk outside the try block
         try:
             async for chunk in client.astream(messages):
                 # TODO(bhanu) - assess if we should customize chunking for optimal network performance
@@ -142,10 +144,12 @@ async def _stream_chat_completions(client: Any, chat_request: ChatRequest) -> As
                         ).encode()
         except Exception as e:
             full_response += STREAMING_ERROR_TEXT
+            chunk_str = str(chunk) if chunk is not None else "No chunk available"
             logging.error(
-                f"Streaming Error for model {chat_request.model} with prompt {chat_request.prompt}: {str(e)} \n +chunk:"
-                + str(content)
-                + traceback.format_exc()
+                f"Streaming Error for model {chat_request.model} with prompt {chat_request.prompt}: {str(e)} \n"
+                f"Chat ID: {chat_request.chat_id}, Message ID: {chat_request.message_id}\n"
+                f"Last chunk: {chunk_str}\n"
+                f"{traceback.format_exc()}"
             )
             yield StreamResponse(
                 {"error": f"Streaming error: {str(e)}", "code": "stream_error", "model": chat_request.model}, "error"
@@ -188,7 +192,11 @@ async def _stream_chat_completions(client: Any, chat_request: ChatRequest) -> As
                 "status",
             ).encode()
         except Exception as e:
-            logging.error(f"Message persistence error: {str(e)} \n" + traceback.format_exc())
+            logging.error(
+                f"Persistence error : chat_id {chat_request.chat_id}, message_id {chat_request.message_id}: {str(e)}\n"
+                f"Full response: {full_response}\n"
+                f"{traceback.format_exc()}"
+            )
             yield StreamResponse(
                 {
                     "error": "Failed to persist message",
@@ -201,7 +209,8 @@ async def _stream_chat_completions(client: Any, chat_request: ChatRequest) -> As
 
     except Exception as e:
         logging.error(
-            f"Error for model {chat_request.model} with prompt {chat_request.prompt}: {str(e)} \n"
+            f"Error for model {chat_request.model} with prompt {chat_request.prompt}, \n"
+            f"chat_id {chat_request.chat_id}, message_id {chat_request.message_id}: {str(e)} \n"
             + traceback.format_exc()
         )
         yield StreamResponse(
