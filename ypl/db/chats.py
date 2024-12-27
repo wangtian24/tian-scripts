@@ -96,6 +96,8 @@ class MessageUIStatus(enum.Enum):
     DISMISSED = "dismissed"
     # The user has selected the message.
     SELECTED = "selected"
+    # The message is not displayed, e.g. the user has selected another message from the same assistant in the same turn.
+    HIDDEN = "hidden"
 
 
 class AssistantSelectionSource(enum.Enum):
