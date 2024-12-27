@@ -33,6 +33,7 @@ from ypl.db.chats import (
     ChatMessage,
     MessageType,
     MessageUIStatus,
+    PromptModifier,
     PromptModifierAssoc,
     Turn,
 )
@@ -840,3 +841,9 @@ async def persist_chat_message(
             await session.rollback()
             logging.error(f"Error persisting chat message: {str(e)} \n" + traceback.format_exc())
             raise
+
+
+async def get_active_prompt_modifiers() -> list[PromptModifier]:
+    async with AsyncSession(get_async_engine()) as session:
+        result = await session.execute(select(PromptModifier).where(PromptModifier.deleted_at.is_(None)))  # type: ignore
+        return result.scalars().all()  # type: ignore

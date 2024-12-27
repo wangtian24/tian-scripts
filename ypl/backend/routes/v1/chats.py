@@ -14,7 +14,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine
 from ypl.backend.jobs.tasks import store_language_code
-from ypl.backend.llm.chat import ModelInfo, get_chat_history, get_chat_model
+from ypl.backend.llm.chat import ModelInfo, get_active_prompt_modifiers, get_chat_history, get_chat_model
 from ypl.backend.llm.constants import ChatProvider
 from ypl.backend.llm.judge import DEFAULT_PROMPT_DIFFICULTY, YuppPromptDifficultyWithCommentLabeler
 from ypl.backend.llm.labeler import QT_CANT_ANSWER, MultiLLMLabeler, QuickTakeGenerator
@@ -118,6 +118,12 @@ class QuickTakeRequest(BaseModel):
     prompt: str | None = None
     model: str | None = None  # one of the entries in QT_LLMS; if none, use MODELS_FOR_DEFAULT_QT
     timeout_secs: float = settings.DEFAULT_QT_TIMEOUT_SECS
+
+
+class PromptModifierInfo(BaseModel):
+    prompt_modifier_id: str
+    name: str
+    description: str | None = None
 
 
 def get_quicktake_generator(
@@ -558,5 +564,18 @@ async def get_message_debug_info(message_id: UUID) -> MessageDebugInfo | None:
         log_dict = {
             "message": f"Error getting message debug info: {str(e)}",
         }
+        logging.exception(json_dumps(log_dict))
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/chats/prompt_modifiers", response_model=list[PromptModifierInfo])
+async def get_prompt_modifiers() -> list[PromptModifierInfo]:
+    try:
+        return [
+            PromptModifierInfo(prompt_modifier_id=str(m.prompt_modifier_id), name=m.name, description=m.description)
+            for m in await get_active_prompt_modifiers()
+        ]
+    except Exception as e:
+        log_dict = {"message": f"Error getting prompt modifiers: {str(e)}"}
         logging.exception(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e

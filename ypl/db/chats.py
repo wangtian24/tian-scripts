@@ -149,7 +149,10 @@ class PromptModifier(BaseModel, table=True):
     category: ModifierCategory = Field(
         sa_column=Column(SQLAlchemyEnum(ModifierCategory), server_default=ModifierCategory.other.name)
     )
+    # The text used in the system prompt to modify the LLM response.
     text: str = Field(nullable=False)
+    # A user-visible description of the modifier.
+    description: str | None = Field(nullable=True)
 
 
 class PromptModifierAssoc(BaseModel, table=True):

@@ -75,7 +75,6 @@ def run_migrations_online() -> None:
             context.run_migrations()
 
 
-print(f"Current POSTGRES_HOST: {settings.POSTGRES_HOST}")
 if ("upgrade" in sys.argv or "downgrade" in sys.argv) and settings.ENVIRONMENT.lower() != "local":
     print(f"WARNING: You are about to upgrade the {settings.ENVIRONMENT.upper()} database!")
     approval = input("Type 'yupp' to continue: ").strip().lower()

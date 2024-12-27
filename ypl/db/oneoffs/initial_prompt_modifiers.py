@@ -1,6 +1,8 @@
+import uuid
 from datetime import datetime
 
 from sqlalchemy import Connection, delete, select, update
+from sqlalchemy import text as sql_text
 from sqlmodel import Session
 
 from ypl.db.chats import PromptModifier
@@ -25,8 +27,13 @@ def _add_prompt_modifiers(connection: Connection, modifiers: list[tuple[str, str
                 )
                 continue
 
-            prompt_modifier = PromptModifier(category=category, name=name, text=text)
-            session.add(prompt_modifier)
+            session.execute(
+                sql_text(
+                    "INSERT INTO prompt_modifiers (prompt_modifier_id, category, name, text) "
+                    "VALUES (:id, :category, :name, :text)"
+                ),
+                {"id": uuid.uuid4(), "category": category, "name": name, "text": text},
+            )
 
         session.commit()
 
