@@ -179,6 +179,7 @@ encrypted_seed.json
 wallet.json
 
 notebooks/cache
+notebooks/data
 
 # Redis
 *.rdb

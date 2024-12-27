@@ -1,6 +1,6 @@
 import uuid
 from collections.abc import Generator
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
@@ -183,7 +183,7 @@ def mock_chat_model() -> Generator[Any, None, None]:
 @patch("ypl.backend.llm.reward.get_async_engine")
 @patch("ypl.backend.llm.reward.get_chat_model")
 @patch("ypl.backend.llm.reward.GeminiLangChainAdapter")
-@patch("ypl.backend.llm.reward._get_reward_points")
+@patch("ypl.backend.llm.reward._get_reward_points_summary")
 @patch("ypl.backend.llm.reward.Session")
 @patch("ypl.backend.config.settings")
 @patch("pydantic.PostgresDsn.build")
@@ -191,7 +191,7 @@ async def test_feedback_and_qt_eval_reward(
     mock_postgres_dsn: Any,
     mock_settings: Any,
     mock_session: Any,
-    mock_get_reward_points: Any,
+    mock_get_reward_points_summary: Any,
     mock_get_chat_model: Any,
     mock_gemini_adapter: Any,
     mock_engine: Any,
@@ -207,14 +207,15 @@ async def test_feedback_and_qt_eval_reward(
     mock_get_chat_model.return_value = mock_llm_instance
     mock_gemini_adapter.return_value = mock_llm_instance
 
-    def get_limits(daily: int, weekly: int, monthly: int) -> dict[timedelta, int]:
+    def get_reward_points_summary(daily: int, weekly: int, monthly: int, last_award: int) -> dict[str, int]:
         return {
-            timedelta(days=1): daily,
-            timedelta(days=7): weekly,
-            timedelta(days=30): monthly,
+            "points_last_day": daily,
+            "points_last_week": weekly,
+            "points_last_month": monthly,
+            "points_last_award": last_award,
         }
 
-    mock_get_reward_points.side_effect = lambda user_id, session, delta: get_limits(100, 500, 2000)[delta]
+    mock_get_reward_points_summary.side_effect = lambda user_id, session: get_reward_points_summary(100, 500, 2000, 10)
 
     test_user_id = "test_user"
     # Test cases
@@ -248,11 +249,11 @@ async def test_feedback_and_qt_eval_reward(
 
     # Test no reward for high-point users.
     for args in (
-        (60000, 0, 0),
-        (0, 100005, 0),
-        (0, 0, 200001),
+        (60000, 0, 0, 10),
+        (0, 100005, 0, 10),
+        (0, 0, 200001, 10),
     ):
-        mock_get_reward_points.side_effect = lambda user_id, session, delta: get_limits(*args)[delta]  # noqa
+        mock_get_reward_points_summary.side_effect = lambda user_id, session: get_reward_points_summary(*args)  # noqa
 
         feedback_result = await feedback_based_reward(test_user_id, "")
         qt_eval_result = await qt_eval_reward(test_user_id)
@@ -333,7 +334,7 @@ async def test_sign_up_reward_no_repeat(
 @patch("ypl.backend.llm.reward.get_async_engine")
 @patch("ypl.backend.llm.reward.get_chat_model")
 @patch("ypl.backend.llm.reward.GeminiLangChainAdapter")
-@patch("ypl.backend.llm.reward._get_reward_points")
+@patch("ypl.backend.llm.reward._get_reward_points_summary")
 @patch("ypl.backend.llm.reward.Session")
 @patch("ypl.backend.config.settings")
 @patch("pydantic.PostgresDsn.build")
@@ -341,7 +342,7 @@ def test_turn_reward_amount(
     mock_postgres_dsn: Any,
     mock_settings: Any,
     mock_session: Any,
-    mock_get_reward_points: Any,
+    mock_get_reward_points_summary: Any,
     mock_get_chat_model: Any,
     mock_gemini_adapter: Any,
     mock_engine: Any,
@@ -368,3 +369,14 @@ def test_turn_reward_amount(
     amount_high_points = np.mean([utr_high_points.get_amount() for _ in range(20)])
 
     assert amount_low_points > amount_mid_points > amount_high_points
+
+    # Test zero reward ("better luck next time").
+    zero_reward_probability = RULES.get("constants", {})["zero_turn_based_reward_probability"]
+    user_with_recent_reward = create_user_turn_reward(points_last_award=10)
+    should_get_zero_if_recently_awarded = [user_with_recent_reward.should_get_zero_reward() for _ in range(300)]
+    assert np.mean(should_get_zero_if_recently_awarded) == approx(zero_reward_probability, abs=0.05)
+
+    # A user should not get a zero reward if their most recent one was 0 (or never received anything).
+    user_with_recent_zero_reward = create_user_turn_reward(points_last_award=0)
+    should_get_zero_if_no_recent_award = [user_with_recent_zero_reward.should_get_zero_reward() for _ in range(30)]
+    assert sum(should_get_zero_if_no_recent_award) == 0

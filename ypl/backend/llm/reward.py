@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from typing import Any, Literal
 from uuid import UUID
 
+import pytz
 import yaml
 from cachetools.func import ttl_cache
 from dotenv import load_dotenv
@@ -202,6 +203,7 @@ class UserTurnReward:
     points_last_day: int = 0
     points_last_week: int = 0
     points_last_month: int = 0
+    points_last_award: int = 0
     action_type: RewardActionEnum = RewardActionEnum.TURN
     user_name: str | None = None
 
@@ -282,9 +284,11 @@ class UserTurnReward:
             if turn_quality:
                 self.turn_quality_score = turn_quality.get_overall_quality() or -1
 
-            self.points_last_day = _get_reward_points(self.user_id, session, timedelta(days=1))
-            self.points_last_week = _get_reward_points(self.user_id, session, timedelta(days=7))
-            self.points_last_month = _get_reward_points(self.user_id, session, timedelta(days=30))
+            reward_points_summary = _get_reward_points_summary(self.user_id, session)
+            self.points_last_day = reward_points_summary["points_last_day"]
+            self.points_last_week = reward_points_summary["points_last_week"]
+            self.points_last_month = reward_points_summary["points_last_month"]
+            self.points_last_award = reward_points_summary["points_last_award"]
 
             self.amount_rule = self._get_amount_rule()
             self.probability_rule = self._get_probability_rule()
@@ -294,6 +298,11 @@ class UserTurnReward:
         d = asdict(self)
         d["turn_id"] = str(self.turn_id)
         return d
+
+    def should_get_zero_reward(self) -> bool:
+        """A user gets a zero reward with a given probability, unless they have recently received a zero reward."""
+        zero_reward_probability = RULE_CONSTANTS.get("zero_turn_based_reward_probability", 0.0)
+        return self.points_last_award > 0 and random.random() < zero_reward_probability
 
     def _get_amount_rule(self) -> RewardAmountRule | None:
         return get_matching_rule(get_reward_amount_rules(self.action_type), self.to_dict())  # type: ignore
@@ -409,11 +418,17 @@ async def turn_based_reward(
             - RewardProbabilityRule | None: The reward probability rule used.
     """
 
-    def _handle_zero_turn_based_reward_probability(user_id: str) -> tuple[bool, int, int, str, None, None]:
+    def _handle_zero_turn_based_reward(user_id: str) -> tuple[bool, int, int, str, None, None]:
         """Handle the case where zero turn-based reward probability is defined."""
         should_reward = True
         reward_amount = high_value_reward_amount = 0
         reward_comment = "Better luck next time!"
+
+        log_dict = {
+            "message": "Override reward with zero amount",
+            "user_id": user_id,
+        }
+        logging.info(json_dumps(log_dict))
 
         post_reward_to_slack(
             action_type=RewardActionEnum.TURN,
@@ -428,11 +443,11 @@ async def turn_based_reward(
 
         return should_reward, reward_amount, high_value_reward_amount, reward_comment, None, None
 
-    if "zero_turn_based_reward_probability" in RULE_CONSTANTS:
-        if random.random() < RULE_CONSTANTS["zero_turn_based_reward_probability"]:
-            return _handle_zero_turn_based_reward_probability(user_id)
-
     user_turn_reward = UserTurnReward(user_id, turn_id)
+    should_get_zero_reward = user_turn_reward.should_get_zero_reward()
+    if should_get_zero_reward:
+        return _handle_zero_turn_based_reward(user_id)
+
     reward_probability = user_turn_reward.get_probability()
     should_reward = random.random() < reward_probability
 
@@ -507,18 +522,39 @@ def post_reward_to_slack(
         logging.error(json_dumps(log_dict))
 
 
-def _get_reward_points(user_id: str, session: Session, delta: timedelta) -> int:
-    result: int | None = session.exec(
-        select(func.sum(PointTransaction.point_delta)).where(
+def _get_reward_points_summary(user_id: str, session: Session) -> dict[str, int]:
+    point_dates: list[tuple[int, datetime]] = session.exec(
+        select(PointTransaction.point_delta, PointTransaction.created_at)
+        .where(
             PointTransaction.user_id == user_id,
             PointTransaction.deleted_at.is_(None),  # type: ignore
             PointTransaction.action_type.in_(LIMIT_REWARD_ACTION_TYPES),  # type: ignore
-            PointTransaction.created_at > (datetime.now() - delta),  # type: ignore
+            PointTransaction.created_at > (datetime.now() - timedelta(days=30)),  # type: ignore
         )
-    ).one()
-    if not result:
-        return 0
-    return max(0, result)
+        .order_by(PointTransaction.created_at.desc())  # type: ignore
+    ).all()
+    results = {
+        "points_last_day": 0,
+        "points_last_week": 0,
+        "points_last_month": 0,
+        "points_last_award": 0,
+    }
+    now = datetime.now(pytz.UTC)
+    week_ago = now - timedelta(days=7)
+    day_ago = now - timedelta(days=1)
+    for point_delta, created_at in point_dates:
+        results["points_last_month"] += point_delta
+        if created_at > week_ago:
+            results["points_last_week"] += point_delta
+            if created_at > day_ago:
+                results["points_last_day"] += point_delta
+    if point_dates:
+        results["points_last_award"] = point_dates[0][0]
+
+    # Ensure all values are non-negative
+    for key, value in results.items():
+        results[key] = max(0, value)
+    return results
 
 
 async def get_feedback_quality_score(user_id: str, feedback: str) -> int:
@@ -645,9 +681,7 @@ async def feedback_based_reward(
         "quality_score": quality_score,
     }
     with Session(get_engine()) as session:
-        reward_params["points_last_day"] = _get_reward_points(user_id, session, timedelta(days=1))
-        reward_params["points_last_week"] = _get_reward_points(user_id, session, timedelta(days=7))
-        reward_params["points_last_month"] = _get_reward_points(user_id, session, timedelta(days=30))
+        reward_params.update(_get_reward_points_summary(user_id, session))
 
     amount_rule: RewardAmountRule | None = get_matching_rule(get_reward_amount_rules(action_type), reward_params)  # type: ignore
     probability_rule: RewardProbabilityRule | None = get_matching_rule(  # type: ignore
@@ -710,9 +744,7 @@ async def qt_eval_reward(user_id: str) -> tuple[bool, int, str, RewardAmountRule
         "action_type": action_type,
     }
     with Session(get_engine()) as session:
-        params["points_last_day"] = _get_reward_points(user_id, session, timedelta(days=1))
-        params["points_last_week"] = _get_reward_points(user_id, session, timedelta(days=7))
-        params["points_last_month"] = _get_reward_points(user_id, session, timedelta(days=30))
+        params.update(_get_reward_points_summary(user_id, session))
 
     amount_rule: RewardAmountRule | None = get_matching_rule(get_reward_amount_rules(action_type), params)  # type: ignore
     probability_rule: RewardProbabilityRule | None = get_matching_rule(  # type: ignore
