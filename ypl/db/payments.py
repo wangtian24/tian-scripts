@@ -36,6 +36,7 @@ class PaymentInstrumentFacilitatorEnum(enum.Enum):
     BINANCE = "binance"
     CRYPTO_COM = "crypto_com"
     UPI = "upi"
+    PLAID = "plaid"
 
 
 class PaymentInstrumentIdentifierTypeEnum(enum.Enum):
@@ -43,6 +44,7 @@ class PaymentInstrumentIdentifierTypeEnum(enum.Enum):
     PHONE_NUMBER = "phone_number"
     EMAIL = "email"
     CRYPTO_ADDRESS = "crypto_address"
+    BANK_ACCOUNT_NUMBER = "bank_account_number"
 
 
 class PaymentInstrument(BaseModel, table=True):
