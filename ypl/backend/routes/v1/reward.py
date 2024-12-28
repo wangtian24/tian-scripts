@@ -61,8 +61,8 @@ async def handle_turn_reward(reward_action_log: RewardActionLog) -> RewardCreati
             comment="Model feedback reward boost.",
             reward_action_logs=[],  # TODO: add model feedback reward action log from FE?
             turn_id=turn_id,
-            reward_amount_rule=None,
-            reward_probability_rule=None,
+            reward_amount_rule=reward_amount_rule,
+            reward_probability_rule=reward_probability_rule,
         )
 
         return RewardCreationResponse(
