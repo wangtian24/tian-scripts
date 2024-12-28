@@ -10,14 +10,19 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import BaseModel, Field
+from sqlalchemy import func
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ypl.backend.config import settings
+from ypl.backend.db import get_async_engine
 from ypl.backend.llm.chat import get_curated_chat_context, persist_chat_message
 from ypl.backend.llm.model.model import ModelResponseTelemetry
 from ypl.backend.llm.provider.provider_clients import get_language_model, get_provider_client
 from ypl.backend.llm.sanitize_messages import DEFAULT_MAX_TOKENS, sanitize_messages
 from ypl.backend.prompts import get_system_prompt_with_modifiers
-from ypl.db.chats import AssistantSelectionSource
+from ypl.db.chats import AssistantSelectionSource, ChatMessage, PromptModifierAssoc
+from ypl.db.language_models import LanguageModel
 
 
 class StreamResponse:
@@ -52,6 +57,10 @@ class ChatRequest(BaseModel):
     )
     # TODO(bhanu) - make below mandatory after UI change
     prompt_modifier_ids: list[uuid.UUID] | None = Field(None, description="List of Prompt Modifier IDs")
+    load_existing: bool = Field(
+        default=True,
+        description="If true, return an existing message matching the request if it exists; otherwise create a new one",
+    )
 
 
 STREAMING_ERROR_TEXT: str = "\n\\<streaming stopped unexpectedly\\>"
@@ -83,11 +92,37 @@ async def chat_completions(
 async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequest) -> AsyncIterator[str]:
     try:
         start_time = datetime.now()
+        intial_status = {"status": "started", "timestamp": start_time.isoformat(), "model": chat_request.model}
+        final_status = {"status": "completed", "model": chat_request.model}
+
+        existing_message = None
+        if chat_request.load_existing:
+            existing_message = await _get_message(chat_request)
+
+        if existing_message:
+            # Send initial status.
+            yield StreamResponse(
+                intial_status | {"existing_response": True, "message_id": str(existing_message.message_id)},
+                "status",
+            ).encode()
+
+            # Send the content of the existing message as a single chunk.
+            yield StreamResponse({"content": existing_message.content, "model": chat_request.model}, "content").encode()
+
+            # Send completion status.
+            end_time = datetime.now()
+            yield StreamResponse(
+                final_status
+                | {
+                    "duration_ms": (end_time - start_time).total_seconds() * 1000,
+                    "response_tokens": len(existing_message.content.split()),
+                },
+                "status",
+            ).encode()
+            return
 
         # Send initial status
-        yield StreamResponse(
-            {"status": "started", "timestamp": start_time.isoformat(), "model": chat_request.model}, "status"
-        ).encode()
+        yield StreamResponse(intial_status, "status").encode()
         system_prompt = get_system_prompt_with_modifiers(chat_request.model, chat_request.prompt_modifier_ids)
 
         messages: list[dict[str, str]] = []
@@ -158,10 +193,9 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
         # Send completion status
         end_time = datetime.now()
         yield StreamResponse(
-            {
-                "status": "completed",
+            final_status
+            | {
                 "duration_ms": (end_time - start_time).total_seconds() * 1000,
-                "model": chat_request.model,
                 "response_tokens": response_tokens_num,
             },
             "status",
@@ -227,3 +261,28 @@ def add_metadata(message_metadata: dict[str, Any], metadata: dict[str, Any]) -> 
     if "citations" in metadata and metadata["citations"]:
         merged_metadata.update({"citations": metadata["citations"]})
     return merged_metadata
+
+
+async def _get_message(chat_request: ChatRequest) -> ChatMessage | None:
+    """Returns a message matching all conditions in the chat request, or None if no such message is found"""
+    query = (
+        select(ChatMessage)
+        .where(
+            ChatMessage.turn_id == chat_request.turn_id,
+            ChatMessage.deleted_at.is_(None),  # type: ignore
+            ChatMessage.turn_sequence_number == chat_request.turn_seq_num,
+            LanguageModel.internal_name == chat_request.model,
+        )
+        .join(LanguageModel)
+        .join(PromptModifierAssoc)
+        .group_by(ChatMessage.message_id)  # type: ignore
+        .having(
+            func.array_agg(PromptModifierAssoc.prompt_modifier_id) == chat_request.prompt_modifier_ids  # type: ignore
+            if chat_request.prompt_modifier_ids
+            else True,
+        )
+    )
+
+    async with AsyncSession(get_async_engine()) as session:
+        result = await session.execute(query)
+        return result.scalar_one_or_none()
