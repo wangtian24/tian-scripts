@@ -4367,6 +4367,17 @@ files = [
 ]
 
 [[package]]
+name = "nulltype"
+version = "2.3.1"
+description = "Null values and sentinels like (but not) None, False & True"
+optional = false
+python-versions = "*"
+files = [
+    {file = "nulltype-2.3.1-py2.py3-none-any.whl", hash = "sha256:16ae565745118e37e0558441f5821c76351d8c3a789640b5bca277cf65b2271b"},
+    {file = "nulltype-2.3.1.zip", hash = "sha256:64aa3cb2ab5e904d1b37175b9b922bea268c13f9ce32e3d373313150ab5ef272"},
+]
+
+[[package]]
 name = "numba"
 version = "0.60.0"
 description = "compiling Python code using LLVM"
@@ -4951,6 +4962,21 @@ mic = ["olefile"]
 tests = ["check-manifest", "coverage", "defusedxml", "markdown2", "olefile", "packaging", "pyroma", "pytest", "pytest-cov", "pytest-timeout"]
 typing = ["typing-extensions"]
 xmp = ["defusedxml"]
+
+[[package]]
+name = "plaid-python"
+version = "16.0.0"
+description = "Python client library for the Plaid API and Link"
+optional = false
+python-versions = ">=3.6"
+files = [
+    {file = "plaid-python-16.0.0.tar.gz", hash = "sha256:1686537d33ca89d63454f1d8ba2db902b166fcc0480bb627c28f53c8c4fbb2de"},
+]
+
+[package.dependencies]
+nulltype = "*"
+python-dateutil = "*"
+urllib3 = ">=1.25.3"
 
 [[package]]
 name = "platformdirs"
@@ -8403,4 +8429,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.11,<3.12"
-content-hash = "4feb4f52889da2ce0e8af452ef7f0b690db6c919f9b3da5df64d2e02a6fac1c6"
+content-hash = "82f4a85fada01fc7e2eb73f640072b5586513ae768a59c7ae26b22d83b43d941"

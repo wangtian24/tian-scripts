@@ -1298,5 +1298,24 @@ def get_wallet_balance() -> None:
     get_wallet_balance()
 
 
+@cli.command()
+def process_plaid_payout() -> None:
+    """Make a Plaid payment."""
+    from decimal import Decimal
+
+    from ypl.backend.payment.plaid_payout import PlaidPayout, process_plaid_payout
+
+    payout = PlaidPayout(
+        user_id="1",
+        user_name="Ansuman Behera",
+        amount=Decimal("1.00"),
+        account_number="100000000",
+        routing_number="121122676",
+        account_type="checking",
+    )
+
+    asyncio.run(process_plaid_payout(payout))
+
+
 if __name__ == "__main__":
     cli()

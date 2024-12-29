@@ -9,8 +9,8 @@ from ypl.backend.config import settings
 from ypl.backend.llm.credit import (
     get_user_credit_balance,
 )
+from ypl.backend.payment.base_types import BaseFacilitator, PaymentResponse
 from ypl.backend.payment.exchange_rates import get_exchange_rate
-from ypl.backend.payment.facilitator import Facilitator, PaymentResponse
 from ypl.backend.payment.validation import validate_destination_identifier_for_currency
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import (
@@ -50,6 +50,8 @@ class CashoutCreditsRequest:
     destination_identifier_type: PaymentInstrumentIdentifierTypeEnum
     facilitator: PaymentInstrumentFacilitatorEnum
     country_code: str | None
+    # Optional dictionary for additional details like account number, routing number for USD payouts
+    destination_additional_details: dict | None = None
     # If True, return the response object instead of just the string.
     return_response_as_object: bool = False
 
@@ -91,6 +93,17 @@ async def validate_cashout_request(request: CashoutCreditsRequest) -> None:
     ):
         raise HTTPException(status_code=400, detail="Crypto cashout is not supported in India")
 
+    if request.cashout_currency == CurrencyEnum.USD and request.facilitator == PaymentInstrumentFacilitatorEnum.PLAID:
+        if request.destination_additional_details is None:
+            raise HTTPException(status_code=400, detail="Destination additional details are required for USD cashout")
+
+        required_fields = ["account_number", "routing_number", "account_type", "user_name"]
+        missing_fields = [field for field in required_fields if field not in request.destination_additional_details]
+        if missing_fields:
+            raise HTTPException(
+                status_code=400, detail=f"Missing required fields for USD cashout: {', '.join(missing_fields)}"
+            )
+
     user_credit_balance = await get_user_credit_balance(request.user_id)
     if request.credits_to_cashout > user_credit_balance - SIGNUP_CREDITS:
         log_dict = {
@@ -127,6 +140,7 @@ async def cashout_credits(request: CashoutCreditsRequest) -> str | None | Paymen
         "destination_identifier_type": request.destination_identifier_type,
         "facilitator": request.facilitator,
         "country_code": request.country_code,
+        "destination_additional_details": request.destination_additional_details,
     }
     logging.info(json_dumps(log_dict))
 
@@ -147,13 +161,19 @@ async def cashout_credits(request: CashoutCreditsRequest) -> str | None | Paymen
             status_code=500, detail=f"Error converting credits to currency {request.cashout_currency}"
         ) from e
 
-    facilitator = Facilitator.init(request.cashout_currency, request.destination_identifier_type, request.facilitator)
+    facilitator = BaseFacilitator.init(
+        request.cashout_currency,
+        request.destination_identifier_type,
+        request.facilitator,
+        request.destination_additional_details,
+    )
     payment_response = await facilitator.make_payment(
         request.user_id,
         request.credits_to_cashout,
         amount_in_currency,
         request.destination_identifier,
         request.destination_identifier_type,
+        request.destination_additional_details,
     )
 
     # Hack to continue returning 'None' when the customer reference ID is not available,
@@ -163,5 +183,5 @@ async def cashout_credits(request: CashoutCreditsRequest) -> str | None | Paymen
 
 @router.get("/credits/cashout/transaction/{transaction_reference_id}/status")
 async def get_cashout_transaction_status(transaction_reference_id: str) -> PaymentTransactionStatusEnum:
-    facilitator = await Facilitator.for_transaction_reference_id(transaction_reference_id)
+    facilitator = await BaseFacilitator.for_transaction_reference_id(transaction_reference_id)
     return await facilitator.get_payment_status(transaction_reference_id)

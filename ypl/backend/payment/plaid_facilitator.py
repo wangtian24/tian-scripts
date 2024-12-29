@@ -5,13 +5,12 @@ import time
 import uuid
 from decimal import Decimal
 
-from cdp.transaction import Transaction
-from cdp.transfer import Transfer
+from plaid.model.transfer_authorization_decision import TransferAuthorizationDecision
 from sqlmodel import select
 from tenacity import retry, stop_after_attempt, wait_exponential
 from ypl.backend.db import get_async_session
 from ypl.backend.llm.utils import post_to_slack
-from ypl.backend.payment.base_types import (
+from ypl.backend.payment.facilitator import (
     BaseFacilitator,
     PaymentInstrumentError,
     PaymentInstrumentNotFoundError,
@@ -20,7 +19,6 @@ from ypl.backend.payment.base_types import (
     PointTransactionCreationError,
     TransactionCreationError,
 )
-from ypl.backend.payment.crypto_rewards import CryptoReward, get_crypto_balance, process_single_crypto_reward
 from ypl.backend.payment.payment import (
     CashoutPointTransactionRequest,
     PaymentTransactionRequest,
@@ -28,6 +26,13 @@ from ypl.backend.payment.payment import (
     create_payment_transaction,
     update_payment_transaction,
     update_user_points,
+)
+from ypl.backend.payment.plaid_payout import (
+    PlaidPayout,
+    fund_sandbox_account,
+    get_balance,
+    get_plaid_transfer_status,
+    process_plaid_payout,
 )
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import (
@@ -39,64 +44,35 @@ from ypl.db.payments import (
 )
 from ypl.db.point_transactions import PointsActionEnum
 
+ENVIRONMENT = os.environ.get("ENVIRONMENT")
 SYSTEM_USER_ID = "SYSTEM"
+SLACK_WEBHOOK_PLAID_CASHOUT = os.getenv("SLACK_WEBHOOK_CRYPTO_CASHOUT")  # reuse crypto one by design for now
 RETRY_ATTEMPTS = 3
 RETRY_WAIT_MULTIPLIER = 1
 RETRY_WAIT_MIN = 4
 RETRY_WAIT_MAX = 15
-SLACK_WEBHOOK_CRYPTO_CASHOUT = os.getenv("SLACK_WEBHOOK_CRYPTO_CASHOUT")
 
 
-class UpiFacilitator(BaseFacilitator):
-    async def get_balance(self, currency: CurrencyEnum) -> Decimal:
-        # TODO: Implement this
-        return Decimal(1000)
-
-    async def get_source_instrument_id(self) -> uuid.UUID:
-        # TODO: Implement this
-        return uuid.uuid4()
-
-    async def get_destination_instrument_id(
+class PlaidFacilitator(BaseFacilitator):
+    def __init__(
         self,
-        user_id: str,
-        destination_identifier: str,
+        currency: CurrencyEnum,
         destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
-    ) -> uuid.UUID:
-        # TODO: Implement this
-        return uuid.uuid4()
-
-    async def _send_payment_request(
-        self,
-        user_id: str,
-        credits_to_cashout: int,
-        amount: Decimal,
-        destination_identifier: str,
-        destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
+        facilitator: PaymentInstrumentFacilitatorEnum,
         destination_additional_details: dict | None = None,
-    ) -> PaymentResponse:
-        # TODO: Implement this
-        return PaymentResponse(
-            payment_transaction_id=uuid.uuid4(),
-            transaction_status=PaymentTransactionStatusEnum.SUCCESS,
-            customer_reference_id="1234567890",
-        )
+    ):
+        super().__init__(currency, destination_identifier_type, facilitator)
+        self.destination_additional_details = destination_additional_details
 
-    async def get_payment_status(self, payment_reference_id: str) -> PaymentTransactionStatusEnum:
-        # TODO: Implement this
-        return PaymentTransactionStatusEnum.SUCCESS
-
-
-class OnChainFacilitator(BaseFacilitator):
     @retry(
         stop=stop_after_attempt(RETRY_ATTEMPTS),
         wait=wait_exponential(multiplier=RETRY_WAIT_MULTIPLIER, min=RETRY_WAIT_MIN, max=RETRY_WAIT_MAX),
     )
     async def get_source_instrument_id(self) -> uuid.UUID:
-        # TODO Check if some of this can be moved to payment module as similar logic is repeated for all facilitators
         async with get_async_session() as session:
             query = select(PaymentInstrument).where(
-                PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.ON_CHAIN,
-                PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS,
+                PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.PLAID,
+                PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.BANK_ACCOUNT_NUMBER,
                 PaymentInstrument.user_id == SYSTEM_USER_ID,
                 PaymentInstrument.deleted_at.is_(None),  # type: ignore
             )
@@ -106,13 +82,13 @@ class OnChainFacilitator(BaseFacilitator):
             if not instrument:
                 log_dict = {
                     "message": "Source payment instrument not found",
-                    "identifier_type": PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS,
-                    "facilitator": PaymentInstrumentFacilitatorEnum.ON_CHAIN,
+                    "identifier_type": PaymentInstrumentIdentifierTypeEnum.BANK_ACCOUNT_NUMBER,
+                    "facilitator": PaymentInstrumentFacilitatorEnum.PLAID,
                     "user_id": SYSTEM_USER_ID,
                 }
                 logging.exception(json_dumps(log_dict))
                 raise PaymentInstrumentNotFoundError(
-                    f"Payment instrument not found for {PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS}"
+                    f"Payment instrument not found for {PaymentInstrumentIdentifierTypeEnum.BANK_ACCOUNT_NUMBER}"
                 )
             return instrument.payment_instrument_id
 
@@ -124,7 +100,7 @@ class OnChainFacilitator(BaseFacilitator):
     ) -> uuid.UUID:
         async with get_async_session() as session:
             query = select(PaymentInstrument).where(
-                PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.ON_CHAIN,
+                PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.PLAID,
                 PaymentInstrument.identifier_type == destination_identifier_type,
                 PaymentInstrument.identifier == destination_identifier,
                 PaymentInstrument.user_id == user_id,
@@ -136,13 +112,13 @@ class OnChainFacilitator(BaseFacilitator):
                 log_dict = {
                     "message": "Destination payment instrument not found. Creating a new one.",
                     "identifier_type": destination_identifier_type,
-                    "facilitator": PaymentInstrumentFacilitatorEnum.ON_CHAIN,
+                    "facilitator": PaymentInstrumentFacilitatorEnum.PLAID,
                     "user_id": user_id,
                     "identifier": destination_identifier,
                 }
                 logging.info(json_dumps(log_dict))
                 instrument = PaymentInstrument(
-                    facilitator=PaymentInstrumentFacilitatorEnum.ON_CHAIN,
+                    facilitator=PaymentInstrumentFacilitatorEnum.PLAID,
                     identifier_type=destination_identifier_type,
                     identifier=destination_identifier,
                     user_id=user_id,
@@ -153,8 +129,8 @@ class OnChainFacilitator(BaseFacilitator):
             return instrument.payment_instrument_id
 
     async def get_balance(self, currency: CurrencyEnum) -> Decimal:
-        crypto_balance = await get_crypto_balance(currency)
-        return crypto_balance
+        plaid_balance = await get_balance()
+        return plaid_balance
 
     async def _send_payment_request(
         self,
@@ -171,7 +147,7 @@ class OnChainFacilitator(BaseFacilitator):
         # 2. Create a payment transaction
         # 3. Create a point transaction entry for the cashout
         # 4. Update the user points
-        # 5. Process the crypto reward
+        # 5. Process the Plaid transfer
         # 6. Monitor the transfer completion
         # 7. If success then update the payment transaction status
         # 8. If failure then reverse the payment transaction, point transaction and update the user points
@@ -182,18 +158,29 @@ class OnChainFacilitator(BaseFacilitator):
                 source_instrument_balance = await self.get_balance(self.currency)
 
                 if source_instrument_balance < amount:
-                    log_dict = {
-                        "message": "Source instrument does not have enough balance",
-                        "user_id": user_id,
-                        "amount": str(amount),
-                        "source_instrument_balance": str(source_instrument_balance),
-                    }
-                    logging.error(json_dumps(log_dict))
-                    raise ValueError("Source instrument does not have enough balance")
+                    if ENVIRONMENT != "production":
+                        await fund_sandbox_account()
+                    else:
+                        log_dict = {
+                            "message": "Source instrument does not have enough balance",
+                            "user_id": user_id,
+                            "amount": str(amount),
+                            "source_instrument_balance": str(source_instrument_balance),
+                        }
+                        logging.error(json_dumps(log_dict))
+                        raise ValueError("Source instrument does not have enough balance")
 
                 source_instrument_id = await self.get_source_instrument_id()
+
+                plaid_destination_identifier = str(
+                    (destination_additional_details or {}).get("account_number", "")
+                    + "-"
+                    + (destination_additional_details or {}).get("routing_number", "")
+                    + "-"
+                    + (destination_additional_details or {}).get("account_type", "")
+                )
                 destination_instrument_id = await self.get_destination_instrument_id(
-                    user_id, destination_identifier, destination_identifier_type
+                    user_id, plaid_destination_identifier, destination_identifier_type
                 )
             except Exception as e:
                 log_dict = {
@@ -283,42 +270,42 @@ class OnChainFacilitator(BaseFacilitator):
                 raise PaymentProcessingError("Failed to update user points or transaction status") from e
 
             try:
-                tx_hash, transfer = await process_single_crypto_reward(
-                    CryptoReward(
-                        user_id=user_id,
-                        wallet_address=destination_identifier,
-                        asset_id=self.currency.value.lower(),
-                        amount=amount,
-                    )
+                plaid_payout = PlaidPayout(
+                    user_id=user_id,
+                    user_name=(destination_additional_details or {}).get("user_name", ""),
+                    amount=amount,
+                    account_number=(destination_additional_details or {}).get("account_number", ""),
+                    routing_number=(destination_additional_details or {}).get("routing_number", ""),
+                    account_type=(destination_additional_details or {}).get("account_type", ""),
+                )
+                transfer_id, transfer_status = await process_plaid_payout(plaid_payout)
+
+                await update_payment_transaction(
+                    payment_transaction_id,
+                    partner_reference_id=transfer_id,
+                    status=PaymentTransactionStatusEnum.SUCCESS,
                 )
 
-                if str(transfer.status).lower() == Transaction.Status.COMPLETE.value.lower():
-                    await update_payment_transaction(
-                        payment_transaction_id,
-                        partner_reference_id=tx_hash,
-                        status=PaymentTransactionStatusEnum.SUCCESS,
+                # Start monitoring in background task
+                asyncio.create_task(
+                    self._monitor_transfer_completion(
+                        transfer_id=transfer_id,
+                        payment_transaction_id=payment_transaction_id,
+                        points_transaction_id=point_transaction_id,
+                        user_id=user_id,
+                        credits_to_cashout=credits_to_cashout,
+                        amount=amount,
+                        source_instrument_id=source_instrument_id,
+                        destination_instrument_id=destination_instrument_id,
+                        destination_identifier=destination_identifier,
+                        destination_identifier_type=destination_identifier_type,
                     )
-                else:
-                    # Start monitoring in background task only if not complete
-                    asyncio.create_task(
-                        self._monitor_transfer_completion(
-                            transfer=transfer,
-                            payment_transaction_id=payment_transaction_id,
-                            points_transaction_id=point_transaction_id,
-                            user_id=user_id,
-                            credits_to_cashout=credits_to_cashout,
-                            amount=amount,
-                            source_instrument_id=source_instrument_id,
-                            destination_instrument_id=destination_instrument_id,
-                            destination_identifier=destination_identifier,
-                            destination_identifier_type=destination_identifier_type,
-                        )
-                    )
+                )
 
                 # Log success
                 end_time = time.time()
                 log_dict = {
-                    "message": "Successfully submitted for crypto cashout",
+                    "message": "Successfully submitted for Plaid transfer",
                     "duration": str(end_time - start_time),
                     "user_id": user_id,
                     "amount": str(amount),
@@ -327,19 +314,19 @@ class OnChainFacilitator(BaseFacilitator):
                     "destination_instrument_id": str(destination_instrument_id),
                     "destination_identifier": destination_identifier,
                     "currency": self.currency.value,
-                    "tx_hash": str(tx_hash),
+                    "transfer_id": transfer_id,
                 }
                 logging.info(json_dumps(log_dict))
-                asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CRYPTO_CASHOUT))
+                asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_PLAID_CASHOUT))
                 return PaymentResponse(
                     payment_transaction_id=payment_transaction_id,
                     transaction_status=PaymentTransactionStatusEnum.PENDING,
-                    customer_reference_id=tx_hash,
+                    customer_reference_id=transfer_id,
                 )
 
             except Exception as e:
                 log_dict = {
-                    "message": "Failed to process crypto reward. Reversing transaction.",
+                    "message": "Failed to process Plaid transfer. Reversing transaction.",
                     "user_id": user_id,
                     "amount": str(amount),
                     "destination_identifier": destination_identifier,
@@ -358,7 +345,7 @@ class OnChainFacilitator(BaseFacilitator):
                     destination_identifier_type,
                     update_points=True,
                 )
-                raise PaymentProcessingError("Failed to process crypto reward") from e
+                raise PaymentProcessingError("Failed to process Plaid transfer") from e
 
         except Exception as e:
             log_dict = {
@@ -387,7 +374,7 @@ class OnChainFacilitator(BaseFacilitator):
         """Handle cleanup for failed transactions"""
         try:
             log_dict = {
-                "message": "Failed to process crypto reward. Reversing transaction.",
+                "message": "Failed to process Plaid transfer. Reversing transaction.",
                 "user_id": user_id,
                 "payment_transaction_id": str(payment_transaction_id),
                 "points_transaction_id": str(points_transaction_id),
@@ -399,7 +386,7 @@ class OnChainFacilitator(BaseFacilitator):
                 "destination_identifier_type": destination_identifier_type,
             }
             logging.info(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CRYPTO_CASHOUT))
+            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_PLAID_CASHOUT))
 
             await update_payment_transaction(payment_transaction_id, status=PaymentTransactionStatusEnum.FAILED)
             if update_points:
@@ -440,7 +427,7 @@ class OnChainFacilitator(BaseFacilitator):
                 "destination_identifier_type": destination_identifier_type,
             }
             logging.info(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CRYPTO_CASHOUT))
+            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_PLAID_CASHOUT))
         except Exception as e:
             error_message = str(e)
             log_dict = {
@@ -456,7 +443,7 @@ class OnChainFacilitator(BaseFacilitator):
                 "error": error_message,
             }
             logging.exception(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CRYPTO_CASHOUT))
+            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_PLAID_CASHOUT))
 
     async def get_payment_status(self, payment_reference_id: str) -> PaymentTransactionStatusEnum:
         # TODO: Implement this
@@ -464,7 +451,7 @@ class OnChainFacilitator(BaseFacilitator):
 
     async def _monitor_transfer_completion(
         self,
-        transfer: Transfer,
+        transfer_id: str,
         payment_transaction_id: uuid.UUID,
         points_transaction_id: uuid.UUID,
         user_id: str,
@@ -478,79 +465,111 @@ class OnChainFacilitator(BaseFacilitator):
         """Monitor transfer completion and handle success/failure.
 
         Args:
-            transfer: The transfer to monitor
+            transfer_id: The Plaid transfer ID to monitor
             payment_transaction_id: The ID of the payment transaction
+            points_transaction_id: The ID of the points transaction
             user_id: The user ID
             credits_to_cashout: The number of credits being cashed out
             amount: The amount being transferred
             source_instrument_id: The source payment instrument ID
             destination_instrument_id: The destination payment instrument ID
-            destination_identifier: The destination wallet address
+            destination_identifier: The destination account ID
             destination_identifier_type: The type of destination identifier
         """
         try:
             start_time = time.time()
-            max_wait_time = 300  # 5 minutes in seconds
-            poll_interval = 5  # Check every 5 seconds
+            # TODO: Refactor this so that we don't use long polling
+            # and instead rely on a webhook or cron job to check for transfer status
+            max_wait_time, poll_interval = self.get_polling_config()
 
-            # first check if the transfer is already complete
-            # if not then wait for coinbase designed wait
-            if str(transfer.status).lower() != Transaction.Status.COMPLETE.value.lower():
-                transfer.wait()
+            while (time.time() - start_time) < max_wait_time:
+                status = await get_plaid_transfer_status(transfer_id)
 
-            # if still not complete then wait for max wait time
-            while (
-                str(transfer.status).lower() != Transaction.Status.COMPLETE.value.lower()
-                and (time.time() - start_time) < max_wait_time
-            ):
-                transfer.reload()
+                if status == TransferAuthorizationDecision.allowed_values[("value",)]["APPROVED"]:
+                    await update_payment_transaction(
+                        payment_transaction_id,
+                        partner_reference_id=transfer_id,
+                        status=PaymentTransactionStatusEnum.SUCCESS,
+                    )
+                    log_dict = {
+                        "message": "Plaid transfer completed",
+                        "user_id": user_id,
+                        "transfer_id": transfer_id,
+                        "status": status,
+                        "elapsed_time": time.time() - start_time,
+                    }
+                    logging.info(json_dumps(log_dict))
+                    return
+                elif status == TransferAuthorizationDecision.allowed_values[("value",)]["DECLINED"]:
+                    log_dict = {
+                        "message": "Plaid transfer declined",
+                        "user_id": user_id,
+                        "transfer_id": transfer_id,
+                        "status": status,
+                        "elapsed_time": time.time() - start_time,
+                    }
+                    logging.error(json_dumps(log_dict))
+
+                    # Handle the failed transaction
+                    await self._handle_failed_transaction(
+                        payment_transaction_id=payment_transaction_id,
+                        points_transaction_id=points_transaction_id,
+                        user_id=user_id,
+                        credits_to_cashout=credits_to_cashout,
+                        amount=amount,
+                        source_instrument_id=source_instrument_id,
+                        destination_instrument_id=destination_instrument_id,
+                        destination_identifier=destination_identifier,
+                        destination_identifier_type=destination_identifier_type,
+                        update_points=True,
+                    )
+                    return
+
                 await asyncio.sleep(poll_interval)
 
-            if str(transfer.status).lower() == Transaction.Status.COMPLETE.value.lower():
-                await update_payment_transaction(
-                    payment_transaction_id,
-                    partner_reference_id=transfer.transaction_hash,
-                    status=PaymentTransactionStatusEnum.SUCCESS,
-                )
-                log_dict = {
-                    "message": "Crypto transfer completed",
-                    "user_id": user_id,
-                    "transaction_hash": transfer.transaction_hash,
-                    "status": transfer.status,
-                    "elapsed_time": time.time() - start_time,
-                }
-                logging.info(json_dumps(log_dict))
-            else:
-                log_dict = {
-                    "message": "Crypto transfer failed",
-                    "user_id": user_id,
-                    "transaction_hash": transfer.transaction_hash,
-                    "status": transfer.status,
-                    "timeout": time.time() - start_time >= max_wait_time,
-                    "elapsed_time": time.time() - start_time,
-                }
-                logging.error(json_dumps(log_dict))
+            # If we get here, we've timed out
+            log_dict = {
+                "message": "Plaid transfer monitoring timed out",
+                "user_id": user_id,
+                "transfer_id": transfer_id,
+                "timeout": True,
+                "elapsed_time": time.time() - start_time,
+            }
+            logging.error(json_dumps(log_dict))
 
-                # Handle the failed transaction
-                await self._handle_failed_transaction(
-                    payment_transaction_id=payment_transaction_id,
-                    points_transaction_id=points_transaction_id,
-                    user_id=user_id,
-                    credits_to_cashout=credits_to_cashout,
-                    amount=amount,
-                    source_instrument_id=source_instrument_id,
-                    destination_instrument_id=destination_instrument_id,
-                    destination_identifier=destination_identifier,
-                    destination_identifier_type=destination_identifier_type,
-                    update_points=True,
-                )
+            # Handle the failed transaction
+            await self._handle_failed_transaction(
+                payment_transaction_id=payment_transaction_id,
+                points_transaction_id=points_transaction_id,
+                user_id=user_id,
+                credits_to_cashout=credits_to_cashout,
+                amount=amount,
+                source_instrument_id=source_instrument_id,
+                destination_instrument_id=destination_instrument_id,
+                destination_identifier=destination_identifier,
+                destination_identifier_type=destination_identifier_type,
+                update_points=True,
+            )
+
         except Exception as e:
             log_dict = {
                 "message": "Error monitoring transfer completion",
                 "user_id": user_id,
-                "transaction_hash": transfer.transaction_hash,
+                "transfer_id": transfer_id,
                 "error": str(e),
                 "elapsed_time": time.time() - start_time,
             }
             logging.error(json_dumps(log_dict))
             raise PaymentProcessingError("Failed to monitor transfer completion") from e
+
+    @staticmethod
+    def get_polling_config() -> tuple[int, int]:
+        """
+        Returns polling configuration for Plaid transfers.
+        Returns:
+            tuple: (max_wait_time_seconds, poll_interval_seconds)
+        """
+        return (
+            72 * 60 * 60,  # 72 hours in seconds
+            24 * 60 * 60,  # 24 hours in seconds
+        )
