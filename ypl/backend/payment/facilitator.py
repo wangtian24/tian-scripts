@@ -44,7 +44,7 @@ RETRY_ATTEMPTS = 3
 RETRY_WAIT_MULTIPLIER = 1
 RETRY_WAIT_MIN = 4
 RETRY_WAIT_MAX = 15
-SLACK_WEBHOOK_CRYPTO_CASHOUT = os.getenv("SLACK_WEBHOOK_CRYPTO_CASHOUT")
+SLACK_WEBHOOK_CASHOUT = os.getenv("SLACK_WEBHOOK_CASHOUT")
 
 
 class UpiFacilitator(BaseFacilitator):
@@ -330,7 +330,7 @@ class OnChainFacilitator(BaseFacilitator):
                     "tx_hash": str(tx_hash),
                 }
                 logging.info(json_dumps(log_dict))
-                asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CRYPTO_CASHOUT))
+                asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
                 return PaymentResponse(
                     payment_transaction_id=payment_transaction_id,
                     transaction_status=PaymentTransactionStatusEnum.PENDING,
@@ -399,7 +399,7 @@ class OnChainFacilitator(BaseFacilitator):
                 "destination_identifier_type": destination_identifier_type,
             }
             logging.info(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CRYPTO_CASHOUT))
+            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
 
             await update_payment_transaction(payment_transaction_id, status=PaymentTransactionStatusEnum.FAILED)
             if update_points:
@@ -440,7 +440,7 @@ class OnChainFacilitator(BaseFacilitator):
                 "destination_identifier_type": destination_identifier_type,
             }
             logging.info(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CRYPTO_CASHOUT))
+            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
         except Exception as e:
             error_message = str(e)
             log_dict = {
@@ -456,7 +456,7 @@ class OnChainFacilitator(BaseFacilitator):
                 "error": error_message,
             }
             logging.exception(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CRYPTO_CASHOUT))
+            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
 
     async def get_payment_status(self, payment_reference_id: str) -> PaymentTransactionStatusEnum:
         # TODO: Implement this

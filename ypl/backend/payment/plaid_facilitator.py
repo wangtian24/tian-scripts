@@ -46,7 +46,7 @@ from ypl.db.point_transactions import PointsActionEnum
 
 ENVIRONMENT = os.environ.get("ENVIRONMENT")
 SYSTEM_USER_ID = "SYSTEM"
-SLACK_WEBHOOK_PLAID_CASHOUT = os.getenv("SLACK_WEBHOOK_CRYPTO_CASHOUT")  # reuse crypto one by design for now
+SLACK_WEBHOOK_PLAID_CASHOUT = os.getenv("SLACK_WEBHOOK_CASHOUT")
 RETRY_ATTEMPTS = 3
 RETRY_WAIT_MULTIPLIER = 1
 RETRY_WAIT_MIN = 4
