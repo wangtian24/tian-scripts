@@ -27,7 +27,7 @@ from ypl.backend.payment.payment import (
     update_payment_transaction,
     update_user_points,
 )
-from ypl.backend.payment.plaid_payout import (
+from ypl.backend.payment.plaid.plaid_payout import (
     PlaidPayout,
     fund_sandbox_account,
     get_balance,

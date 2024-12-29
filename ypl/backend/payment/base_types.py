@@ -123,7 +123,7 @@ class BaseFacilitator(ABC):
         destination_additional_details: dict | None = None,
     ) -> "BaseFacilitator":
         from ypl.backend.payment.facilitator import OnChainFacilitator, UpiFacilitator
-        from ypl.backend.payment.plaid_facilitator import PlaidFacilitator
+        from ypl.backend.payment.plaid.plaid_facilitator import PlaidFacilitator
 
         if currency == CurrencyEnum.INR:
             return UpiFacilitator(currency, destination_identifier_type, facilitator)

@@ -20,7 +20,7 @@ from ypl.backend.payment.base_types import (
     PointTransactionCreationError,
     TransactionCreationError,
 )
-from ypl.backend.payment.crypto_rewards import CryptoReward, get_crypto_balance, process_single_crypto_reward
+from ypl.backend.payment.crypto.crypto_payout import CryptoReward, get_crypto_balance, process_single_crypto_reward
 from ypl.backend.payment.payment import (
     CashoutPointTransactionRequest,
     PaymentTransactionRequest,

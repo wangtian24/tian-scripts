@@ -9,6 +9,7 @@ import sys
 from collections import Counter, defaultdict
 from collections.abc import Callable
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -60,6 +61,9 @@ from ypl.backend.llm.prompt_classifiers import categorize_user_messages
 from ypl.backend.llm.ranking import get_default_ranker
 from ypl.backend.llm.synthesize import SQLChatIO, SynthesizerConfig, SyntheticUserGenerator, asynthesize_chats
 from ypl.backend.llm.utils import fetch_categories_with_descriptions_from_db
+from ypl.backend.payment.crypto.crypto_payout import process_pending_crypto_rewards
+from ypl.backend.payment.crypto.crypto_wallet import create_wallet, get_wallet_balance
+from ypl.backend.payment.plaid.plaid_payout import PlaidPayout, process_plaid_payout
 from ypl.backend.utils.amplitude_analytics import post_amplitude_metrics_to_slack
 from ypl.db.chats import (
     Chat,
@@ -1277,34 +1281,24 @@ def judge_quick_response_quality(
 @db_cmd
 def process_crypto_rewards() -> None:
     """Process pending crypto rewards."""
-    from ypl.backend.payment.crypto_rewards import process_pending_crypto_rewards
-
     asyncio.run(process_pending_crypto_rewards())
 
 
 @cli.command()
-def create_wallet() -> None:
+def create_a_wallet() -> None:
     """Create a new wallet."""
-    from ypl.backend.utils.crypto_wallet import create_wallet
-
     create_wallet()
 
 
 @cli.command()
-def get_wallet_balance() -> None:
+def get_a_wallet_balance() -> None:
     """Get the balance of a wallet."""
-    from ypl.backend.utils.crypto_wallet import get_wallet_balance
-
     get_wallet_balance()
 
 
 @cli.command()
-def process_plaid_payout() -> None:
+def process_a_plaid_payout() -> None:
     """Make a Plaid payment."""
-    from decimal import Decimal
-
-    from ypl.backend.payment.plaid_payout import PlaidPayout, process_plaid_payout
-
     payout = PlaidPayout(
         user_id="1",
         user_name="Ansuman Behera",

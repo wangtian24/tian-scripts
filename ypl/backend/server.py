@@ -7,7 +7,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from ypl.backend.config import settings
 from ypl.backend.jobs.app import init_celery, start_celery_workers, start_redis
-from ypl.backend.payment.crypto_rewards import cleanup_crypto_processor, get_processor
+from ypl.backend.payment.crypto.crypto_payout import cleanup_crypto_processor, get_processor
 from ypl.backend.routes.main import api_router
 
 
