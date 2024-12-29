@@ -1,5 +1,6 @@
 {
   "editor.defaultFormatter": "charliermarsh.ruff",
   "editor.formatOnSaveMode": "file",
-  "editor.formatOnSave": true
+  "editor.formatOnSave": true,
+  "mypy.runUsingActiveInterpreter": true
 }

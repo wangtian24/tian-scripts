@@ -166,6 +166,8 @@ jobs:
           echo "NVIDIA_API_KEY=${{ secrets.NVIDIA_API_KEY_PRODUCTION }}" >> .env
           echo "OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY_PRODUCTION }}" >> .env
           echo "PERPLEXITY_API_KEY=${{ secrets.PERPLEXITY_API_KEY_PRODUCTION }}" >> .env
+          echo "PLAID_CLIENT_ID=${{ secrets.PLAID_CLIENT_ID_PRODUCTION }}" >> .env
+          echo "PLAID_SECRET=${{ secrets.PLAID_SECRET_PRODUCTION }}" >> .env
           echo "TOGETHER_API_KEY=${{ secrets.TOGETHER_API_KEY_PRODUCTION }}" >> .env
           echo "GROQ_API_KEY=${{ secrets.GROQ_API_KEY_PRODUCTION }}" >> .env
           echo "CEREBRAS_API_KEY=${{ secrets.CEREBRAS_API_KEY_PRODUCTION }}" >> .env
@@ -202,6 +204,8 @@ jobs:
           echo "NVIDIA_API_KEY=${{ secrets.NVIDIA_API_KEY_STAGING }}" >> .env
           echo "OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY_STAGING }}" >> .env
           echo "PERPLEXITY_API_KEY=${{ secrets.PERPLEXITY_API_KEY_STAGING }}" >> .env
+          echo "PLAID_CLIENT_ID=${{ secrets.PLAID_CLIENT_ID_STAGING }}" >> .env
+          echo "PLAID_SECRET=${{ secrets.PLAID_SECRET_STAGING }}" >> .env
           echo "TOGETHER_API_KEY=${{ secrets.TOGETHER_API_KEY_STAGING }}" >> .env
           echo "GROQ_API_KEY=${{ secrets.GROQ_API_KEY_STAGING }}" >> .env
           echo "CEREBRAS_API_KEY=${{ secrets.CEREBRAS_API_KEY_STAGING }}" >> .env
