@@ -766,7 +766,15 @@ Treat all users with respect and avoid making any discriminatory or offensive st
 You are operating in an environment where the user has access to additional AI models, so they may refer to answers that they supply.
 The current date is {datetime.now().strftime(PROMPT_DATE_FORMAT)} """
 
-PROMPT_MODIFIER_PREAMBLE = "Here are additional instructions regarding style, conciseness, and formatting; only adhere to them if they don't contradict the user's prompt: \n"
+PROMPT_MODIFIER_PREAMBLE = """
+Here are additional instructions regarding style, conciseness, and formatting;
+only adhere to them if they don't contradict the user's prompt:
+"""
+
+ALL_MODELS_IN_CHAT_HISTORY_PROMPT = """
+The users in this conversation have access to additional AI models that respond to the same prompts.
+Responses from these models to past prompts are included along with your responses.
+"""
 
 
 MODEL_SPECIFIC_PROMPTS = {
@@ -825,7 +833,9 @@ def get_prompt_modifiers(prompt_modifier_ids: list[uuid.UUID]) -> str:
     )
 
 
-def get_system_prompt_with_modifiers(model: str, modifier_ids: list[uuid.UUID] | None) -> str:
+def get_system_prompt_with_modifiers(
+    model: str, modifier_ids: list[uuid.UUID] | None, use_all_models_in_chat_history: bool
+) -> str:
     """
     Get the system prompt for a model with any additional prompt modifiers applied.
 
@@ -837,6 +847,10 @@ def get_system_prompt_with_modifiers(model: str, modifier_ids: list[uuid.UUID] |
         The complete system prompt string with any modifiers appended
     """
     base_system_prompt = get_system_prompt(model)
+
+    if use_all_models_in_chat_history:
+        base_system_prompt += ALL_MODELS_IN_CHAT_HISTORY_PROMPT
+
     prompt_modifiers = get_prompt_modifiers(modifier_ids) if modifier_ids else ""
 
     if not prompt_modifiers:

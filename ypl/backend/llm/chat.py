@@ -5,7 +5,7 @@ import traceback
 from collections.abc import Generator, Sequence
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Literal, TypedDict, TypeVar
 from uuid import UUID
 
 import pandas as pd
@@ -20,6 +20,7 @@ from langchain_mistralai import ChatMistralAI
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, SecretStr
 from sqlalchemy import text
+from sqlalchemy.orm import joinedload
 from sqlmodel import Session, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -741,13 +742,76 @@ async def get_turn_id_from_message_id(message_id: UUID) -> UUID | None:
         return None
 
 
-async def get_curated_chat_context(chat_id: UUID) -> list[dict]:
-    """Fetch chat history and format it for OpenAI context"""
+class MessageEntry(TypedDict):
+    role: Literal["assistant", "user", "system"]
+    content: str
+
+
+def _get_assistant_messages(
+    turn_messages: list[ChatMessage],
+    model: str,
+    use_all_models_in_chat_history: bool,
+) -> list[MessageEntry]:
+    """Get assistant messages for a turn.
+
+    If use_all_models_in_chat_history is True, includes assistant messages from all models, indicating which ones
+    are from the current model and which one was preferred by the user (if any).
+    If use_all_models_in_chat_history is False, includes only the preferred messages, or the first message if none
+    were selected.
+    """
+    messages: list[MessageEntry] = []
+    assistant_msgs = [msg for msg in turn_messages if msg.message_type == MessageType.ASSISTANT_MESSAGE]
+    if not assistant_msgs:
+        return messages
+
+    if use_all_models_in_chat_history:
+        for msg in assistant_msgs:
+            content = msg.content or ""
+            if msg.assistant_language_model.internal_name == model:
+                # A previous response from the current assistant.
+                if content:
+                    content = "(This was your response)\n\n" + content
+                else:
+                    content = "(Your response was empty)"
+            else:
+                # A previous response from another assistant.
+                if content:
+                    # Only include responses from other assistants if non-empty.
+                    content = "(This was a response from another assistant)\n\n" + content
+            if msg.ui_status == MessageUIStatus.SELECTED and content:
+                content += "\n\n(This response was preferred by the user)"
+            if content:
+                messages.append({"role": "assistant", "content": content})
+    else:
+        # Try to find message with SELECTED status
+        selected_msg = next(
+            (msg for msg in assistant_msgs if msg.ui_status == MessageUIStatus.SELECTED),
+            assistant_msgs[0],  # Fallback to first message if none selected
+        )
+        # if content is null, a place holder is added as part of sanitize_messages.py/replace_empty_messages()
+        messages.append({"role": "assistant", "content": selected_msg.content})
+
+    return messages
+
+
+async def get_curated_chat_context(
+    chat_id: UUID,
+    use_all_models_in_chat_history: bool,
+    model: str,
+) -> list[MessageEntry]:
+    """Fetch chat history and format it for OpenAI context.
+
+    Args:
+        chat_id: The chat ID to fetch history for.
+        use_all_models_in_chat_history: Whether to include all models in the chat history.
+        model: The model to fetch history for.
+    """
     query = (
         select(ChatMessage)
         .join(Turn, Turn.turn_id == ChatMessage.turn_id)  # type: ignore[arg-type]
         .join(Chat, Chat.chat_id == Turn.chat_id)  # type: ignore[arg-type]
         .outerjoin(Attachment, Attachment.chat_message_id == ChatMessage.message_id)  # type: ignore[arg-type]
+        .options(joinedload(ChatMessage.assistant_language_model).load_only(LanguageModel.internal_name))  # type: ignore
         .where(
             Chat.chat_id == chat_id,
             ChatMessage.deleted_at.is_(None),  # type: ignore[union-attr]
@@ -771,7 +835,7 @@ async def get_curated_chat_context(chat_id: UUID) -> list[dict]:
             turns[msg.turn_id] = []
         turns[msg.turn_id].append(msg)
 
-    formatted_messages = []
+    formatted_messages: list[MessageEntry] = []
     for turn_messages in turns.values():
         # Get user messages
         user_msgs = [msg for msg in turn_messages if msg.message_type == MessageType.USER_MESSAGE]
@@ -779,15 +843,7 @@ async def get_curated_chat_context(chat_id: UUID) -> list[dict]:
             formatted_messages.append({"role": "user", "content": user_msgs[0].content})
 
         # Get assistant messages
-        assistant_msgs = [msg for msg in turn_messages if msg.message_type == MessageType.ASSISTANT_MESSAGE]
-        if assistant_msgs:
-            # Try to find message with SELECTED status
-            selected_msg = next(
-                (msg for msg in assistant_msgs if msg.ui_status == MessageUIStatus.SELECTED),
-                assistant_msgs[0],  # Fallback to first message if none selected
-            )
-            # if content is null, a place holder is added as part of sanitize_messages.py/replace_empty_messages()
-            formatted_messages.append({"role": "assistant", "content": selected_msg.content})
+        formatted_messages.extend(_get_assistant_messages(turn_messages, model, use_all_models_in_chat_history))
 
     return formatted_messages
 

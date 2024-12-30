@@ -16,7 +16,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine
-from ypl.backend.llm.chat import get_curated_chat_context, persist_chat_message
+from ypl.backend.llm.chat import MessageEntry, get_curated_chat_context, persist_chat_message
 from ypl.backend.llm.model.model import ModelResponseTelemetry
 from ypl.backend.llm.provider.provider_clients import get_language_model, get_provider_client
 from ypl.backend.llm.sanitize_messages import DEFAULT_MAX_TOKENS, sanitize_messages
@@ -61,6 +61,10 @@ class ChatRequest(BaseModel):
     load_existing: bool = Field(
         default=True,
         description="If true, return an existing message matching the request if it exists; otherwise create a new one",
+    )
+    use_all_models_in_chat_history: bool = Field(
+        default=False,
+        description="If true, include the chat history of all responding models.",
     )
 
 
@@ -124,14 +128,18 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
 
         # Send initial status
         yield StreamResponse(intial_status, "status").encode()
-        system_prompt = get_system_prompt_with_modifiers(chat_request.model, chat_request.prompt_modifier_ids)
+        system_prompt = get_system_prompt_with_modifiers(
+            chat_request.model, chat_request.prompt_modifier_ids, chat_request.use_all_models_in_chat_history
+        )
 
-        messages: list[dict[str, str]] = []
+        messages: list[MessageEntry] = []
         if system_prompt and not chat_request.model.startswith("o1"):
             # use system prompt for non o1 models. o1 doesn't support system prompt
             messages.append({"role": "system", "content": system_prompt})
         if not chat_request.is_new_chat:
-            chat_history = await get_curated_chat_context(chat_request.chat_id)
+            chat_history = await get_curated_chat_context(
+                chat_request.chat_id, chat_request.use_all_models_in_chat_history, chat_request.model
+            )
             language_model = await get_language_model(chat_request.model)
             chat_context = sanitize_messages(
                 chat_history, system_prompt, language_model.context_window_tokens or DEFAULT_MAX_TOKENS
@@ -157,10 +165,10 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
         first_token_timestamp: float = 0
         response_tokens_num = 0
         full_response = ""
-        message_metadata = dict[str, Any]()
+        message_metadata: dict[str, Any] = {}
         chunk = None  # Define chunk outside the try block
         try:
-            async for chunk in client.astream(messages):
+            async for chunk in client.astream(messages):  # type: ignore
                 # TODO(bhanu) - assess if we should customize chunking for optimal network performance
                 if hasattr(chunk, "content") and chunk.content:
                     if first_token_timestamp == 0:
@@ -236,8 +244,8 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                 {
                     "error": "Failed to persist message",
                     "code": "persistence_error",
-                    "model": chat_request.model,
-                    "message_id": chat_request.message_id,
+                    "model": str(chat_request.model),
+                    "message_id": str(chat_request.message_id),
                 },
                 "error",
             ).encode()

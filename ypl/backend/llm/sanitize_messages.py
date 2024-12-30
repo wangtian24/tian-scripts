@@ -1,5 +1,6 @@
 import logging
 
+from ypl.backend.llm.chat import MessageEntry
 from ypl.backend.llm.model_heuristics import ModelHeuristics
 
 DEFAULT_MAX_TOKENS: int = 32_000
@@ -8,16 +9,16 @@ model_heuristics = ModelHeuristics(tokenizer_type="tiktoken")
 
 
 def sanitize_messages(
-    messages: list[dict[str, str]], system_prompt: str, max_tokens: int = DEFAULT_MAX_TOKENS
-) -> list[dict[str, str]]:
+    messages: list[MessageEntry], system_prompt: str, max_tokens: int = DEFAULT_MAX_TOKENS
+) -> list[MessageEntry]:
     """Sanitizes the list of messages to send to a model, drop any entries that can potentially cause an error."""
     return truncate_message(replace_empty_messages(messages), system_prompt, max_tokens)
 
 
 # TODO(bhanu, gilad) to revisit truncation with alternates mentioned here - https://github.com/yupp-ai/yupp-mind/pull/633#discussion_r1896057154
 def truncate_message(
-    messages: list[dict[str, str]], system_prompt: str, max_tokens: int = DEFAULT_MAX_TOKENS
-) -> list[dict[str, str]]:
+    messages: list[MessageEntry], system_prompt: str, max_tokens: int = DEFAULT_MAX_TOKENS
+) -> list[MessageEntry]:
     """
     Truncates messages to a maximum number of tokens.
 
@@ -35,7 +36,7 @@ def truncate_message(
 
     # leave a 5% buffer for additional markup
     available_tokens = max_tokens * 0.95 - len(model_heuristics.encode_tokens(system_prompt))
-    truncated_messages: list[dict[str, str]] = []
+    truncated_messages: list[MessageEntry] = []
 
     # Iterate through messages in reverse order
     for message in reversed(messages):
@@ -58,7 +59,7 @@ def truncate_message(
     return truncated_messages
 
 
-def replace_empty_messages(messages: list[dict[str, str]]) -> list[dict[str, str]]:
+def replace_empty_messages(messages: list[MessageEntry]) -> list[MessageEntry]:
     """
     Remove any empty messages.
 
