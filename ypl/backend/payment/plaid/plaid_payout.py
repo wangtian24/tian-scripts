@@ -6,7 +6,7 @@ from typing import Any
 
 import plaid
 from plaid.model.transfer_authorization_decision import TransferAuthorizationDecision
-from ypl.backend.payment.plaid_lifecycle import get_plaid_client
+from ypl.backend.payment.plaid.plaid_lifecycle import get_plaid_client
 from ypl.backend.utils.json import json_dumps
 
 
