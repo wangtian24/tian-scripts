@@ -14,6 +14,7 @@ from ypl.db.rewards import Reward, RewardActionLog
 
 if TYPE_CHECKING:
     from ypl.db.chats import Chat, Eval, Turn
+    from ypl.db.invite_codes import SpecialInviteCode, SpecialInviteCodeClaimLog
     from ypl.db.language_models import LanguageModel
     from ypl.db.payments import PaymentInstrument
 
@@ -81,6 +82,12 @@ class User(BaseModel, table=True):
     reward_action_logs: list["RewardActionLog"] = Relationship(back_populates="user", cascade_delete=True)
     rewards: list["Reward"] = Relationship(back_populates="user", cascade_delete=True)
     payment_instruments: list["PaymentInstrument"] = Relationship(back_populates="user", cascade_delete=True)
+
+    # The special invite codes that this user can give out.
+    created_special_invite_codes: list["SpecialInviteCode"] = Relationship(
+        back_populates="creator",
+    )
+    special_invite_code_claim_log: "SpecialInviteCodeClaimLog" = Relationship(back_populates="user")
 
     def is_new_user(self) -> bool:
         return len(self.chats) < NEW_USER_CHAT_THRESHOLD
