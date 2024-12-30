@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 from datetime import datetime
 from typing import Annotated, Any
@@ -579,3 +580,33 @@ async def get_prompt_modifiers() -> list[PromptModifierInfo]:
         log_dict = {"message": f"Error getting prompt modifiers: {str(e)}"}
         logging.exception(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+class TurnAnnotationsResponse(BaseModel):
+    comment: str | None = None
+    positive_notes: list[str] | None = None
+    negative_notes: list[str] | None = None
+
+
+@router.get("/chats/{chat_id}/turns/{turn_id}/turn_annotations", response_model=TurnAnnotationsResponse)
+async def get_turn_annotations(
+    # chat_id not used, but kept for consistency with other /chats routes.
+    chat_id: str = Path(..., description="The ID of the chat"),
+    turn_id: str = Path(..., description="The ID of the turn"),
+) -> TurnAnnotationsResponse:
+    response = TurnAnnotationsResponse()
+    try:
+        async with AsyncSession(get_async_engine()) as session:
+            stmt = select(TurnQuality.prompt_difficulty_details).where(TurnQuality.turn_id == turn_id)  # type: ignore
+            result = await session.execute(stmt)
+            details = result.scalar_one_or_none()
+            if details:
+                details_dict = json.loads(details)
+                response.comment = details_dict.get("comment")
+                response.positive_notes = details_dict.get("positive_notes")
+                response.negative_notes = details_dict.get("negative_notes")
+    except Exception as e:
+        log_dict = {"message": f"Error getting annotations for turn {turn_id}: {str(e)}"}
+        logging.exception(json_dumps(log_dict))
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    return response
