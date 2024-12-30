@@ -1,10 +1,11 @@
 import enum
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import sqlalchemy as sa
 from sqlalchemy import Column, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship
 
 from ypl.db.base import BaseModel
@@ -190,6 +191,7 @@ class WaitlistedUser(BaseModel, table=True):
 
     __tablename__ = "waitlisted_users"
     waitlisted_user_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
+    name: str | None = Field(default=None, sa_type=sa.Text)
     email: str = Field(sa_column=Column("email", sa.Text, nullable=False, unique=True, index=True))
     status: WaitlistStatus = Field(
         default=WaitlistStatus.PENDING,
@@ -197,3 +199,16 @@ class WaitlistedUser(BaseModel, table=True):
     )
     referrer_id: str | None = Field(foreign_key="users.user_id", nullable=True)
     comment: str | None = Field(default=None, sa_type=sa.Text)
+
+    # The following fields are populated when an user attempts to sign up for the waitlist.
+    # Instead of creating an account for them directly, we temporarily capture the OAuth details in the following fields
+    # This minimizes the risk of an unapproved waitlist user being granted access to the main app.
+    # When the user is eventually approved (such as when an invite code is provided), these values will be moved to the
+    # corresponding location in User or Account table.
+
+    # OAuth account ID
+    google_provider_account_id: str | None = Field(default=None, sa_type=sa.Text, index=True)
+    # OAuth tokens, such as access token and refresh token.
+    google_account_tokens: dict[str, Any] = Field(default_factory=dict, sa_type=JSONB, nullable=True)
+    # Profile image
+    user_image_url: str | None = Field(default=None, sa_type=sa.Text)
