@@ -518,7 +518,7 @@ Feedback to evaluate: {feedback}
 
 Return only a JSON response {{"score": N}} where N is 1-5. No explanation needed."""
 
-FEEDBACK_QUALITY_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([("system", FEEDBACK_QUALITY_PROMPT)])
+FEEDBACK_QUALITY_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([("human", FEEDBACK_QUALITY_PROMPT)])
 
 PROMPT_DATE_FORMAT = "%B %d, %Y"
 
