@@ -81,18 +81,31 @@ class TruncatingStreamHandler(TruncatingMixin, logging.StreamHandler):
         super().emit(record)
 
 
+class ConsolidatedHandler(RedactingMixin, TruncatingMixin, CloudLoggingHandler):
+    def emit(self, record: logging.LogRecord) -> None:
+        self.redact_record(record)
+        self.truncate_record(record)
+        super().emit(record)
+
+
+class ConsolidatedStreamHandler(RedactingMixin, TruncatingMixin, logging.StreamHandler):
+    def emit(self, record: logging.LogRecord) -> None:
+        self.redact_record(record)
+        self.truncate_record(record)
+        super().emit(record)
+
+
 def setup_google_cloud_logging() -> None:
     try:
         client = google_logging.Client()
         name = os.environ.get("GCP_PROJECT_ID") or "default"
-        truncating_handler = TruncatingHandler(client, name=name, transport=BackgroundThreadTransport)
-        redacting_handler = RedactingHandler(client, name=name, transport=BackgroundThreadTransport)
+        consolidated_handler = ConsolidatedHandler(client, name=name, transport=BackgroundThreadTransport)
 
         root_logger = logging.getLogger()
         root_logger.handlers.clear()
         root_logger.setLevel(logging.INFO)
-        root_logger.addHandler(redacting_handler)
-        root_logger.addHandler(truncating_handler)
+        root_logger.addHandler(consolidated_handler)
+        root_logger.propagate = False
     except Exception as e:
         logging.basicConfig(level=logging.INFO)
         logging.error(f"Google Cloud Logging setup failed: {e}")
@@ -104,5 +117,5 @@ else:
     root_logger = logging.getLogger()
     root_logger.handlers.clear()
     root_logger.setLevel(logging.INFO)
-    root_logger.addHandler(RedactingStreamHandler())
-    root_logger.addHandler(TruncatingStreamHandler())
+    root_logger.addHandler(ConsolidatedStreamHandler())
+    root_logger.propagate = False
