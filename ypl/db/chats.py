@@ -17,6 +17,7 @@ from ypl.db.ratings import Category
 from ypl.db.users import User
 
 if TYPE_CHECKING:
+    from ypl.db.attachments import Attachment
     from ypl.db.chats import Category
     from ypl.db.rewards import Reward, RewardActionLog
 
@@ -230,6 +231,8 @@ class ChatMessage(BaseModel, table=True):
     message_evals: list["MessageEval"] = Relationship(back_populates="message", cascade_delete=True)
 
     annotations: dict[str, Any] = Field(default_factory=dict, sa_type=JSONB, nullable=True)
+
+    attachments: list["Attachment"] = Relationship(back_populates="chat_message")
 
 
 class EvalType(enum.Enum):

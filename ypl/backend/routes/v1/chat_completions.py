@@ -57,6 +57,7 @@ class ChatRequest(BaseModel):
     )
     # TODO(bhanu) - make below mandatory after UI change
     prompt_modifier_ids: list[uuid.UUID] | None = Field(None, description="List of Prompt Modifier IDs")
+    attachment_ids: list[uuid.UUID] | None = Field(None, description="List of Attachment IDs")
     load_existing: bool = Field(
         default=True,
         description="If true, return an existing message matching the request if it exists; otherwise create a new one",

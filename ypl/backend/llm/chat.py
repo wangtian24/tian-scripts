@@ -27,6 +27,7 @@ from ypl.backend.db import get_async_engine, get_engine
 from ypl.backend.llm.constants import ACTIVE_MODELS_BY_PROVIDER, PROVIDER_MODEL_PATTERNS, ChatProvider
 from ypl.backend.llm.provider.provider_clients import get_model_provider_tuple
 from ypl.backend.llm.routing.route_data_type import PreferredModel, RoutingPreference
+from ypl.db.attachments import Attachment
 from ypl.db.chats import (
     AssistantSelectionSource,
     Chat,
@@ -746,6 +747,7 @@ async def get_curated_chat_context(chat_id: UUID) -> list[dict]:
         select(ChatMessage)
         .join(Turn, Turn.turn_id == ChatMessage.turn_id)  # type: ignore[arg-type]
         .join(Chat, Chat.chat_id == Turn.chat_id)  # type: ignore[arg-type]
+        .outerjoin(Attachment, Attachment.chat_message_id == ChatMessage.message_id)  # type: ignore[arg-type]
         .where(
             Chat.chat_id == chat_id,
             ChatMessage.deleted_at.is_(None),  # type: ignore[union-attr]
