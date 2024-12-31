@@ -304,7 +304,7 @@ async def test_simple_pro_router(
     mock_error_filter.side_effect = lambda state: state
 
     all_selected_models = set()
-    for _ in range(30):
+    for _ in range(50):
         router = await get_simple_pro_router(prompt="", num_models=2, reputable_providers=reputable_providers)
         selected_models = router.select_models(state=state).get_sorted_selected_models()
         assert len(selected_models) == 2
