@@ -37,6 +37,7 @@ class SelectModelsV2Request(BaseModel):
 class SelectModelsV2Response(BaseModel):
     models: list[tuple[str, list[tuple[str, str]]]]  # list of (model, list[(prompt modifier ID, prompt modifier)])
     provider_map: dict[str, str]  # map from model to provider
+    fallback_models: list[tuple[str, list[tuple[str, str]]]]  # list of fallback models and modifiers
 
 
 @router.post("/select_models")
@@ -50,6 +51,7 @@ async def select_models(
     all_models_state = RouterState.new_all_models_state()
     selected_models = router.select_models(state=all_models_state)
     return_models = selected_models.get_sorted_selected_models()
+
     return return_models
 
 
@@ -57,7 +59,7 @@ async def select_models(
 async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Response:
     async def select_models_(
         required_models: list[str] | None = None, show_me_more_models: list[str] | None = None
-    ) -> list[str]:
+    ) -> tuple[list[str], list[str]]:
         num_models = request.num_models
         router = await get_simple_pro_router(
             prompt,
@@ -70,7 +72,13 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         selected_models = router.select_models(state=all_models_state)
         return_models = selected_models.get_sorted_selected_models()
 
-        return return_models
+        all_fallback_models = RouterState.new_all_models_state()
+        all_fallback_models = all_fallback_models.emplaced(
+            all_models=all_fallback_models.all_models.difference(return_models)
+        )
+        fallback_models = router.select_models(state=all_fallback_models).get_sorted_selected_models()
+
+        return return_models, fallback_models
 
     match request.intent:
         case SelectIntent.NEW_CHAT | SelectIntent.NEW_TURN:
@@ -108,10 +116,10 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
     else:
         models = request.required_models or []
 
-    if len(models) < request.num_models:
-        models = await select_models_(required_models=models, show_me_more_models=show_me_more_models)
+    models, fallback_models = await select_models_(required_models=models, show_me_more_models=show_me_more_models)
 
     models = models[: request.num_models]
+    fallback_models = fallback_models[: request.num_models]
 
     try:
         selector = CategorizedPromptModifierSelector.make_default_from_db()
@@ -120,7 +128,8 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
             modifier_history = get_modifiers_by_model(request.chat_id)
         else:
             modifier_history = {}
-        prompt_modifiers = selector.select_modifiers(models, modifier_history)
+
+        prompt_modifiers = selector.select_modifiers(models + fallback_models, modifier_history)
 
         if request.turn_id:
             GlobalThreadPoolExecutor.get_instance().submit(store_modifiers, request.turn_id, prompt_modifiers)
@@ -130,6 +139,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
 
     return SelectModelsV2Response(
         models=[(model, prompt_modifiers.get(model, [])) for model in models],
+        fallback_models=[(model, prompt_modifiers.get(model, [])) for model in fallback_models],
         provider_map=deduce_original_providers(tuple(models)),
     )
 

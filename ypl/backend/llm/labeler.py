@@ -4,6 +4,7 @@ import random
 from contextvars import ContextVar
 from typing import Any, Generic, Literal, TypeVar
 
+from async_lru import alru_cache
 from datasets import Dataset, load_dataset
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
@@ -122,6 +123,8 @@ class LLMLabeler(Generic[InputType, OutputType]):
     Represents an LLM that takes in objects of type `InputType` and outputs a label of type `OutputType`.
     """
 
+    cached = False
+
     def __init__(
         self, llm: BaseChatModel, timeout_secs: float = 5.0, on_error: OnErrorBehavior = "use_error_value"
     ) -> None:
@@ -129,6 +132,9 @@ class LLMLabeler(Generic[InputType, OutputType]):
         self.asyncio_context: ContextVar = ContextVar("Coroutine local")
         self.timeout_secs = timeout_secs
         self.on_error = on_error
+
+        if self.cached:
+            self.alabel = alru_cache(maxsize=2048)(self.alabel)  # type: ignore[method-assign]
 
     @property
     def error_value(self) -> OutputType:

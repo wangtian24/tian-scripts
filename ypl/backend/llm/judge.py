@@ -211,6 +211,8 @@ class YuppSingleDifficultyLabeler(LLMLabeler[str, int]):
 
 
 class YuppOnlinePromptLabeler(PromptCategorizer, LLMLabeler[str, bool]):
+    cached = True
+
     def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
         return JUDGE_YUPP_ONLINE_PROMPT_TEMPLATE | llm  # type: ignore
 
@@ -254,6 +256,8 @@ class FastVertexAIOnlinePromptLabeler(PromptCategorizer):
 
 
 class YuppMultilabelClassifier(LLMLabeler[str, list[str]]):
+    cached = True
+
     def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
         return PROMPT_MULTILABEL_CLASSIFICATION_PROMPT_TEMPLATE | llm  # type: ignore
 
