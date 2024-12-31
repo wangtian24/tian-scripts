@@ -90,12 +90,9 @@ def test_tiers(turn_quality_score: float | None, points: int, expected_tier_name
     assert rule.name == expected_tier_name
 
     expected_min, expected_max = rule.min_value, rule.max_value
-    rewards_range = [user_turn_reward.get_amount(method="range") for _ in range(1000)]
+    rewards_range = [user_turn_reward.get_amount() for _ in range(1000)]
     assert min(rewards_range) >= expected_min
     assert max(rewards_range) <= expected_max
-
-    rewards_mean = [user_turn_reward.get_amount(method="mean") for _ in range(1000)]
-    assert np.mean(rewards_mean) == approx(rule.mean_value, rel=0.15)
 
 
 @mark.parametrize(

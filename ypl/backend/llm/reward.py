@@ -6,7 +6,7 @@ import time
 import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
-from typing import Any, Literal
+from typing import Any
 from uuid import UUID
 
 import pytz
@@ -48,7 +48,6 @@ from ypl.db.users import User
 load_dotenv()
 
 # Define mean reward for evals, baseline value for medium tier (method="mean")
-MEAN_EVAL_REWARD = 50
 FEEDBACK_REWARD_LOWER_BOUND = 100
 FEEDBACK_REWARD_UPPER_BOUND = 500
 QT_EVAL_REWARD_LOWER_BOUND = 400
@@ -136,8 +135,6 @@ class RewardTier:
     quality_threshold: int
     # The range of possible reward values (min, max)
     reward_range: tuple[int, int]
-    # Mean reward for this tier
-    mean_reward: float
     # List of possible comments to be given for rewards in this tier
     comments: list[str]
     name: str
@@ -310,7 +307,7 @@ class UserTurnReward:
     def _get_probability_rule(self) -> RewardProbabilityRule | None:
         return get_matching_rule(get_reward_probability_rules(self.action_type), self.to_dict())  # type: ignore
 
-    def _maybe_decay_amounts(self, min_value: int, max_value: int, mean_value: float) -> tuple[int, int, float]:
+    def _maybe_decay_amounts(self, min_value: int, max_value: int) -> tuple[int, int]:
         if "daily_points_limit" in RULE_CONSTANTS:
             daily_points_limit = RULE_CONSTANTS["daily_points_limit"]
             fraction_of_limit = self.points_last_day / daily_points_limit
@@ -319,11 +316,10 @@ class UserTurnReward:
                 decay_factor = math.exp(-8 * (fraction_of_limit - 0.5))
                 min_value = int(round(min_value * decay_factor, -1))
                 max_value = int(round(max_value * decay_factor, -1))
-                mean_value = round(mean_value * decay_factor, -1)
 
-        return min_value, max_value, mean_value
+        return min_value, max_value
 
-    def get_amount(self, method: Literal["range", "mean"] = "range", high_value: bool = False) -> int:
+    def get_amount(self, high_value: bool = False) -> int:
         rule = self.amount_rule
         if not rule:
             log_dict = {
@@ -333,16 +329,15 @@ class UserTurnReward:
             logging.warning(json_dumps(log_dict))
             return 0
 
-        # Set min, max, and mean values using conditional expressions
+        # Set min, max values using conditional expressions
         min_value = rule.high_min_value if high_value else rule.min_value
         max_value = rule.high_max_value if high_value else rule.max_value
-        mean_value = rule.high_mean_value if high_value else rule.mean_value
 
         # Optionally decay the reward amount, as the daily limit approaches.
-        min_value, max_value, mean_value = self._maybe_decay_amounts(min_value, max_value, mean_value)
+        min_value, max_value = self._maybe_decay_amounts(min_value, max_value)
 
         # Return the reward based on the specified method
-        return get_reward(min_value=min_value, max_value=max_value) if method == "range" else get_reward(mean_value)
+        return get_reward(min_value=min_value, max_value=max_value)
 
     def get_probability(self) -> float:
         rule = self.probability_rule
@@ -362,17 +357,7 @@ class UserTurnReward:
         return random.choice(self.amount_rule.comments)
 
 
-def get_reward(
-    mean_reward: float = MEAN_EVAL_REWARD, min_value: int | None = None, max_value: int | None = None
-) -> int:
-    if min_value is not None and max_value is not None:
-        return get_reward_truncated_normal(min_value, max_value)
-
-    raw_reward = math.ceil(-mean_reward * math.log(1 - random.random()))
-    return int(round(raw_reward, -1))
-
-
-def get_reward_truncated_normal(min_value: int, max_value: int) -> int:
+def get_reward(min_value: int, max_value: int) -> int:
     # min_value is the mean in a normal distribution
     # max_value is 3 standard deviations up (sigma), and values are clamped thereafter
 
