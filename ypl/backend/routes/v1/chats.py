@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, time
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -101,9 +101,10 @@ QT_LLMS = {
 QT_MAX_CONTEXT_LENGTH = {
     "gpt-4o": 128000,
     "gpt-4o-mini": 16000,
+    "gemini-2.0-flash": 1000000,
 }
 # Models to use if no specific model was requested.
-MODELS_FOR_DEFAULT_QT = ["gpt-4o", "gpt-4o-mini"]
+MODELS_FOR_DEFAULT_QT = ["gpt-4o", "gpt-4o-mini", "gemini-2.0-flash"]
 # Model to use while supplying only the prompts from the chat history, instead of the full chat history.
 MODEL_FOR_PROMPT_ONLY = "gpt-4o"
 # Maximum number of pinned chats for a user.
@@ -146,6 +147,8 @@ async def generate_quicktake(
     chat_history = [] if chat_id is None else get_chat_history(chat_id, turn_id)
     response_model = ""
     timeout_secs = request.timeout_secs
+    timings_a = time.time()
+
     try:
         if not request.model:
             # Default: use multiple models
@@ -162,7 +165,9 @@ async def generate_quicktake(
                 timeout_secs=timeout_secs,
                 early_terminate_on=MODELS_FOR_DEFAULT_QT,
             )
-            max_context_length = min((QT_MAX_CONTEXT_LENGTH[model] for model in MODELS_FOR_DEFAULT_QT), default=16000)
+            max_context_length = min(
+                (QT_MAX_CONTEXT_LENGTH.get(model, 16000) for model in MODELS_FOR_DEFAULT_QT), default=16000
+            )
             quicktakes = await multi_generator.alabel(
                 tiktoken_trim(request.prompt or "", int(max_context_length * 0.75), direction="right")
             )
@@ -172,6 +177,7 @@ async def generate_quicktake(
                 if response and not isinstance(response, Exception):
                     response_model = model
                     quicktake = response
+                    logging.info(f"Quicktake timings: generated in {time.time() - timings_a:.3f} seconds")
                     break
         elif request.model in QT_LLMS:
             # Specific model requested.

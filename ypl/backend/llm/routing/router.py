@@ -1516,39 +1516,28 @@ class HighErrorRateFilter(RNGMixin, ModelFilter):
 
 
 # Begin pro router logic and routine
-online_yupp_model = YuppOnlinePromptLabeler(
-    GeminiLangChainAdapter(
-        model_info=ModelInfo(
-            provider=ChatProvider.GOOGLE,
-            model="gemini-1.5-flash-002",
-            api_key=settings.GOOGLE_API_KEY,
-        ),
-        model_config_=dict(
-            project_id=settings.GCP_PROJECT_ID,
-            region=settings.GCP_REGION,
-            temperature=0.0,
-            max_output_tokens=16,
-            top_k=1,
-        ),
+gemini_2_flash_llm = GeminiLangChainAdapter(
+    model_info=ModelInfo(
+        provider=ChatProvider.GOOGLE,
+        model="gemini-2.0-flash-exp",
+        api_key=settings.GOOGLE_API_KEY,
     ),
+    model_config_=dict(
+        project_id=settings.GCP_PROJECT_ID,
+        region=settings.GCP_REGION_GEMINI_2,
+        temperature=0.0,
+        max_output_tokens=16,
+        top_k=1,
+    ),
+)
+
+online_yupp_model = YuppOnlinePromptLabeler(
+    gemini_2_flash_llm,
     timeout_secs=settings.ROUTING_TIMEOUT_SECS,
 )
 
 topic_categorizer = YuppMultilabelClassifier(
-    GeminiLangChainAdapter(
-        model_info=ModelInfo(
-            provider=ChatProvider.GOOGLE,
-            model="gemini-1.5-flash-002",
-            api_key=settings.GOOGLE_API_KEY,
-        ),
-        model_config_=dict(
-            project_id=settings.GCP_PROJECT_ID,
-            region=settings.GCP_REGION,
-            temperature=0.0,
-            max_output_tokens=16,
-            top_k=1,
-        ),
-    ),
+    gemini_2_flash_llm,
     timeout_secs=settings.ROUTING_TIMEOUT_SECS,
 )
 
