@@ -220,7 +220,7 @@ class YuppOnlinePromptLabeler(PromptCategorizer, LLMLabeler[str, bool]):
         return dict(prompt=input)
 
     def _parse_output(self, output: BaseMessage) -> bool:
-        return "true" in str(output.content)
+        return "true" in str(output.content).lower()
 
     def categorize(self, user_prompt: str) -> CategorizerResponse:
         return CategorizerResponse(category="online" if self.label(user_prompt) else "offline")
