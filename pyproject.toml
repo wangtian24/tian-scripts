@@ -148,6 +148,8 @@ ruff = "0.2.1"
 pytest-alembic = "0.11.1"
 pytest-mock-resources = {extras = ["postgres-binary"], version = "2.12.0"}
 
+[tool.poetry.group.client.dependencies]
+locust = "2.32.5"
 
 [tool.poetry.group.pytorch.dependencies]
 torch = "2.4.1"
