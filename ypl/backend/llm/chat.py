@@ -5,7 +5,7 @@ import traceback
 from collections.abc import Generator, Sequence
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Generic, Literal, TypedDict, TypeVar
+from typing import Any, Generic, TypeVar
 from uuid import UUID
 
 import pandas as pd
@@ -742,16 +742,11 @@ async def get_turn_id_from_message_id(message_id: UUID) -> UUID | None:
         return None
 
 
-class MessageEntry(TypedDict):
-    role: Literal["assistant", "user", "system"]
-    content: str
-
-
 def _get_assistant_messages(
     turn_messages: list[ChatMessage],
     model: str,
     use_all_models_in_chat_history: bool,
-) -> list[MessageEntry]:
+) -> list[BaseMessage]:
     """Get assistant messages for a turn.
 
     If use_all_models_in_chat_history is True, includes assistant messages from all models, indicating which ones
@@ -759,7 +754,7 @@ def _get_assistant_messages(
     If use_all_models_in_chat_history is False, includes only the preferred messages, or the first message if none
     were selected.
     """
-    messages: list[MessageEntry] = []
+    messages: list[BaseMessage] = []
     assistant_msgs = [msg for msg in turn_messages if msg.message_type == MessageType.ASSISTANT_MESSAGE]
     if not assistant_msgs:
         return messages
@@ -781,7 +776,7 @@ def _get_assistant_messages(
             if msg.ui_status == MessageUIStatus.SELECTED and content:
                 content += "\n\n(This response was preferred by the user)"
             if content:
-                messages.append({"role": "assistant", "content": content})
+                messages.append(AIMessage(content=content))
     else:
         # Try to find message with SELECTED status
         selected_msg = next(
@@ -789,7 +784,7 @@ def _get_assistant_messages(
             assistant_msgs[0],  # Fallback to first message if none selected
         )
         # if content is null, a place holder is added as part of sanitize_messages.py/replace_empty_messages()
-        messages.append({"role": "assistant", "content": selected_msg.content})
+        messages.append(AIMessage(content=selected_msg.content))
 
     return messages
 
@@ -798,7 +793,7 @@ async def get_curated_chat_context(
     chat_id: UUID,
     use_all_models_in_chat_history: bool,
     model: str,
-) -> list[MessageEntry]:
+) -> list[BaseMessage]:
     """Fetch chat history and format it for OpenAI context.
 
     Args:
@@ -835,12 +830,12 @@ async def get_curated_chat_context(
             turns[msg.turn_id] = []
         turns[msg.turn_id].append(msg)
 
-    formatted_messages: list[MessageEntry] = []
+    formatted_messages: list[BaseMessage] = []
     for turn_messages in turns.values():
         # Get user messages
         user_msgs = [msg for msg in turn_messages if msg.message_type == MessageType.USER_MESSAGE]
         if user_msgs:
-            formatted_messages.append({"role": "user", "content": user_msgs[0].content})
+            formatted_messages.append(HumanMessage(content=user_msgs[0].content))
 
         # Get assistant messages
         formatted_messages.extend(_get_assistant_messages(turn_messages, model, use_all_models_in_chat_history))

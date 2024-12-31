@@ -1,6 +1,7 @@
 import logging
 
-from ypl.backend.llm.chat import MessageEntry
+from langchain_core.messages import AIMessage, BaseMessage
+
 from ypl.backend.llm.model_heuristics import ModelHeuristics
 
 DEFAULT_MAX_TOKENS: int = 32_000
@@ -9,16 +10,16 @@ model_heuristics = ModelHeuristics(tokenizer_type="tiktoken")
 
 
 def sanitize_messages(
-    messages: list[MessageEntry], system_prompt: str, max_tokens: int = DEFAULT_MAX_TOKENS
-) -> list[MessageEntry]:
+    messages: list[BaseMessage], system_prompt: str, max_tokens: int = DEFAULT_MAX_TOKENS
+) -> list[BaseMessage]:
     """Sanitizes the list of messages to send to a model, drop any entries that can potentially cause an error."""
     return truncate_message(replace_empty_messages(messages), system_prompt, max_tokens)
 
 
 # TODO(bhanu, gilad) to revisit truncation with alternates mentioned here - https://github.com/yupp-ai/yupp-mind/pull/633#discussion_r1896057154
 def truncate_message(
-    messages: list[MessageEntry], system_prompt: str, max_tokens: int = DEFAULT_MAX_TOKENS
-) -> list[MessageEntry]:
+    messages: list[BaseMessage], system_prompt: str, max_tokens: int = DEFAULT_MAX_TOKENS
+) -> list[BaseMessage]:
     """
     Truncates messages to a maximum number of tokens.
 
@@ -36,11 +37,14 @@ def truncate_message(
 
     # leave a 5% buffer for additional markup
     available_tokens = max_tokens * 0.95 - len(model_heuristics.encode_tokens(system_prompt))
-    truncated_messages: list[MessageEntry] = []
+    truncated_messages: list[BaseMessage] = []
 
     # Iterate through messages in reverse order
     for message in reversed(messages):
-        message_tokens = model_heuristics.encode_tokens(message["content"])
+        if not isinstance(message.content, str):
+            truncated_messages.insert(0, message)
+            continue
+        message_tokens = model_heuristics.encode_tokens(message.content)
         message_token_length = len(message_tokens)
 
         if available_tokens - message_token_length >= 0:
@@ -51,7 +55,7 @@ def truncate_message(
             truncated_content = model_heuristics.decode_tokens(message_tokens[-int(available_tokens) :])
 
             # Modify the message directly instead of creating a copy
-            message["content"] = "[some of the message was too long, so it was truncated...] " + truncated_content
+            message.content = "[some of the message was too long, so it was truncated...] " + truncated_content
 
             truncated_messages.insert(0, message)
             break
@@ -59,7 +63,7 @@ def truncate_message(
     return truncated_messages
 
 
-def replace_empty_messages(messages: list[MessageEntry]) -> list[MessageEntry]:
+def replace_empty_messages(messages: list[BaseMessage]) -> list[BaseMessage]:
     """
     Remove any empty messages.
 
@@ -77,8 +81,8 @@ def replace_empty_messages(messages: list[MessageEntry]) -> list[MessageEntry]:
             )
             continue
 
-        if message["role"] == "assistant" and message["content"] == "":
-            message["content"] = "<no response>"
+        if isinstance(message, AIMessage) and message.content == "":
+            message.content = "<no response>"
 
         filtered_messages.append(message)
 

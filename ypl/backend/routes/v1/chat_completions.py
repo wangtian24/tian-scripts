@@ -9,6 +9,7 @@ from typing import Any
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlmodel import select
@@ -16,7 +17,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine
-from ypl.backend.llm.chat import MessageEntry, get_curated_chat_context, persist_chat_message
+from ypl.backend.llm.chat import get_curated_chat_context, persist_chat_message
 from ypl.backend.llm.model.model import ModelResponseTelemetry
 from ypl.backend.llm.provider.provider_clients import get_language_model, get_provider_client
 from ypl.backend.llm.sanitize_messages import DEFAULT_MAX_TOKENS, sanitize_messages
@@ -132,10 +133,10 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
             chat_request.model, chat_request.prompt_modifier_ids, chat_request.use_all_models_in_chat_history
         )
 
-        messages: list[MessageEntry] = []
+        messages: list[BaseMessage] = []
         if system_prompt and not chat_request.model.startswith("o1"):
             # use system prompt for non o1 models. o1 doesn't support system prompt
-            messages.append({"role": "system", "content": system_prompt})
+            messages.append(SystemMessage(content=system_prompt))
         if not chat_request.is_new_chat:
             chat_history = await get_curated_chat_context(
                 chat_request.chat_id, chat_request.use_all_models_in_chat_history, chat_request.model
@@ -150,17 +151,13 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
             # This will be removed in V2
             # Check if chat_context is not empty and the last message matches the current prompt
             should_append_message = True
-            if (
-                chat_context
-                and chat_context[-1]["role"] == "user"
-                and chat_context[-1]["content"] == chat_request.prompt
-            ):
+            last_message = chat_context[-1]
+            if last_message and isinstance(last_message, HumanMessage) and last_message.content == chat_request.prompt:
                 should_append_message = False
-
             if should_append_message:
-                messages.append({"role": "user", "content": chat_request.prompt})
+                messages.append(HumanMessage(content=chat_request.prompt))
         else:
-            messages.append({"role": "user", "content": chat_request.prompt})
+            messages.append(HumanMessage(content=chat_request.prompt))
 
         first_token_timestamp: float = 0
         response_tokens_num = 0
@@ -168,7 +165,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
         message_metadata: dict[str, Any] = {}
         chunk = None  # Define chunk outside the try block
         try:
-            async for chunk in client.astream(messages):  # type: ignore
+            async for chunk in client.astream(messages):
                 # TODO(bhanu) - assess if we should customize chunking for optimal network performance
                 if hasattr(chunk, "content") and chunk.content:
                     if first_token_timestamp == 0:
