@@ -183,6 +183,8 @@ jobs:
           echo "YUPP_HEAD_APP_BASE_URL=${{ secrets.YUPP_HEAD_APP_BASE_URL_PRODUCTION }}" >> .env
           echo "CRYPTO_WALLET_PATH=${{ secrets.CRYPTO_WALLET_PATH_PRODUCTION }}" >> .env
           echo "REWARDS_SLACK_WEBHOOK_URL=${{ secrets.REWARDS_SLACK_WEBHOOK_URL }}" >> .env
+          echo "ATTACHMENT_BUCKET=${{ env.ATTACHMENT_BUCKET_PROD }}" >> .env
+          echo "THUMBNAIL_BUCKET=${{ env.THUMBNAIL_BUCKET_PROD }}" >> .env
         elif [[ "${{ env.ENVIRONMENT }}" == "staging" ]]; then
           echo "OPENAI_API_KEY_ROUTING=${{ secrets.OPENAI_API_KEY_ROUTING }}" >> .env
           echo "POSTGRES_USER=${{ secrets.POSTGRES_USER_STAGING }}" >> .env
@@ -220,6 +222,8 @@ jobs:
           echo "CRYPTO_WALLET_PATH=${{ secrets.CRYPTO_WALLET_PATH_STAGING }}" >> .env
           echo "CDP_API_KEY_NAME=${{ secrets.CDP_API_KEY_NAME_STAGING }}" >> .env
           echo "CDP_API_KEY_PRIVATE_KEY=${{ secrets.CDP_API_KEY_PRIVATE_KEY_STAGING }}" >> .env
+          echo "ATTACHMENT_BUCKET=${{ env.ATTACHMENT_BUCKET_STAGING }}" >> .env
+          echo "THUMBNAIL_BUCKET=${{ env.THUMBNAIL_BUCKET_STAGING }}" >> .env
         fi
 
     - name: Authenticate to Google Cloud
