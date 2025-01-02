@@ -108,6 +108,9 @@ class Settings(BaseSettings):
     CDP_API_KEY_NAME: str = os.getenv("CDP_API_KEY_NAME", "")
     CDP_API_KEY_PRIVATE_KEY: str = os.getenv("CDP_API_KEY_PRIVATE_KEY", "")
 
+    BASESCAN_API_KEY: str = os.getenv("BASESCAN_API_KEY", "")
+    BASESCAN_API_URL: str = os.getenv("BASESCAN_API_URL", "")
+
     CRYPTO_WALLET_PATH: str = os.getenv("CRYPTO_WALLET_PATH", ".")
     CRYPTO_EXCHANGE_PRICE_API_URL_COINBASE: str = os.getenv("CRYPTO_EXCHANGE_PRICE_API_URL_COINBASE", "")
     CRYPTO_EXCHANGE_PRICE_API_URL_COINGECKO: str = os.getenv("CRYPTO_EXCHANGE_PRICE_API_URL_COINGECKO", "")

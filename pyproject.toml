@@ -176,7 +176,6 @@ warn_return_any = true  # Warn about returning values of type 'Any' from functio
 ignore_missing_imports = true  # Ignore errors for missing imports
 exclude = ["ypl/db/alembic/", "tmp/", "notebooks/", "ypl/db/oneoffs/"]
 cache_dir = ".mypy_cache"
-follow_imports = "silent"
 
 [tool.pytest.ini_options]
 addopts = "--ignore ypl/pytorch/tests"  # Skip torch tests on CI box until we have a GPU

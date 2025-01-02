@@ -63,6 +63,7 @@ from ypl.backend.llm.synthesize import SQLChatIO, SynthesizerConfig, SyntheticUs
 from ypl.backend.llm.utils import fetch_categories_with_descriptions_from_db
 from ypl.backend.payment.crypto.crypto_payout import process_pending_crypto_rewards
 from ypl.backend.payment.crypto.crypto_wallet import create_wallet, get_wallet_balance
+from ypl.backend.payment.payout_utils import validate_pending_cashouts_async
 from ypl.backend.payment.plaid.plaid_payout import PlaidPayout, process_plaid_payout
 from ypl.backend.utils.amplitude_analytics import post_amplitude_metrics_to_slack
 from ypl.db.chats import (
@@ -1337,6 +1338,13 @@ def process_a_coinbase_retail_payout(to_address: str) -> None:
         payment_transaction_id=uuid4(),
     )
     asyncio.run(process_coinbase_retail_payout(payout))
+
+
+@cli.command()
+@db_cmd
+def validate_pending_cashouts() -> None:
+    """Validate pending cashouts."""
+    asyncio.run(validate_pending_cashouts_async())
 
 
 if __name__ == "__main__":

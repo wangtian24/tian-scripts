@@ -10,10 +10,10 @@ from sqlmodel import select
 from tenacity import retry, stop_after_attempt, wait_exponential
 from ypl.backend.db import get_async_session
 from ypl.backend.llm.utils import post_to_slack
+from ypl.backend.payment.base_types import PaymentInstrumentNotFoundError
 from ypl.backend.payment.facilitator import (
     BaseFacilitator,
     PaymentInstrumentError,
-    PaymentInstrumentNotFoundError,
     PaymentProcessingError,
     PaymentResponse,
     PointTransactionCreationError,

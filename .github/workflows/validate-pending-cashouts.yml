@@ -1,0 +1,14 @@
+name: Validate Pending Cashouts
+
+on:
+  schedule:
+    - cron: '0 * * * *'  # Runs every hour
+  workflow_dispatch:
+
+jobs:
+  validate_pending_cashouts_production:
+    uses: ./.github/workflows/cronjob.yml
+    with:
+      command: validate-pending-cashouts
+      environment: production
+    secrets: inherit 

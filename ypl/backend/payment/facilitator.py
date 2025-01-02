@@ -7,15 +7,11 @@ from decimal import Decimal
 
 from cdp.transaction import Transaction
 from cdp.transfer import Transfer
-from sqlalchemy import func
-from sqlmodel import select
 from tenacity import retry, stop_after_attempt, wait_exponential
-from ypl.backend.db import get_async_session
 from ypl.backend.llm.utils import post_to_slack
 from ypl.backend.payment.base_types import (
     BaseFacilitator,
     PaymentInstrumentError,
-    PaymentInstrumentNotFoundError,
     PaymentProcessingError,
     PaymentResponse,
     PointTransactionCreationError,
@@ -30,10 +26,18 @@ from ypl.backend.payment.payment import (
     update_payment_transaction,
     update_user_points,
 )
+from ypl.backend.payment.payout_utils import (
+    get_destination_instrument_id as get_generic_destination_instrument_id,
+)
+from ypl.backend.payment.payout_utils import (
+    get_source_instrument_id as get_generic_source_instrument_id,
+)
+from ypl.backend.payment.payout_utils import (
+    handle_failed_transaction,
+)
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import (
     CurrencyEnum,
-    PaymentInstrument,
     PaymentInstrumentFacilitatorEnum,
     PaymentInstrumentIdentifierTypeEnum,
     PaymentTransactionStatusEnum,
@@ -93,29 +97,10 @@ class OnChainFacilitator(BaseFacilitator):
         wait=wait_exponential(multiplier=RETRY_WAIT_MULTIPLIER, min=RETRY_WAIT_MIN, max=RETRY_WAIT_MAX),
     )
     async def get_source_instrument_id(self) -> uuid.UUID:
-        # TODO Check if some of this can be moved to payment module as similar logic is repeated for all facilitators
-        async with get_async_session() as session:
-            query = select(PaymentInstrument).where(
-                PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.ON_CHAIN,
-                PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS,
-                PaymentInstrument.user_id == SYSTEM_USER_ID,
-                PaymentInstrument.deleted_at.is_(None),  # type: ignore
-            )
-
-            result = await session.exec(query)
-            instrument = result.first()
-            if not instrument:
-                log_dict = {
-                    "message": "Source payment instrument not found",
-                    "identifier_type": PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS,
-                    "facilitator": PaymentInstrumentFacilitatorEnum.ON_CHAIN,
-                    "user_id": SYSTEM_USER_ID,
-                }
-                logging.exception(json_dumps(log_dict))
-                raise PaymentInstrumentNotFoundError(
-                    f"Payment instrument not found for {PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS}"
-                )
-            return instrument.payment_instrument_id
+        return await get_generic_source_instrument_id(
+            PaymentInstrumentFacilitatorEnum.ON_CHAIN,
+            PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS,
+        )
 
     async def get_destination_instrument_id(
         self,
@@ -123,35 +108,12 @@ class OnChainFacilitator(BaseFacilitator):
         destination_identifier: str,
         destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
     ) -> uuid.UUID:
-        async with get_async_session() as session:
-            query = select(PaymentInstrument).where(
-                PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.ON_CHAIN,
-                PaymentInstrument.identifier_type == destination_identifier_type,
-                func.lower(PaymentInstrument.identifier) == destination_identifier.lower(),
-                PaymentInstrument.user_id == user_id,
-                PaymentInstrument.deleted_at.is_(None),  # type: ignore
-            )
-            result = await session.exec(query)
-            instrument = result.first()
-            if not instrument:
-                log_dict = {
-                    "message": "Destination payment instrument not found. Creating a new one.",
-                    "identifier_type": destination_identifier_type,
-                    "facilitator": PaymentInstrumentFacilitatorEnum.ON_CHAIN,
-                    "user_id": user_id,
-                    "identifier": destination_identifier,
-                }
-                logging.info(json_dumps(log_dict))
-                instrument = PaymentInstrument(
-                    facilitator=PaymentInstrumentFacilitatorEnum.ON_CHAIN,
-                    identifier_type=destination_identifier_type,
-                    identifier=destination_identifier,
-                    user_id=user_id,
-                )
-                session.add(instrument)
-                await session.commit()
-                return instrument.payment_instrument_id
-            return instrument.payment_instrument_id
+        return await get_generic_destination_instrument_id(
+            PaymentInstrumentFacilitatorEnum.ON_CHAIN,
+            user_id,
+            destination_identifier,
+            destination_identifier_type,
+        )
 
     async def get_balance(self, currency: CurrencyEnum) -> Decimal:
         crypto_balance = await get_crypto_balance(currency)
@@ -245,7 +207,7 @@ class OnChainFacilitator(BaseFacilitator):
                     "error": str(e),
                 }
                 logging.exception(json_dumps(log_dict))
-                await self._handle_failed_transaction(
+                await handle_failed_transaction(
                     payment_transaction_id,
                     None,
                     user_id,
@@ -256,6 +218,7 @@ class OnChainFacilitator(BaseFacilitator):
                     destination_identifier,
                     destination_identifier_type,
                     update_points=False,
+                    currency=self.currency,
                 )
                 raise PointTransactionCreationError("Failed to create point transaction") from e
 
@@ -269,7 +232,7 @@ class OnChainFacilitator(BaseFacilitator):
                     "error": str(e),
                 }
                 logging.exception(json_dumps(log_dict))
-                await self._handle_failed_transaction(
+                await handle_failed_transaction(
                     payment_transaction_id,
                     point_transaction_id,
                     user_id,
@@ -280,6 +243,7 @@ class OnChainFacilitator(BaseFacilitator):
                     destination_identifier,
                     destination_identifier_type,
                     update_points=False,
+                    currency=self.currency,
                 )
                 raise PaymentProcessingError("Failed to update user points or transaction status") from e
 
@@ -295,7 +259,7 @@ class OnChainFacilitator(BaseFacilitator):
                 await update_payment_transaction(
                     payment_transaction_id,
                     partner_reference_id=tx_hash,
-                    status=self._map_transaction_status_to_internal(transfer.status),
+                    status=self._map_transaction_status_to_internal(str(transfer.status).lower()),
                 )
 
                 if str(transfer.status).lower() != Transaction.Status.COMPLETE.value.lower():
@@ -346,7 +310,7 @@ class OnChainFacilitator(BaseFacilitator):
                     "error": str(e),
                 }
                 logging.exception(json_dumps(log_dict))
-                await self._handle_failed_transaction(
+                await handle_failed_transaction(
                     payment_transaction_id,
                     point_transaction_id,
                     user_id,
@@ -357,6 +321,7 @@ class OnChainFacilitator(BaseFacilitator):
                     destination_identifier,
                     destination_identifier_type,
                     update_points=True,
+                    currency=self.currency,
                 )
                 raise PaymentProcessingError("Failed to process crypto reward") from e
 
@@ -370,93 +335,6 @@ class OnChainFacilitator(BaseFacilitator):
             }
             logging.exception(json_dumps(log_dict))
             raise PaymentProcessingError("Payment processing failed") from e
-
-    async def _handle_failed_transaction(
-        self,
-        payment_transaction_id: uuid.UUID,
-        points_transaction_id: uuid.UUID | None,
-        user_id: str,
-        credits_to_cashout: int,
-        amount: Decimal,
-        source_instrument_id: uuid.UUID,
-        destination_instrument_id: uuid.UUID,
-        destination_identifier: str,
-        destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
-        update_points: bool,
-    ) -> None:
-        """Handle cleanup for failed transactions"""
-        try:
-            log_dict = {
-                "message": "Failed to process crypto reward. Reversing transaction.",
-                "user_id": user_id,
-                "payment_transaction_id": str(payment_transaction_id),
-                "points_transaction_id": str(points_transaction_id),
-                "credits_to_cashout": str(credits_to_cashout),
-                "amount": str(amount),
-                "source_instrument_id": str(source_instrument_id),
-                "destination_instrument_id": str(destination_instrument_id),
-                "destination_identifier": destination_identifier,
-                "destination_identifier_type": destination_identifier_type,
-            }
-            logging.info(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
-
-            await update_payment_transaction(payment_transaction_id, status=PaymentTransactionStatusEnum.FAILED)
-            if update_points:
-                await update_user_points(user_id, credits_to_cashout)
-
-            reversal_request = PaymentTransactionRequest(
-                currency=self.currency,
-                amount=amount,
-                source_instrument_id=source_instrument_id,
-                destination_instrument_id=destination_instrument_id,
-                status=PaymentTransactionStatusEnum.REVERSED,
-                additional_info={
-                    "user_id": user_id,
-                    "destination_identifier": destination_identifier,
-                    "destination_identifier_type": destination_identifier_type,
-                    "reversal_transaction_id": payment_transaction_id,
-                },
-            )
-            payment_transaction_id = await create_payment_transaction(reversal_request)
-            if points_transaction_id:
-                points_transaction_id = await create_cashout_point_transaction(
-                    CashoutPointTransactionRequest(
-                        user_id=user_id,
-                        point_delta=credits_to_cashout,
-                        action_type=PointsActionEnum.CASHOUT_REVERSED,
-                        cashout_payment_transaction_id=payment_transaction_id,
-                    )
-                )
-            log_dict = {
-                "message": "Successfully reversed transaction",
-                "payment_transaction_id": str(payment_transaction_id),
-                "points_transaction_id": str(points_transaction_id),
-                "user_id": user_id,
-                "amount": str(amount),
-                "source_instrument_id": str(source_instrument_id),
-                "destination_instrument_id": str(destination_instrument_id),
-                "destination_identifier": destination_identifier,
-                "destination_identifier_type": destination_identifier_type,
-            }
-            logging.info(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
-        except Exception as e:
-            error_message = str(e)
-            log_dict = {
-                "message": "Failed to handle failed transaction cleanup",
-                "payment_transaction_id": str(payment_transaction_id),
-                "points_transaction_id": str(points_transaction_id),
-                "user_id": user_id,
-                "amount": str(amount),
-                "source_instrument_id": str(source_instrument_id),
-                "destination_instrument_id": str(destination_instrument_id),
-                "destination_identifier": destination_identifier,
-                "destination_identifier_type": destination_identifier_type,
-                "error": error_message,
-            }
-            logging.exception(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
 
     async def get_payment_status(self, payment_reference_id: str) -> PaymentTransactionStatusEnum:
         # TODO: Implement this
@@ -539,7 +417,7 @@ class OnChainFacilitator(BaseFacilitator):
                 logging.error(json_dumps(log_dict))
 
                 # Handle the failed transaction
-                await self._handle_failed_transaction(
+                await handle_failed_transaction(
                     payment_transaction_id=payment_transaction_id,
                     points_transaction_id=points_transaction_id,
                     user_id=user_id,
@@ -550,26 +428,28 @@ class OnChainFacilitator(BaseFacilitator):
                     destination_identifier=destination_identifier,
                     destination_identifier_type=destination_identifier_type,
                     update_points=True,
+                    currency=self.currency,
                 )
+            else:
+                # TODO: Send alert to Slack
+                # do not reverse the transaction here as the txn might still complete
+                log_dict = {
+                    "message": "🔴 *Crypto transfer monitoring timed out*\n"
+                    "transaction_id: {transaction_id}\n"
+                    "payment_transaction_id: {payment_transaction_id}\n"
+                    "points_transaction_id: {points_transaction_id}\n"
+                    "user_id: {user_id}\n"
+                    "credits_to_cashout: {credits_to_cashout}\n"
+                    "amount: {amount}\n"
+                    "source_instrument_id: {source_instrument_id}\n"
+                    "destination_instrument_id: {destination_instrument_id}\n"
+                    "destination_identifier: {destination_identifier}\n"
+                    "destination_identifier_type: {destination_identifier_type}\n"
+                    "status: {status}\n"
+                    "elapsed_time: {elapsed_time}",
+                }
+                asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
 
-            # TODO: Send alert to Slack
-            # do not reverse the transaction here as the txn might still complete
-            log_dict = {
-                "message": "🔴 *Crypto transfer monitoring timed out*\n"
-                "transaction_id: {transaction_id}\n"
-                "payment_transaction_id: {payment_transaction_id}\n"
-                "points_transaction_id: {points_transaction_id}\n"
-                "user_id: {user_id}\n"
-                "credits_to_cashout: {credits_to_cashout}\n"
-                "amount: {amount}\n"
-                "source_instrument_id: {source_instrument_id}\n"
-                "destination_instrument_id: {destination_instrument_id}\n"
-                "destination_identifier: {destination_identifier}\n"
-                "destination_identifier_type: {destination_identifier_type}\n"
-                "status: {status}\n"
-                "elapsed_time: {elapsed_time}",
-            }
-            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
         except Exception as e:
             log_dict = {
                 "message": "Error monitoring transfer completion",
@@ -591,12 +471,11 @@ class OnChainFacilitator(BaseFacilitator):
         Returns:
             PaymentTransactionStatusEnum: The corresponding internal status
         """
-        status = status.lower()
-        if status == Transaction.Status.COMPLETE.value.lower():
+        if status == Transaction.Status.COMPLETE.value:
             return PaymentTransactionStatusEnum.SUCCESS
-        elif status == Transaction.Status.FAILED.value.lower():
+        elif status == Transaction.Status.FAILED.value:
             return PaymentTransactionStatusEnum.FAILED
-        elif status == Transaction.Status.PENDING.value.lower():
+        elif status == Transaction.Status.PENDING.value:
             return PaymentTransactionStatusEnum.PENDING
         else:
             # For unknown status, keep it as PENDING since we don't know if it failed

@@ -5,10 +5,7 @@ import time
 import uuid
 from decimal import Decimal
 
-from sqlalchemy import func
-from sqlmodel import select
 from tenacity import retry, stop_after_attempt, wait_exponential
-from ypl.backend.db import get_async_session
 from ypl.backend.llm.utils import post_to_slack
 from ypl.backend.payment.coinbase.coinbase_payout import (
     CoinbaseRetailPayout,
@@ -20,7 +17,6 @@ from ypl.backend.payment.coinbase.coinbase_payout import (
 from ypl.backend.payment.facilitator import (
     BaseFacilitator,
     PaymentInstrumentError,
-    PaymentInstrumentNotFoundError,
     PaymentProcessingError,
     PaymentResponse,
     PointTransactionCreationError,
@@ -34,10 +30,18 @@ from ypl.backend.payment.payment import (
     update_payment_transaction,
     update_user_points,
 )
+from ypl.backend.payment.payout_utils import (
+    get_destination_instrument_id as get_generic_destination_instrument_id,
+)
+from ypl.backend.payment.payout_utils import (
+    get_source_instrument_id as get_generic_source_instrument_id,
+)
+from ypl.backend.payment.payout_utils import (
+    handle_failed_transaction,
+)
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import (
     CurrencyEnum,
-    PaymentInstrument,
     PaymentInstrumentFacilitatorEnum,
     PaymentInstrumentIdentifierTypeEnum,
     PaymentTransactionStatusEnum,
@@ -66,28 +70,10 @@ class CoinbaseFacilitator(BaseFacilitator):
         wait=wait_exponential(multiplier=RETRY_WAIT_MULTIPLIER, min=RETRY_WAIT_MIN, max=RETRY_WAIT_MAX),
     )
     async def get_source_instrument_id(self) -> uuid.UUID:
-        async with get_async_session() as session:
-            query = select(PaymentInstrument).where(
-                PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.COINBASE,
-                PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS,
-                PaymentInstrument.user_id == SYSTEM_USER_ID,
-                PaymentInstrument.deleted_at.is_(None),  # type: ignore
-            )
-
-            result = await session.exec(query)
-            instrument = result.first()
-            if not instrument:
-                log_dict = {
-                    "message": "Source payment instrument not found",
-                    "identifier_type": PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS,
-                    "facilitator": PaymentInstrumentFacilitatorEnum.COINBASE,
-                    "user_id": SYSTEM_USER_ID,
-                }
-                logging.exception(json_dumps(log_dict))
-                raise PaymentInstrumentNotFoundError(
-                    f"Payment instrument not found for {PaymentInstrumentFacilitatorEnum.COINBASE}"
-                )
-            return instrument.payment_instrument_id
+        return await get_generic_source_instrument_id(
+            PaymentInstrumentFacilitatorEnum.COINBASE,
+            PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS,
+        )
 
     async def get_destination_instrument_id(
         self,
@@ -95,35 +81,12 @@ class CoinbaseFacilitator(BaseFacilitator):
         destination_identifier: str,
         destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
     ) -> uuid.UUID:
-        async with get_async_session() as session:
-            query = select(PaymentInstrument).where(
-                PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.COINBASE,
-                PaymentInstrument.identifier_type == destination_identifier_type,
-                func.lower(PaymentInstrument.identifier) == destination_identifier.lower(),
-                PaymentInstrument.user_id == user_id,
-                PaymentInstrument.deleted_at.is_(None),  # type: ignore
-            )
-            result = await session.exec(query)
-            instrument = result.first()
-            if not instrument:
-                log_dict = {
-                    "message": "Destination payment instrument not found. Creating a new one.",
-                    "identifier_type": destination_identifier_type,
-                    "facilitator": PaymentInstrumentFacilitatorEnum.COINBASE,
-                    "user_id": user_id,
-                    "identifier": destination_identifier,
-                }
-                logging.info(json_dumps(log_dict))
-                instrument = PaymentInstrument(
-                    facilitator=PaymentInstrumentFacilitatorEnum.COINBASE,
-                    identifier_type=destination_identifier_type,
-                    identifier=destination_identifier,
-                    user_id=user_id,
-                )
-                session.add(instrument)
-                await session.commit()
-                return instrument.payment_instrument_id
-            return instrument.payment_instrument_id
+        return await get_generic_destination_instrument_id(
+            PaymentInstrumentFacilitatorEnum.COINBASE,
+            user_id,
+            destination_identifier,
+            destination_identifier_type,
+        )
 
     async def get_balance(self, currency: CurrencyEnum) -> Decimal:
         """Get the balance for a specific currency.
@@ -218,7 +181,7 @@ class CoinbaseFacilitator(BaseFacilitator):
                     "error": str(e),
                 }
                 logging.exception(json_dumps(log_dict))
-                await self._handle_failed_transaction(
+                await handle_failed_transaction(
                     payment_transaction_id,
                     None,
                     user_id,
@@ -229,6 +192,7 @@ class CoinbaseFacilitator(BaseFacilitator):
                     destination_identifier,
                     destination_identifier_type,
                     update_points=False,
+                    currency=self.currency,
                 )
                 raise PointTransactionCreationError("Failed to create point transaction") from e
 
@@ -242,7 +206,7 @@ class CoinbaseFacilitator(BaseFacilitator):
                     "error": str(e),
                 }
                 logging.exception(json_dumps(log_dict))
-                await self._handle_failed_transaction(
+                await handle_failed_transaction(
                     payment_transaction_id,
                     point_transaction_id,
                     user_id,
@@ -253,6 +217,7 @@ class CoinbaseFacilitator(BaseFacilitator):
                     destination_identifier,
                     destination_identifier_type,
                     update_points=False,
+                    currency=self.currency,
                 )
                 raise PaymentProcessingError("Failed to update user points") from e
 
@@ -321,7 +286,7 @@ class CoinbaseFacilitator(BaseFacilitator):
                     "error": str(e),
                 }
                 logging.exception(json_dumps(log_dict))
-                await self._handle_failed_transaction(
+                await handle_failed_transaction(
                     payment_transaction_id,
                     point_transaction_id,
                     user_id,
@@ -332,6 +297,7 @@ class CoinbaseFacilitator(BaseFacilitator):
                     destination_identifier,
                     destination_identifier_type,
                     update_points=True,
+                    currency=self.currency,
                 )
                 raise PaymentProcessingError("Failed to process Coinbase retail payout") from e
 
@@ -345,93 +311,6 @@ class CoinbaseFacilitator(BaseFacilitator):
             }
             logging.exception(json_dumps(log_dict))
             raise PaymentProcessingError("Coinbase retail payout processing failed") from e
-
-    async def _handle_failed_transaction(
-        self,
-        payment_transaction_id: uuid.UUID,
-        points_transaction_id: uuid.UUID | None,
-        user_id: str,
-        credits_to_cashout: int,
-        amount: Decimal,
-        source_instrument_id: uuid.UUID,
-        destination_instrument_id: uuid.UUID,
-        destination_identifier: str,
-        destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
-        update_points: bool,
-    ) -> None:
-        """Handle cleanup for failed transactions"""
-        try:
-            log_dict = {
-                "message": "Failed to process Coinbase retail payout. Reversing transaction.",
-                "user_id": user_id,
-                "payment_transaction_id": str(payment_transaction_id),
-                "points_transaction_id": str(points_transaction_id),
-                "credits_to_cashout": str(credits_to_cashout),
-                "amount": str(amount),
-                "source_instrument_id": str(source_instrument_id),
-                "destination_instrument_id": str(destination_instrument_id),
-                "destination_identifier": destination_identifier,
-                "destination_identifier_type": destination_identifier_type,
-            }
-            logging.info(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
-
-            await update_payment_transaction(payment_transaction_id, status=PaymentTransactionStatusEnum.FAILED)
-            if update_points:
-                await update_user_points(user_id, credits_to_cashout)
-
-            reversal_request = PaymentTransactionRequest(
-                currency=self.currency,
-                amount=amount,
-                source_instrument_id=source_instrument_id,
-                destination_instrument_id=destination_instrument_id,
-                status=PaymentTransactionStatusEnum.REVERSED,
-                additional_info={
-                    "user_id": user_id,
-                    "destination_identifier": destination_identifier,
-                    "destination_identifier_type": destination_identifier_type,
-                    "reversal_transaction_id": payment_transaction_id,
-                },
-            )
-            payment_transaction_id = await create_payment_transaction(reversal_request)
-            if points_transaction_id:
-                points_transaction_id = await create_cashout_point_transaction(
-                    CashoutPointTransactionRequest(
-                        user_id=user_id,
-                        point_delta=credits_to_cashout,
-                        action_type=PointsActionEnum.CASHOUT_REVERSED,
-                        cashout_payment_transaction_id=payment_transaction_id,
-                    )
-                )
-            log_dict = {
-                "message": "Successfully reversed Coinbase retail payout",
-                "payment_transaction_id": str(payment_transaction_id),
-                "points_transaction_id": str(points_transaction_id),
-                "user_id": user_id,
-                "amount": str(amount),
-                "source_instrument_id": str(source_instrument_id),
-                "destination_instrument_id": str(destination_instrument_id),
-                "destination_identifier": destination_identifier,
-                "destination_identifier_type": destination_identifier_type,
-            }
-            logging.info(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
-        except Exception as e:
-            error_message = str(e)
-            log_dict = {
-                "message": "Failed to handle failed Coinbase retail payout cleanup",
-                "payment_transaction_id": str(payment_transaction_id),
-                "points_transaction_id": str(points_transaction_id),
-                "user_id": user_id,
-                "amount": str(amount),
-                "source_instrument_id": str(source_instrument_id),
-                "destination_instrument_id": str(destination_instrument_id),
-                "destination_identifier": destination_identifier,
-                "destination_identifier_type": destination_identifier_type,
-                "error": error_message,
-            }
-            logging.exception(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
 
     @staticmethod
     def _map_coinbase_status_to_internal(status: str) -> PaymentTransactionStatusEnum:
@@ -518,7 +397,7 @@ class CoinbaseFacilitator(BaseFacilitator):
                     logging.error(json_dumps(log_dict))
 
                     # Handle the failed transaction
-                    await self._handle_failed_transaction(
+                    await handle_failed_transaction(
                         payment_transaction_id=payment_transaction_id,
                         points_transaction_id=points_transaction_id,
                         user_id=user_id,
@@ -529,6 +408,7 @@ class CoinbaseFacilitator(BaseFacilitator):
                         destination_identifier=destination_identifier,
                         destination_identifier_type=destination_identifier_type,
                         update_points=True,
+                        currency=self.currency,
                     )
                     return
 

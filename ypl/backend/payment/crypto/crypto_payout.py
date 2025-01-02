@@ -5,7 +5,9 @@ import os
 import time
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import Final
 
+import httpx
 from cdp import Cdp, Transfer, Wallet
 from dotenv import load_dotenv
 from ypl.backend.config import settings
@@ -16,7 +18,7 @@ from ypl.backend.utils.files import (
     read_file,
 )
 from ypl.backend.utils.json import json_dumps
-from ypl.db.payments import CurrencyEnum
+from ypl.db.payments import CurrencyEnum, PaymentTransactionStatusEnum
 
 POLL_INTERVAL_SECONDS = 5
 MAX_WAIT_TIME_SECONDS = 60
@@ -31,6 +33,11 @@ MIN_BALANCES: dict[CurrencyEnum, Decimal] = {
     CurrencyEnum.ETH: Decimal(0.5),
     CurrencyEnum.USDC: Decimal(200),
 }
+
+# Rate limiter for Basescan API - max 4 calls per second
+BASESCAN_RATE_LIMIT: Final[int] = 4
+_basescan_semaphore = asyncio.Semaphore(BASESCAN_RATE_LIMIT)
+_last_call_time = 0.0
 
 
 @dataclass
@@ -321,3 +328,65 @@ async def get_crypto_balance(asset_id: CurrencyEnum) -> Decimal:
     """Get the balance of crypto currency in the system wallet."""
     processor = await get_processor()
     return await processor.get_asset_balance(asset_id.value.lower())
+
+
+async def get_transaction_status(transaction_hash: str) -> PaymentTransactionStatusEnum:
+    """Get the status of a transaction in the blockchain using Basescan API.
+
+    Args:
+        transaction_hash: The transaction hash to check
+
+    Returns:
+        PaymentTransactionStatusEnum: Transaction status ('success', 'fail', or 'pending')
+    """
+    if not settings.BASESCAN_API_KEY or not settings.BASESCAN_API_URL:
+        raise CryptoWalletError("Basescan API key not configured")
+
+    url = settings.BASESCAN_API_URL
+    params = {
+        "module": "transaction",
+        "action": "gettxreceiptstatus",
+        "txhash": transaction_hash,
+        "apikey": settings.BASESCAN_API_KEY,
+    }
+
+    try:
+        # Acquire semaphore to enforce rate limit
+        async with _basescan_semaphore:
+            # Limit max of 4 calls per second
+            global _last_call_time
+            current_time = asyncio.get_event_loop().time()
+            time_since_last_call = current_time - _last_call_time
+            if time_since_last_call < 0.25:
+                await asyncio.sleep(0.25 - time_since_last_call)
+            _last_call_time = asyncio.get_event_loop().time()
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, params=params)
+                if response.status_code != 200:
+                    log_dict = {
+                        "message": "Basescan API request failed",
+                        "status_code": response.status_code,
+                        "transaction_hash": transaction_hash,
+                    }
+                    logging.error(json_dumps(log_dict))
+
+                data = response.json()
+                if data.get("status") == "1":
+                    # status "1" means success, "0" means fail
+                    tx_status = data.get("result", {}).get("status", "")
+                    if tx_status == "1":
+                        return PaymentTransactionStatusEnum.SUCCESS
+                    elif tx_status == "0":
+                        return PaymentTransactionStatusEnum.FAILED
+
+                return PaymentTransactionStatusEnum.PENDING
+
+    except Exception as e:
+        log_dict = {
+            "message": "Failed to get transaction status",
+            "transaction_hash": transaction_hash,
+            "error": str(e),
+        }
+        logging.error(json_dumps(log_dict))
+        raise CryptoWalletError(f"Failed to get transaction status: {str(e)}") from e
