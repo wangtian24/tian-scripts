@@ -25,10 +25,11 @@ from tenacity import after_log, retry, retry_if_exception_type, stop_after_attem
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine, get_engine
 from ypl.backend.jobs.tasks import post_to_slack_task
-from ypl.backend.llm.chat import ModelInfo, get_chat_model
+from ypl.backend.llm.chat import get_chat_model
 from ypl.backend.llm.constants import ChatProvider
 from ypl.backend.llm.judge import FeedbackQualityLabeler
 from ypl.backend.llm.labeler import MultiLLMLabeler
+from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import Chat, Eval, Turn, TurnQuality

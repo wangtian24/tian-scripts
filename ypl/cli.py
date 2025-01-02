@@ -32,7 +32,6 @@ from ypl.backend.llm.chat import (
     ChatProvider,
     HumanMessage,
     JsonChatIO,
-    ModelInfo,
     YuppChatIO,
     YuppChatMessageHistory,
     YuppMessageRow,
@@ -56,6 +55,7 @@ from ypl.backend.llm.judge import (
 from ypl.backend.llm.labeler import SummarizingQuicktakeLabeler, WildChatRealismLabeler
 from ypl.backend.llm.model.model_management import validate_active_onboarded_models
 from ypl.backend.llm.model.model_onboarding import verify_onboard_submitted_models
+from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.moderation import LLAMA_GUARD_3_8B_MODEL_NAME, ModerationReason, moderate
 from ypl.backend.llm.prompt_classifiers import categorize_user_messages
 from ypl.backend.llm.ranking import get_default_ranker

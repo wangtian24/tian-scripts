@@ -1,6 +1,7 @@
 import logging
 import random
 import re
+import time
 import traceback
 from collections.abc import Generator, Sequence
 from enum import Enum
@@ -26,10 +27,17 @@ from sqlalchemy.orm import joinedload
 from sqlmodel import Session, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine, get_engine
 from ypl.backend.llm.constants import ACTIVE_MODELS_BY_PROVIDER, PROVIDER_MODEL_PATTERNS, ChatProvider
+from ypl.backend.llm.labeler import QT_CANT_ANSWER, MultiLLMLabeler, QuickTakeGenerator
+from ypl.backend.llm.model_data_type import ModelInfo
+from ypl.backend.llm.prompt_selector import CategorizedPromptModifierSelector, get_modifiers_by_model, store_modifiers
 from ypl.backend.llm.provider.provider_clients import get_model_provider_tuple
 from ypl.backend.llm.routing.route_data_type import PreferredModel, RoutingPreference
+from ypl.backend.llm.utils import GlobalThreadPoolExecutor
+from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter, OpenAILangChainAdapter
+from ypl.backend.utils.json import json_dumps
 from ypl.db.attachments import Attachment
 from ypl.db.chats import (
     AssistantSelectionSource,
@@ -43,7 +51,7 @@ from ypl.db.chats import (
 )
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
 from ypl.db.redis import get_upstash_redis_client
-from ypl.utils import async_timed_cache
+from ypl.utils import async_timed_cache, tiktoken_trim
 
 DEFAULT_HIGH_SIM_THRESHOLD = 0.825
 DEFAULT_UNIQUENESS_THRESHOLD = 0.75
@@ -51,14 +59,6 @@ OPENAI_FT_ID_PATTERN = re.compile(r"^ft:(?P<model>.+?):(?P<organization>.+?)::(?
 
 YuppMessage = HumanMessage | AIMessage | SystemMessage  # this is needed for proper Pydantic typecasting
 YuppMessageRow = list[YuppMessage]
-
-
-class ModelInfo(BaseModel):
-    provider: ChatProvider | str
-    model: str
-    api_key: str
-    temperature: float | None = None
-    base_url: str | None = None
 
 
 def get_base_model(chat_llm_cls: type[Any] | None, model: str) -> str:
@@ -492,6 +492,125 @@ def get_chat_model(
         chat_kwargs["temperature"] = 1  # temperature must be 1 for o1 models
 
     return chat_llm_cls(api_key=SecretStr(api_key), model=full_model, **chat_kwargs)  # type: ignore
+
+
+class SelectIntent(str, Enum):
+    NEW_CHAT = "new_chat"
+    NEW_TURN = "new_turn"
+    SHOW_ME_MORE = "show_me_more"
+
+
+class SelectModelsV2Request(BaseModel):
+    intent: SelectIntent
+    prompt: str | None = None  # prompt to use for routing
+    num_models: int = 2  # number of models to select
+    required_models: list[str] | None = None  # models selected explicitly by the user
+    chat_id: str | None = None  # chat ID to use for routing
+    turn_id: str | None = None  # turn ID to use for routing
+    provided_categories: list[str] | None = None  # categories provided by the user
+
+
+class SelectModelsV2Response(BaseModel):
+    models: list[tuple[str, list[tuple[str, str]]]]  # list of (model, list[(prompt modifier ID, prompt modifier)])
+    provider_map: dict[str, str]  # map from model to provider
+    fallback_models: list[tuple[str, list[tuple[str, str]]]]  # list of fallback models and modifiers
+
+
+async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Response:
+    from ypl.backend.llm.routing.router import RouterState, get_simple_pro_router
+
+    async def select_models_(
+        required_models: list[str] | None = None,
+        show_me_more_models: list[str] | None = None,
+        provided_categories: list[str] | None = None,
+    ) -> tuple[list[str], list[str]]:
+        num_models = request.num_models
+        router = await get_simple_pro_router(
+            prompt,
+            num_models,
+            preference,
+            user_selected_models=required_models,
+            show_me_more_models=show_me_more_models,
+            provided_categories=provided_categories,
+        )
+        all_models_state = RouterState.new_all_models_state()
+        selected_models = router.select_models(state=all_models_state)
+        return_models = selected_models.get_sorted_selected_models()
+
+        all_fallback_models = RouterState.new_all_models_state()
+        all_fallback_models = all_fallback_models.emplaced(
+            all_models=all_fallback_models.all_models.difference(return_models)
+        )
+        fallback_models = router.select_models(state=all_fallback_models).get_sorted_selected_models()
+
+        return return_models, fallback_models
+
+    match request.intent:
+        case SelectIntent.NEW_CHAT | SelectIntent.NEW_TURN:
+            assert request.prompt is not None, "prompt is required for NEW_CHAT or NEW_TURN intent"
+            prompt = request.prompt
+        case SelectIntent.SHOW_ME_MORE:
+            assert request.turn_id is not None, "turn_id is required for SHOW_ME_MORE intent"
+            prompt = get_user_message(request.turn_id)
+
+    match request.intent:
+        case SelectIntent.NEW_TURN:
+            preference, user_selected_models = get_preferences(request.chat_id)  # type: ignore[arg-type]
+            request.required_models = list(dict.fromkeys((request.required_models or []) + user_selected_models))
+        case SelectIntent.SHOW_ME_MORE:
+            preference, user_selected_models = get_preferences(request.chat_id)  # type: ignore[arg-type]
+            preference.turns = preference.turns or []
+            preference.turns.append(PreferredModel(models=user_selected_models, preferred=None))
+            request.required_models = []
+        case _:
+            preference = RoutingPreference(turns=[])
+
+    show_me_more_models = []
+
+    if request.intent == SelectIntent.SHOW_ME_MORE:
+        shown_models = get_shown_models(request.turn_id)  # type: ignore[arg-type]
+
+        if preference.turns is None:
+            preference.turns = []
+
+        show_me_more_models = shown_models[-request.num_models :]
+        preference.turns.append(PreferredModel(models=list(dict.fromkeys(shown_models)), preferred=None))
+
+    if request.intent == SelectIntent.NEW_TURN and preference.turns and not preference.turns[-1].has_evaluation:
+        models = list(dict.fromkeys(preference.turns[-1].models + (request.required_models or [])))
+    else:
+        models = request.required_models or []
+
+    models, fallback_models = await select_models_(
+        required_models=models,
+        show_me_more_models=show_me_more_models,
+        provided_categories=request.provided_categories,
+    )
+
+    models = models[: request.num_models]
+    fallback_models = fallback_models[: request.num_models]
+
+    try:
+        selector = CategorizedPromptModifierSelector.make_default_from_db()
+
+        if request.chat_id:
+            modifier_history = get_modifiers_by_model(request.chat_id)
+        else:
+            modifier_history = {}
+
+        prompt_modifiers = selector.select_modifiers(models + fallback_models, modifier_history)
+
+        if request.turn_id:
+            GlobalThreadPoolExecutor.get_instance().submit(store_modifiers, request.turn_id, prompt_modifiers)
+    except Exception as e:
+        logging.error(f"Error selecting modifiers: {e}")
+        prompt_modifiers = {}
+
+    return SelectModelsV2Response(
+        models=[(model, prompt_modifiers.get(model, [])) for model in models],
+        fallback_models=[(model, prompt_modifiers.get(model, [])) for model in fallback_models],
+        provider_map=deduce_original_providers(tuple(models)),
+    )
 
 
 def get_chat_history_model(
@@ -938,6 +1057,191 @@ async def get_active_prompt_modifiers() -> list[PromptModifier]:
     async with AsyncSession(get_async_engine()) as session:
         result = await session.execute(select(PromptModifier).where(PromptModifier.deleted_at.is_(None)))  # type: ignore
         return result.scalars().all()  # type: ignore
+
+
+gpt_4o_mini_llm = OpenAILangChainAdapter(
+    model_info=ModelInfo(
+        provider=ChatProvider.OPENAI,
+        model="gpt-4o-mini",
+        api_key=settings.OPENAI_API_KEY,
+    ),
+    model_config_=dict(
+        temperature=0.0,
+        max_tokens=40,
+    ),
+)
+
+openai_llm = OpenAILangChainAdapter(
+    model_info=ModelInfo(
+        provider=ChatProvider.OPENAI,
+        model="gpt-4o",
+        api_key=settings.OPENAI_API_KEY,
+    ),
+    model_config_=dict(
+        temperature=0.0,
+        max_tokens=40,
+    ),
+)
+
+gemini_15_flash_llm = GeminiLangChainAdapter(
+    model_info=ModelInfo(
+        provider=ChatProvider.GOOGLE,
+        model="gemini-1.5-flash-002",
+        api_key=settings.GOOGLE_API_KEY,
+    ),
+    model_config_=dict(
+        project_id=settings.GCP_PROJECT_ID,
+        region=settings.GCP_REGION,
+        temperature=0.0,
+        max_output_tokens=40,
+        top_k=1,
+    ),
+)
+
+
+gemini_2_flash_llm = GeminiLangChainAdapter(
+    model_info=ModelInfo(
+        provider=ChatProvider.GOOGLE,
+        model="gemini-2.0-flash-exp",
+        api_key=settings.GOOGLE_API_KEY,
+    ),
+    model_config_=dict(
+        project_id=settings.GCP_PROJECT_ID,
+        region=settings.GCP_REGION_GEMINI_2,
+        temperature=0.0,
+        max_output_tokens=40,
+        top_k=1,
+    ),
+)
+
+QT_LLMS = {
+    "gpt-4o": openai_llm,
+    "gpt-4o-mini": gpt_4o_mini_llm,
+    "gemini-1.5-flash": gemini_15_flash_llm,
+    "gemini-2.0-flash": gemini_2_flash_llm,
+}
+
+QT_MAX_CONTEXT_LENGTH = {
+    "gpt-4o": 128000,
+    "gpt-4o-mini": 16000,
+    "gemini-2.0-flash": 1000000,
+}
+# Models to use if no specific model was requested.
+MODELS_FOR_DEFAULT_QT = ["gpt-4o", "gpt-4o-mini", "gemini-2.0-flash"]
+# Model to use while supplying only the prompts from the chat history, instead of the full chat history.
+MODEL_FOR_PROMPT_ONLY = "gpt-4o"
+
+
+class QuickTakeResponse(BaseModel):
+    quicktake: str
+    model: str
+
+
+class QuickTakeRequest(BaseModel):
+    prompt: str | None = None
+    model: str | None = None  # one of the entries in QT_LLMS; if none, use MODELS_FOR_DEFAULT_QT
+    timeout_secs: float = settings.DEFAULT_QT_TIMEOUT_SECS
+
+
+class PromptModifierInfo(BaseModel):
+    prompt_modifier_id: str
+    name: str
+    description: str | None = None
+
+
+def get_quicktake_generator(
+    model: str,
+    chat_history: list[dict[str, Any]],
+    prompt_only: bool = False,
+    timeout_secs: float = settings.DEFAULT_QT_TIMEOUT_SECS,
+) -> QuickTakeGenerator:
+    """Get a quicktake generator for a given model, or raise if the model is not supported."""
+    if prompt_only:
+        # Use only the prompts from the chat history.
+        chat_history = [m for m in chat_history if m["role"] == "user"]
+    return QuickTakeGenerator(QT_LLMS[model], chat_history, timeout_secs=timeout_secs)
+
+
+async def generate_quicktake(
+    request: QuickTakeRequest,
+    chat_id: str | None = None,
+    turn_id: str | None = None,
+    chat_history: list[dict[str, Any]] | None = None,
+) -> QuickTakeResponse:
+    """
+    Generates a quicktake for a given chat_id or chat_history. If chat_history is provided, it will be used instead of
+    chat_id and turn_id.
+
+    Args:
+        chat_id: The chat ID to fetch history for.
+        turn_id: The turn ID to fetch history for.
+        chat_history: The chat history to use.
+    """
+    match chat_id, chat_history:
+        case None, None:
+            raise ValueError("Either chat_id or chat_history must be provided")
+        case None, _:
+            pass
+        case _, None:
+            assert chat_id is not None  # because mypy cannot infer this
+            chat_history = get_chat_history(chat_id, turn_id)
+
+    assert chat_history is not None, "chat_history is null"
+
+    response_model = ""
+    timeout_secs = request.timeout_secs
+    timings_a = time.time()
+
+    try:
+        if not request.model:
+            # Default: use multiple models
+            labelers: dict[str, Any] = {
+                model: get_quicktake_generator(model, chat_history, timeout_secs=timeout_secs)
+                for model in MODELS_FOR_DEFAULT_QT
+            }
+            # Add a fast model that uses the prompts only in the chat history.
+            labelers[MODEL_FOR_PROMPT_ONLY + ":prompt-only"] = get_quicktake_generator(
+                MODEL_FOR_PROMPT_ONLY, chat_history, prompt_only=True, timeout_secs=timeout_secs
+            )
+            multi_generator = MultiLLMLabeler(
+                labelers=labelers,
+                timeout_secs=timeout_secs,
+                early_terminate_on=MODELS_FOR_DEFAULT_QT,
+            )
+            max_context_length = min(
+                (QT_MAX_CONTEXT_LENGTH.get(model, 16000) for model in MODELS_FOR_DEFAULT_QT), default=16000
+            )
+            quicktakes = await multi_generator.alabel(
+                tiktoken_trim(request.prompt or "", int(max_context_length * 0.75), direction="right")
+            )
+            quicktake = QT_CANT_ANSWER
+            for model in labelers:
+                response = quicktakes.get(model)
+                if response and not isinstance(response, Exception):
+                    response_model = model
+                    quicktake = response
+                    logging.info(f"Quicktake timings: generated in {time.time() - timings_a:.3f} seconds")
+                    break
+        elif request.model in QT_LLMS:
+            # Specific model requested.
+            generator = get_quicktake_generator(request.model, chat_history)
+            max_context_length = QT_MAX_CONTEXT_LENGTH.get(request.model, min(QT_MAX_CONTEXT_LENGTH.values()))
+            quicktake = await generator.alabel(
+                tiktoken_trim(request.prompt or "", int(max_context_length * 0.75), direction="right")
+            )
+            response_model = request.model
+        else:
+            raise ValueError(f"Unsupported model: {request.model}; supported: {','.join(QT_LLMS.keys())}")
+    except Exception as e:
+        log_dict = {
+            "message": "Error generating quicktake",
+            "model": request.model,
+            "error": str(e),
+        }
+        logging.exception(json_dumps(log_dict))
+        raise e
+
+    return QuickTakeResponse(quicktake=quicktake, model=response_model)
 
 
 async def check_for_stop_request(chat_uuid: UUID, turn_uuid: UUID, model_name: str) -> bool:

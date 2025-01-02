@@ -179,7 +179,7 @@ exclude = ["ypl/db/alembic/", "tmp/", "notebooks/", "ypl/db/oneoffs/"]
 cache_dir = ".mypy_cache"
 
 [tool.pytest.ini_options]
-addopts = "--ignore ypl/pytorch/tests"  # Skip torch tests on CI box until we have a GPU
+addopts = "--ignore ypl/pytorch/tests --ignore ypl/backend/tests/periodic_tests"  # Skip torch tests on CI box until we have a GPU
 filterwarnings = [
     "ignore::DeprecationWarning:httpx.*:",
     "ignore::DeprecationWarning:tweepy.*:",

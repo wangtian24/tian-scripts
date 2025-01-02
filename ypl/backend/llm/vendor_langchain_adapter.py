@@ -11,7 +11,7 @@ from langchain_core.outputs.chat_generation import ChatGeneration
 from openai import AsyncOpenAI, OpenAI
 from vertexai.preview.generative_models import Content, GenerativeModel, Part
 
-from ypl.backend.llm.chat import ModelInfo
+from ypl.backend.llm.model_data_type import ModelInfo
 
 GOOGLE_ROLE_MAP = dict(human="user", assistant="model", ai="model")
 OPENAI_ROLE_MAP = dict(human="user", ai="assistant")

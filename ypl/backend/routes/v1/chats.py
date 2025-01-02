@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-import time
 from datetime import datetime
 from typing import Annotated, Any
 from uuid import UUID
@@ -18,16 +17,24 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine
 from ypl.backend.jobs.tasks import store_language_code
-from ypl.backend.llm.chat import ModelInfo, get_active_prompt_modifiers, get_chat_history, get_chat_model
+from ypl.backend.llm.chat import (
+    PromptModifierInfo,
+    QuickTakeRequest,
+    QuickTakeResponse,
+    generate_quicktake,
+    get_active_prompt_modifiers,
+    get_chat_model,
+)
 from ypl.backend.llm.constants import ChatProvider
 from ypl.backend.llm.judge import DEFAULT_PROMPT_DIFFICULTY, YuppPromptDifficultyWithCommentLabeler
-from ypl.backend.llm.labeler import QT_CANT_ANSWER, MultiLLMLabeler, QuickTakeGenerator
+from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.moderation import DEFAULT_MODERATION_RESULT, amoderate
-from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter, OpenAILangChainAdapter
 from ypl.backend.rw_cache import TurnQualityCache
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import Chat, ChatMessage, MessageType, TurnQuality
-from ypl.utils import tiktoken_trim
+
+# Maximum number of pinned chats for a user.
+MAX_PINNED_CHATS = 10
 
 router = APIRouter()
 llm = get_chat_model(
@@ -39,177 +46,16 @@ llm = get_chat_model(
     temperature=0.0,
 )
 
-gpt_4o_mini_llm = OpenAILangChainAdapter(
-    model_info=ModelInfo(
-        provider=ChatProvider.OPENAI,
-        model="gpt-4o-mini",
-        api_key=settings.OPENAI_API_KEY,
-    ),
-    model_config_=dict(
-        temperature=0.0,
-        max_tokens=40,
-    ),
-)
-
-openai_llm = OpenAILangChainAdapter(
-    model_info=ModelInfo(
-        provider=ChatProvider.OPENAI,
-        model="gpt-4o",
-        api_key=settings.OPENAI_API_KEY,
-    ),
-    model_config_=dict(
-        temperature=0.0,
-        max_tokens=40,
-    ),
-)
-
-gemini_15_flash_llm = GeminiLangChainAdapter(
-    model_info=ModelInfo(
-        provider=ChatProvider.GOOGLE,
-        model="gemini-1.5-flash-002",
-        api_key=settings.GOOGLE_API_KEY,
-    ),
-    model_config_=dict(
-        project_id=settings.GCP_PROJECT_ID,
-        region=settings.GCP_REGION,
-        temperature=0.0,
-        max_output_tokens=40,
-        top_k=1,
-    ),
-)
-
-
-gemini_2_flash_llm = GeminiLangChainAdapter(
-    model_info=ModelInfo(
-        provider=ChatProvider.GOOGLE,
-        model="gemini-2.0-flash-exp",
-        api_key=settings.GOOGLE_API_KEY,
-    ),
-    model_config_=dict(
-        project_id=settings.GCP_PROJECT_ID,
-        region=settings.GCP_REGION_GEMINI_2,
-        temperature=0.0,
-        max_output_tokens=40,
-        top_k=1,
-    ),
-)
-
-QT_LLMS = {
-    "gpt-4o": openai_llm,
-    "gpt-4o-mini": gpt_4o_mini_llm,
-    "gemini-1.5-flash": gemini_15_flash_llm,
-    "gemini-2.0-flash": gemini_2_flash_llm,
-}
-
-QT_MAX_CONTEXT_LENGTH = {
-    "gpt-4o": 128000,
-    "gpt-4o-mini": 16000,
-    "gemini-2.0-flash": 1000000,
-}
-# Models to use if no specific model was requested.
-MODELS_FOR_DEFAULT_QT = ["gpt-4o", "gpt-4o-mini", "gemini-2.0-flash"]
-# Model to use while supplying only the prompts from the chat history, instead of the full chat history.
-MODEL_FOR_PROMPT_ONLY = "gpt-4o"
-# Maximum number of pinned chats for a user.
-MAX_PINNED_CHATS = 10
-
-
-class QuickTakeResponse(BaseModel):
-    quicktake: str
-    model: str
-
-
-class QuickTakeRequest(BaseModel):
-    prompt: str | None = None
-    model: str | None = None  # one of the entries in QT_LLMS; if none, use MODELS_FOR_DEFAULT_QT
-    timeout_secs: float = settings.DEFAULT_QT_TIMEOUT_SECS
-
-
-class PromptModifierInfo(BaseModel):
-    prompt_modifier_id: str
-    name: str
-    description: str | None = None
-
-
-def get_quicktake_generator(
-    model: str,
-    chat_history: list[dict[str, Any]],
-    prompt_only: bool = False,
-    timeout_secs: float = settings.DEFAULT_QT_TIMEOUT_SECS,
-) -> QuickTakeGenerator:
-    """Get a quicktake generator for a given model, or raise if the model is not supported."""
-    if prompt_only:
-        # Use only the prompts from the chat history.
-        chat_history = [m for m in chat_history if m["role"] == "user"]
-    return QuickTakeGenerator(QT_LLMS[model], chat_history, timeout_secs=timeout_secs)
-
-
-async def generate_quicktake(
-    request: QuickTakeRequest, chat_id: str | None = None, turn_id: str | None = None
-) -> QuickTakeResponse:
-    chat_history = [] if chat_id is None else get_chat_history(chat_id, turn_id)
-    response_model = ""
-    timeout_secs = request.timeout_secs
-    timings_a = time.time()
-
-    try:
-        if not request.model:
-            # Default: use multiple models
-            labelers: dict[str, Any] = {
-                model: get_quicktake_generator(model, chat_history, timeout_secs=timeout_secs)
-                for model in MODELS_FOR_DEFAULT_QT
-            }
-            # Add a fast model that uses the prompts only in the chat history.
-            labelers[MODEL_FOR_PROMPT_ONLY + ":prompt-only"] = get_quicktake_generator(
-                MODEL_FOR_PROMPT_ONLY, chat_history, prompt_only=True, timeout_secs=timeout_secs
-            )
-            multi_generator = MultiLLMLabeler(
-                labelers=labelers,
-                timeout_secs=timeout_secs,
-                early_terminate_on=MODELS_FOR_DEFAULT_QT,
-            )
-            max_context_length = min(
-                (QT_MAX_CONTEXT_LENGTH.get(model, 16000) for model in MODELS_FOR_DEFAULT_QT), default=16000
-            )
-            quicktakes = await multi_generator.alabel(
-                tiktoken_trim(request.prompt or "", int(max_context_length * 0.75), direction="right")
-            )
-            quicktake = QT_CANT_ANSWER
-            for model in labelers:
-                response = quicktakes.get(model)
-                if response and not isinstance(response, Exception):
-                    response_model = model
-                    quicktake = response
-                    logging.info(f"Quicktake timings: generated in {time.time() - timings_a:.3f} seconds")
-                    break
-        elif request.model in QT_LLMS:
-            # Specific model requested.
-            generator = get_quicktake_generator(request.model, chat_history)
-            max_context_length = QT_MAX_CONTEXT_LENGTH.get(request.model, min(QT_MAX_CONTEXT_LENGTH.values()))
-            quicktake = await generator.alabel(
-                tiktoken_trim(request.prompt or "", int(max_context_length * 0.75), direction="right")
-            )
-            response_model = request.model
-        else:
-            raise ValueError(f"Unsupported model: {request.model}; supported: {','.join(QT_LLMS.keys())}")
-    except Exception as e:
-        log_dict = {
-            "message": "Error generating quicktake",
-            "model": request.model,
-            "error": str(e),
-        }
-        logging.exception(json_dumps(log_dict))
-        raise HTTPException(status_code=400, detail="Error generating quicktake") from e
-
-    return QuickTakeResponse(quicktake=quicktake, model=response_model)
-
 
 @router.post("/chats/{chat_id}/generate_quicktake", response_model=QuickTakeResponse)
 async def generate_quicktake_chat_id(
     request: QuickTakeRequest,
     chat_id: str = Path(..., description="The ID of the chat"),
 ) -> QuickTakeResponse:
-    return await generate_quicktake(request, chat_id)
+    try:
+        return await generate_quicktake(request, chat_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/chats/{chat_id}/turns/{turn_id}/generate_quicktake", response_model=QuickTakeResponse)
@@ -218,7 +64,10 @@ async def generate_quicktake_turn_id(
     chat_id: str = Path(..., description="The ID of the chat"),
     turn_id: str = Path(..., description="The ID of the turn"),
 ) -> QuickTakeResponse:
-    return await generate_quicktake(request, chat_id, turn_id)
+    try:
+        return await generate_quicktake(request, chat_id, turn_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/chats/{chat_id}/turns/{turn_id}:label_quality", response_model=TurnQuality)

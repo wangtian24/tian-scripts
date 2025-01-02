@@ -11,9 +11,9 @@ from langchain_core.messages import BaseMessage
 from pydantic import BaseModel as BaseModelV1
 from vertexai.preview.generative_models import GenerativeModel
 
-from ypl.backend.llm.chat import ModelInfo
 from ypl.backend.llm.constants import MODEL_HEURISTICS
 from ypl.backend.llm.labeler import InputType, LLMLabeler, OnErrorBehavior, OutputType
+from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.prompt_classifiers import CategorizerResponse, PromptCategorizer
 from ypl.backend.prompts import (
     FEEDBACK_QUALITY_PROMPT_TEMPLATE,

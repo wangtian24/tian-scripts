@@ -10,8 +10,8 @@ from langchain_openai import OpenAIEmbeddings
 from pydantic import SecretStr
 
 from ypl.backend.config import settings
-from ypl.backend.llm.chat import ModelInfo
 from ypl.backend.llm.constants import ALL_EMBEDDING_MODELS_BY_PROVIDER, ChatProvider
+from ypl.backend.llm.model_data_type import ModelInfo
 
 
 def get_embedding_model(

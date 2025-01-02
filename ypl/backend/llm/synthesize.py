@@ -19,7 +19,6 @@ from tqdm.asyncio import tqdm_asyncio
 from ypl.backend.db import get_engine
 from ypl.backend.llm.chat import (
     LLMChatAssistant,
-    ModelInfo,
     MultiChatUser,
     Persona,
     YuppChatIO,
@@ -32,6 +31,7 @@ from ypl.backend.llm.chat import (
     get_db_message_type,
 )
 from ypl.backend.llm.constants import ALL_MODELS_BY_PROVIDER, FIRST_NAMES, LAST_NAMES
+from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.prompts import SYNTHESIZER_FIRST_ASSISTANT_PROMPT, SYNTHESIZER_GENERATE_PERSONA_PROMPT
 from ypl.db.all_models import users
 from ypl.db.chats import Chat, ChatMessage, Eval, EvalType, MessageType, Turn

@@ -20,7 +20,6 @@ from sqlmodel import Session, select
 from ypl.backend.config import settings
 from ypl.backend.db import get_engine
 from ypl.backend.llm.chat import (
-    ModelInfo,
     adeduce_original_provider,
     deduce_original_providers,
     deduce_semantic_groups,
@@ -29,6 +28,7 @@ from ypl.backend.llm.chat import (
 )
 from ypl.backend.llm.constants import MODEL_HEURISTICS, ChatProvider
 from ypl.backend.llm.judge import YuppMultilabelClassifier, YuppOnlinePromptLabeler
+from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.ranking import ConfidenceIntervalRankerMixin, Ranker, get_ranker
 from ypl.backend.llm.routing.policy import SelectionCriteria, decayed_random_fraction
 from ypl.backend.llm.routing.route_data_type import RoutingPreference
@@ -1549,6 +1549,7 @@ async def get_simple_pro_router(
     reputable_providers: set[str] | None = None,
     user_selected_models: list[str] | None = None,
     show_me_more_models: list[str] | None = None,
+    provided_categories: list[str] | None = None,
 ) -> RouterModule:
     from ypl.backend.llm.routing.rule_router import RoutingRuleFilter, RoutingRuleProposer
 
@@ -1560,7 +1561,8 @@ async def get_simple_pro_router(
     )
 
     online_category = "online" if responses[0] else "offline"
-    categories = [online_category] + responses[1]
+    categories = [online_category] + responses[1] + (provided_categories or [])
+    categories = list(dict.fromkeys(categories))
 
     rule_proposer = RoutingRuleProposer(*categories)
     rule_filter = RoutingRuleFilter(*categories)

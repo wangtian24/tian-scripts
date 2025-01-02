@@ -16,7 +16,6 @@ from pydantic import BaseModel
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 from tqdm.asyncio import tqdm_asyncio
 
-from ypl.backend.llm.embedding import cached_get_database
 from ypl.backend.prompts import (
     QUICKTAKE_SUMMARIZING_PROMPT_TEMPLATE_1,
     QUICKTAKE_SUMMARIZING_PROMPT_TEMPLATE_2,
@@ -400,6 +399,8 @@ class WildChatRealismLabeler(LLMLabeler[str, bool]):
         num_discard_initial_examples: int = 50000,
         country_filter: str | None = "United States",
     ) -> None:
+        from ypl.backend.llm.embedding import cached_get_database
+
         super().__init__(llm)
         self.dataset: Dataset = load_dataset("allenai/WildChat-1M")
         self.wildchat_prompts: list[str] = []
