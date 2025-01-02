@@ -60,7 +60,7 @@ class ChatRequest(BaseModel):
     prompt_modifier_ids: list[uuid.UUID] | None = Field(None, description="List of Prompt Modifier IDs")
     attachment_ids: list[uuid.UUID] | None = Field(None, description="List of Attachment IDs")
     load_existing: bool = Field(
-        default=True,
+        default=False,
         description="If true, return an existing message matching the request if it exists; otherwise create a new one",
     )
     use_all_models_in_chat_history: bool = Field(
