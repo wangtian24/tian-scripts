@@ -7,6 +7,7 @@ from decimal import Decimal
 
 from cdp.transaction import Transaction
 from cdp.transfer import Transfer
+from sqlalchemy import func
 from sqlmodel import select
 from tenacity import retry, stop_after_attempt, wait_exponential
 from ypl.backend.db import get_async_session
@@ -126,7 +127,7 @@ class OnChainFacilitator(BaseFacilitator):
             query = select(PaymentInstrument).where(
                 PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.ON_CHAIN,
                 PaymentInstrument.identifier_type == destination_identifier_type,
-                PaymentInstrument.identifier == destination_identifier,
+                func.lower(PaymentInstrument.identifier) == destination_identifier.lower(),
                 PaymentInstrument.user_id == user_id,
                 PaymentInstrument.deleted_at.is_(None),  # type: ignore
             )

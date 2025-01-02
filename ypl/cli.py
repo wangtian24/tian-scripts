@@ -1331,9 +1331,9 @@ def process_a_coinbase_retail_payout(to_address: str) -> None:
 
     payout = CoinbaseRetailPayout(
         user_id="1",
-        amount=Decimal("1.00"),
+        amount=Decimal("0.001"),
         to_address=to_address,
-        currency=CurrencyEnum.USDC,
+        currency=CurrencyEnum.ETH,
         payment_transaction_id=uuid4(),
     )
     asyncio.run(process_coinbase_retail_payout(payout))

@@ -5,12 +5,14 @@ import time
 import uuid
 from decimal import Decimal
 
+from sqlalchemy import func
 from sqlmodel import select
 from tenacity import retry, stop_after_attempt, wait_exponential
 from ypl.backend.db import get_async_session
 from ypl.backend.llm.utils import post_to_slack
 from ypl.backend.payment.coinbase.coinbase_payout import (
     CoinbaseRetailPayout,
+    TransactionStatus,
     get_coinbase_retail_wallet_balance_for_currency,
     get_transaction_status,
     process_coinbase_retail_payout,
@@ -42,9 +44,8 @@ from ypl.db.payments import (
 )
 from ypl.db.point_transactions import PointsActionEnum
 
-ENVIRONMENT = os.environ.get("ENVIRONMENT")
 SYSTEM_USER_ID = "SYSTEM"
-SLACK_WEBHOOK_COINBASE_CASHOUT = os.getenv("SLACK_WEBHOOK_CASHOUT")
+SLACK_WEBHOOK_CASHOUT = os.getenv("SLACK_WEBHOOK_CASHOUT")
 RETRY_ATTEMPTS = 3
 RETRY_WAIT_MULTIPLIER = 1
 RETRY_WAIT_MIN = 4
@@ -98,7 +99,7 @@ class CoinbaseFacilitator(BaseFacilitator):
             query = select(PaymentInstrument).where(
                 PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.COINBASE,
                 PaymentInstrument.identifier_type == destination_identifier_type,
-                PaymentInstrument.identifier.lower() == destination_identifier.lower(),
+                func.lower(PaymentInstrument.identifier) == destination_identifier.lower(),
                 PaymentInstrument.user_id == user_id,
                 PaymentInstrument.deleted_at.is_(None),  # type: ignore
             )
@@ -116,7 +117,7 @@ class CoinbaseFacilitator(BaseFacilitator):
                 instrument = PaymentInstrument(
                     facilitator=PaymentInstrumentFacilitatorEnum.COINBASE,
                     identifier_type=destination_identifier_type,
-                    identifier=destination_identifier.lower(),
+                    identifier=destination_identifier,
                     user_id=user_id,
                 )
                 session.add(instrument)
@@ -263,17 +264,18 @@ class CoinbaseFacilitator(BaseFacilitator):
                     currency=self.currency,
                     payment_transaction_id=payment_transaction_id,
                 )
-                transaction_id, transaction_status = await process_coinbase_retail_payout(coinbase_payout)
+                account_id, transaction_id, transaction_status = await process_coinbase_retail_payout(coinbase_payout)
 
                 await update_payment_transaction(
                     payment_transaction_id,
                     partner_reference_id=transaction_id,
-                    status=transaction_status,
+                    status=self._map_coinbase_status_to_internal(transaction_status),
                 )
 
                 # Start monitoring in background task
                 asyncio.create_task(
                     self._monitor_transaction_completion(
+                        account_id=account_id,
                         transaction_id=transaction_id,
                         payment_transaction_id=payment_transaction_id,
                         points_transaction_id=point_transaction_id,
@@ -302,7 +304,7 @@ class CoinbaseFacilitator(BaseFacilitator):
                     "transaction_id": transaction_id,
                 }
                 logging.info(json_dumps(log_dict))
-                asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_COINBASE_CASHOUT))
+                asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
                 return PaymentResponse(
                     payment_transaction_id=payment_transaction_id,
                     transaction_status=PaymentTransactionStatusEnum.PENDING,
@@ -311,7 +313,7 @@ class CoinbaseFacilitator(BaseFacilitator):
 
             except Exception as e:
                 log_dict = {
-                    "message": "Failed to process Coinbase transaction. Reversing transaction.",
+                    "message": "Failed to process Coinbase retail payout. Reversing transaction.",
                     "user_id": user_id,
                     "amount": str(amount),
                     "destination_identifier": destination_identifier,
@@ -330,18 +332,18 @@ class CoinbaseFacilitator(BaseFacilitator):
                     destination_identifier_type,
                     update_points=True,
                 )
-                raise PaymentProcessingError("Failed to process Coinbase transaction") from e
+                raise PaymentProcessingError("Failed to process Coinbase retail payout") from e
 
         except Exception as e:
             log_dict = {
-                "message": "Unexpected error in payment processing",
+                "message": "Unexpected error in Coinbase retail payout processing",
                 "user_id": user_id,
                 "amount": str(amount),
                 "destination_identifier": destination_identifier,
                 "error": str(e),
             }
             logging.exception(json_dumps(log_dict))
-            raise PaymentProcessingError("Payment processing failed") from e
+            raise PaymentProcessingError("Coinbase retail payout processing failed") from e
 
     async def _handle_failed_transaction(
         self,
@@ -359,7 +361,7 @@ class CoinbaseFacilitator(BaseFacilitator):
         """Handle cleanup for failed transactions"""
         try:
             log_dict = {
-                "message": "Failed to process Coinbase transaction. Reversing transaction.",
+                "message": "Failed to process Coinbase retail payout. Reversing transaction.",
                 "user_id": user_id,
                 "payment_transaction_id": str(payment_transaction_id),
                 "points_transaction_id": str(points_transaction_id),
@@ -371,7 +373,7 @@ class CoinbaseFacilitator(BaseFacilitator):
                 "destination_identifier_type": destination_identifier_type,
             }
             logging.info(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_COINBASE_CASHOUT))
+            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
 
             await update_payment_transaction(payment_transaction_id, status=PaymentTransactionStatusEnum.FAILED)
             if update_points:
@@ -401,7 +403,7 @@ class CoinbaseFacilitator(BaseFacilitator):
                     )
                 )
             log_dict = {
-                "message": "Successfully reversed transaction",
+                "message": "Successfully reversed Coinbase retail payout",
                 "payment_transaction_id": str(payment_transaction_id),
                 "points_transaction_id": str(points_transaction_id),
                 "user_id": user_id,
@@ -412,11 +414,11 @@ class CoinbaseFacilitator(BaseFacilitator):
                 "destination_identifier_type": destination_identifier_type,
             }
             logging.info(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_COINBASE_CASHOUT))
+            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
         except Exception as e:
             error_message = str(e)
             log_dict = {
-                "message": "Failed to handle failed transaction cleanup",
+                "message": "Failed to handle failed Coinbase retail payout cleanup",
                 "payment_transaction_id": str(payment_transaction_id),
                 "points_transaction_id": str(points_transaction_id),
                 "user_id": user_id,
@@ -428,19 +430,35 @@ class CoinbaseFacilitator(BaseFacilitator):
                 "error": error_message,
             }
             logging.exception(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_COINBASE_CASHOUT))
+            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+
+    @staticmethod
+    def _map_coinbase_status_to_internal(status: str) -> PaymentTransactionStatusEnum:
+        """Map Coinbase's transaction status to our internal PaymentTransactionStatusEnum.
+
+        Args:
+            status: The Coinbase transaction status
+
+        Returns:
+            PaymentTransactionStatusEnum: The corresponding internal status
+        """
+        if status == TransactionStatus.COMPLETED.value:
+            return PaymentTransactionStatusEnum.SUCCESS
+        elif status == TransactionStatus.FAILED.value:
+            return PaymentTransactionStatusEnum.FAILED
+        elif status == TransactionStatus.PENDING.value:
+            return PaymentTransactionStatusEnum.PENDING
+        else:  # TransactionStatus.UNKNOWN.value
+            # For unknown status, keep it as PENDING since we don't know if it failed
+            return PaymentTransactionStatusEnum.PENDING
 
     async def get_payment_status(self, payment_reference_id: str) -> PaymentTransactionStatusEnum:
-        status = await get_transaction_status(payment_reference_id)
-        if status == "completed":
-            return PaymentTransactionStatusEnum.SUCCESS
-        elif status == "failed":
-            return PaymentTransactionStatusEnum.FAILED
-        else:
-            return PaymentTransactionStatusEnum.PENDING
+        # TODO: Implement this as an account_id is required to get the status
+        return PaymentTransactionStatusEnum.PENDING
 
     async def _monitor_transaction_completion(
         self,
+        account_id: str,
         transaction_id: str,
         payment_transaction_id: uuid.UUID,
         points_transaction_id: uuid.UUID,
@@ -452,9 +470,10 @@ class CoinbaseFacilitator(BaseFacilitator):
         destination_identifier: str,
         destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
     ) -> None:
-        """Monitor transaction completion and handle success/failure.
+        """Monitor Coinbase retail payout completion and handle success/failure.
 
         Args:
+            account_id: The Coinbase account ID
             transaction_id: The Coinbase transaction ID to monitor
             payment_transaction_id: The ID of the payment transaction
             points_transaction_id: The ID of the points transaction
@@ -471,16 +490,15 @@ class CoinbaseFacilitator(BaseFacilitator):
             max_wait_time, poll_interval = self.get_polling_config()
 
             while (time.time() - start_time) < max_wait_time:
-                status = await get_transaction_status(transaction_id)
-                # TODO ask for status field values from Coinbase team as it's not listed anywhere
-                if status == "completed":
+                status = await get_transaction_status(account_id, transaction_id)
+                if status == TransactionStatus.COMPLETED.value:
                     await update_payment_transaction(
                         payment_transaction_id,
                         partner_reference_id=transaction_id,
                         status=PaymentTransactionStatusEnum.SUCCESS,
                     )
                     log_dict = {
-                        "message": "Coinbase transaction completed",
+                        "message": "Coinbase retail payout completed",
                         "user_id": user_id,
                         "transaction_id": transaction_id,
                         "status": status,
@@ -488,9 +506,9 @@ class CoinbaseFacilitator(BaseFacilitator):
                     }
                     logging.info(json_dumps(log_dict))
                     return
-                elif status == "failed":
+                elif status == TransactionStatus.FAILED.value:
                     log_dict = {
-                        "message": "Coinbase transaction failed",
+                        "message": "Coinbase retail payout failed",
                         "user_id": user_id,
                         "transaction_id": transaction_id,
                         "status": status,
@@ -517,7 +535,7 @@ class CoinbaseFacilitator(BaseFacilitator):
 
             # If we get here, we've timed out
             log_dict = {
-                "message": "Coinbase transaction monitoring timed out",
+                "message": "Coinbase retail payout monitoring timed out",
                 "user_id": user_id,
                 "transaction_id": transaction_id,
                 "timeout": True,
@@ -541,14 +559,14 @@ class CoinbaseFacilitator(BaseFacilitator):
 
         except Exception as e:
             log_dict = {
-                "message": "Error monitoring transaction completion",
+                "message": "Error monitoring Coinbase retail payout completion",
                 "user_id": user_id,
                 "transaction_id": transaction_id,
                 "error": str(e),
                 "elapsed_time": time.time() - start_time,
             }
             logging.error(json_dumps(log_dict))
-            raise PaymentProcessingError("Failed to monitor transaction completion") from e
+            raise PaymentProcessingError("Failed to monitor Coinbase retail payout completion") from e
 
     @staticmethod
     def get_polling_config() -> tuple[int, int]:
@@ -558,6 +576,6 @@ class CoinbaseFacilitator(BaseFacilitator):
             tuple: (max_wait_time_seconds, poll_interval_seconds)
         """
         return (
-            30 * 60,  # 30 minutes in seconds
-            1 * 60,  # 1 minute in seconds
+            5 * 60,  # 5 minutes in seconds
+            10,  # 10 seconds
         )

@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -12,6 +13,7 @@ from uuid import UUID
 import httpx
 import jwt
 from cryptography.hazmat.primitives import serialization
+from ypl.backend.llm.utils import post_to_slack
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import CurrencyEnum
 
@@ -19,6 +21,11 @@ API_VERSION: Final[str] = "v2"
 BASE_URL: Final[str] = f"https://api.coinbase.com/{API_VERSION}"
 REQUEST_HOST: Final[str] = "api.coinbase.com"
 ENVIRONMENT: Final[str] = os.getenv("ENVIRONMENT", "staging")
+
+MIN_BALANCES: dict[CurrencyEnum, Decimal] = {
+    CurrencyEnum.ETH: Decimal(0.5),
+    CurrencyEnum.USDC: Decimal(200),
+}
 
 
 class TransactionStatus(StrEnum):
@@ -182,7 +189,7 @@ async def get_coinbase_retail_wallet_balance_for_currency(currency: CurrencyEnum
     return {"account_id": account_id, "balance": balance}
 
 
-async def process_coinbase_retail_payout(payout: CoinbaseRetailPayout) -> tuple[str, str]:
+async def process_coinbase_retail_payout(payout: CoinbaseRetailPayout) -> tuple[str, str, str]:
     """Process a Coinbase retail payout.
 
     Returns:
@@ -214,6 +221,18 @@ async def process_coinbase_retail_payout(payout: CoinbaseRetailPayout) -> tuple[
     if isinstance(available_balance, str):
         available_balance = Decimal(available_balance)
 
+    min_balance = MIN_BALANCES.get(payout.currency, Decimal("0"))
+    if available_balance < payout.amount + min_balance:
+        message = (
+            f"🔴 *Low Balance Alert*\n"
+            f"Asset: {payout.currency.value}\n"
+            f"Coinbase RetailAccount ID: {account_id}\n"
+            f"Current Balance: {available_balance}\n"
+            f"Current Transaction Required: {payout.amount}\n"
+            f"Minimum Required: {min_balance}"
+        )
+        asyncio.create_task(post_to_slack(message))
+
     if available_balance < payout.amount:
         log_dict = {
             "message": "Insufficient balance to make payment",
@@ -224,6 +243,7 @@ async def process_coinbase_retail_payout(payout: CoinbaseRetailPayout) -> tuple[
         }
         logging.error(json_dumps(log_dict))
         raise ValueError("Insufficient balance to make payment")
+
     # Round the amount to 8 decimal places for cryptocurrency
     rounded_amount = payout.amount.quantize(Decimal("0.00000001"), rounding=ROUND_HALF_UP)
 
@@ -241,7 +261,7 @@ async def process_coinbase_retail_payout(payout: CoinbaseRetailPayout) -> tuple[
         transaction_status = transaction["status"]
 
         log_dict = {
-            "message": "Coinbase transaction created",
+            "message": "Coinbase retail payout created",
             "user_id": payout.user_id,
             "amount": str(payout.amount),
             "transaction_id": transaction_id,
@@ -249,11 +269,11 @@ async def process_coinbase_retail_payout(payout: CoinbaseRetailPayout) -> tuple[
         }
         logging.info(json_dumps(log_dict))
 
-        return transaction_id, transaction_status
+        return account_id, transaction_id, transaction_status
 
     except Exception as e:
         log_dict = {
-            "message": "Failed to create Coinbase transaction",
+            "message": "Failed to create Coinbase retail payout",
             "user_id": payout.user_id,
             "error": str(e),
         }
@@ -332,7 +352,7 @@ async def create_transaction(
 
     except Exception as e:
         log_dict = {
-            "message": "Error creating transaction",
+            "message": "Error creating Coinbase retail payout",
             "to_address": to_address,
             "amount": amount,
             "currency": currency,
@@ -343,10 +363,11 @@ async def create_transaction(
         raise
 
 
-async def get_transaction_status(transaction_id: str) -> str:
+async def get_transaction_status(account_id: str, transaction_id: str) -> str:
     """Get the status of a specific transaction.
 
     Args:
+        account_id: The ID of the account that made the transaction
         transaction_id: The ID of the transaction to check
 
     Returns:
@@ -358,7 +379,7 @@ async def get_transaction_status(transaction_id: str) -> str:
     if not key_name or not key_secret:
         raise ValueError("Coinbase API credentials not found in environment variables")
 
-    request_path = f"/{API_VERSION}/transactions/{transaction_id}"
+    request_path = f"/{API_VERSION}/accounts/{account_id}/transactions/{transaction_id}"
     jwt_token = build_jwt("GET", request_path, key_name, key_secret)
 
     headers = {
@@ -368,7 +389,9 @@ async def get_transaction_status(transaction_id: str) -> str:
 
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.get(f"{BASE_URL}/transactions/{transaction_id}", headers=headers)
+            response = await client.get(
+                f"{BASE_URL}/accounts/{account_id}/transactions/{transaction_id}", headers=headers
+            )
             if response.status_code != 200:
                 raise ValueError(f"Failed to get transaction status: {response.text}")
 
@@ -387,7 +410,7 @@ async def get_transaction_status(transaction_id: str) -> str:
 
     except Exception as e:
         log_dict = {
-            "message": "Error getting transaction status",
+            "message": "Error getting Coinbase retail payout status",
             "transaction_id": transaction_id,
             "error": str(e),
         }
