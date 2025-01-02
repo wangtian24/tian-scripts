@@ -30,10 +30,10 @@ class TransactionStatus(StrEnum):
     UNKNOWN = "unknown"
 
 
+# only use base network for now
 CRYPTO_NETWORKS: Final[dict[str, str]] = {
-    CurrencyEnum.BTC.value: "bitcoin",
-    CurrencyEnum.ETH.value: "ethereum",
-    CurrencyEnum.USDC.value: "ethereum",  # USDC is an ERC20 token on Ethereum
+    CurrencyEnum.ETH.value: "base",
+    CurrencyEnum.USDC.value: "base",
 }
 
 
@@ -56,6 +56,11 @@ def get_network_for_currency(currency: str) -> str | None:
     try:
         return CRYPTO_NETWORKS[currency]
     except ValueError:
+        log_dict = {
+            "message": "Unsupported currency",
+            "currency": currency,
+        }
+        logging.error(json_dumps(log_dict))
         return None
 
 
@@ -132,7 +137,7 @@ async def get_coinbase_retail_wallet_account_details() -> dict[str, dict[str, st
 
         data = response.json()
 
-        # Process the response to get balances
+        # Process the response to get balances for different accounts
         accounts: dict[str, dict[str, str | Decimal]] = {}
         for account in data.get("data", []):
             id = account.get("id")
