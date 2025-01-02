@@ -330,8 +330,8 @@ class UserTurnReward:
             return 0
 
         # Set min, max values using conditional expressions
-        min_value = rule.high_min_value if high_value else rule.min_value
-        max_value = rule.high_max_value if high_value else rule.max_value
+        min_value = rule.high_min_value if (high_value and rule.high_min_value is not None) else rule.min_value
+        max_value = rule.high_max_value if (high_value and rule.high_max_value is not None) else rule.max_value
 
         # Optionally decay the reward amount, as the daily limit approaches.
         min_value, max_value = self._maybe_decay_amounts(min_value, max_value)
