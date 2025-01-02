@@ -1311,5 +1311,33 @@ def process_a_plaid_payout() -> None:
     asyncio.run(process_plaid_payout(payout))
 
 
+@cli.command()
+def get_the_coinbase_retail_wallet_balance() -> None:
+    """Get the balance of a Coinbase wallet."""
+    from ypl.backend.payment.coinbase.coinbase_payout import get_coinbase_retail_wallet_account_details
+
+    asyncio.run(get_coinbase_retail_wallet_account_details())
+
+
+@cli.command()
+@click.option("--to-address", required=True, help="The recipient address for the payout")
+def process_a_coinbase_retail_payout(to_address: str) -> None:
+    """Make a Coinbase retail payout."""
+
+    from uuid import uuid4
+
+    from ypl.backend.payment.coinbase.coinbase_payout import CoinbaseRetailPayout, process_coinbase_retail_payout
+    from ypl.db.payments import CurrencyEnum
+
+    payout = CoinbaseRetailPayout(
+        user_id="1",
+        amount=Decimal("1.00"),
+        to_address=to_address,
+        currency=CurrencyEnum.USDC,
+        payment_transaction_id=uuid4(),
+    )
+    asyncio.run(process_coinbase_retail_payout(payout))
+
+
 if __name__ == "__main__":
     cli()

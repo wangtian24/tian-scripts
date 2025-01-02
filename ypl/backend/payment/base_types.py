@@ -122,13 +122,17 @@ class BaseFacilitator(ABC):
         facilitator: PaymentInstrumentFacilitatorEnum | None = None,
         destination_additional_details: dict | None = None,
     ) -> "BaseFacilitator":
+        from ypl.backend.payment.coinbase.coinbase_facilitator import CoinbaseFacilitator
         from ypl.backend.payment.facilitator import OnChainFacilitator, UpiFacilitator
         from ypl.backend.payment.plaid.plaid_facilitator import PlaidFacilitator
 
         if currency == CurrencyEnum.INR:
             return UpiFacilitator(currency, destination_identifier_type, facilitator)
-        elif currency.is_crypto() and facilitator == PaymentInstrumentFacilitatorEnum.ON_CHAIN:
-            return OnChainFacilitator(currency, destination_identifier_type, facilitator)
+        elif currency.is_crypto():
+            if facilitator == PaymentInstrumentFacilitatorEnum.COINBASE:
+                return CoinbaseFacilitator(currency, destination_identifier_type, facilitator)
+            else:
+                return OnChainFacilitator(currency, destination_identifier_type, facilitator)
         elif currency == CurrencyEnum.USD and facilitator == PaymentInstrumentFacilitatorEnum.PLAID:
             return PlaidFacilitator(currency, destination_identifier_type, facilitator, destination_additional_details)
 
