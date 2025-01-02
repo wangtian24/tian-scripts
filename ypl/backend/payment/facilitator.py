@@ -292,14 +292,13 @@ class OnChainFacilitator(BaseFacilitator):
                         amount=amount,
                     )
                 )
+                await update_payment_transaction(
+                    payment_transaction_id,
+                    partner_reference_id=tx_hash,
+                    status=self._map_transaction_status_to_internal(transfer.status),
+                )
 
-                if str(transfer.status).lower() == Transaction.Status.COMPLETE.value.lower():
-                    await update_payment_transaction(
-                        payment_transaction_id,
-                        partner_reference_id=tx_hash,
-                        status=PaymentTransactionStatusEnum.SUCCESS,
-                    )
-                else:
+                if str(transfer.status).lower() != Transaction.Status.COMPLETE.value.lower():
                     # Start monitoring in background task only if not complete
                     asyncio.create_task(
                         self._monitor_transfer_completion(
@@ -521,14 +520,21 @@ class OnChainFacilitator(BaseFacilitator):
                     "elapsed_time": time.time() - start_time,
                 }
                 logging.info(json_dumps(log_dict))
-            else:
+            elif str(transfer.status).lower() == Transaction.Status.FAILED.value.lower():
                 log_dict = {
-                    "message": "Crypto transfer failed",
-                    "user_id": user_id,
-                    "transaction_hash": transfer.transaction_hash,
-                    "status": transfer.status,
-                    "timeout": time.time() - start_time >= max_wait_time,
-                    "elapsed_time": time.time() - start_time,
+                    "message": "🔴 *Crypto transfer failed*\n"
+                    "transaction_id: {transaction_id}\n"
+                    "payment_transaction_id: {payment_transaction_id}\n"
+                    "points_transaction_id: {points_transaction_id}\n"
+                    "user_id: {user_id}\n"
+                    "credits_to_cashout: {credits_to_cashout}\n"
+                    "amount: {amount}\n"
+                    "source_instrument_id: {source_instrument_id}\n"
+                    "destination_instrument_id: {destination_instrument_id}\n"
+                    "destination_identifier: {destination_identifier}\n"
+                    "destination_identifier_type: {destination_identifier_type}\n"
+                    "status: {status}\n"
+                    "elapsed_time: {elapsed_time}",
                 }
                 logging.error(json_dumps(log_dict))
 
@@ -545,6 +551,25 @@ class OnChainFacilitator(BaseFacilitator):
                     destination_identifier_type=destination_identifier_type,
                     update_points=True,
                 )
+
+            # TODO: Send alert to Slack
+            # do not reverse the transaction here as the txn might still complete
+            log_dict = {
+                "message": "🔴 *Crypto transfer monitoring timed out*\n"
+                "transaction_id: {transaction_id}\n"
+                "payment_transaction_id: {payment_transaction_id}\n"
+                "points_transaction_id: {points_transaction_id}\n"
+                "user_id: {user_id}\n"
+                "credits_to_cashout: {credits_to_cashout}\n"
+                "amount: {amount}\n"
+                "source_instrument_id: {source_instrument_id}\n"
+                "destination_instrument_id: {destination_instrument_id}\n"
+                "destination_identifier: {destination_identifier}\n"
+                "destination_identifier_type: {destination_identifier_type}\n"
+                "status: {status}\n"
+                "elapsed_time: {elapsed_time}",
+            }
+            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
         except Exception as e:
             log_dict = {
                 "message": "Error monitoring transfer completion",
@@ -555,3 +580,24 @@ class OnChainFacilitator(BaseFacilitator):
             }
             logging.error(json_dumps(log_dict))
             raise PaymentProcessingError("Failed to monitor transfer completion") from e
+
+    @staticmethod
+    def _map_transaction_status_to_internal(status: str) -> PaymentTransactionStatusEnum:
+        """Map Transaction.Status to our internal PaymentTransactionStatusEnum.
+
+        Args:
+            status: The transaction status from Transaction.Status
+
+        Returns:
+            PaymentTransactionStatusEnum: The corresponding internal status
+        """
+        status = status.lower()
+        if status == Transaction.Status.COMPLETE.value.lower():
+            return PaymentTransactionStatusEnum.SUCCESS
+        elif status == Transaction.Status.FAILED.value.lower():
+            return PaymentTransactionStatusEnum.FAILED
+        elif status == Transaction.Status.PENDING.value.lower():
+            return PaymentTransactionStatusEnum.PENDING
+        else:
+            # For unknown status, keep it as PENDING since we don't know if it failed
+            return PaymentTransactionStatusEnum.PENDING

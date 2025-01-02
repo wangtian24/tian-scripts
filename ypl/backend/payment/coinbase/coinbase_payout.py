@@ -31,9 +31,13 @@ MIN_BALANCES: dict[CurrencyEnum, Decimal] = {
 class TransactionStatus(StrEnum):
     """Enum for Coinbase transaction statuses."""
 
-    PENDING = "pending"
+    CANCELED = "canceled"
     COMPLETED = "completed"
+    EXPIRED = "expired"
     FAILED = "failed"
+    PENDING = "pending"
+    WAITING_FOR_CLEARING = "waiting_for_clearing"
+    WAITING_FOR_SIGNATURE = "waiting_for_signature"
     UNKNOWN = "unknown"
 
 

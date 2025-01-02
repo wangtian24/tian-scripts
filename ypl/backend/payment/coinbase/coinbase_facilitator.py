@@ -272,22 +272,23 @@ class CoinbaseFacilitator(BaseFacilitator):
                     status=self._map_coinbase_status_to_internal(transaction_status),
                 )
 
-                # Start monitoring in background task
-                asyncio.create_task(
-                    self._monitor_transaction_completion(
-                        account_id=account_id,
-                        transaction_id=transaction_id,
-                        payment_transaction_id=payment_transaction_id,
-                        points_transaction_id=point_transaction_id,
-                        user_id=user_id,
-                        credits_to_cashout=credits_to_cashout,
-                        amount=amount,
-                        source_instrument_id=source_instrument_id,
-                        destination_instrument_id=destination_instrument_id,
-                        destination_identifier=destination_identifier,
-                        destination_identifier_type=destination_identifier_type,
+                if transaction_status != TransactionStatus.COMPLETED.value:
+                    # Start monitoring in background task
+                    asyncio.create_task(
+                        self._monitor_transaction_completion(
+                            account_id=account_id,
+                            transaction_id=transaction_id,
+                            payment_transaction_id=payment_transaction_id,
+                            points_transaction_id=point_transaction_id,
+                            user_id=user_id,
+                            credits_to_cashout=credits_to_cashout,
+                            amount=amount,
+                            source_instrument_id=source_instrument_id,
+                            destination_instrument_id=destination_instrument_id,
+                            destination_identifier=destination_identifier,
+                            destination_identifier_type=destination_identifier_type,
+                        )
                     )
-                )
 
                 # Log success
                 end_time = time.time()
@@ -534,28 +535,26 @@ class CoinbaseFacilitator(BaseFacilitator):
                 await asyncio.sleep(poll_interval)
 
             # If we get here, we've timed out
+            # Do not reverse the transaction here as the txn might still complete
             log_dict = {
-                "message": "Coinbase retail payout monitoring timed out",
-                "user_id": user_id,
-                "transaction_id": transaction_id,
-                "timeout": True,
-                "elapsed_time": time.time() - start_time,
+                "message": f"🔴 *Coinbase retail payout monitoring timed out*\n"
+                f"account_id: {account_id}\n"
+                f"transaction_id: {transaction_id}\n"
+                f"payment_transaction_id: {payment_transaction_id}\n"
+                f"points_transaction_id: {points_transaction_id}\n"
+                f"user_id: {user_id}\n"
+                f"credits_to_cashout: {credits_to_cashout}\n"
+                f"amount: {amount}\n"
+                f"source_instrument_id: {source_instrument_id}\n"
+                f"destination_instrument_id: {destination_instrument_id}\n"
+                f"destination_identifier: {destination_identifier}\n"
+                f"destination_identifier_type: {destination_identifier_type}\n"
+                f"status: {status}\n",
             }
             logging.error(json_dumps(log_dict))
 
-            # Handle the failed transaction
-            await self._handle_failed_transaction(
-                payment_transaction_id=payment_transaction_id,
-                points_transaction_id=points_transaction_id,
-                user_id=user_id,
-                credits_to_cashout=credits_to_cashout,
-                amount=amount,
-                source_instrument_id=source_instrument_id,
-                destination_instrument_id=destination_instrument_id,
-                destination_identifier=destination_identifier,
-                destination_identifier_type=destination_identifier_type,
-                update_points=True,
-            )
+            # TODO: Send alert to Slack
+            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
 
         except Exception as e:
             log_dict = {
