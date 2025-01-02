@@ -99,13 +99,31 @@ def setup_google_cloud_logging() -> None:
     try:
         client = google_logging.Client()
         name = os.environ.get("GCP_PROJECT_ID") or "default"
-        consolidated_handler = ConsolidatedHandler(client, name=name, transport=BackgroundThreadTransport)
 
+        transport_options = {
+            "grace_period": 5.0,
+            "batch_size": 20,
+            "max_latency": 1.0,
+            "max_retries": 5,
+        }
+
+        consolidated_handler = ConsolidatedHandler(
+            client, name=name, transport=BackgroundThreadTransport, transport_options=transport_options
+        )
+
+        # Set up root logger
         root_logger = logging.getLogger()
         root_logger.handlers.clear()
         root_logger.setLevel(logging.INFO)
         root_logger.addHandler(consolidated_handler)
+
+        # Add a fallback handler for when cloud logging fails
+        fallback_handler = ConsolidatedStreamHandler()
+        fallback_handler.setLevel(logging.WARNING)  # Only log warnings and above to fallback
+        root_logger.addHandler(fallback_handler)
+
         root_logger.propagate = False
+
     except Exception as e:
         logging.basicConfig(level=logging.INFO)
         logging.error(f"Google Cloud Logging setup failed: {e}")
