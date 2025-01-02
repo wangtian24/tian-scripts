@@ -213,11 +213,21 @@ class YuppSingleDifficultyLabeler(LLMLabeler[str, int]):
 class YuppOnlinePromptLabeler(PromptCategorizer, LLMLabeler[str, bool]):
     cached = True
 
+    def __init__(
+        self,
+        llm: BaseChatModel,
+        timeout_secs: float = 5.0,
+        on_error: OnErrorBehavior = "use_error_value",
+        max_prompt_len: int = 300,
+    ) -> None:
+        super().__init__(llm, timeout_secs, on_error)
+        self.max_prompt_len = max_prompt_len
+
     def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
         return JUDGE_YUPP_ONLINE_PROMPT_TEMPLATE | llm  # type: ignore
 
     def _prepare_input(self, input: str) -> dict[str, Any]:
-        return dict(prompt=input)
+        return dict(prompt=input[: self.max_prompt_len] + "..." if len(input) > self.max_prompt_len else input)
 
     def _parse_output(self, output: BaseMessage) -> bool:
         return "true" in str(output.content).lower()

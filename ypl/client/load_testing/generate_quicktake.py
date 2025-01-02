@@ -28,9 +28,9 @@ def _(parser: argparse.ArgumentParser) -> None:
 
 @events.init.add_listener
 def on_locust_init(environment: Environment, **kwargs: Any) -> None:
-    options: Namespace = environment.parsed_options  # type: ignore
+    options: Namespace | None = environment.parsed_options
 
-    if options.prompt_file:
+    if options and options.prompt_file:
         with open(options.prompt_file) as f:
             global LOADED_PROMPTS
             LOADED_PROMPTS = [json.loads(line)["content"] for line in f]
