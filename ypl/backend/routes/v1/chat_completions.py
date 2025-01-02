@@ -1,3 +1,4 @@
+import asyncio  # noqa: I001
 import json
 import logging
 import traceback
@@ -5,7 +6,7 @@ import uuid
 from collections.abc import AsyncIterator
 from datetime import datetime
 from typing import Any
-
+from ypl.backend.config import settings
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -15,14 +16,13 @@ from sqlalchemy import func
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine
-from ypl.backend.llm.chat import get_curated_chat_context, persist_chat_message
+from ypl.backend.llm.chat import Intent, check_for_stop_request, get_curated_chat_context, upsert_chat_message
 from ypl.backend.llm.model.model import ModelResponseTelemetry
 from ypl.backend.llm.provider.provider_clients import get_language_model, get_provider_client
 from ypl.backend.llm.sanitize_messages import DEFAULT_MAX_TOKENS, sanitize_messages
 from ypl.backend.prompts import get_system_prompt_with_modifiers
-from ypl.db.chats import AssistantSelectionSource, ChatMessage, PromptModifierAssoc
+from ypl.db.chats import AssistantSelectionSource, ChatMessage, PromptModifierAssoc, MessageType
 from ypl.db.language_models import LanguageModel
 
 
@@ -70,6 +70,7 @@ class ChatRequest(BaseModel):
 
 
 STREAMING_ERROR_TEXT: str = "\n\\<streaming stopped unexpectedly\\>"
+STOPPED_STREAMING: str = "\n\n*You stopped this response*"
 
 router = APIRouter()
 
@@ -96,8 +97,31 @@ async def chat_completions(
 
 
 async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequest) -> AsyncIterator[str]:
+    eager_persist_task: asyncio.Task[Any] | None = None
+    stop_stream_task: asyncio.Task[Any] | None = None
     try:
         start_time = datetime.now()
+        # Create task to eagerly persist user message
+        # This is a product requirement to enable "I prefer this" button
+        # before both side-by-side streams finish generating their responses.
+        # The eager persistence allows users to select their preferred response
+        # without waiting for complete generation.
+        eager_persist_task = asyncio.create_task(
+            upsert_chat_message(
+                intent=Intent.EAGER_PERSIST,
+                turn_id=chat_request.turn_id,
+                message_id=chat_request.message_id,
+                model=chat_request.model,
+                message_type=MessageType.ASSISTANT_MESSAGE,
+                turn_seq_num=chat_request.turn_seq_num,
+                assistant_selection_source=chat_request.assistant_selection_source,
+                prompt_modifier_ids=chat_request.prompt_modifier_ids,
+            )
+        )
+        # Create task keep checking for "Stop Stream" signal from user
+        stop_stream_task = asyncio.create_task(
+            stop_stream_check(chat_id=chat_request.chat_id, turn_id=chat_request.turn_id, model=chat_request.model)
+        )
         intial_status = {"status": "started", "timestamp": start_time.isoformat(), "model": chat_request.model}
         final_status = {"status": "completed", "model": chat_request.model}
 
@@ -163,7 +187,8 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
         response_tokens_num = 0
         full_response = ""
         message_metadata: dict[str, Any] = {}
-        chunk = None  # Define chunk outside the try block
+        chunk = None
+        eager_persist_task_yielded = False
         try:
             async for chunk in client.astream(messages):
                 # TODO(bhanu) - assess if we should customize chunking for optimal network performance
@@ -183,6 +208,39 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                         yield StreamResponse(
                             {"metadata": chunk.response_metadata, "model": chat_request.model}
                         ).encode()
+                # While streaming, yield (only once) if message was eager persisted.
+                if eager_persist_task.done() and not eager_persist_task_yielded:
+                    eager_persist_task_yielded = True
+                    yield StreamResponse(
+                        {
+                            "status": "message_eager_persisted",
+                            "timestamp": datetime.now().isoformat(),
+                            "model": chat_request.model,
+                        },
+                        "status",
+                    ).encode()
+                if stop_stream_task.done():
+                    logging.info("Stop task done")
+                    # Get result from stop_stream_task
+                    stop_requested = await stop_stream_task
+                    if stop_requested:
+                        full_response += STOPPED_STREAMING
+                        logging.info(
+                            "Stop request received for chat "
+                            f"{chat_request.chat_id}, turn {chat_request.turn_id}, model {chat_request.model}"
+                        )
+                        yield StreamResponse(
+                            {
+                                "status": "stop_stream_requested",
+                                "timestamp": datetime.now().isoformat(),
+                                "model": chat_request.model,
+                            },
+                            "status",
+                        ).encode()
+                        # respect the stop signal and break the stream processing
+                        break
+        except asyncio.CancelledError:
+            logging.warning("Cancelled Error (while streaming) because of client disconnect")
         except Exception as e:
             full_response += STREAMING_ERROR_TEXT
             chunk_str = str(chunk) if chunk is not None else "No chunk available"
@@ -215,17 +273,21 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
         )
 
         try:
-            await persist_chat_message(
+            # upsert
+            await upsert_chat_message(
+                intent=Intent.FINAL_PERSIST,
                 turn_id=chat_request.turn_id,
                 message_id=chat_request.message_id,
-                content=full_response,
                 model=chat_request.model,
+                message_type=MessageType.ASSISTANT_MESSAGE,
                 turn_seq_num=chat_request.turn_seq_num,
-                streaming_metrics=modelResponseTelemetry.model_dump(),
                 prompt_modifier_ids=chat_request.prompt_modifier_ids,
                 assistant_selection_source=chat_request.assistant_selection_source,
+                content=full_response,
+                streaming_metrics=modelResponseTelemetry.model_dump(),
                 message_metadata=message_metadata,
             )
+
             # Send persistence success status
             yield StreamResponse(
                 {"status": "message_persisted", "timestamp": datetime.now().isoformat(), "model": chat_request.model},
@@ -247,6 +309,11 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                 "error",
             ).encode()
 
+    except asyncio.CancelledError as e:
+        logging.warning(
+            f"Cancelled Error (after streaming) because of client disconnect {str(e)} " + traceback.format_exc()
+        )
+
     except Exception as e:
         logging.error(
             f"Error for model {chat_request.model} with prompt {chat_request.prompt}, \n"
@@ -256,6 +323,24 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
         yield StreamResponse(
             {"error": f"Error: {str(e)}", "code": "error", "model": chat_request.model}, "error"
         ).encode()
+    finally:
+        # Cancel any pending tasks
+        logging.info("Cancelling any pending tasks for " + str(chat_request.chat_id))
+        if eager_persist_task is not None:
+            if not eager_persist_task.done():
+                eager_persist_task.cancel()
+            try:
+                await eager_persist_task
+            except asyncio.CancelledError:
+                logging.info("eager_persist_task was cancelled" + chat_request.model)
+
+        if stop_stream_task is not None:
+            if not stop_stream_task.done():
+                stop_stream_task.cancel()
+            try:
+                await stop_stream_task
+            except asyncio.CancelledError:
+                logging.info("stop_stream_task was cancelled " + chat_request.model)
 
 
 async def error_stream(error_message: str) -> AsyncIterator[str]:
@@ -292,3 +377,12 @@ async def _get_message(chat_request: ChatRequest) -> ChatMessage | None:
     async with AsyncSession(get_async_engine()) as session:
         result = await session.execute(query)
         return result.scalar_one_or_none()
+
+
+async def stop_stream_check(chat_id: uuid.UUID, turn_id: uuid.UUID, model: str) -> bool:
+    while True:
+        should_stop = await check_for_stop_request(chat_id, turn_id, model)
+        if should_stop:
+            logging.info(f"Stopping stream for chat_id={chat_id}, turn_id={turn_id}, model={model}")
+            return True
+        await asyncio.sleep(0.5)  # Check every 500ms

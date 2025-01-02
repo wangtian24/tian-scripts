@@ -3,6 +3,7 @@ import random
 import re
 import traceback
 from collections.abc import Generator, Sequence
+from enum import Enum
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Generic, TypeVar
@@ -19,7 +20,8 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_mistralai import ChatMistralAI
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, SecretStr
-from sqlalchemy import text
+from sqlalchemy import func, text
+from sqlalchemy.dialects.postgresql import Insert as pg_insert
 from sqlalchemy.orm import joinedload
 from sqlmodel import Session, select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -40,6 +42,7 @@ from ypl.db.chats import (
     Turn,
 )
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
+from ypl.db.redis import get_upstash_redis_client
 from ypl.utils import async_timed_cache
 
 DEFAULT_HIGH_SIM_THRESHOLD = 0.825
@@ -843,56 +846,91 @@ async def get_curated_chat_context(
     return formatted_messages
 
 
+class Intent(Enum):
+    EAGER_PERSIST = "eager_persist"
+    FINAL_PERSIST = "final_persist"
+
+
 # TODO(bhanu) - add retry logic -
-# note - if we are not awaiting for turn_id in FE, this might fail with FK failed exception, retrying will solve.
-async def persist_chat_message(
+async def upsert_chat_message(
+    intent: Intent,
     turn_id: UUID,
     message_id: UUID,
-    content: str,
     model: str,
+    message_type: MessageType,
     turn_seq_num: int,
     assistant_selection_source: AssistantSelectionSource,
+    prompt_modifier_ids: list[UUID] | None,
+    content: str | None = "",  # DB doesn't accept null value, defaulting to empty string.
     streaming_metrics: dict[str, str] | None = None,
-    prompt_modifier_ids: list[UUID] | None = None,
     message_metadata: dict[str, str] | None = None,
 ) -> None:
-    result = get_model_provider_tuple(model)  # access cached LanguageModel
+    """
+    We have split the columns into two parts.
+    items that are available before streaming - turn_id, message_id, message_type, turn_sequence_number,
+    assistant_model_name,assistant_language_model_id, assistant_selection_source, message_metadata (etc)
+    items that are available after streaming - content, streaming_metrics, message_metadata (etc)
+    Items #1 are eager persisted.
+    Items #2 are persisted after streaming (while addressing conflict and potential race condition)
+    Please respect the above convention for future enhancements.
+
+    """
+    result = get_model_provider_tuple(model)
 
     if result is None:
         raise ValueError(f"No model and provider found for {model}")
     language_model = result[0]
 
-    """Persist chat message"""
     async with AsyncSession(get_async_engine()) as session:
         try:
-            # Create chat message
-            chat_message = ChatMessage(
-                turn_id=turn_id,
-                message_id=message_id,
-                message_type=MessageType.ASSISTANT_MESSAGE,
-                content=content,
-                assistant_model_name=model,
-                streaming_metrics=streaming_metrics or {},
-                turn_sequence_number=turn_seq_num,
-                assistant_language_model_id=language_model.language_model_id,
-                assistant_selection_source=assistant_selection_source,
-                message_metadata=message_metadata,
-            )
+            # Prepare values for upsert
+            values = {
+                "turn_id": turn_id,
+                "message_id": message_id,
+                "message_type": message_type,
+                "content": content,
+                "assistant_model_name": model,
+                "streaming_metrics": streaming_metrics or {},
+                "turn_sequence_number": turn_seq_num,
+                "assistant_language_model_id": language_model.language_model_id,
+                "assistant_selection_source": assistant_selection_source,
+                "message_metadata": message_metadata,
+            }
 
-            # Add prompt modifier associations if provided
+            # Perform upsert using ON CONFLICT for ChatMessage
+            stmt = pg_insert(ChatMessage).values(**values)
+            # For the edge case that Eager_Persist faces conflict,
+            # it implies that final_persist has already been executed, so do_nothing, all fields already persisted.
+            if intent == Intent.EAGER_PERSIST:
+                stmt = stmt.on_conflict_do_nothing()
+            else:
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["message_id"],
+                    set_={
+                        "content": stmt.excluded.content,
+                        "streaming_metrics": stmt.excluded.streaming_metrics,
+                        "message_metadata": stmt.excluded.message_metadata,
+                        "modified_at": func.current_timestamp(),
+                    },
+                )
+            await session.exec(stmt)  # type: ignore[call-overload]
+
+            # Insert prompt modifier associations with ON CONFLICT DO NOTHING
             if prompt_modifier_ids:
-                for modifier_id in prompt_modifier_ids:
-                    prompt_modifier_assoc = PromptModifierAssoc(
-                        prompt_modifier_id=modifier_id, chat_message_id=message_id
-                    )
-                    session.add(prompt_modifier_assoc)
+                assoc_values = [
+                    {"prompt_modifier_id": modifier_id, "chat_message_id": message_id}
+                    for modifier_id in prompt_modifier_ids
+                ]
+                assoc_stmt = pg_insert(PromptModifierAssoc).values(assoc_values)
+                # if it's already present, no need to update any new fields, do nothing.
+                assoc_stmt = assoc_stmt.on_conflict_do_nothing()
+                await session.exec(assoc_stmt)  # type: ignore[call-overload]
 
-            session.add(chat_message)
             await session.commit()
 
         except Exception as e:
             await session.rollback()
-            logging.error(f"Error persisting chat message: {str(e)} \n" + traceback.format_exc())
+            logging.error(f"Error upserting chat message: {str(e)} \n" + traceback.format_exc())
             raise
 
 
@@ -900,3 +938,47 @@ async def get_active_prompt_modifiers() -> list[PromptModifier]:
     async with AsyncSession(get_async_engine()) as session:
         result = await session.execute(select(PromptModifier).where(PromptModifier.deleted_at.is_(None)))  # type: ignore
         return result.scalars().all()  # type: ignore
+
+
+async def check_for_stop_request(chat_uuid: UUID, turn_uuid: UUID, model_name: str) -> bool:
+    """
+    Check if there's a stop request for the current stream.
+
+    Args:
+        chat_id: The chat ID
+        turn_id: The turn ID
+        model_name: The model name
+
+    Returns:
+        bool: True if streaming should stop, False otherwise
+    """
+    try:
+        chat_id = str(chat_uuid)
+        turn_id = str(turn_uuid)
+        redis_client = await get_upstash_redis_client()
+
+        # Create the same keys as in the JS version
+        key = f"stop-stream-request-chat:{chat_id}-{turn_id}:model"
+        key_without_turn = f"stop-stream-request-chat:{chat_id}-:model"
+
+        # Get multiple values at once
+        all_values = await redis_client.mget(key, key_without_turn)
+
+        for value in all_values:
+            if value == model_name or value == "":
+                logging.info(f"found stop signal for mode:{model_name}, key:{str(value)}")
+                # Clear the KV store value since we've detected it
+                try:
+                    await redis_client.delete(key)
+                    await redis_client.delete(key_without_turn)
+                except Exception as e:
+                    logging.warning(
+                        f"Error while attempting to clear stop streaming signal for"
+                        f"{chat_id}-{turn_id}-{model_name}: {str(e)}"
+                    )
+                return True
+        return False
+
+    except Exception as e:
+        logging.error(f"Error checking stop request: {str(e)}")
+        return False

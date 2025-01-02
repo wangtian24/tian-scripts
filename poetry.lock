@@ -8253,6 +8253,21 @@ files = [
 ]
 
 [[package]]
+name = "upstash-redis"
+version = "1.2.0"
+description = "Serverless Redis SDK from Upstash"
+optional = false
+python-versions = "<4.0,>=3.8"
+files = [
+    {file = "upstash_redis-1.2.0-py3-none-any.whl", hash = "sha256:a23db26bafb3706e80dbdcbdbb50bb419ca229247cb47eebfff986c59cfcaabf"},
+    {file = "upstash_redis-1.2.0.tar.gz", hash = "sha256:8708ef56241832df1ed0dd3c27c19c14ca38dc34df9c5d3fc2c1ba8c2586edc6"},
+]
+
+[package.dependencies]
+aiohttp = ">=3.8.4,<4.0.0"
+requests = ">=2.31.0,<3.0.0"
+
+[[package]]
 name = "uritemplate"
 version = "4.1.1"
 description = "Implementation of RFC 6570 URI Templates"
@@ -9022,4 +9037,4 @@ testing = ["coverage[toml]", "zope.event", "zope.testing"]
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.11,<3.12"
-content-hash = "f54e2d447014e96697969e271f035fccfd08a264c7177a6214986bca2cc3458a"
+content-hash = "1eed269f4267e53788a06f6d58d4fbaa6399d30f6c50165758713cb167ee0206"

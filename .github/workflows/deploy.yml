@@ -187,6 +187,8 @@ jobs:
           echo "YUPP_HEAD_APP_BASE_URL=${{ secrets.YUPP_HEAD_APP_BASE_URL_PRODUCTION }}" >> .env
           echo "CRYPTO_WALLET_PATH=${{ secrets.CRYPTO_WALLET_PATH_PRODUCTION }}" >> .env
           echo "REWARDS_SLACK_WEBHOOK_URL=${{ secrets.REWARDS_SLACK_WEBHOOK_URL }}" >> .env
+          echo "UPSTASH_REDIS_URL=${{ secrets.UPSTASH_REDIS_URL_PRODUCTION }}" >> .env
+          echo "UPSTASH_REDIS_TOKEN=${{ secrets.UPSTASH_REDIS_TOKEN_PRODUCTION }}" >> .env
           echo "ATTACHMENT_BUCKET=${{ env.ATTACHMENT_BUCKET_PROD }}" >> .env
           echo "THUMBNAIL_BUCKET=${{ env.THUMBNAIL_BUCKET_PROD }}" >> .env
         elif [[ "${{ env.ENVIRONMENT }}" == "staging" ]]; then
@@ -230,6 +232,8 @@ jobs:
           echo "CRYPTO_WALLET_PATH=${{ secrets.CRYPTO_WALLET_PATH_STAGING }}" >> .env
           echo "CDP_API_KEY_NAME=${{ secrets.CDP_API_KEY_NAME_STAGING }}" >> .env
           echo "CDP_API_KEY_PRIVATE_KEY=${{ secrets.CDP_API_KEY_PRIVATE_KEY_STAGING }}" >> .env
+          echo "UPSTASH_REDIS_URL=${{ secrets.UPSTASH_REDIS_URL_STAGING }}" >> .env
+          echo "UPSTASH_REDIS_TOKEN=${{ secrets.UPSTASH_REDIS_TOKEN_STAGING }}" >> .env
           echo "ATTACHMENT_BUCKET=${{ env.ATTACHMENT_BUCKET_STAGING }}" >> .env
           echo "THUMBNAIL_BUCKET=${{ env.THUMBNAIL_BUCKET_STAGING }}" >> .env
         fi
