@@ -23,7 +23,7 @@ REQUEST_HOST: Final[str] = "api.coinbase.com"
 ENVIRONMENT: Final[str] = os.getenv("ENVIRONMENT", "staging")
 
 MIN_BALANCES: dict[CurrencyEnum, Decimal] = {
-    CurrencyEnum.ETH: Decimal(0.5),
+    CurrencyEnum.ETH: Decimal(0.25),
     CurrencyEnum.USDC: Decimal(200),
 }
 

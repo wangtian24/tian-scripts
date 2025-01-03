@@ -30,7 +30,7 @@ SEED_FILE_PATH = os.path.join(CRYPTO_WALLET_PATH, SEED_FILE_NAME)
 WALLET_FILE_PATH = os.path.join(CRYPTO_WALLET_PATH, WALLET_FILE_NAME)
 
 MIN_BALANCES: dict[CurrencyEnum, Decimal] = {
-    CurrencyEnum.ETH: Decimal(0.5),
+    CurrencyEnum.ETH: Decimal(0.25),
     CurrencyEnum.USDC: Decimal(200),
 }
 
