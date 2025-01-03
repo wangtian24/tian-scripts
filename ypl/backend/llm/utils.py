@@ -15,6 +15,7 @@ from sqlmodel import select
 
 from ypl.backend.db import Session, get_engine
 from ypl.backend.utils.json import json_dumps
+from ypl.backend.utils.utils import fetch_user_name
 from ypl.db.ratings import OVERALL_CATEGORY_NAME, Category
 from ypl.utils import SingletonMixin
 
@@ -147,6 +148,17 @@ def fetch_categories_with_descriptions_from_db() -> dict[str, str | None]:
             select(Category.name, Category.description).where(Category.name != OVERALL_CATEGORY_NAME)
         ).all()
         return {name: description for name, description in categories}
+
+
+async def post_to_slack_with_user_name(
+    user_id: str, message: str | None = None, webhook_url: str | None = None, blocks: list | None = None
+) -> None:
+    """
+    Post a message to a Slack channel using a webhook URL.
+    """
+    user_name = await fetch_user_name(user_id)
+    message = f"{user_name}: {message}"
+    await post_to_slack(message, webhook_url, blocks)
 
 
 async def post_to_slack(message: str | None = None, webhook_url: str | None = None, blocks: list | None = None) -> None:

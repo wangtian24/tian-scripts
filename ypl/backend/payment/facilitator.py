@@ -8,7 +8,7 @@ from decimal import Decimal
 from cdp.transaction import Transaction
 from cdp.transfer import Transfer
 from tenacity import retry, stop_after_attempt, wait_exponential
-from ypl.backend.llm.utils import post_to_slack
+from ypl.backend.llm.utils import post_to_slack_with_user_name
 from ypl.backend.payment.base_types import (
     BaseFacilitator,
     PaymentInstrumentError,
@@ -282,12 +282,10 @@ class OnChainFacilitator(BaseFacilitator):
 
                 # Log success
                 end_time = time.time()
-                user_name = await fetch_user_name(user_id)
                 log_dict = {
                     "message": "Successfully submitted for crypto cashout",
                     "duration": str(end_time - start_time),
                     "user_id": user_id,
-                    "user_name": user_name,
                     "amount": str(amount),
                     "credits_to_cashout": str(credits_to_cashout),
                     "source_instrument_id": str(source_instrument_id),
@@ -297,7 +295,7 @@ class OnChainFacilitator(BaseFacilitator):
                     "tx_hash": str(tx_hash),
                 }
                 logging.info(json_dumps(log_dict))
-                asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+                asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
                 return PaymentResponse(
                     payment_transaction_id=payment_transaction_id,
                     transaction_status=PaymentTransactionStatusEnum.PENDING,
@@ -438,14 +436,12 @@ class OnChainFacilitator(BaseFacilitator):
             else:
                 # TODO: Send alert to Slack
                 # do not reverse the transaction here as the txn might still complete
-                user_name = await fetch_user_name(user_id)
                 log_dict = {
                     "message": "🔴 *Crypto transfer monitoring timed out*",
                     "transaction_id": transfer.transaction_hash,
                     "payment_transaction_id": payment_transaction_id,
                     "points_transaction_id": points_transaction_id,
                     "user_id": user_id,
-                    "user_name": user_name,
                     "credits_to_cashout": credits_to_cashout,
                     "amount": amount,
                     "source_instrument_id": source_instrument_id,
@@ -455,7 +451,7 @@ class OnChainFacilitator(BaseFacilitator):
                     "status": transfer.status,
                     "elapsed_time": time.time() - start_time,
                 }
-                asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+                asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
 
         except Exception as e:
             log_dict = {
