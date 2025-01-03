@@ -31,7 +31,7 @@ from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.moderation import DEFAULT_MODERATION_RESULT, amoderate
 from ypl.backend.rw_cache import TurnQualityCache
 from ypl.backend.utils.json import json_dumps
-from ypl.db.chats import Chat, ChatMessage, MessageType, TurnQuality
+from ypl.db.chats import Chat, ChatMessage, MessageType, Turn, TurnQuality
 
 # Maximum number of pinned chats for a user.
 MAX_PINNED_CHATS = 10
@@ -393,6 +393,10 @@ class MessageDebugInfo(BaseModel):
     message_id: UUID
     language_code: str
     modifiers: list[tuple[str, str]]
+    annotations: dict[str, Any]
+    metadata: dict[str, Any]
+    prompt_difficulty: float | None
+    prompt_difficulty_details: dict[str, Any] | None
 
 
 @router.get("/chat_messages/{message_id}/debug_info", response_model=MessageDebugInfo | None)
@@ -402,6 +406,7 @@ async def get_message_debug_info(message_id: UUID) -> MessageDebugInfo | None:
             stmt = (
                 select(ChatMessage)
                 .options(selectinload(ChatMessage.prompt_modifiers))  # type: ignore
+                .options(selectinload(ChatMessage.turn).selectinload(Turn.turn_quality))  # type: ignore
                 .where(ChatMessage.message_id == message_id)  # type: ignore
             )
             result = await session.execute(stmt)
@@ -412,11 +417,24 @@ async def get_message_debug_info(message_id: UUID) -> MessageDebugInfo | None:
 
             modifiers = [(mod.name, mod.text) for mod in message.prompt_modifiers]
             language_code = str(message.language_code) if message.language_code else ""
+            turn_quality = message.turn.turn_quality
+            prompt_difficulty = turn_quality.prompt_difficulty if turn_quality else None
+            prompt_difficulty_details = {"prompt_difficulty_details_raw_str": turn_quality.prompt_difficulty_details}
+            if turn_quality.prompt_difficulty_details:
+                try:
+                    # Try to interpret it as a JSON object, fallback to raw string.
+                    prompt_difficulty_details = json.loads(turn_quality.prompt_difficulty_details)
+                except Exception:
+                    pass  # Keep the raw string.
 
             return MessageDebugInfo(
                 message_id=message_id,
                 language_code=language_code,
                 modifiers=modifiers,
+                annotations=message.annotations or {},
+                metadata=message.message_metadata or {},
+                prompt_difficulty=prompt_difficulty,
+                prompt_difficulty_details=prompt_difficulty_details,
             )
 
     except Exception as e:
