@@ -44,7 +44,7 @@ class RewardActionLog(BaseModel, table=True):
 
     # The turn ID that is associated with this action.
     # Only set if the action type is "evaluation" or "turn".
-    turn_id: uuid.UUID | None = Field(foreign_key="turns.turn_id", default=None, nullable=True)
+    turn_id: uuid.UUID | None = Field(foreign_key="turns.turn_id", default=None, nullable=True, index=True)
     turn: "Turn" = Relationship(back_populates="reward_action_logs")
 
     # The eval ID that is associated with this action.
@@ -61,7 +61,9 @@ class RewardActionLog(BaseModel, table=True):
 
     # If we reward a user for an action, we store the reward id here.
     # Multiple actions can be rewarded with the same reward id.
-    associated_reward_id: uuid.UUID | None = Field(foreign_key="rewards.reward_id", default=None, nullable=True)
+    associated_reward_id: uuid.UUID | None = Field(
+        foreign_key="rewards.reward_id", default=None, nullable=True, index=True
+    )
     associated_reward: "Reward" = Relationship(back_populates="reward_action_logs")
 
 
@@ -105,7 +107,7 @@ class Reward(BaseModel, table=True):
 
     # The turn ID for which the reward is given.
     # Only set if the reward is for an evaluation.
-    turn_id: uuid.UUID | None = Field(foreign_key="turns.turn_id", default=None, nullable=True)
+    turn_id: uuid.UUID | None = Field(foreign_key="turns.turn_id", default=None, nullable=True, index=True)
     turn: "Turn" = Relationship(back_populates="rewards")
 
     # The rules that triggered this reward.
