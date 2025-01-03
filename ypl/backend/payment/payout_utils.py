@@ -46,6 +46,7 @@ RETRY_WAIT_MULTIPLIER = 1
 RETRY_WAIT_MIN = 4
 RETRY_WAIT_MAX = 15
 SLACK_WEBHOOK_CASHOUT = os.environ.get("SLACK_WEBHOOK_CASHOUT")
+CASHOUT_TXN_COST = 0
 
 
 async def async_retry_decorator() -> AsyncRetrying:

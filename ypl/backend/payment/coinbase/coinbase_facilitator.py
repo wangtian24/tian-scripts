@@ -31,13 +31,14 @@ from ypl.backend.payment.payment import (
     update_user_points,
 )
 from ypl.backend.payment.payout_utils import (
+    CASHOUT_TXN_COST,
+    handle_failed_transaction,
+)
+from ypl.backend.payment.payout_utils import (
     get_destination_instrument_id as get_generic_destination_instrument_id,
 )
 from ypl.backend.payment.payout_utils import (
     get_source_instrument_id as get_generic_source_instrument_id,
-)
-from ypl.backend.payment.payout_utils import (
-    handle_failed_transaction,
 )
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import (
@@ -115,6 +116,7 @@ class CoinbaseFacilitator(BaseFacilitator):
         start_time = time.time()
         try:
             try:
+                credits_to_cashout += CASHOUT_TXN_COST
                 # Get the balance of the source instrument
                 source_instrument_balance = await self.get_balance(self.currency)
 
