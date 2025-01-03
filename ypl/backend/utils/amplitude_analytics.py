@@ -26,9 +26,10 @@ class ChartInfo(TypedDict):
 
 AMPLITUDE_CHARTS: Final[dict[str, ChartInfo]] = {
     "users": {"id": "ruptpxku", "description": "active users", "series_number": 0},
-    "users_start_chat": {"id": "ruptpxku", "description": "users start chat", "series_number": 1},
-    "users_pref": {"id": "ruptpxku", "description": "users pref", "series_number": 2},
-    "users_mof": {"id": "ruptpxku", "description": "users mof", "series_number": 3},
+    "users_any_chat": {"id": "ruptpxku", "description": "users any chat", "series_number": 1},
+    "users_start_chat": {"id": "ruptpxku", "description": "users start chat", "series_number": 2},
+    "users_pref": {"id": "ruptpxku", "description": "users pref", "series_number": 3},
+    "users_mof": {"id": "ruptpxku", "description": "users mof", "series_number": 4},
     "conversations": {"id": "ekszggrp", "description": "conversations", "series_number": 0},
     "follow_up": {"id": "ekszggrp", "description": "follow up", "series_number": 1},
     "show_more": {"id": "ekszggrp", "description": "show more", "series_number": 2},
@@ -178,6 +179,7 @@ async def post_data_from_charts(auth: str, start_date: datetime, end_date: datet
         # a. Users section
         message += (
             f"a. Users: {metrics.get('users', 0)} active, "
+            f"{metrics.get('users_any_chat', 0)} had a new or follow up chat, "
             f"{metrics.get('users_start_chat', 0)} started a new chat, "
             f"{metrics.get('users_pref', 0)} did PREF, "
             f"{metrics.get('users_mof', 0)} did MOF\n"
