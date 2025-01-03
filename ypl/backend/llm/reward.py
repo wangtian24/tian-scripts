@@ -416,7 +416,7 @@ async def turn_based_reward(
         }
         logging.info(json_dumps(log_dict))
 
-        post_reward_to_slack(
+        log_reward_debug_info(
             action_type=RewardActionEnum.TURN,
             user_id=user_id,
             user_name=None,
@@ -454,7 +454,7 @@ async def turn_based_reward(
         should_reward = False
         reward_amount = high_value_reward_amount = 0
 
-    post_reward_to_slack(
+    log_reward_debug_info(
         should_reward=should_reward,
         reward_amount=reward_amount,
         high_value_reward_amount=high_value_reward_amount,
@@ -471,7 +471,7 @@ async def turn_based_reward(
     )
 
 
-def post_reward_to_slack(
+def log_reward_debug_info(
     action_type: RewardActionEnum,
     user_id: str,
     user_name: str | None,
@@ -481,10 +481,18 @@ def post_reward_to_slack(
     amount_rule: RewardAmountRule | None,
     **kwargs: Any,
 ) -> None:
-    """Post a reward to Slack in a background task."""
-    webhook_url = os.environ.get("REWARDS_SLACK_WEBHOOK_URL")
-    if settings.ENVIRONMENT != "production" or not webhook_url:
-        return
+    """Log reward debug info, and post to Slack if in production."""
+    log_dict = {
+        "message": f"Reward debug info for user_id={user_id}",
+        "action_type": action_type.value.lower(),
+        "probability_rule": probability_rule.name if probability_rule else None,
+        "amount_rule": amount_rule.name if amount_rule else None,
+        "should_reward": should_reward,
+        "reward_amount": reward_amount,
+        "user_id": user_id,
+        "additional_info": kwargs,
+    }
+    logging.info(json_dumps(log_dict))
 
     probability_rule_str = f"`{probability_rule.name}`" if probability_rule else "[none]"
     amount_rule_str = f"`{amount_rule.name}`" if amount_rule else "[none]"
@@ -501,6 +509,10 @@ def post_reward_to_slack(
         f"Reward Amount: {reward_amount_str}\n"
         f"Additional Information:\n```{json_dumps(kwargs, indent=2)}```\n"
     )
+
+    webhook_url = os.environ.get("REWARDS_SLACK_WEBHOOK_URL")
+    if settings.ENVIRONMENT != "production" or not webhook_url:
+        return
     try:
         post_to_slack_task.delay(message=message, webhook_url=webhook_url)
     except Exception as e:
@@ -705,7 +717,7 @@ async def feedback_based_reward(
     }
     logging.info(json_dumps(log_dict))
 
-    post_reward_to_slack(
+    log_reward_debug_info(
         should_reward=should_reward,
         reward_amount=reward_amount,
         probability_rule=probability_rule,
@@ -748,7 +760,7 @@ async def qt_eval_reward(user_id: str) -> tuple[bool, int, str, RewardAmountRule
 
     reward_comment = f"QT Eval reward: {reward_amount} credits."
 
-    post_reward_to_slack(
+    log_reward_debug_info(
         should_reward=should_reward,
         reward_amount=reward_amount,
         probability_rule=None,
@@ -791,7 +803,7 @@ async def sign_up_reward(user_id: str) -> tuple[bool, int, str, RewardAmountRule
 
     reward_comment = f"Sign up reward: {reward_amount} credits."
 
-    post_reward_to_slack(
+    log_reward_debug_info(
         should_reward=should_reward,
         reward_amount=reward_amount,
         probability_rule=probability_rule,
