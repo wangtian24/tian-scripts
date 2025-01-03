@@ -18,6 +18,7 @@ from ypl.backend.llm.reward import (
     QT_EVAL_REWARD_LOWER_BOUND,
     QT_EVAL_REWARD_UPPER_BOUND,
     UserTurnReward,
+    _handle_turn_based_reward,
     _load_rules_constants,
     feedback_based_reward,
     qt_eval_reward,
@@ -370,8 +371,17 @@ def test_turn_reward_amount(
     # Test zero reward ("better luck next time").
     zero_reward_probability = RULES.get("constants", {})["zero_turn_based_reward_probability"]
     user_with_recent_reward = create_user_turn_reward(points_last_award=10)
-    should_get_zero_if_recently_awarded = [user_with_recent_reward.should_get_zero_reward() for _ in range(300)]
-    assert np.mean(should_get_zero_if_recently_awarded) == approx(zero_reward_probability, abs=0.05)
+    low_value_reward_amounts = []
+    high_value_reward_amounts = []
+    num_iterations = 1000
+    for _ in range(num_iterations):
+        _, reward_amount, high_value_reward_amount, _, _, _ = _handle_turn_based_reward(user_with_recent_reward)
+        low_value_reward_amounts.append(reward_amount)
+        high_value_reward_amounts.append(high_value_reward_amount)
+    expected_zero_reward_count = zero_reward_probability * num_iterations
+    assert len([x for x in low_value_reward_amounts if x == 0]) == approx(expected_zero_reward_count, rel=0.2)
+    # A high value reward should never be zero.
+    assert len([x for x in high_value_reward_amounts if x == 0]) == 0
 
     # A user should not get a zero reward if their most recent one was 0 (or never received anything).
     user_with_recent_zero_reward = create_user_turn_reward(points_last_award=0)

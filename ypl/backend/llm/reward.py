@@ -403,22 +403,28 @@ async def turn_based_reward(
             - RewardAmountRule | None: The reward amount rule used.
             - RewardProbabilityRule | None: The reward probability rule used.
     """
+    return _handle_turn_based_reward(UserTurnReward(user_id, turn_id))
 
-    def _handle_zero_turn_based_reward(user_id: str) -> tuple[bool, int, int, str, None, None]:
+
+def _handle_turn_based_reward(
+    user_turn_reward: UserTurnReward,
+) -> tuple[bool, int, int, str, RewardAmountRule | None, RewardProbabilityRule | None]:
+    def _handle_zero_turn_based_reward(user_turn_reward: UserTurnReward) -> tuple[bool, int, int, str, None, None]:
         """Handle the case where zero turn-based reward probability is defined."""
         should_reward = True
-        reward_amount = high_value_reward_amount = 0
+        reward_amount = 0
+        high_value_reward_amount = user_turn_reward.get_amount(high_value=False)
         reward_comment = "Better luck next time!"
 
         log_dict = {
             "message": "Override reward with zero amount",
-            "user_id": user_id,
+            "user_id": user_turn_reward.user_id,
         }
         logging.info(json_dumps(log_dict))
 
         log_reward_debug_info(
             action_type=RewardActionEnum.TURN,
-            user_id=user_id,
+            user_id=user_turn_reward.user_id,
             user_name=None,
             should_reward=should_reward,
             reward_amount=reward_amount,
@@ -429,10 +435,9 @@ async def turn_based_reward(
 
         return should_reward, reward_amount, high_value_reward_amount, reward_comment, None, None
 
-    user_turn_reward = UserTurnReward(user_id, turn_id)
     should_get_zero_reward = user_turn_reward.should_get_zero_reward()
     if should_get_zero_reward:
-        return _handle_zero_turn_based_reward(user_id)
+        return _handle_zero_turn_based_reward(user_turn_reward)
 
     reward_probability = user_turn_reward.get_probability()
     should_reward = random.random() < reward_probability
