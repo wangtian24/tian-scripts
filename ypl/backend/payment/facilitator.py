@@ -36,6 +36,7 @@ from ypl.backend.payment.payout_utils import (
     handle_failed_transaction,
 )
 from ypl.backend.utils.json import json_dumps
+from ypl.backend.utils.utils import fetch_user_name
 from ypl.db.payments import (
     CurrencyEnum,
     PaymentInstrumentFacilitatorEnum,
@@ -281,10 +282,12 @@ class OnChainFacilitator(BaseFacilitator):
 
                 # Log success
                 end_time = time.time()
+                user_name = await fetch_user_name(user_id)
                 log_dict = {
                     "message": "Successfully submitted for crypto cashout",
                     "duration": str(end_time - start_time),
                     "user_id": user_id,
+                    "user_name": user_name,
                     "amount": str(amount),
                     "credits_to_cashout": str(credits_to_cashout),
                     "source_instrument_id": str(source_instrument_id),
@@ -399,20 +402,22 @@ class OnChainFacilitator(BaseFacilitator):
                 }
                 logging.info(json_dumps(log_dict))
             elif str(transfer.status).lower() == Transaction.Status.FAILED.value.lower():
+                user_name = await fetch_user_name(user_id)
                 log_dict = {
-                    "message": "🔴 *Crypto transfer failed*\n"
-                    "transaction_id: {transaction_id}\n"
-                    "payment_transaction_id: {payment_transaction_id}\n"
-                    "points_transaction_id: {points_transaction_id}\n"
-                    "user_id: {user_id}\n"
-                    "credits_to_cashout: {credits_to_cashout}\n"
-                    "amount: {amount}\n"
-                    "source_instrument_id: {source_instrument_id}\n"
-                    "destination_instrument_id: {destination_instrument_id}\n"
-                    "destination_identifier: {destination_identifier}\n"
-                    "destination_identifier_type: {destination_identifier_type}\n"
-                    "status: {status}\n"
-                    "elapsed_time: {elapsed_time}",
+                    "message": "🔴 *Crypto transfer failed*",
+                    "transaction_id": transfer.transaction_hash,
+                    "payment_transaction_id": payment_transaction_id,
+                    "points_transaction_id": points_transaction_id,
+                    "user_id": user_id,
+                    "user_name": user_name,
+                    "credits_to_cashout": credits_to_cashout,
+                    "amount": amount,
+                    "source_instrument_id": source_instrument_id,
+                    "destination_instrument_id": destination_instrument_id,
+                    "destination_identifier": destination_identifier,
+                    "destination_identifier_type": destination_identifier_type,
+                    "status": transfer.status,
+                    "elapsed_time": time.time() - start_time,
                 }
                 logging.error(json_dumps(log_dict))
 
@@ -433,20 +438,22 @@ class OnChainFacilitator(BaseFacilitator):
             else:
                 # TODO: Send alert to Slack
                 # do not reverse the transaction here as the txn might still complete
+                user_name = await fetch_user_name(user_id)
                 log_dict = {
-                    "message": "🔴 *Crypto transfer monitoring timed out*\n"
-                    "transaction_id: {transaction_id}\n"
-                    "payment_transaction_id: {payment_transaction_id}\n"
-                    "points_transaction_id: {points_transaction_id}\n"
-                    "user_id: {user_id}\n"
-                    "credits_to_cashout: {credits_to_cashout}\n"
-                    "amount: {amount}\n"
-                    "source_instrument_id: {source_instrument_id}\n"
-                    "destination_instrument_id: {destination_instrument_id}\n"
-                    "destination_identifier: {destination_identifier}\n"
-                    "destination_identifier_type: {destination_identifier_type}\n"
-                    "status: {status}\n"
-                    "elapsed_time: {elapsed_time}",
+                    "message": "🔴 *Crypto transfer monitoring timed out*",
+                    "transaction_id": transfer.transaction_hash,
+                    "payment_transaction_id": payment_transaction_id,
+                    "points_transaction_id": points_transaction_id,
+                    "user_id": user_id,
+                    "user_name": user_name,
+                    "credits_to_cashout": credits_to_cashout,
+                    "amount": amount,
+                    "source_instrument_id": source_instrument_id,
+                    "destination_instrument_id": destination_instrument_id,
+                    "destination_identifier": destination_identifier,
+                    "destination_identifier_type": destination_identifier_type,
+                    "status": transfer.status,
+                    "elapsed_time": time.time() - start_time,
                 }
                 asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
 

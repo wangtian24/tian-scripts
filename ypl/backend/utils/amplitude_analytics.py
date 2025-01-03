@@ -9,13 +9,10 @@ from typing import Any, Final
 
 import requests
 from requests.exceptions import RequestException
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import TypedDict
-from ypl.backend.db import get_async_engine
 from ypl.backend.llm.utils import post_to_slack
 from ypl.backend.utils.json import json_dumps
-from ypl.db.users import User
+from ypl.backend.utils.utils import fetch_user_names
 
 
 class ChartInfo(TypedDict):
@@ -233,26 +230,6 @@ async def post_data_from_charts(auth: str, start_date: datetime, end_date: datet
         error_message = f"⚠️ Failed to process chart data: {e}"
         logging.error(error_message)
         raise
-
-
-async def fetch_user_names(user_ids: list[str]) -> dict[str, str]:
-    """Fetch multiple user names from the database in a single query."""
-    try:
-        engine = get_async_engine()
-        async with AsyncSession(engine) as session:
-            query = select(User).where(
-                User.user_id.in_(user_ids),  # type: ignore
-            )
-            result = await session.execute(query)
-            users = result.scalars().all()
-
-            name_dict = {user_id: user_id for user_id in user_ids}
-            name_dict.update({user.user_id: str(user.name).split()[0] for user in users if user.name})
-            return name_dict
-
-    except Exception as e:
-        logging.exception(f"Failed to fetch users from database: {e}")
-        return {user_id: user_id for user_id in user_ids}
 
 
 async def post_data_from_cohorts(auth: str, start_date: datetime, end_date: datetime) -> None:

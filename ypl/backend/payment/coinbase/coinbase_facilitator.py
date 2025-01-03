@@ -40,6 +40,7 @@ from ypl.backend.payment.payout_utils import (
     handle_failed_transaction,
 )
 from ypl.backend.utils.json import json_dumps
+from ypl.backend.utils.utils import fetch_user_name
 from ypl.db.payments import (
     CurrencyEnum,
     PaymentInstrumentFacilitatorEnum,
@@ -257,10 +258,12 @@ class CoinbaseFacilitator(BaseFacilitator):
 
                 # Log success
                 end_time = time.time()
+                user_name = await fetch_user_name(user_id)
                 log_dict = {
                     "message": "Successfully submitted Coinbase retail payout",
                     "duration": str(end_time - start_time),
                     "user_id": user_id,
+                    "user_name": user_name,
                     "amount": str(amount),
                     "credits_to_cashout": str(credits_to_cashout),
                     "source_instrument_id": str(source_instrument_id),
@@ -416,6 +419,7 @@ class CoinbaseFacilitator(BaseFacilitator):
 
             # If we get here, we've timed out
             # Do not reverse the transaction here as the txn might still complete
+            user_name = await fetch_user_name(user_id)
             log_dict = {
                 "message": f"🔴 *Coinbase retail payout monitoring timed out*\n"
                 f"account_id: {account_id}\n"
@@ -423,6 +427,7 @@ class CoinbaseFacilitator(BaseFacilitator):
                 f"payment_transaction_id: {payment_transaction_id}\n"
                 f"points_transaction_id: {points_transaction_id}\n"
                 f"user_id: {user_id}\n"
+                f"user_name: {user_name}\n"
                 f"credits_to_cashout: {credits_to_cashout}\n"
                 f"amount: {amount}\n"
                 f"source_instrument_id: {source_instrument_id}\n"

@@ -30,6 +30,7 @@ from ypl.backend.payment.payment import (
     update_user_points,
 )
 from ypl.backend.utils.json import json_dumps
+from ypl.backend.utils.utils import fetch_user_name
 from ypl.db.payments import (
     CurrencyEnum,
     PaymentInstrument,
@@ -390,9 +391,11 @@ async def handle_failed_transaction(
         currency: The currency of the transaction
     """
     try:
+        user_name = await fetch_user_name(user_id)
         log_dict = {
             "message": "Failed to process payout reward. Reversing transaction.",
             "user_id": user_id,
+            "user_name": user_name,
             "payment_transaction_id": str(payment_transaction_id),
             "points_transaction_id": str(points_transaction_id),
             "credits_to_cashout": str(credits_to_cashout),
@@ -432,11 +435,13 @@ async def handle_failed_transaction(
                     cashout_payment_transaction_id=payment_transaction_id,
                 )
             )
+        user_name = await fetch_user_name(user_id)
         log_dict = {
             "message": "Successfully reversed transaction",
             "payment_transaction_id": str(payment_transaction_id),
             "points_transaction_id": str(points_transaction_id),
             "user_id": user_id,
+            "user_name": user_name,
             "amount": str(amount),
             "source_instrument_id": str(source_instrument_id),
             "destination_instrument_id": str(destination_instrument_id),
@@ -447,11 +452,13 @@ async def handle_failed_transaction(
         asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
     except Exception as e:
         error_message = str(e)
+        user_name = await fetch_user_name(user_id)
         log_dict = {
             "message": "Failed to handle failed transaction cleanup",
             "payment_transaction_id": str(payment_transaction_id),
             "points_transaction_id": str(points_transaction_id),
             "user_id": user_id,
+            "user_name": user_name,
             "amount": str(amount),
             "source_instrument_id": str(source_instrument_id),
             "destination_instrument_id": str(destination_instrument_id),
