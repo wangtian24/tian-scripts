@@ -1,3 +1,4 @@
+import textwrap
 from unittest.mock import Mock
 
 from sqlalchemy.orm.state import InstanceState
@@ -43,6 +44,11 @@ def test_get_assistant_messages() -> None:
             content=None,
             assistant_language_model=MockLanguageModel(internal_name="model_4"),
         ),
+        ChatMessage(
+            message_type=MessageType.ASSISTANT_MESSAGE,
+            content="",
+            assistant_language_model=MockLanguageModel(internal_name="model_1"),
+        ),
     ]
     model = "model_1"
 
@@ -51,11 +57,30 @@ def test_get_assistant_messages() -> None:
     assert messages[0].content == "Response from assistant 2 (selected)."
 
     messages = _get_assistant_messages(turn_messages, model, use_all_models_in_chat_history=True)
-    assert len(messages) == 3
-    assert messages[0].content == "(This was your response)\n\nResponse from assistant 1."
-    assert messages[1].content == (
-        "(This was a response from another assistant)\n\n"
-        "Response from assistant 2 (selected).\n\n"
-        "(This response was preferred by the user)"
-    )
-    assert messages[2].content == "(This was a response from another assistant)\n\nResponse from assistant 3."
+    assert len(messages) == 1
+    expected = textwrap.dedent(
+        """
+        This was your response:
+
+        Response from assistant 1.
+
+        ---
+
+        A response from another assistant:
+
+        Response from assistant 2 (selected).
+
+        (This response was preferred by the user)
+
+        ---
+
+        A response from another assistant:
+
+        Response from assistant 3.
+
+        ---
+
+        (Your response was empty)
+        """
+    ).strip()
+    assert messages[0].content == expected

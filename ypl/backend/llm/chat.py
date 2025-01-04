@@ -882,23 +882,26 @@ def _get_assistant_messages(
         return messages
 
     if use_all_models_in_chat_history:
+        all_content = []
         for msg in assistant_msgs:
             content = msg.content or ""
             if msg.assistant_language_model.internal_name == model:
                 # A previous response from the current assistant.
                 if content:
-                    content = "(This was your response)\n\n" + content
+                    content = "This was your response:\n\n" + content
                 else:
                     content = "(Your response was empty)"
             else:
                 # A previous response from another assistant.
                 if content:
                     # Only include responses from other assistants if non-empty.
-                    content = "(This was a response from another assistant)\n\n" + content
+                    content = "A response from another assistant:\n\n" + content
             if msg.ui_status == MessageUIStatus.SELECTED and content:
                 content += "\n\n(This response was preferred by the user)"
             if content:
-                messages.append(AIMessage(content=content))
+                all_content.append(content)
+        if all_content:
+            messages.append(AIMessage(content="\n\n---\n\n".join(all_content)))
     else:
         # Try to find message with SELECTED status
         selected_msg = next(
