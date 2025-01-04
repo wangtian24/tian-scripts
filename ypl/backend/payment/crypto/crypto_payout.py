@@ -19,6 +19,7 @@ from ypl.backend.utils.files import (
 )
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import CurrencyEnum, PaymentTransactionStatusEnum
+from ypl.db.redis import get_upstash_redis_client
 
 POLL_INTERVAL_SECONDS = 5
 MAX_WAIT_TIME_SECONDS = 60
@@ -36,8 +37,7 @@ MIN_BALANCES: dict[CurrencyEnum, Decimal] = {
 
 # Rate limiter for Basescan API - max 4 calls per second
 BASESCAN_RATE_LIMIT: Final[int] = 4
-_basescan_semaphore = asyncio.Semaphore(BASESCAN_RATE_LIMIT)
-_last_call_time = 0.0
+BASESCAN_WINDOW_SECONDS: Final[int] = 1
 
 
 @dataclass
@@ -351,36 +351,37 @@ async def get_transaction_status(transaction_hash: str) -> PaymentTransactionSta
     }
 
     try:
-        # Acquire semaphore to enforce rate limit
-        async with _basescan_semaphore:
-            # Limit max of 4 calls per second
-            global _last_call_time
-            current_time = asyncio.get_event_loop().time()
-            time_since_last_call = current_time - _last_call_time
-            if time_since_last_call < 0.25:
-                await asyncio.sleep(0.25 - time_since_last_call)
-            _last_call_time = asyncio.get_event_loop().time()
+        redis = await get_upstash_redis_client()
 
-            async with httpx.AsyncClient() as client:
-                response = await client.get(url, params=params)
-                if response.status_code != 200:
-                    log_dict = {
-                        "message": "Basescan API request failed",
-                        "status_code": response.status_code,
-                        "transaction_hash": transaction_hash,
-                    }
-                    logging.error(json_dumps(log_dict))
+        current_time = int(time.time())
+        bucket_key = f"basescan_api_calls:{current_time}"
+        current_count = await redis.incr(bucket_key)
+        await redis.expire(bucket_key, BASESCAN_WINDOW_SECONDS)
 
-                data = response.json()
-                if data.get("status") == "1":
-                    # status "1" means success, "0" means fail
-                    tx_status = data.get("result", {}).get("status", "")
-                    if tx_status == "1":
-                        return PaymentTransactionStatusEnum.SUCCESS
-                    elif tx_status == "0":
-                        return PaymentTransactionStatusEnum.FAILED
+        if current_count > BASESCAN_RATE_LIMIT:
+            await asyncio.sleep(BASESCAN_WINDOW_SECONDS)
+            return await get_transaction_status(transaction_hash)
 
-                return PaymentTransactionStatusEnum.PENDING
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, params=params)
+            if response.status_code != 200:
+                log_dict = {
+                    "message": "Basescan API request failed",
+                    "status_code": response.status_code,
+                    "transaction_hash": transaction_hash,
+                }
+                logging.error(json_dumps(log_dict))
+
+            data = response.json()
+            if data.get("status") == "1":
+                # status "1" means success, "0" means fail
+                tx_status = data.get("result", {}).get("status", "")
+                if tx_status == "1":
+                    return PaymentTransactionStatusEnum.SUCCESS
+                elif tx_status == "0":
+                    return PaymentTransactionStatusEnum.FAILED
+
+            return PaymentTransactionStatusEnum.PENDING
 
     except Exception as e:
         log_dict = {
