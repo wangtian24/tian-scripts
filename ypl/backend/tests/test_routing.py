@@ -351,6 +351,14 @@ async def test_simple_pro_router(
         selected_models = router.select_models(state=state).get_sorted_selected_models()
         assert "model2" in selected_models and "model1" not in selected_models
 
+    router_two_selected_models = await get_simple_pro_router(
+        prompt="", num_models=2, reputable_providers=reputable_providers, user_selected_models=["model2", "model1"]
+    )
+    for _ in range(5):
+        state = RouterState(all_models=models)
+        selected_models = router_two_selected_models.select_models(state=state).get_sorted_selected_models()
+        assert "model2" in selected_models and "model1" in selected_models
+
 
 @patch("ypl.backend.llm.routing.rule_router.deduce_original_providers")
 def test_routing_table(mock_deduce_providers: Mock) -> None:

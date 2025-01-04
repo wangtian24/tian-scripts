@@ -1594,9 +1594,9 @@ async def get_simple_pro_router(
             )
             | error_filter
             | Exclude(providers=show_me_more_providers)
-            | Inject(user_selected_models or [], score=10000000)
             | OnePerSemanticGroupFilter()
             | ProviderFilter(one_per_provider=True)
+            | Inject(user_selected_models or [], score=10000000)
             | TopK(num_models)
             | RoutingDecisionLogger(
                 enabled=settings.ROUTING_DO_LOGGING,
@@ -1658,9 +1658,9 @@ async def get_simple_pro_router(
             )
             | error_filter
             | Exclude(models=all_bad_models, providers=show_me_more_providers)
-            | Inject(user_selected_models or [], score=100000000)
             | OnePerSemanticGroupFilter()
             | ProviderFilter(one_per_provider=True)
+            | Inject(user_selected_models or [], score=100000000)
             | TopK(num_models)
             | RoutingDecisionLogger(
                 enabled=settings.ROUTING_DO_LOGGING,
