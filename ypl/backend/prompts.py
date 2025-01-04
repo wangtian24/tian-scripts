@@ -455,7 +455,11 @@ PROMPT_MULTILABEL_CLASSIFICATION_PROMPT_TEMPLATE = ChatPromptTemplate.from_messa
 
 JUDGE_YUPP_ONLINE_PROMPT = f"""Prompt: {{prompt}}
 
-Does the prompt above need any real-time information (e.g., weather, sports scores, etc.), recent event knowledge (e.g., latest news, current events, etc.), or any other data after the year of 2022 to answer? It is the year {datetime.now().year}. Respond with "true" or "false". Do not explain.
+Does the prompt above need any real-time information (e.g., weather, sports scores, etc.),
+recent event knowledge (e.g., latest news, current events, etc.),
+access to online resources that you don't have,
+or any other data after the year of 2023 to answer?
+It is the year {datetime.now().year}. Respond with "true" or "false". Do not explain.
 """
 
 JUDGE_YUPP_ONLINE_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([("human", JUDGE_YUPP_ONLINE_PROMPT)])
