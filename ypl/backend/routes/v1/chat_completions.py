@@ -62,7 +62,7 @@ class ChatRequest(BaseModel):
     prompt_modifier_ids: list[uuid.UUID] | None = Field(None, description="List of Prompt Modifier IDs")
     attachment_ids: list[uuid.UUID] | None = Field(None, description="List of Attachment IDs")
     load_existing: bool = Field(
-        default=False,
+        default=True,
         description="If true, return an existing message matching the request if it exists; otherwise create a new one",
     )
     use_all_models_in_chat_history: bool = Field(
@@ -376,7 +376,7 @@ def add_metadata(message_metadata: dict[str, Any], metadata: dict[str, Any]) -> 
 
 
 async def _get_message(chat_request: ChatRequest) -> ChatMessage | None:
-    """Returns a message matching all conditions in the chat request, or None if no such message is found"""
+    """Returns a successfully completed message matching all conditions in the request, or None if no such message."""
     query = (
         select(ChatMessage)
         .where(
@@ -384,6 +384,7 @@ async def _get_message(chat_request: ChatRequest) -> ChatMessage | None:
             ChatMessage.deleted_at.is_(None),  # type: ignore
             ChatMessage.turn_sequence_number == chat_request.turn_seq_num,
             LanguageModel.internal_name == chat_request.model,
+            ChatMessage.completion_status == CompletionStatus.SUCCESS,
         )
         .join(LanguageModel)
         .join(PromptModifierAssoc)
