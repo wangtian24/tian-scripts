@@ -17,6 +17,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ypl.backend.db import get_async_engine
+from ypl.backend.llm.attachment import link_attachments
 from ypl.backend.llm.chat import Intent, check_for_stop_request, get_curated_chat_context, upsert_chat_message
 from ypl.backend.llm.model.model import ModelResponseTelemetry
 from ypl.backend.llm.provider.provider_clients import get_language_model, get_provider_client
@@ -68,6 +69,7 @@ class ChatRequest(BaseModel):
         default=False,
         description="If true, include the chat history of all responding models.",
     )
+    user_message_id: uuid.UUID = Field(..., description="Message ID of the user message")
 
 
 STREAMING_ERROR_TEXT: str = "\n\\<streaming stopped unexpectedly\\>"
@@ -297,7 +299,8 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                 streaming_metrics=modelResponseTelemetry.model_dump(),
                 message_metadata=message_metadata,
             )
-
+            if chat_request.attachment_ids:
+                await link_attachments(chat_request.user_message_id, chat_request.attachment_ids)
             # Send persistence success status
             yield StreamResponse(
                 {"status": "message_persisted", "timestamp": datetime.now().isoformat(), "model": chat_request.model},
