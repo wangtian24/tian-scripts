@@ -24,7 +24,7 @@ from ypl.backend.llm.provider.provider_clients import get_language_model, get_pr
 from ypl.backend.llm.sanitize_messages import DEFAULT_MAX_TOKENS, sanitize_messages
 from ypl.backend.prompts import get_system_prompt_with_modifiers
 from ypl.backend.utils.json import json_dumps
-from ypl.db.chats import AssistantSelectionSource, ChatMessage, PromptModifierAssoc, MessageType
+from ypl.db.chats import AssistantSelectionSource, ChatMessage, CompletionStatus, PromptModifierAssoc, MessageType
 from ypl.db.language_models import LanguageModel
 
 
@@ -129,7 +129,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
         final_status = {"status": "completed", "model": chat_request.model}
 
         existing_message = None
-        if chat_request.load_existing:
+        if not chat_request.is_new_chat and chat_request.load_existing:
             existing_message = await _get_message(chat_request)
 
         if existing_message:
@@ -204,6 +204,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
         message_metadata: dict[str, Any] = {}
         chunk = None
         eager_persist_task_yielded = False
+        stream_completion_status: CompletionStatus = CompletionStatus.SUCCESS
         try:
             async for chunk in client.astream(messages):
                 # TODO(bhanu) - assess if we should customize chunking for optimal network performance
@@ -252,11 +253,14 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                             },
                             "status",
                         ).encode()
+                        stream_completion_status = CompletionStatus.USER_ABORTED
                         # respect the stop signal and break the stream processing
                         break
         except asyncio.CancelledError:
             logging.warning("Cancelled Error (while streaming) because of client disconnect")
+            stream_completion_status = CompletionStatus.SYSTEM_ERROR
         except Exception as e:
+            stream_completion_status = CompletionStatus.PROVIDER_ERROR
             full_response += STREAMING_ERROR_TEXT
             chunk_str = str(chunk) if chunk is not None else "No chunk available"
             logging.error(
@@ -301,6 +305,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                 content=full_response,
                 streaming_metrics=modelResponseTelemetry.model_dump(),
                 message_metadata=message_metadata,
+                completion_status=stream_completion_status,
             )
             if chat_request.attachment_ids:
                 await link_attachments(chat_request.user_message_id, chat_request.attachment_ids)

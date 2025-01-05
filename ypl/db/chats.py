@@ -101,6 +101,17 @@ class MessageUIStatus(enum.Enum):
     HIDDEN = "hidden"
 
 
+class CompletionStatus(enum.Enum):
+    # The message was completed successfully
+    SUCCESS = "success"
+    # The user manually stopped/aborted the message generation
+    USER_ABORTED = "user_aborted"
+    # An error occurred with the model provider during generation
+    PROVIDER_ERROR = "provider_error"
+    # Any unexpected System Error
+    SYSTEM_ERROR = "system_error"
+
+
 class AssistantSelectionSource(enum.Enum):
     # For backwards compatibility.
     UNKNOWN = "unknown"
@@ -233,6 +244,9 @@ class ChatMessage(BaseModel, table=True):
     annotations: dict[str, Any] = Field(default_factory=dict, sa_type=JSONB, nullable=True)
 
     attachments: list["Attachment"] = Relationship(back_populates="chat_message")
+
+    # to track the status of the stream completion.
+    completion_status: CompletionStatus = Field(sa_column=Column(SQLAlchemyEnum(CompletionStatus), nullable=True))
 
 
 class EvalType(enum.Enum):

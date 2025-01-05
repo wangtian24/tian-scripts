@@ -43,6 +43,7 @@ from ypl.db.chats import (
     AssistantSelectionSource,
     Chat,
     ChatMessage,
+    CompletionStatus,
     MessageType,
     MessageUIStatus,
     PromptModifier,
@@ -989,6 +990,7 @@ async def upsert_chat_message(
     content: str | None = "",  # DB doesn't accept null value, defaulting to empty string.
     streaming_metrics: dict[str, str] | None = None,
     message_metadata: dict[str, str] | None = None,
+    completion_status: CompletionStatus | None = None,
 ) -> None:
     """
     We have split the columns into two parts.
@@ -1020,6 +1022,7 @@ async def upsert_chat_message(
                 "assistant_language_model_id": language_model.language_model_id,
                 "assistant_selection_source": assistant_selection_source,
                 "message_metadata": message_metadata,
+                "completion_status": completion_status,
             }
 
             # Perform upsert using ON CONFLICT for ChatMessage
@@ -1035,6 +1038,7 @@ async def upsert_chat_message(
                         "content": stmt.excluded.content,
                         "streaming_metrics": stmt.excluded.streaming_metrics,
                         "message_metadata": stmt.excluded.message_metadata,
+                        "completion_status": stmt.excluded.completion_status,
                         "modified_at": func.current_timestamp(),
                     },
                 )
