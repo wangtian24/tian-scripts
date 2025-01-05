@@ -1193,7 +1193,7 @@ async def generate_quicktake(
 
     response_model = ""
     timeout_secs = request.timeout_secs
-    timings_a = time.time()
+    start_time = time.time()
 
     try:
         if not request.model:
@@ -1223,7 +1223,6 @@ async def generate_quicktake(
                 if response and not isinstance(response, Exception):
                     response_model = model
                     quicktake = response
-                    logging.info(f"Quicktake timings: generated in {time.time() - timings_a:.3f} seconds")
                     break
         elif request.model in QT_LLMS:
             # Specific model requested.
@@ -1244,6 +1243,14 @@ async def generate_quicktake(
         logging.exception(json_dumps(log_dict))
         raise e
 
+    end_time = time.time()
+    log_dict = {
+        "message": "Quicktake generated",
+        "model": response_model,
+        "duration_secs": str(end_time - start_time),
+        "content_length": str(len(quicktake)),
+    }
+    logging.info(json_dumps(log_dict))
     return QuickTakeResponse(quicktake=quicktake, model=response_model)
 
 

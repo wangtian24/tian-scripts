@@ -22,6 +22,7 @@ from ypl.backend.llm.model.model import ModelResponseTelemetry
 from ypl.backend.llm.provider.provider_clients import get_language_model, get_provider_client
 from ypl.backend.llm.sanitize_messages import DEFAULT_MAX_TOKENS, sanitize_messages
 from ypl.backend.prompts import get_system_prompt_with_modifiers
+from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import AssistantSelectionSource, ChatMessage, PromptModifierAssoc, MessageType
 from ypl.db.language_models import LanguageModel
 
@@ -130,6 +131,15 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
             existing_message = await _get_message(chat_request)
 
         if existing_message:
+            log_dict = {
+                "message": "Existing message found",
+                "chat_id": str(chat_request.chat_id),
+                "turn_id": str(chat_request.turn_id),
+                "message_id": str(existing_message.message_id),
+                "content_length": str(len(existing_message.content)),
+                "model": chat_request.model,
+            }
+            logging.info(json_dumps(log_dict))
             # Send initial status.
             yield StreamResponse(
                 intial_status | {"existing_response": True, "message_id": str(existing_message.message_id)},

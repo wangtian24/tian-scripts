@@ -177,6 +177,7 @@ warn_return_any = true  # Warn about returning values of type 'Any' from functio
 ignore_missing_imports = true  # Ignore errors for missing imports
 exclude = ["ypl/db/alembic/", "tmp/", "notebooks/", "ypl/db/oneoffs/"]
 cache_dir = ".mypy_cache"
+incremental = true
 
 [tool.pytest.ini_options]
 addopts = "--ignore ypl/pytorch/tests --ignore ypl/backend/tests/periodic_tests"  # Skip torch tests on CI box until we have a GPU
@@ -184,9 +185,11 @@ filterwarnings = [
     "ignore::DeprecationWarning:httpx.*:",
     "ignore::DeprecationWarning:tweepy.*:",
     "ignore::FutureWarning:transformers.*",
+    "ignore::PendingDeprecationWarning:starlette.*",
     "ignore:Support for class-based `config` is deprecated:DeprecationWarning",
 ]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 markers = [
     "asyncio: mark test as async",
 ]

@@ -315,8 +315,17 @@ class UserTurnReward:
             if fraction_of_limit > 0.5:
                 # A higher constant means faster decay.
                 decay_factor = math.exp(-8 * (fraction_of_limit - 0.5))
+                log_dict = {
+                    "message": "Decaying reward amounts",
+                    "before_min_value": min_value,
+                    "before_max_value": max_value,
+                    "decay_factor": decay_factor,
+                }
                 min_value = int(round(min_value * decay_factor, -1))
                 max_value = int(round(max_value * decay_factor, -1))
+                log_dict["after_min_value"] = min_value
+                log_dict["after_max_value"] = max_value
+                logging.info(json_dumps(log_dict))
 
         return min_value, max_value
 
@@ -419,6 +428,9 @@ def _handle_turn_based_reward(
         log_dict = {
             "message": "Override reward with zero amount",
             "user_id": user_turn_reward.user_id,
+            "reward_amount": reward_amount,
+            "high_value_reward_amount": high_value_reward_amount,
+            "reward_comment": reward_comment,
         }
         logging.info(json_dumps(log_dict))
 
@@ -447,12 +459,6 @@ def _handle_turn_based_reward(
     high_value_reward_amount = user_turn_reward.get_amount(high_value=True)
 
     reward_comment = user_turn_reward.get_reward_comment()
-
-    # Override reward amounts for local environments
-    if settings.ENVIRONMENT == "local":
-        reward_amount = random.randint(10, 50)
-        high_value_reward_amount = random.randint(100, 500)
-        should_reward = True
 
     # A safety check to prevent negative or zero credit rewards from being given.
     if reward_amount <= 0 or high_value_reward_amount <= 0:
