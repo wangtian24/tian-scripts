@@ -46,6 +46,9 @@ AMPLITUDE_CHARTS: Final[dict[str, ChartInfo]] = {
     "credits_af": {"id": "7ukm5tc7", "description": "credits af", "series_number": 1},
     "credits_pref": {"id": "7ukm5tc7", "description": "credits pref", "series_number": 2},
     "credits_qt": {"id": "7ukm5tc7", "description": "credits qt", "series_number": 3},
+    "cashout_users": {"id": "m33ch3su", "description": "cashout users", "series_number": 0},
+    "cashout_count": {"id": "q4615u1m", "description": "cashout count", "series_number": 0},
+    "cashout_amount": {"id": "0igijx4l", "description": "cashout credits initiated", "series_number": 0},
 }
 
 
@@ -220,6 +223,13 @@ async def post_data_from_charts(auth: str, start_date: datetime, end_date: datet
             f"{metrics.get('credits_af', 0)} AF, "
             f"{metrics.get('credits_pref', 0)} PREF, "
             f"{metrics.get('credits_total', 0)} Total\n"
+        )
+
+        # g. Cashout section
+        message += (
+            f"g. Cashout: {metrics.get('cashout_users', 0)} users, "
+            f"{metrics.get('cashout_count', 0)} cashouts, "
+            f"{metrics.get('cashout_amount', 0)} credits initiated\n"
         )
 
         logging.info(json_dumps(log_dict))
