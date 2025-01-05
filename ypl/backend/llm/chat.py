@@ -918,6 +918,7 @@ async def get_curated_chat_context(
     chat_id: UUID,
     use_all_models_in_chat_history: bool,
     model: str,
+    current_turn_seq_num: int | None = None,
 ) -> list[BaseMessage]:
     """Fetch chat history and format it for OpenAI context.
 
@@ -943,6 +944,8 @@ async def get_curated_chat_context(
             ChatMessage.turn_sequence_number.asc(),  # type: ignore[union-attr]
         )
     )
+    if current_turn_seq_num:
+        query = query.where(Turn.sequence_id < current_turn_seq_num)
 
     async with AsyncSession(get_async_engine()) as session:
         result = await session.exec(query)

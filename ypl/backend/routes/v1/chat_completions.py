@@ -175,7 +175,10 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
             messages.append(SystemMessage(content=system_prompt))
         if not chat_request.is_new_chat:
             chat_history = await get_curated_chat_context(
-                chat_request.chat_id, chat_request.use_all_models_in_chat_history, chat_request.model
+                chat_request.chat_id,
+                chat_request.use_all_models_in_chat_history,
+                chat_request.model,
+                chat_request.turn_seq_num,
             )
             language_model = await get_language_model(chat_request.model)
             chat_context = sanitize_messages(
