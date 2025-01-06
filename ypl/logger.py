@@ -8,7 +8,7 @@ from google.cloud.logging_v2.handlers.transports.background_thread import Backgr
 
 from ypl.backend.config import settings
 
-MAX_LOGGED_FIELD_LENGTH_CHARS = 1000
+MAX_LOGGED_FIELD_LENGTH_CHARS = 32000
 
 
 def redact_sensitive_data(text: str) -> str:
