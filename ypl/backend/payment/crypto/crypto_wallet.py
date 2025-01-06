@@ -115,6 +115,7 @@ def get_wallet_balance() -> None:
 
         log_dict = {
             "message": "Retrieved wallet balance",
+            "wallet_address": wallet.default_address.address_id if wallet.default_address else None,
             "eth_balance": str(eth_balance),
             "usdc_balance": str(usdc_balance),
             "cbbtc_balance": str(cbbtc_balance),

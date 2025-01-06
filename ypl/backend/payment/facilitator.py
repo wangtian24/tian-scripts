@@ -292,6 +292,7 @@ class OnChainFacilitator(BaseFacilitator):
                     "destination_identifier": destination_identifier,
                     "currency": self.currency.value,
                     "tx_hash": str(tx_hash),
+                    "transfer_id": transfer.transfer_id,
                 }
                 logging.info(json_dumps(log_dict))
                 asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
@@ -374,7 +375,18 @@ class OnChainFacilitator(BaseFacilitator):
             # first check if the transfer is already complete
             # if not then wait for coinbase designed wait
             if str(transfer.status).lower() != Transaction.Status.COMPLETE.value.lower():
-                transfer.wait()
+                try:
+                    transfer.wait()
+                except Exception as e:
+                    log_dict = {
+                        "message": "Error waiting for transfer completion",
+                        "user_id": user_id,
+                        "transaction_hash": transfer.transaction_hash,
+                        "transfer_id": transfer.transfer_id,
+                        "error": str(e),
+                        "elapsed_time": time.time() - start_time,
+                    }
+                    logging.error(json_dumps(log_dict))
 
             # if still not complete then wait for max wait time
             while (
@@ -395,6 +407,7 @@ class OnChainFacilitator(BaseFacilitator):
                     "user_id": user_id,
                     "transaction_hash": transfer.transaction_hash,
                     "status": transfer.status,
+                    "transfer_id": transfer.transfer_id,
                     "elapsed_time": time.time() - start_time,
                 }
                 logging.info(json_dumps(log_dict))
@@ -414,6 +427,7 @@ class OnChainFacilitator(BaseFacilitator):
                     "destination_identifier": destination_identifier,
                     "destination_identifier_type": destination_identifier_type,
                     "status": transfer.status,
+                    "transfer_id": transfer.transfer_id,
                     "elapsed_time": time.time() - start_time,
                 }
                 logging.error(json_dumps(log_dict))
@@ -448,6 +462,7 @@ class OnChainFacilitator(BaseFacilitator):
                     "destination_identifier": destination_identifier,
                     "destination_identifier_type": destination_identifier_type,
                     "status": transfer.status,
+                    "transfer_id": transfer.transfer_id,
                     "elapsed_time": time.time() - start_time,
                 }
                 asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))

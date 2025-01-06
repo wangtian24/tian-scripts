@@ -233,6 +233,7 @@ class CryptoRewardProcessor:
                 "amount": str(reward.amount),
                 "transaction_hash": transfer.transaction_hash,
                 "transfer_status": transfer.status,
+                "transfer_id": transfer.transfer_id,
                 "duration": str(duration),
             }
             logging.info(json_dumps(log_dict))
