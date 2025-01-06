@@ -160,7 +160,7 @@ async def process_pending_onchain_transaction(payment: PaymentTransaction) -> No
     try:
         if not payment.partner_reference_id:
             log_dict = {
-                "message": "❌ - Missing transaction hash for onchain transaction",
+                "message": ":x: - Missing transaction hash for onchain transaction",
                 "payment_transaction_id": str(payment.payment_transaction_id),
             }
             logging.error(json_dumps(log_dict))
@@ -171,7 +171,7 @@ async def process_pending_onchain_transaction(payment: PaymentTransaction) -> No
 
         if tx_status == PaymentTransactionStatusEnum.SUCCESS:
             log_dict = {
-                "message": "✅ - Pending onchain transaction completed",
+                "message": ":white_check_mark: - Pending onchain transaction completed",
                 "payment_transaction_id": str(payment.payment_transaction_id),
                 "transaction_hash": payment.partner_reference_id,
                 "old_status": str(payment.status),
@@ -185,7 +185,7 @@ async def process_pending_onchain_transaction(payment: PaymentTransaction) -> No
             )
         elif tx_status == PaymentTransactionStatusEnum.FAILED:
             log_dict = {
-                "message": "❌ - Pending onchain transaction failed",
+                "message": ":x: - Pending onchain transaction failed",
                 "payment_transaction_id": str(payment.payment_transaction_id),
                 "transaction_hash": payment.partner_reference_id,
             }
@@ -197,7 +197,7 @@ async def process_pending_onchain_transaction(payment: PaymentTransaction) -> No
             )
             if points_transaction is None:
                 log_dict = {
-                    "message": "❌ - No points transaction found for failed payment",
+                    "message": ":x: - No points transaction found for failed payment",
                     "payment_transaction_id": str(payment.payment_transaction_id),
                 }
                 logging.error(json_dumps(log_dict))
@@ -206,7 +206,7 @@ async def process_pending_onchain_transaction(payment: PaymentTransaction) -> No
             payment_instrument = await get_payment_instrument_from_id(payment.destination_instrument_id)
             if payment_instrument is None:
                 log_dict = {
-                    "message": "❌ - No payment instrument found for failed payment",
+                    "message": ":x: - No payment instrument found for failed payment",
                     "payment_transaction_id": str(payment.payment_transaction_id),
                 }
                 logging.error(json_dumps(log_dict))
@@ -227,7 +227,7 @@ async def process_pending_onchain_transaction(payment: PaymentTransaction) -> No
             )
         else:
             log_dict = {
-                "message": "❌ - Pending onchain transaction status unknown",
+                "message": ":x: - Pending onchain transaction status unknown",
                 "payment_transaction_id": str(payment.payment_transaction_id),
                 "transaction_hash": payment.partner_reference_id,
             }
@@ -236,7 +236,7 @@ async def process_pending_onchain_transaction(payment: PaymentTransaction) -> No
 
     except Exception as e:
         log_dict = {
-            "message": "❌ - Failed to process pending onchain transaction",
+            "message": ":x: - Failed to process pending onchain transaction",
             "payment_transaction_id": str(payment.payment_transaction_id),
             "transaction_hash": payment.partner_reference_id,
             "error": str(e),
@@ -261,7 +261,7 @@ async def process_pending_coinbase_transaction(payment: PaymentTransaction) -> N
     try:
         if not payment.partner_reference_id:
             log_dict = {
-                "message": "❌ - Missing transaction ID for Coinbase transaction",
+                "message": ":x: - Missing transaction ID for Coinbase transaction",
                 "payment_transaction_id": str(payment.payment_transaction_id),
             }
             logging.error(json_dumps(log_dict))
@@ -273,7 +273,7 @@ async def process_pending_coinbase_transaction(payment: PaymentTransaction) -> N
         account_id = str(account_info["account_id"])
         if not account_id:
             log_dict = {
-                "message": "❌ - Missing account ID for Coinbase transaction",
+                "message": ":x: - Missing account ID for Coinbase transaction",
                 "payment_transaction_id": str(payment.payment_transaction_id),
                 "currency": payment.currency.value,
             }
@@ -285,7 +285,7 @@ async def process_pending_coinbase_transaction(payment: PaymentTransaction) -> N
 
         if status == TransactionStatus.COMPLETED.value:
             log_dict = {
-                "message": "✅ - Pending Coinbase transaction completed",
+                "message": ":white_check_mark: - Pending Coinbase transaction completed",
                 "payment_transaction_id": str(payment.payment_transaction_id),
                 "transaction_id": payment.partner_reference_id,
                 "old_status": str(payment.status),
@@ -299,7 +299,7 @@ async def process_pending_coinbase_transaction(payment: PaymentTransaction) -> N
             )
         elif status == TransactionStatus.FAILED.value:
             log_dict = {
-                "message": "❌ - Pending Coinbase transaction failed",
+                "message": ":x: - Pending Coinbase transaction failed",
                 "payment_transaction_id": str(payment.payment_transaction_id),
                 "transaction_id": payment.partner_reference_id,
             }
@@ -311,7 +311,7 @@ async def process_pending_coinbase_transaction(payment: PaymentTransaction) -> N
             )
             if points_transaction is None:
                 log_dict = {
-                    "message": "❌ - No points transaction found for failed payment",
+                    "message": ":x: - No points transaction found for failed payment",
                     "payment_transaction_id": str(payment.payment_transaction_id),
                 }
                 logging.error(json_dumps(log_dict))
@@ -321,7 +321,7 @@ async def process_pending_coinbase_transaction(payment: PaymentTransaction) -> N
             payment_instrument = await get_payment_instrument_from_id(payment.destination_instrument_id)
             if payment_instrument is None:
                 log_dict = {
-                    "message": "❌ - No payment instrument found for failed payment",
+                    "message": ":x: - No payment instrument found for failed payment",
                     "payment_transaction_id": str(payment.payment_transaction_id),
                 }
                 logging.error(json_dumps(log_dict))
@@ -343,7 +343,7 @@ async def process_pending_coinbase_transaction(payment: PaymentTransaction) -> N
             )
         else:
             log_dict = {
-                "message": "❌ - Pending Coinbase transaction status unknown or still pending",
+                "message": ":x: - Pending Coinbase transaction status unknown or still pending",
                 "payment_transaction_id": str(payment.payment_transaction_id),
                 "transaction_id": payment.partner_reference_id,
                 "status": status,
@@ -353,7 +353,7 @@ async def process_pending_coinbase_transaction(payment: PaymentTransaction) -> N
 
     except Exception as e:
         log_dict = {
-            "message": "❌ - Failed to process pending Coinbase transaction",
+            "message": ":x: - Failed to process pending Coinbase transaction",
             "payment_transaction_id": str(payment.payment_transaction_id),
             "transaction_id": payment.partner_reference_id,
             "error": str(e),

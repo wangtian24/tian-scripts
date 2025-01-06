@@ -419,7 +419,7 @@ class CoinbaseFacilitator(BaseFacilitator):
             # If we get here, we've timed out
             # Do not reverse the transaction here as the txn might still complete
             log_dict = {
-                "message": f"🔴 *Coinbase retail payout monitoring timed out*\n"
+                "message": f":red_circle: *Coinbase retail payout monitoring timed out*\n"
                 f"account_id: {account_id}\n"
                 f"transaction_id: {transaction_id}\n"
                 f"payment_transaction_id: {payment_transaction_id}\n"

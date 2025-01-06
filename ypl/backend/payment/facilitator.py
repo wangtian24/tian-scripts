@@ -414,7 +414,7 @@ class OnChainFacilitator(BaseFacilitator):
             elif str(transfer.status).lower() == Transaction.Status.FAILED.value.lower():
                 user_name = await fetch_user_name(user_id)
                 log_dict = {
-                    "message": "🔴 *Crypto transfer failed*",
+                    "message": ":red_circle: *Crypto transfer failed*",
                     "transaction_id": transfer.transaction_hash,
                     "payment_transaction_id": payment_transaction_id,
                     "points_transaction_id": points_transaction_id,
@@ -450,7 +450,7 @@ class OnChainFacilitator(BaseFacilitator):
                 # TODO: Send alert to Slack
                 # do not reverse the transaction here as the txn might still complete
                 log_dict = {
-                    "message": "🔴 *Crypto transfer monitoring timed out*",
+                    "message": ":red_circle: *Crypto transfer monitoring timed out*",
                     "transaction_id": transfer.transaction_hash,
                     "payment_transaction_id": payment_transaction_id,
                     "points_transaction_id": points_transaction_id,

@@ -143,7 +143,7 @@ class CryptoRewardProcessor:
             min_balance = MIN_BALANCES.get(CurrencyEnum(asset_id.upper()), Decimal("0"))
             if asset_balance < min_balance + total_required and settings.ENVIRONMENT == "production":
                 message = (
-                    f"🔴 *Low Balance Alert*\n"
+                    f":red_circle: *Low Balance Alert*\n"
                     f"Asset: {asset_id.upper()}\n"
                     f"Current Balance: {asset_balance}\n"
                     f"Current Transaction Required: {total_required}\n"

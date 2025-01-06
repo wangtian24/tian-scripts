@@ -228,7 +228,7 @@ async def process_coinbase_retail_payout(payout: CoinbaseRetailPayout) -> tuple[
     min_balance = MIN_BALANCES.get(payout.currency, Decimal("0"))
     if available_balance < payout.amount + min_balance:
         message = (
-            f"🔴 *Low Balance Alert*\n"
+            f":red_circle: *Low Balance Alert*\n"
             f"Asset: {payout.currency.value}\n"
             f"Coinbase RetailAccount ID: {account_id}\n"
             f"Current Balance: {available_balance}\n"
