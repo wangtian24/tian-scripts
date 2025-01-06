@@ -263,6 +263,7 @@ def test_fast_compute_all_conf_overlap_diffs() -> None:
     assert vals.tolist() == approx([0.0])
 
 
+@patch("ypl.backend.llm.routing.router.PromptModifierLabeler.alabel")
 @patch("ypl.backend.llm.routing.router.YuppMultilabelClassifier.alabel")
 @patch("ypl.backend.llm.routing.router.YuppOnlinePromptLabeler.alabel")
 @patch("ypl.backend.llm.routing.router.HighErrorRateFilter.select_models")
@@ -283,10 +284,12 @@ async def test_simple_pro_router(
     mock_error_filter: Mock,
     mock_alabel: Mock,
     mock_topic_categorizer: Mock,
+    mock_modifier_labeler: Mock,
 ) -> None:
     # Test that we get different models
     mock_alabel.return_value = asyncio.Future()
     mock_alabel.return_value.set_result("advice")
+    mock_modifier_labeler.return_value = ["concise"]
     mock_topic_categorizer.return_value = []
     mock_routing_table.return_value = RoutingTable([])
     pro_models = {"pro1", "pro2", "pro3", "pro4"}

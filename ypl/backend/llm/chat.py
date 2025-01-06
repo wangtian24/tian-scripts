@@ -524,7 +524,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         required_models: list[str] | None = None,
         show_me_more_models: list[str] | None = None,
         provided_categories: list[str] | None = None,
-    ) -> tuple[list[str], list[str]]:
+    ) -> tuple[list[str], list[str], list[str]]:
         num_models = request.num_models
         router = await get_simple_pro_router(
             prompt,
@@ -544,7 +544,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         )
         fallback_models = router.select_models(state=all_fallback_models).get_sorted_selected_models()
 
-        return return_models, fallback_models
+        return return_models, fallback_models, selected_models.applicable_modifiers
 
     match request.intent:
         case SelectIntent.NEW_CHAT | SelectIntent.NEW_TURN:
@@ -582,7 +582,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
     else:
         models = request.required_models or []
 
-    models, fallback_models = await select_models_(
+    models, fallback_models, applicable_modifiers = await select_models_(
         required_models=models,
         show_me_more_models=show_me_more_models,
         provided_categories=request.provided_categories,
@@ -599,7 +599,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         else:
             modifier_history = {}
 
-        prompt_modifiers = selector.select_modifiers(models + fallback_models, modifier_history)
+        prompt_modifiers = selector.select_modifiers(models + fallback_models, modifier_history, applicable_modifiers)
 
         if request.turn_id:
             GlobalThreadPoolExecutor.get_instance().submit(store_modifiers, request.turn_id, prompt_modifiers)

@@ -1026,3 +1026,19 @@ The second score between 0 and 100 is the similarity score. Do not explain; only
 """
 
 SEMANTIC_DIFF_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([("human", SEMANTIC_DIFF_PROMPT)])
+JUDGE_PROMPT_MODIFIER_PROMPT_TEMPLATE = """
+You are an AI assistant specialized in determining which modifications can be provided as instructions to another AI assistant
+to change the style of a response to a prompt.
+
+The following are the prompt modifiers available, and the instructions that would be provided to another AI assistant for each:
+
+{modifiers}
+
+Here is a user's prompt. Respond with a comma-separated list of modifier names that could be applied to the prompt.
+Do not wrap the list in any markup.
+
+User's message:
+{prompt}
+"""
+
+JUDGE_PROMPT_MODIFIER_PROMPT = ChatPromptTemplate.from_messages([("human", JUDGE_PROMPT_MODIFIER_PROMPT_TEMPLATE)])

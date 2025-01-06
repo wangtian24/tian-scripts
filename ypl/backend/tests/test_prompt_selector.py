@@ -1,5 +1,6 @@
 from collections import defaultdict
 
+import ypl.db.all_models  # noqa
 from ypl.backend.llm.prompt_selector import CategorizedPromptModifierSelector, PromptModifierPolicy
 from ypl.db.chats import PromptModifier
 
@@ -23,6 +24,7 @@ def test_select_modifiers() -> None:
     selector.set_seed(123, overwrite_existing=True)
     tone_modifier1, tone_modifier2 = selector.modifiers_by_category["tone"][:2]
     length_modifier = selector.modifiers_by_category["length"][0]
+    applicable_modifiers = [m.name for m in selector.modifiers_by_id.values()]
 
     models = ["model1", "model2", "model3", "model4"]
     history: dict[str, list[str]] = {
@@ -31,7 +33,7 @@ def test_select_modifiers() -> None:
         "model3": [],
     }
 
-    modifiers = selector.select_modifiers(models, history)
+    modifiers = selector.select_modifiers(models, history, applicable_modifiers)
 
     # All models should be modified.
     assert len(modifiers) == len(models)
@@ -45,7 +47,7 @@ def test_select_modifiers() -> None:
 
     # If we don't modify all models, only one should be modified.
     selector.policy.modify_all_models = False
-    modifiers = selector.select_modifiers(models, history)
+    modifiers = selector.select_modifiers(models, history, applicable_modifiers)
 
     assert len(modifiers) < len(models)
 
@@ -55,7 +57,7 @@ def test_select_modifiers() -> None:
 
     selector.policy.reuse_previous_modifiers = False
     selector.policy.modify_all_models = True
-    modifiers = selector.select_modifiers(models, history)
+    modifiers = selector.select_modifiers(models, history, applicable_modifiers)
     assert len(modifiers) == len(models)
     # At least one of the new modifiers should be different from the modifier history.
     has_changed = False
@@ -68,7 +70,7 @@ def test_select_modifiers() -> None:
     selector.policy.modify_all_models = False
     randomly_modified_models = set()
     for _ in range(20):
-        modifiers = selector.select_modifiers(models, history)
+        modifiers = selector.select_modifiers(models, history, applicable_modifiers)
         # Every time, only one model should be modified.
         assert len(modifiers) == 1
         randomly_modified_models.add(next(iter(modifiers.keys())))
@@ -78,7 +80,7 @@ def test_select_modifiers() -> None:
     selector.policy.modify_last_model = True
     randomly_modified_models = set()
     for _ in range(20):
-        modifiers = selector.select_modifiers(models, history)
+        modifiers = selector.select_modifiers(models, history, applicable_modifiers)
         # The same model should be modified each time.
         assert len(modifiers) == 1
         randomly_modified_models.add(next(iter(modifiers.keys())))
@@ -89,7 +91,7 @@ def test_select_modifiers() -> None:
 
     for num_categories_to_modify in range(1, 4):
         selector.policy.num_categories_to_modify = num_categories_to_modify
-        modifiers = selector.select_modifiers(models)
+        modifiers = selector.select_modifiers(models, applicable_modifiers=applicable_modifiers)
         modifier_by_category: dict[str, list[PromptModifier]] = defaultdict(list)
         for model_modifiers in modifiers.values():
             for id, _ in model_modifiers:
@@ -100,3 +102,14 @@ def test_select_modifiers() -> None:
         # Check that each modifier belongs to the correct category.
         for category, category_modifiers in modifier_by_category.items():
             assert all(modifier.category.value == category for modifier in category_modifiers)
+
+    # Check restriction to applicable modifiers.
+    applicable_modifiers_with_ids = [(str(m.prompt_modifier_id), m.name) for m in selector.modifiers_by_id.values()]
+
+    for i in range(len(applicable_modifiers_with_ids)):
+        applicable_modifier_ids = [m[0] for m in applicable_modifiers_with_ids[i:]]
+        applicable_modifier_names = [m[1] for m in applicable_modifiers_with_ids[i:]]
+        modifiers = selector.select_modifiers(models, applicable_modifiers=applicable_modifier_names)
+        for model in models:
+            selected_modifier_ids = {m[0] for m in modifiers[model]}
+            assert selected_modifier_ids.issubset(set(applicable_modifier_ids))

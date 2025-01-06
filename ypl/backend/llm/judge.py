@@ -9,14 +9,17 @@ import vertexai.preview
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 from pydantic import BaseModel as BaseModelV1
+from sqlmodel import Session, select
 from vertexai.preview.generative_models import GenerativeModel
 
+from ypl.backend.db import get_engine
+from ypl.backend.llm.chat import ModelInfo
 from ypl.backend.llm.constants import MODEL_HEURISTICS
 from ypl.backend.llm.labeler import InputType, LLMLabeler, OnErrorBehavior, OutputType
-from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.prompt_classifiers import CategorizerResponse, PromptCategorizer
 from ypl.backend.prompts import (
     FEEDBACK_QUALITY_PROMPT_TEMPLATE,
+    JUDGE_PROMPT_MODIFIER_PROMPT,
     JUDGE_QUICK_RESPONSE_QUALITY_PROMPT_TEMPLATE,
     JUDGE_RESPONSE_REFUSAL_PROMPT,
     JUDGE_YUPP_CHAT_PROMPT_SPEED_AWARE_TEMPLATE,
@@ -29,6 +32,7 @@ from ypl.backend.prompts import (
     RESPONSE_DIFFICULTY_PROMPT_TEMPLATE,
     RESPONSE_QUALITY_PROMPT_TEMPLATE,
 )
+from ypl.db.chats import PromptModifier
 
 DEFAULT_PROMPT_DIFFICULTY = 4  # Most common value.
 LOW_PROMPT_DIFFICULTY = 1
@@ -210,8 +214,8 @@ class YuppSingleDifficultyLabeler(LLMLabeler[str, int]):
         return -1
 
 
-class YuppOnlinePromptLabeler(PromptCategorizer, LLMLabeler[str, bool]):
-    cached = True
+class TruncatedPromptLabeler(LLMLabeler[str, OutputType]):
+    """Truncates the prompt to a maximum length."""
 
     def __init__(
         self,
@@ -223,11 +227,15 @@ class YuppOnlinePromptLabeler(PromptCategorizer, LLMLabeler[str, bool]):
         super().__init__(llm, timeout_secs, on_error)
         self.max_prompt_len = max_prompt_len
 
-    def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
-        return JUDGE_YUPP_ONLINE_PROMPT_TEMPLATE | llm  # type: ignore
-
     def _prepare_input(self, input: str) -> dict[str, Any]:
         return dict(prompt=input[: self.max_prompt_len] + "..." if len(input) > self.max_prompt_len else input)
+
+
+class YuppOnlinePromptLabeler(PromptCategorizer, TruncatedPromptLabeler[bool]):
+    cached = True
+
+    def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
+        return JUDGE_YUPP_ONLINE_PROMPT_TEMPLATE | llm  # type: ignore
 
     def _parse_output(self, output: BaseMessage) -> bool:
         return "true" in str(output.content).lower()
@@ -286,6 +294,37 @@ class YuppMultilabelClassifier(LLMLabeler[str, list[str]]):
             return item
 
         return self.error_value
+
+    @property
+    def error_value(self) -> list[str]:
+        return []
+
+
+class PromptModifierLabeler(TruncatedPromptLabeler[list[str]]):
+    modifiers: str = ""
+
+    def init_modifiers(self) -> None:
+        with Session(get_engine()) as session:
+            results = session.exec(
+                select(PromptModifier.name, PromptModifier.text).where(PromptModifier.deleted_at.is_(None))  # type: ignore
+            ).all()
+            self.modifiers = "\n" + "\n".join([f"{name}: {text}" for name, text in results]) + "\n"
+
+    def _prepare_input(self, input: str) -> dict[str, Any]:
+        if not self.modifiers:
+            # Get them for the first time.
+            self.init_modifiers()
+        input_with_prompt = super()._prepare_input(input)
+        return input_with_prompt | dict(modifiers=self.modifiers)
+
+    def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
+        return JUDGE_PROMPT_MODIFIER_PROMPT | llm  # type: ignore
+
+    def _parse_output(self, output: BaseMessage) -> list[str]:
+        try:
+            return [item.strip() for item in str(output.content).split(",")]
+        except ValueError:
+            return self.error_value
 
     @property
     def error_value(self) -> list[str]:

@@ -27,7 +27,7 @@ from ypl.backend.llm.chat import (
     get_all_strong_models,
 )
 from ypl.backend.llm.constants import MODEL_HEURISTICS, ChatProvider
-from ypl.backend.llm.judge import YuppMultilabelClassifier, YuppOnlinePromptLabeler
+from ypl.backend.llm.judge import PromptModifierLabeler, YuppMultilabelClassifier, YuppOnlinePromptLabeler
 from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.ranking import ConfidenceIntervalRankerMixin, Ranker, get_ranker
 from ypl.backend.llm.routing.policy import SelectionCriteria, decayed_random_fraction
@@ -49,6 +49,7 @@ class RouterState(BaseModel):
     all_models: set[str] = set()  # all models to choose from
     always_include: bool = False  # override exclusion while combining states
     always_include_models: set[str] = set()
+    applicable_modifiers: list[str] = []  # Currently, modifiers are applicable to all selected models.
 
     def emplaced(self, **kwargs: Any) -> "RouterState":
         """
@@ -300,6 +301,19 @@ class Passthrough(RouterModule):
         return state
 
 
+class ModifierAnnotator(RouterModule):
+    """Just adds the applicable modifiers to the state."""
+
+    def __init__(self, modifiers: list[str]) -> None:
+        self.modifiers = modifiers
+
+    def _select_models(self, state: RouterState) -> RouterState:
+        return state.emplaced(applicable_modifiers=self.modifiers)
+
+    async def _aselect_models(self, state: RouterState) -> RouterState:
+        return state.emplaced(applicable_modifiers=self.modifiers)
+
+
 class ConsoleDebugPrinter(RouterModule):
     def _select_models(self, state: RouterState) -> RouterState:
         print(state)
@@ -336,6 +350,7 @@ class RoutingDecisionLogger(RouterModule):
                 candidate_model_names=list(state.all_models),
                 chosen_model_names=list(state.selected_models.keys()),
                 selection_criteria=criterias,
+                applicable_prompt_modifiers=state.applicable_modifiers,
                 **self.metadata,
             )
             decision.log()
@@ -1166,6 +1181,7 @@ class RoutingDecision:
         candidate_model_names: Sequence[str],
         chosen_model_names: Sequence[str],
         selection_criteria: Sequence[tuple[str, float]],
+        applicable_prompt_modifiers: Sequence[str],
         **kwargs: Any,
     ) -> None:
         """
@@ -1184,6 +1200,7 @@ class RoutingDecision:
         self.candidate_model_names = candidate_model_names
         self.chosen_model_names = chosen_model_names
         self.selection_criteria = selection_criteria
+        self.applicable_prompt_modifiers = applicable_prompt_modifiers
         self.additional_metadata = kwargs
 
     def log(self) -> None:
@@ -1198,6 +1215,7 @@ class RoutingDecision:
             "candidate_model_names": self.candidate_model_names,
             "chosen_model_names": self.chosen_model_names,
             "selection_criteria": self.selection_criteria,
+            "applicable_prompt_modifiers": self.applicable_prompt_modifiers,
             "additional_metadata": self.additional_metadata,
         }
 
@@ -1526,7 +1544,7 @@ gemini_2_flash_llm = GeminiLangChainAdapter(
         project_id=settings.GCP_PROJECT_ID,
         region=settings.GCP_REGION_GEMINI_2,
         temperature=0.0,
-        max_output_tokens=16,
+        max_output_tokens=32,
         top_k=1,
     ),
 )
@@ -1537,6 +1555,11 @@ online_yupp_model = YuppOnlinePromptLabeler(
 )
 
 topic_categorizer = YuppMultilabelClassifier(
+    gemini_2_flash_llm,
+    timeout_secs=settings.ROUTING_TIMEOUT_SECS,
+)
+
+modifier_categorizer = PromptModifierLabeler(
     gemini_2_flash_llm,
     timeout_secs=settings.ROUTING_TIMEOUT_SECS,
 )
@@ -1555,14 +1578,16 @@ async def get_simple_pro_router(
 
     preference = routing_preference or RoutingPreference(turns=[])
     reputable_proposer = RandomModelProposer(providers=reputable_providers or set(settings.ROUTING_REPUTABLE_PROVIDERS))
-    responses: tuple[bool, list[str]] = await asyncio.gather(
+    responses: tuple[bool, list[str], list[str]] = await asyncio.gather(
         online_yupp_model.alabel(prompt),
         topic_categorizer.alabel(prompt),
+        modifier_categorizer.alabel(prompt),
     )
 
     online_category = "online" if responses[0] else "offline"
     categories = [online_category] + responses[1] + (provided_categories or [])
     categories = list(dict.fromkeys(categories))
+    applicable_modifiers = responses[2]
 
     rule_proposer = RoutingRuleProposer(*categories)
     rule_filter = RoutingRuleFilter(*categories)
@@ -1598,6 +1623,7 @@ async def get_simple_pro_router(
             | ProviderFilter(one_per_provider=True)
             | Inject(user_selected_models or [], score=10000000)
             | TopK(num_models)
+            | ModifierAnnotator(applicable_modifiers)
             | RoutingDecisionLogger(
                 enabled=settings.ROUTING_DO_LOGGING,
                 prefix="first-prompt-simple-pro-router",
@@ -1662,6 +1688,7 @@ async def get_simple_pro_router(
             | ProviderFilter(one_per_provider=True)
             | Inject(user_selected_models or [], score=100000000)
             | TopK(num_models)
+            | ModifierAnnotator(applicable_modifiers)
             | RoutingDecisionLogger(
                 enabled=settings.ROUTING_DO_LOGGING,
                 prefix="nonfirst-prompt-simple-pro-router",

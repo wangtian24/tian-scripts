@@ -106,7 +106,10 @@ class CategorizedPromptModifierSelector(RNGMixin):
         self.policy = policy
 
     def select_modifiers(
-        self, models: list[str], modifier_history: dict[str, list[str]] | None = None
+        self,
+        models: list[str],
+        modifier_history: dict[str, list[str]] | None = None,
+        applicable_modifiers: list[str] | None = None,
     ) -> dict[str, list[tuple[str, str]]]:
         """
         Selects a set of prompt modifiers for a given list of models.
@@ -117,12 +120,15 @@ class CategorizedPromptModifierSelector(RNGMixin):
         Args:
             models: A list of model names.
             modifier_history: A dictionary mapping model names to previously chosen modifier IDs.
+            applicable_modifiers: A list of modifier IDs that are applicable to the models.
 
         Returns:
             A dictionary mapping each model name to its selected modifier, as a tuple of (ID, text).
         """
         if modifier_history is None:
             modifier_history = {}
+        if applicable_modifiers is None:
+            applicable_modifiers = []
 
         modifiers_by_model: dict[str, list[PromptModifier]] = {}
 
@@ -185,6 +191,7 @@ class CategorizedPromptModifierSelector(RNGMixin):
                     str(modifier.prompt_modifier_id)
                     for modifier in self.modifiers_by_category[category]
                     if str(modifier.prompt_modifier_id) not in already_used_modifiers
+                    and modifier.name in applicable_modifiers
                 ]
                 if not available_modifier_ids:
                     continue
