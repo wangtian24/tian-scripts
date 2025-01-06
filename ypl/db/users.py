@@ -193,6 +193,14 @@ class WaitlistStatus(enum.Enum):
     PENDING = "PENDING"
 
 
+class WaitlistType(enum.Enum):
+    # User does not have a special invite code
+    NO_INVITE_CODE = "NO_INVITE_CODE"
+    # User does not have an account with one of the supported authentication providers
+    # (currently Google is the only supported provider)
+    SIGN_IN_METHOD_NOT_AVAILABLE = "SIGN_IN_METHOD_NOT_AVAILABLE"
+
+
 class WaitlistedUser(BaseModel, table=True):
     """Represents users who have signed up for the waitlist."""
 
@@ -219,3 +227,8 @@ class WaitlistedUser(BaseModel, table=True):
     google_account_tokens: dict[str, Any] = Field(default_factory=dict, sa_type=JSONB, nullable=True)
     # Profile image
     user_image_url: str | None = Field(default=None, sa_type=sa.Text)
+
+    # The type of waitlist that the user is on. Nullable for existing legacy entries.
+    waitlist_type: WaitlistType | None = Field(
+        sa_column=Column(sa.Enum(WaitlistType), nullable=True),
+    )
