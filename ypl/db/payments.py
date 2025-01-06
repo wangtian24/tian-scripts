@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import Column, Numeric
 from sqlalchemy import Enum as SQLAlchemyEnum
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship
 
 from ypl.db.base import BaseModel
@@ -59,6 +60,9 @@ class PaymentInstrument(BaseModel, table=True):
 
     identifier_type: PaymentInstrumentIdentifierTypeEnum = Field(nullable=False)
     identifier: str = Field(nullable=False)
+
+    # JSON metadata for storing additional instrument-specific data
+    instrument_metadata: dict | None = Field(sa_column=Column(JSONB, nullable=True))
 
     source_transactions: list["PaymentTransaction"] = Relationship(
         back_populates="source_instrument",

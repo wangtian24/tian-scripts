@@ -2,7 +2,7 @@ import os
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Connection, select, update
+from sqlalchemy import Connection, insert, select, update
 from sqlmodel import Session
 
 from ypl.db.payments import PaymentInstrument, PaymentInstrumentFacilitatorEnum, PaymentInstrumentIdentifierTypeEnum
@@ -21,7 +21,7 @@ def add_plaid_payment_instrument(connection: Connection) -> None:
             raise ValueError("SYSTEM user not found")
 
         existing = session.exec(
-            select(PaymentInstrument).where(
+            select(PaymentInstrument.payment_instrument_id).where(
                 PaymentInstrument.user_id == system_user[0],
                 PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.PLAID,
                 PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.BANK_ACCOUNT_NUMBER,
@@ -36,7 +36,7 @@ def add_plaid_payment_instrument(connection: Connection) -> None:
         # It does not matter what account number we use here as for prod,
         # we will update the account in a separate script
         new_uuid = uuid.uuid4()
-        payment_instrument = PaymentInstrument(
+        stmt = insert(PaymentInstrument).values(
             payment_instrument_id=new_uuid,
             user_id=system_user[0],
             facilitator=PaymentInstrumentFacilitatorEnum.PLAID,
@@ -44,7 +44,7 @@ def add_plaid_payment_instrument(connection: Connection) -> None:
             identifier=plaid_account_number,
         )
 
-        session.add(payment_instrument)
+        session.execute(stmt)
         session.commit()
 
 
@@ -58,7 +58,7 @@ def remove_plaid_payment_instrument(connection: Connection) -> None:
 
         existing = (
             session.exec(
-                select(PaymentInstrument).where(
+                select(PaymentInstrument.payment_instrument_id).where(
                     PaymentInstrument.user_id == system_user[0],
                     PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.PLAID,
                     PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.BANK_ACCOUNT_NUMBER,
@@ -71,7 +71,7 @@ def remove_plaid_payment_instrument(connection: Connection) -> None:
         if existing:
             session.exec(
                 update(PaymentInstrument)
-                .where(PaymentInstrument.payment_instrument_id == existing.payment_instrument_id)
+                .where(PaymentInstrument.payment_instrument_id == existing)
                 .values(deleted_at=datetime.now())
             )
             session.commit()

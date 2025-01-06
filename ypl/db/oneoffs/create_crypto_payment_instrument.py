@@ -2,7 +2,7 @@ import os
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Connection, select, update
+from sqlalchemy import Connection, insert, select, update
 from sqlmodel import Session
 
 from ypl.db.payments import PaymentInstrument, PaymentInstrumentFacilitatorEnum, PaymentInstrumentIdentifierTypeEnum
@@ -21,7 +21,7 @@ def add_crypto_payment_instrument(connection: Connection) -> None:
             raise ValueError("SYSTEM user not found")
 
         existing = session.exec(
-            select(PaymentInstrument).where(
+            select(PaymentInstrument.payment_instrument_id).where(
                 PaymentInstrument.user_id == system_user[0],
                 PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.ON_CHAIN,
                 PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS,
@@ -32,18 +32,16 @@ def add_crypto_payment_instrument(connection: Connection) -> None:
         if existing:
             return
 
-        # Create new payment instrument
-        # It does not matter what address we use here as for prod, we will update the address in a separate script
+        # Create new payment instrument using a raw insert to control exactly which columns are included
         new_uuid = uuid.uuid4()
-        payment_instrument = PaymentInstrument(
+        stmt = insert(PaymentInstrument).values(
             payment_instrument_id=new_uuid,
             user_id=system_user[0],
             facilitator=PaymentInstrumentFacilitatorEnum.ON_CHAIN,
             identifier_type=PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS,
             identifier=crypto_address,
         )
-
-        session.add(payment_instrument)
+        session.execute(stmt)
         session.commit()
 
 
@@ -57,7 +55,7 @@ def remove_crypto_payment_instrument(connection: Connection) -> None:
 
         existing = (
             session.exec(
-                select(PaymentInstrument).where(
+                select(PaymentInstrument.payment_instrument_id).where(
                     PaymentInstrument.user_id == system_user[0],
                     PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.ON_CHAIN,
                     PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS,
@@ -70,7 +68,7 @@ def remove_crypto_payment_instrument(connection: Connection) -> None:
         if existing:
             session.exec(
                 update(PaymentInstrument)
-                .where(PaymentInstrument.payment_instrument_id == existing.payment_instrument_id)
+                .where(PaymentInstrument.payment_instrument_id == existing)
                 .values(deleted_at=datetime.now())
             )
             session.commit()

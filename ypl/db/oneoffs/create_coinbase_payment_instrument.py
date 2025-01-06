@@ -2,7 +2,7 @@ import os
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Connection, select, update
+from sqlalchemy import Connection, insert, select, update
 from sqlmodel import Session
 
 from ypl.db.payments import PaymentInstrument, PaymentInstrumentFacilitatorEnum, PaymentInstrumentIdentifierTypeEnum
@@ -21,7 +21,7 @@ def add_coinbase_retail_wallet_payment_instrument(connection: Connection) -> Non
             raise ValueError("SYSTEM user not found")
 
         existing = session.exec(
-            select(PaymentInstrument).where(
+            select(PaymentInstrument.payment_instrument_id).where(
                 PaymentInstrument.user_id == system_user[0],
                 PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.COINBASE,
                 PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS,
@@ -35,7 +35,7 @@ def add_coinbase_retail_wallet_payment_instrument(connection: Connection) -> Non
         # Create new payment instrument
         # It does not matter what address we use here as for prod, we will update the address in a separate script
         new_uuid = uuid.uuid4()
-        payment_instrument = PaymentInstrument(
+        stmt = insert(PaymentInstrument).values(
             payment_instrument_id=new_uuid,
             user_id=system_user[0],
             facilitator=PaymentInstrumentFacilitatorEnum.COINBASE,
@@ -43,7 +43,7 @@ def add_coinbase_retail_wallet_payment_instrument(connection: Connection) -> Non
             identifier=coinbase_address,
         )
 
-        session.add(payment_instrument)
+        session.execute(stmt)
         session.commit()
 
 
@@ -57,7 +57,7 @@ def remove_coinbase_retail_wallet_payment_instrument(connection: Connection) -> 
 
         existing = (
             session.exec(
-                select(PaymentInstrument).where(
+                select(PaymentInstrument.payment_instrument_id).where(
                     PaymentInstrument.user_id == system_user[0],
                     PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.COINBASE,
                     PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS,
@@ -70,7 +70,7 @@ def remove_coinbase_retail_wallet_payment_instrument(connection: Connection) -> 
         if existing:
             session.exec(
                 update(PaymentInstrument)
-                .where(PaymentInstrument.payment_instrument_id == existing.payment_instrument_id)
+                .where(PaymentInstrument.payment_instrument_id == existing)
                 .values(deleted_at=datetime.now())
             )
             session.commit()
