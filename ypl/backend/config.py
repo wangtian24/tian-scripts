@@ -1,6 +1,8 @@
+import json
 import os
 import secrets
 import warnings
+from functools import cached_property
 from typing import Annotated, Any, Literal, Self
 
 import sqlalchemy
@@ -12,6 +14,8 @@ from pydantic import (
     model_validator,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from ypl.backend.utils.json import json_dumps
 
 DEFAULT_UNSAFE_PASSWORD = "changethis"
 
@@ -120,6 +124,39 @@ class Settings(BaseSettings):
     # The base URL of the yupp-head app, set to staging by default.
     # Example use case: when updating models on yupp-mind, we need to revalidate the model caches on yupp-head too.
     YUPP_HEAD_APP_BASE_URL: str = "https://chaos.yupp.ai"
+
+    def _get_gcp_secret(self, secret_name: str) -> str:
+        """Retrieve secret from Google Cloud Secret Manager."""
+
+        from google.cloud import secretmanager
+
+        try:
+            if not self.GCP_PROJECT_ID:
+                return ""
+
+            client = secretmanager.SecretManagerServiceClient()
+            name = f"projects/{self.GCP_PROJECT_ID}/secrets/{secret_name}/versions/latest"
+            response = client.access_secret_version(request={"name": name})
+            return response.payload.data.decode("UTF-8")
+        except Exception as e:
+            import logging
+
+            logging.error(
+                json_dumps(
+                    {
+                        "message": "Error retrieving secret from Google Cloud Secret Manager",
+                        "error": str(e),
+                        "secret_name": secret_name,
+                    }
+                )
+            )
+
+            return ""
+
+    @computed_field  # type: ignore[misc]
+    @cached_property
+    def axis_upi_config(self) -> dict:
+        return json.loads(self._get_gcp_secret(f"axis-upi-config-{self.ENVIRONMENT}"))  # type: ignore[no-any-return]
 
     @computed_field  # type: ignore[misc]
     @property

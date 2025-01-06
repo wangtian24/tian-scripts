@@ -123,11 +123,12 @@ class BaseFacilitator(ABC):
         destination_additional_details: dict | None = None,
     ) -> "BaseFacilitator":
         from ypl.backend.payment.coinbase.coinbase_facilitator import CoinbaseFacilitator
-        from ypl.backend.payment.facilitator import OnChainFacilitator, UpiFacilitator
+        from ypl.backend.payment.facilitator import OnChainFacilitator
         from ypl.backend.payment.plaid.plaid_facilitator import PlaidFacilitator
+        from ypl.backend.payment.upi.axis.facilitator import AxisUpiFacilitator
 
         if currency == CurrencyEnum.INR:
-            return UpiFacilitator(currency, destination_identifier_type, facilitator)
+            return AxisUpiFacilitator(currency, destination_identifier_type, facilitator)
         elif currency.is_crypto():
             if facilitator == PaymentInstrumentFacilitatorEnum.COINBASE:
                 return CoinbaseFacilitator(currency, destination_identifier_type, facilitator)
@@ -140,11 +141,11 @@ class BaseFacilitator(ABC):
 
     @staticmethod
     async def for_transaction_reference_id(transaction_reference_id: str) -> "BaseFacilitator":
-        from ypl.backend.payment.facilitator import UpiFacilitator
+        from ypl.backend.payment.upi.axis.facilitator import AxisUpiFacilitator
 
         # TODO: Implement this
         # 1. Fetch the transaction details from the db.
         # 2. Return the facilitator for the transaction.
-        return UpiFacilitator(
+        return AxisUpiFacilitator(
             CurrencyEnum.INR, PaymentInstrumentIdentifierTypeEnum.PHONE_NUMBER, PaymentInstrumentFacilitatorEnum.UPI
         )
