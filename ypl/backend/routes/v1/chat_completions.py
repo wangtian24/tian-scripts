@@ -69,7 +69,7 @@ class ChatRequest(BaseModel):
         default=False,
         description="If true, include the chat history of all responding models.",
     )
-    user_message_id: uuid.UUID = Field(..., description="Message ID of the user message")
+    user_message_id: uuid.UUID | None = Field(None, description="Message ID of the user message")
 
 
 STREAMING_ERROR_TEXT: str = "\n\\<streaming stopped unexpectedly\\>"
@@ -307,7 +307,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                 message_metadata=message_metadata,
                 completion_status=stream_completion_status,
             )
-            if chat_request.attachment_ids:
+            if chat_request.attachment_ids and chat_request.user_message_id:
                 await link_attachments(chat_request.user_message_id, chat_request.attachment_ids)
             # Send persistence success status
             yield StreamResponse(
