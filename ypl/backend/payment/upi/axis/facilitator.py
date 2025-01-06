@@ -8,6 +8,9 @@ from ypl.db.payments import CurrencyEnum, PaymentInstrumentIdentifierTypeEnum, P
 
 
 class AxisUpiFacilitator(BaseFacilitator):
+    # Only used as a placeholder. This ID will not be sent to the bank during the payment request.
+    SOURCE_INSTRUMENT_UPI_ID = "AXIS"
+
     async def get_balance(self, currency: CurrencyEnum) -> Decimal:
         return await get_balance()
 
