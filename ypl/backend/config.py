@@ -137,7 +137,7 @@ class Settings(BaseSettings):
             client = secretmanager.SecretManagerServiceClient()
             name = f"projects/{self.GCP_PROJECT_ID}/secrets/{secret_name}/versions/latest"
             response = client.access_secret_version(request={"name": name})
-            return response.payload.data.decode("UTF-8")
+            return response.payload.data.decode("UTF-8") or ""
         except Exception as e:
             import logging
 

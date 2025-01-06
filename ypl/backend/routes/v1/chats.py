@@ -460,8 +460,8 @@ async def get_prompt_modifiers() -> list[PromptModifierInfo]:
 
 class TurnAnnotationsResponse(BaseModel):
     comment: str | None = None
-    positive_notes: list[str] | None = None
-    negative_notes: list[str] | None = None
+    positive_notes: list[tuple[str, str]] | None = None
+    negative_notes: list[tuple[str, str]] | None = None
 
 
 @router.get("/chats/{chat_id}/turns/{turn_id}/turn_annotations", response_model=TurnAnnotationsResponse)
@@ -479,8 +479,10 @@ async def get_turn_annotations(
             if details:
                 details_dict = json.loads(details)
                 response.comment = details_dict.get("comment")
-                response.positive_notes = details_dict.get("positive_notes")
-                response.negative_notes = details_dict.get("negative_notes")
+                if "positive_notes" in details_dict:
+                    response.positive_notes = [n.rsplit(maxsplit=1) for n in details_dict["positive_notes"]]
+                if "negative_notes" in details_dict:
+                    response.negative_notes = [n.rsplit(maxsplit=1) for n in details_dict["negative_notes"]]
     except Exception as e:
         log_dict = {"message": f"Error getting annotations for turn {turn_id}: {str(e)}"}
         logging.exception(json_dumps(log_dict))
