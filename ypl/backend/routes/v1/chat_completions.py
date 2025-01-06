@@ -1,4 +1,4 @@
-import asyncio  # noqa: I001
+import asyncio
 import json
 import logging
 import traceback
@@ -6,7 +6,7 @@ import uuid
 from collections.abc import AsyncIterator
 from datetime import datetime
 from typing import Any
-from ypl.backend.config import settings
+
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -16,16 +16,20 @@ from sqlalchemy import func
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine
 from ypl.backend.llm.attachment import link_attachments
 from ypl.backend.llm.chat import Intent, check_for_stop_request, get_curated_chat_context, upsert_chat_message
+from ypl.backend.llm.crawl import enhance_citations
 from ypl.backend.llm.model.model import ModelResponseTelemetry
 from ypl.backend.llm.provider.provider_clients import get_language_model, get_provider_client
 from ypl.backend.llm.sanitize_messages import DEFAULT_MAX_TOKENS, sanitize_messages
 from ypl.backend.prompts import get_system_prompt_with_modifiers
 from ypl.backend.utils.json import json_dumps
-from ypl.db.chats import AssistantSelectionSource, ChatMessage, CompletionStatus, PromptModifierAssoc, MessageType
+from ypl.db.chats import AssistantSelectionSource, ChatMessage, CompletionStatus, MessageType, PromptModifierAssoc
 from ypl.db.language_models import LanguageModel
+
+CITATION_EXTRACTION_TIMEOUT = 20.0
 
 
 class StreamResponse:
@@ -202,7 +206,9 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
         response_tokens_num = 0
         full_response = ""
         message_metadata: dict[str, Any] = {}
-        chunk = None
+        chunk = None  # Define chunk outside the try block
+        metadata_future = None
+        default_citations = []
         eager_persist_task_yielded = False
         stream_completion_status: CompletionStatus = CompletionStatus.SUCCESS
         try:
@@ -220,10 +226,14 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                     yield StreamResponse({"content": content, "model": chat_request.model}).encode()
                 if hasattr(chunk, "response_metadata") and chunk.response_metadata is not None:
                     if chunk.response_metadata:
-                        message_metadata = add_metadata(message_metadata, chunk.response_metadata)
-                        yield StreamResponse(
-                            {"metadata": chunk.response_metadata, "model": chat_request.model}
-                        ).encode()
+                        if "citations" in chunk.response_metadata and chunk.response_metadata["citations"]:
+                            default_citations = [
+                                {"title": url, "description": "", "url": url}
+                                for url in chunk.response_metadata["citations"]
+                            ]
+                            metadata_future = asyncio.create_task(
+                                enhance_citations(chunk.response_metadata["citations"])
+                            )
                 # While streaming, yield (only once) if message was eager persisted.
                 if eager_persist_task.done() and not eager_persist_task_yielded:
                     eager_persist_task_yielded = True
@@ -292,6 +302,15 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
         )
 
         try:
+            if metadata_future:
+                try:
+                    citations = await asyncio.wait_for(metadata_future, timeout=CITATION_EXTRACTION_TIMEOUT)
+                    message_metadata["citations"] = citations
+                except TimeoutError:
+                    logging.error("Timeout error while enhancing citations")
+                    message_metadata["citations"] = default_citations
+                yield StreamResponse({"metadata": message_metadata, "model": chat_request.model}).encode()
+
             # upsert
             await upsert_chat_message(
                 intent=Intent.FINAL_PERSIST,
@@ -366,13 +385,6 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
 
 async def error_stream(error_message: str) -> AsyncIterator[str]:
     yield StreamResponse({"error": error_message, "code": "initialization_error"}, "error").encode()
-
-
-def add_metadata(message_metadata: dict[str, Any], metadata: dict[str, Any]) -> dict[str, Any]:
-    merged_metadata = message_metadata.copy()
-    if "citations" in metadata and metadata["citations"]:
-        merged_metadata.update({"citations": metadata["citations"]})
-    return merged_metadata
 
 
 async def _get_message(chat_request: ChatRequest) -> ChatMessage | None:
