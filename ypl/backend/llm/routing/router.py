@@ -612,16 +612,20 @@ class ModelFilter(RouterModule):
     to define the specific model filtering logic.
     """
 
-    def __init__(self, persist: bool = False) -> None:
+    def __init__(self, persist: bool = False, exempt_models: set[str] | None = None) -> None:
         """
         Args:
             persist: Whether to persist the models that are excluded from the selection, so that they are never
                 selected again in future routing modules.
+            exempt_models: The models to exempt from the filter.
         """
         self.persist = persist
+        self.exempt_models = exempt_models or set()
 
     def _select_models(self, state: RouterState) -> RouterState:
         state, excluded_models = self._filter(state)
+        excluded_models = excluded_models - self.exempt_models
+        state.excluded_models = state.excluded_models - self.exempt_models
 
         if self.persist:
             state.excluded_models = state.excluded_models.union(excluded_models)
@@ -630,6 +634,8 @@ class ModelFilter(RouterModule):
 
     async def _aselect_models(self, state: RouterState) -> RouterState:
         state, excluded_models = await self._afilter(state)
+        excluded_models = excluded_models - self.exempt_models
+        state.excluded_models = state.excluded_models - self.exempt_models
 
         if self.persist:
             state.excluded_models = state.excluded_models.union(excluded_models)
@@ -1653,6 +1659,7 @@ async def get_simple_pro_router(
                         all_bad_models.add(model)
 
         all_good_models = all_good_models - all_bad_models
+        rule_filter.exempt_models = all_good_models
 
         router: RouterModule = (  # type: ignore[no-redef]
             rule_filter
