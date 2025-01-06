@@ -1127,17 +1127,18 @@ gemini_2_flash_llm = GeminiLangChainAdapter(
 QT_LLMS = {
     "gpt-4o": openai_llm,
     "gpt-4o-mini": gpt_4o_mini_llm,
-    "gemini-1.5-flash": gemini_15_flash_llm,
-    "gemini-2.0-flash": gemini_2_flash_llm,
+    "gemini-1.5-flash-002": gemini_15_flash_llm,
+    "gemini-2.0-flash-exp": gemini_2_flash_llm,
 }
 
 QT_MAX_CONTEXT_LENGTH = {
     "gpt-4o": 128000,
     "gpt-4o-mini": 16000,
-    "gemini-2.0-flash": 1000000,
+    "gemini-1.5-flash-002": 1000000,
+    "gemini-2.0-flash-exp": 1000000,
 }
 # Models to use if no specific model was requested.
-MODELS_FOR_DEFAULT_QT = ["gpt-4o", "gpt-4o-mini", "gemini-2.0-flash"]
+MODELS_FOR_DEFAULT_QT = ["gpt-4o", "gpt-4o-mini", "gemini-2.0-flash-exp"]
 # Model to use while supplying only the prompts from the chat history, instead of the full chat history.
 MODEL_FOR_PROMPT_ONLY = "gpt-4o"
 
