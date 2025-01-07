@@ -1,9 +1,8 @@
-import sys
 import uuid
 from datetime import datetime
 
 from sqlalchemy import Connection
-from sqlmodel import Session, delete, select, update
+from sqlmodel import Session, select, update
 
 from ypl.backend.payment.upi.axis.facilitator import AxisUpiFacilitator
 from ypl.db.payments import PaymentInstrument, PaymentInstrumentFacilitatorEnum, PaymentInstrumentIdentifierTypeEnum
@@ -66,21 +65,10 @@ def remove_axis_upi_payment_instrument(connection: Connection) -> None:
             )
         ).first()
 
-        # Hack to identify if we are under test, and hard delete the payment instrument if we are.
-        # This is to avoid FK constraint violation in the downgrade test, which will happen if
-        # the UPI ID enum is dropped in one of the migrations.
-        # In a non-test environment, we will soft delete the payment instrument.
-        is_test = "pytest" in sys.modules
-
-        if existing_id and not is_test:
+        if existing_id:
             session.exec(
                 update(PaymentInstrument)
                 .where(PaymentInstrument.payment_instrument_id == existing_id)
                 .values(deleted_at=datetime.now())
             )
-            session.commit()
-        elif existing_id and is_test:
-            # Delete the payment instrument in test environment as the downgrade test will fail with FK constraint
-            # violation if the UPI_ID payment instrument is present.
-            session.exec(delete(PaymentInstrument).where(PaymentInstrument.payment_instrument_id == existing_id))
             session.commit()
