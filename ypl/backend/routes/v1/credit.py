@@ -89,6 +89,14 @@ async def validate_cashout_request(request: CashoutCreditsRequest) -> None:
         and settings.ENVIRONMENT == "production"
         and request.cashout_currency.is_crypto()
     ):
+        log_dict = {
+            "message": "Crypto cashout is not supported in India",
+            "user_id": request.user_id,
+            "credits_to_cashout": request.credits_to_cashout,
+            "cashout_currency": request.cashout_currency,
+            "country_code": request.country_code,
+        }
+        logging.warning(log_dict)
         raise HTTPException(status_code=400, detail="Crypto cashout is not supported in India")
 
     if request.cashout_currency == CurrencyEnum.USD and request.facilitator == PaymentInstrumentFacilitatorEnum.PLAID:
