@@ -10,7 +10,7 @@ from sqlmodel import Field, Relationship
 
 from ypl.db.base import BaseModel
 from ypl.db.point_transactions import PointTransaction
-from ypl.db.rewards import Reward, RewardActionLog
+from ypl.db.rewards import Reward, RewardActionEnum, RewardActionLog, RewardStatusEnum
 
 if TYPE_CHECKING:
     from ypl.db.chats import Chat, Eval, Turn
@@ -93,15 +93,59 @@ class User(BaseModel, table=True):
         return len(self.chats) < NEW_USER_CHAT_THRESHOLD
 
     def is_inactive_user(self) -> bool:
-        latest_activity_at = self.get_latest_activity()
-        if latest_activity_at is None:
+        latest_turn_at = self.get_latest_turn_at()
+        if latest_turn_at is None:
             return True
-        return (datetime.now(UTC) - latest_activity_at) > INACTIVE_USER_THRESHOLD
+        return (datetime.now(UTC) - latest_turn_at) > INACTIVE_USER_THRESHOLD
 
-    def get_latest_activity(self) -> datetime | None:
+    def get_latest_turn_at(self) -> datetime | None:
         if not self.turns:
             return self.created_at
         return max((turn.created_at for turn in self.turns if turn.created_at is not None), default=self.created_at)
+
+    def get_latest_reactivation_at(self) -> datetime | None:
+        """Returns the datetime when the user most recently reactivated (had turn) after being inactive."""
+        if not self.turns:
+            return None
+
+        turns_sorted_desc = sorted(
+            (turn for turn in self.turns if turn.created_at is not None),
+            key=lambda turn: turn.created_at,  # type: ignore
+            reverse=True,
+        )
+
+        latest_turn_at = None
+        for turn in turns_sorted_desc:
+            if latest_turn_at is None:
+                latest_turn_at = turn.created_at
+                continue
+
+            gap = latest_turn_at - turn.created_at
+            if gap > INACTIVE_USER_THRESHOLD:
+                return latest_turn_at
+            latest_turn_at = turn.created_at
+
+        return None
+
+    def get_pref_rewards_count_since_reactivation(self, end_date: datetime | None = None) -> int:
+        """Returns the number of PREF rewards since the user's last reactivation, up until an optional end date."""
+        latest_reactivation_at = self.get_latest_reactivation_at()
+        if latest_reactivation_at is None:
+            return self.get_pref_rewards_count()
+        latest_reactivation_at = latest_reactivation_at.replace(tzinfo=UTC)
+        return self.get_pref_rewards_count(start_date=latest_reactivation_at, end_date=end_date)
+
+    def get_pref_rewards_count(self, start_date: datetime | None = None, end_date: datetime | None = None) -> int:
+        """Returns the number of PREF rewards within a specified date range."""
+        return sum(
+            1
+            for r in self.rewards
+            if r.status == RewardStatusEnum.CLAIMED
+            and r.reward_action_logs
+            and r.reward_action_logs[0].action_type == RewardActionEnum.TURN
+            and (start_date is None or (r.created_at is not None and r.created_at >= start_date))
+            and (end_date is None or (r.created_at is not None and r.created_at <= end_date))
+        )
 
 
 class SyntheticUserAttributes(BaseModel, table=True):

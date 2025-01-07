@@ -187,7 +187,7 @@ class UserTurnReward:
     user_id: str
     turn_id: UUID
     # TODO(carmen): Deprecate turn_position_in_chat and is_first_turn.
-    turn_position_in_chat: int = 0
+    turn_position_in_chat: int = -1
     is_first_turn: bool = False
     previous_chat_count: int = 0
     previous_eval_count_in_chat: int = 0
@@ -204,6 +204,8 @@ class UserTurnReward:
     points_last_award: int = 0
     action_type: RewardActionEnum = RewardActionEnum.TURN
     user_name: str | None = None
+    pref_rewards_count: int = -1
+    pref_rewards_count_since_reactivation: int = -1
 
     def __post_init__(self) -> None:
         self._fetch_data_and_set_flags()
@@ -230,13 +232,16 @@ class UserTurnReward:
                 )
                 return
 
-            # TODO(carmen): Deprecate turn_position_in_chat
             user, chat_id, chat_created_at, turn_created_at, self.turn_position_in_chat, turn_quality = result
 
             self.is_new_user = user.is_new_user()
             self.is_inactive_user = user.is_inactive_user()
             self.points = user.points
             self.user_name = user.name
+            self.pref_rewards_count = user.get_pref_rewards_count()
+            self.pref_rewards_count_since_reactivation = user.get_pref_rewards_count_since_reactivation(
+                end_date=turn_created_at
+            )
 
             self.is_first_eval = not session.exec(
                 select(
@@ -298,9 +303,23 @@ class UserTurnReward:
         return d
 
     def should_get_zero_reward(self) -> bool:
-        """A user gets a zero reward with a given probability, unless they have recently received a zero reward."""
+        """
+        A user gets a zero reward with a given probability, unless:
+        - last reward was 0
+        - first turn in a chat
+        - received less than 3 PREF rewards in total
+        - received less than 3 PREF rewards since their last reactivation
+        """
+        if (
+            self.points_last_award == 0
+            or self.turn_position_in_chat == 0
+            or (self.pref_rewards_count >= 0 and self.pref_rewards_count < 3)
+            or (self.pref_rewards_count_since_reactivation >= 0 and self.pref_rewards_count_since_reactivation < 3)
+        ):
+            return False
+
         zero_reward_probability = RULE_CONSTANTS.get("zero_turn_based_reward_probability", 0.0)
-        return self.points_last_award > 0 and random.random() < zero_reward_probability
+        return random.random() < zero_reward_probability  # type: ignore
 
     def _get_amount_rule(self) -> RewardAmountRule | None:
         return get_matching_rule(get_reward_amount_rules(self.action_type), self.to_dict())  # type: ignore
