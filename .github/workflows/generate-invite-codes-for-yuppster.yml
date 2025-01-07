@@ -1,0 +1,29 @@
+
+name: Generate invite codes for yuppster
+
+on:
+  workflow_dispatch:
+    inputs:
+        environment:
+          description: 'Environment to generate invite codes in'
+          required: true
+          default: 'staging'
+          type: choice
+          options:
+          - staging
+          - production
+
+jobs:
+  generate_invite_codes_for_yuppster_staging:
+    uses: ./.github/workflows/cronjob.yml
+    with:
+      command: generate-invite-codes-for-yuppster
+      environment: staging
+    secrets: inherit
+
+  generate_invite_codes_for_yuppster_production:
+    uses: ./.github/workflows/cronjob.yml
+    with:
+      command: generate-invite-codes-for-yuppster
+      environment: production
+    secrets: inherit

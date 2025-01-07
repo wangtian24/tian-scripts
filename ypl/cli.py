@@ -66,6 +66,7 @@ from ypl.backend.payment.crypto.crypto_wallet import create_wallet, get_wallet_b
 from ypl.backend.payment.payout_utils import validate_pending_cashouts_async
 from ypl.backend.payment.plaid.plaid_payout import PlaidPayout, process_plaid_payout
 from ypl.backend.utils.amplitude_analytics import post_amplitude_metrics_to_slack
+from ypl.backend.utils.generate_referral_codes import generate_invite_codes_for_yuppster_async
 from ypl.db.chats import (
     Chat,
     ChatMessage,
@@ -1345,6 +1346,13 @@ def process_a_coinbase_retail_payout(to_address: str) -> None:
 def validate_pending_cashouts() -> None:
     """Validate pending cashouts."""
     asyncio.run(validate_pending_cashouts_async())
+
+
+@cli.command()
+@db_cmd
+def generate_invite_codes_for_yuppster() -> None:
+    """Generate invite codes for all users with emails ending in specified domain."""
+    asyncio.run(generate_invite_codes_for_yuppster_async())
 
 
 if __name__ == "__main__":
