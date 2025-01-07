@@ -252,6 +252,7 @@ class RewardProbabilityRule(RewardRule, table=True):
             getattr(self, attr) == getattr(other, attr)
             for attr in set(RewardProbabilityRule.model_fields)
             - set(RewardRule.model_fields)
+            - set(BaseModel.model_fields)
             - {"reward_probability_rule_id"}
         )
 
@@ -285,5 +286,8 @@ class RewardAmountRule(RewardRule, table=True):
 
         return super().__eq__(other) and all(
             getattr(self, attr) == getattr(other, attr)
-            for attr in set(RewardAmountRule.model_fields) - set(RewardRule.model_fields) - {"reward_amount_rule_id"}
+            for attr in set(RewardAmountRule.model_fields)
+            - set(RewardRule.model_fields)
+            - set(BaseModel.model_fields)
+            - {"reward_amount_rule_id"}
         )
