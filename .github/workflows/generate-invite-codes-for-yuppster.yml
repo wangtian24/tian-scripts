@@ -1,4 +1,3 @@
-
 name: Generate invite codes for yuppster
 
 on:
@@ -14,16 +13,9 @@ on:
           - production
 
 jobs:
-  generate_invite_codes_for_yuppster_staging:
+  generate_invite_codes_for_yuppster:
     uses: ./.github/workflows/cronjob.yml
     with:
       command: generate-invite-codes-for-yuppster
-      environment: staging
-    secrets: inherit
-
-  generate_invite_codes_for_yuppster_production:
-    uses: ./.github/workflows/cronjob.yml
-    with:
-      command: generate-invite-codes-for-yuppster
-      environment: production
+      environment: ${{ inputs.environment }}
     secrets: inherit
