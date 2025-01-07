@@ -10,7 +10,7 @@ from ypl.backend.db import get_async_session
 from ypl.backend.payment.base_types import PaymentInstrumentError, PaymentProcessingError, PaymentResponse
 from ypl.backend.payment.facilitator import BaseFacilitator
 from ypl.backend.payment.payout_utils import get_destination_instrument_id, get_source_instrument_id
-from ypl.backend.payment.upi.axis.request_utils import get_balance
+from ypl.backend.payment.upi.axis.request_utils import AxisPaymentRequest, get_balance, make_payment
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import (
     CurrencyEnum,
@@ -162,6 +162,11 @@ class AxisUpiFacilitator(BaseFacilitator):
         logging.info(json_dumps(log_dict))
 
         # 4. Send the payment request to the partner.
+
+        # Pass the destination instrument ID to create a consistent unique reference ID.
+        if destination_additional_details is None:
+            destination_additional_details = {}
+        destination_additional_details["destination_instrument_id"] = destination_instrument_id
         payment_response = await self._send_payment_request(
             user_id=user_id,
             credits_to_cashout=credits_to_cashout,
@@ -212,11 +217,18 @@ class AxisUpiFacilitator(BaseFacilitator):
         destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
         destination_additional_details: dict | None = None,
     ) -> PaymentResponse:
-        # TODO: Implement this
-        return PaymentResponse(
-            payment_transaction_id=uuid.uuid4(),
-            transaction_status=PaymentTransactionStatusEnum.SUCCESS,
-            customer_reference_id="1234567890",
+        assert destination_additional_details is not None
+
+        return await make_payment(
+            AxisPaymentRequest(
+                internal_payment_transaction_id=uuid.uuid4(),
+                amount=amount,
+                destination_internal_id=destination_additional_details["destination_instrument_id"],
+                destination_upi_id=destination_identifier,
+                # TODO: Get the final message from Mouli.
+                # Ensure that the message is limited to 60 characters.
+                receiver_display_message=f"{credits_to_cashout} YUPP credits redeemed"[:60],
+            )
         )
 
     async def get_payment_status(self, payment_reference_id: str) -> PaymentTransactionStatusEnum:
