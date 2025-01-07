@@ -10,6 +10,7 @@ from ypl.backend.llm.credit import (
     get_user_credit_balance,
 )
 from ypl.backend.payment.base_types import BaseFacilitator, PaymentResponse
+from ypl.backend.payment.cashout_rate_limits import validate_user_cashout_limits
 from ypl.backend.payment.exchange_rates import get_exchange_rate
 from ypl.backend.payment.validation import validate_destination_identifier_for_currency
 from ypl.backend.utils.json import json_dumps
@@ -153,6 +154,7 @@ async def cashout_credits(request: CashoutCreditsRequest) -> str | None | Paymen
     logging.info(json_dumps(log_dict))
 
     await validate_cashout_request(request)
+    await validate_user_cashout_limits(request.user_id, request.credits_to_cashout)
 
     try:
         amount_in_currency = await convert_credits_to_currency(request.credits_to_cashout, request.cashout_currency)
