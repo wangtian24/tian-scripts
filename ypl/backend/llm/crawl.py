@@ -1,25 +1,57 @@
 import asyncio
 import logging
 from datetime import datetime
+from urllib.parse import urlparse
 
 import httpx
 from bs4 import BeautifulSoup
 
 FETCH_HTML_TIMEOUT = 10.0
 
+# TODO: Make this more dynamic or use a webscraping paid solution
+# Ref - https://scrapeops.io/web-scraping-playbook/403-forbidden-error-web-scraping/
+browser_like_headers = {
+    "Connection": "keep-alive",
+    "Cache-Control": "max-age=0",
+    "sec-ch-ua": '" Not A;Brand";v="99", "Chromium";v="99", "Google Chrome";v="99"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": "macOS",
+    "Upgrade-Insecure-Requests": "1",
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/99.0.4844.83 Safari/537.36"
+    ),
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;q=0.9,"
+        "image/avif,image/webp,image/apng,*/*;q=0.8,"
+        "application/signed-exchange;v=b3;q=0.9"
+    ),
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-User": "?1",
+    "Sec-Fetch-Dest": "document",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8",
+}
+
 
 async def get_html_from_url(url: str) -> str | None:
     try:
-        async with httpx.AsyncClient(timeout=FETCH_HTML_TIMEOUT) as client:
+        async with httpx.AsyncClient(
+            timeout=FETCH_HTML_TIMEOUT,
+            headers=browser_like_headers,
+            follow_redirects=True,
+        ) as client:
             response = await client.get(url)
-            response.raise_for_status()  # Raises an exception for 4XX/5XX status codes
+            response.raise_for_status()
             return response.text
     except httpx.TimeoutException:
-        logging.error(f"Timeout while fetching URL: {url}")
+        logging.warning(f"Citations: Timeout while fetching URL: {url}")
     except httpx.HTTPStatusError as e:
-        logging.error(f"HTTP error {e.response.status_code} while fetching URL: {url}")
+        logging.warning(f"Citations: HTTP error {e.response.status_code} while fetching URL: {url}")
     except Exception as e:
-        logging.error(f"Error fetching URL {url}: {str(e)}")
+        logging.warning(f"Citations: Could not fetch URL {url}: {str(e)}")
     return None
 
 
@@ -29,7 +61,7 @@ async def get_html_from_urls(urls: list[str]) -> list[str]:
         results = await asyncio.gather(*tasks, return_exceptions=True)
         return ["" if not isinstance(r, str) else r for r in results]
     except Exception as e:
-        logging.error(f"Error fetching multiple URLs: {str(e)}")
+        logging.warning(f"Citations: Could not fetch multiple URLs: {str(e)}")
         return []
 
 
@@ -61,7 +93,7 @@ async def get_title_and_description_from_html(html: str) -> tuple[str, str]:
 
         return title or "", description or ""
     except Exception as e:
-        logging.error(f"Error parsing HTML: {str(e)}")
+        logging.warning(f"Citations: Could not parse HTML: {str(e)}")
         return "", ""
 
 
@@ -73,7 +105,7 @@ async def enhance_citations(citations: list[str]) -> list[dict[str, str]]:
 
         htmls = await get_html_from_urls(citations)
         if not htmls:
-            return [{"title": "", "description": "", "url": url} for url in citations]
+            return [{"title": get_domain_from_url(url), "description": "", "url": url} for url in citations]
 
         title_and_descriptions = await asyncio.gather(
             *[get_title_and_description_from_html(html) for html in htmls], return_exceptions=True
@@ -82,15 +114,23 @@ async def enhance_citations(citations: list[str]) -> list[dict[str, str]]:
         enhanced_citations = []
         for result, url in zip(title_and_descriptions, citations, strict=True):
             if isinstance(result, BaseException):
-                logging.error(f"Error processing {url}: {str(result)}")
-                enhanced_citations.append({"title": "", "description": "", "url": url})
+                logging.warning(f"Citations: Could not process {url}: {str(result)}")
+                enhanced_citations.append({"title": get_domain_from_url(url), "description": "", "url": url})
             else:
                 title, description = result
                 enhanced_citations.append({"title": title, "description": description, "url": url})
 
         end_time = datetime.now()
-        logging.info(f"Time taken to parse citations: {end_time - start_time}")
+        logging.info(f"Citations: Time taken to parse citations: {end_time - start_time}")
         return enhanced_citations
     except Exception as e:
-        logging.error(f"Error enhancing citations: {str(e)}")
-        return [{"title": "", "description": "", "url": url} for url in citations]
+        logging.warning(f"Citations: Could not enhance citations: {str(e)}")
+        return [{"title": get_domain_from_url(url), "description": "", "url": url} for url in citations]
+
+
+def get_domain_from_url(url: str) -> str:
+    try:
+        return urlparse(url).netloc
+    except Exception as e:
+        logging.warning(f"Citations: Could not get domain from URL: {url} - {str(e)}")
+        return url
