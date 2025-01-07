@@ -510,12 +510,14 @@ async def get_payment_instrument_from_id(payment_instrument_id: uuid.UUID) -> Pa
 async def get_source_instrument_id(
     facilitator: PaymentInstrumentFacilitatorEnum,
     identifier_type: PaymentInstrumentIdentifierTypeEnum,
+    identifier: str | None = None,
 ) -> uuid.UUID:
     """Get the source payment instrument ID for a given facilitator and identifier type.
 
     Args:
         facilitator: The payment facilitator type
         identifier_type: The type of identifier for the payment instrument
+        identifier: The identifier for the payment instrument to filter on, if provided
 
     Returns:
         UUID: The payment instrument ID
@@ -528,6 +530,7 @@ async def get_source_instrument_id(
             PaymentInstrument.facilitator == facilitator,
             PaymentInstrument.identifier_type == identifier_type,
             PaymentInstrument.user_id == SYSTEM_USER_ID,
+            PaymentInstrument.identifier == identifier if identifier is not None else True,
             PaymentInstrument.deleted_at.is_(None),  # type: ignore
         )
 
