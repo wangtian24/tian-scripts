@@ -783,7 +783,8 @@ with comments such as:
 - "A response from another assistant:"
 - "(Your response was empty)"
 - "(This response was preferred by the user)"
-You may refer to these past responses, but do not repeat them, and do not include annotations such as the ones above in your response.
+You may refer to these past responses, but do not repeat them, and never include annotations such as
+"A response from another assistant:" and the other ones above in your response.
 """
 
 

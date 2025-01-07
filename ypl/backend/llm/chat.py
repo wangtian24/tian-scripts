@@ -3,7 +3,7 @@ import random
 import re
 import time
 import traceback
-from collections.abc import Generator, Sequence
+from collections.abc import Generator, Mapping, Sequence
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
@@ -928,7 +928,10 @@ async def get_curated_chat_context(
         chat_id: The chat ID to fetch history for.
         use_all_models_in_chat_history: Whether to include all models in the chat history.
         model: The model to fetch history for.
+        current_turn_seq_num: The sequence number of the current turn.
     """
+    if not current_turn_seq_num:
+        return []
     query = (
         select(ChatMessage)
         .join(Turn, Turn.turn_id == ChatMessage.turn_id)  # type: ignore[arg-type]
@@ -1070,74 +1073,107 @@ async def get_active_prompt_modifiers() -> list[PromptModifier]:
         return result.scalars().all()  # type: ignore
 
 
-gpt_4o_mini_llm = OpenAILangChainAdapter(
-    model_info=ModelInfo(
-        provider=ChatProvider.OPENAI,
-        model="gpt-4o-mini",
-        api_key=settings.OPENAI_API_KEY,
-    ),
-    model_config_=dict(
-        temperature=0.0,
-        max_tokens=40,
-    ),
-)
-
-openai_llm = OpenAILangChainAdapter(
-    model_info=ModelInfo(
-        provider=ChatProvider.OPENAI,
-        model="gpt-4o",
-        api_key=settings.OPENAI_API_KEY,
-    ),
-    model_config_=dict(
-        temperature=0.0,
-        max_tokens=40,
-    ),
-)
-
-gemini_15_flash_llm = GeminiLangChainAdapter(
-    model_info=ModelInfo(
-        provider=ChatProvider.GOOGLE,
-        model="gemini-1.5-flash-002",
-        api_key=settings.GOOGLE_API_KEY,
-    ),
-    model_config_=dict(
-        project_id=settings.GCP_PROJECT_ID,
-        region=settings.GCP_REGION,
-        temperature=0.0,
-        max_output_tokens=40,
-        top_k=1,
-    ),
-)
+GPT_4O_MINI_LLM = None
+GPT_4O_LLM = None
+GEMINI_15_FLASH_LLM = None
+GEMINI_2_FLASH_LLM = None
 
 
-gemini_2_flash_llm = GeminiLangChainAdapter(
-    model_info=ModelInfo(
-        provider=ChatProvider.GOOGLE,
-        model="gemini-2.0-flash-exp",
-        api_key=settings.GOOGLE_API_KEY,
-    ),
-    model_config_=dict(
-        project_id=settings.GCP_PROJECT_ID,
-        region=settings.GCP_REGION_GEMINI_2,
-        temperature=0.0,
-        max_output_tokens=40,
-        top_k=1,
-    ),
-)
+def get_gpt_4o_mini_llm() -> OpenAILangChainAdapter:
+    global GPT_4O_MINI_LLM
+    if GPT_4O_MINI_LLM is None:
+        GPT_4O_MINI_LLM = OpenAILangChainAdapter(
+            model_info=ModelInfo(
+                provider=ChatProvider.OPENAI,
+                model="gpt-4o-mini",
+                api_key=settings.OPENAI_API_KEY,
+            ),
+            model_config_=dict(
+                temperature=0.0,
+                max_tokens=40,
+            ),
+        )
+    return GPT_4O_MINI_LLM
 
-QT_LLMS = {
-    "gpt-4o": openai_llm,
-    "gpt-4o-mini": gpt_4o_mini_llm,
-    "gemini-1.5-flash-002": gemini_15_flash_llm,
-    "gemini-2.0-flash-exp": gemini_2_flash_llm,
-}
 
+def get_gpt_4o_llm() -> OpenAILangChainAdapter:
+    global GPT_4O_LLM
+    if GPT_4O_LLM is None:
+        GPT_4O_LLM = OpenAILangChainAdapter(
+            model_info=ModelInfo(
+                provider=ChatProvider.OPENAI,
+                model="gpt-4o",
+                api_key=settings.OPENAI_API_KEY,
+            ),
+            model_config_=dict(
+                temperature=0.0,
+                max_tokens=40,
+            ),
+        )
+    return GPT_4O_LLM
+
+
+def get_gemini_15_flash_llm() -> GeminiLangChainAdapter:
+    global GEMINI_15_FLASH_LLM
+    if GEMINI_15_FLASH_LLM is None:
+        GEMINI_15_FLASH_LLM = GeminiLangChainAdapter(
+            model_info=ModelInfo(
+                provider=ChatProvider.GOOGLE,
+                model="gemini-1.5-flash-002",
+                api_key=settings.GOOGLE_API_KEY,
+            ),
+            model_config_=dict(
+                project_id=settings.GCP_PROJECT_ID,
+                region=settings.GCP_REGION,
+                temperature=0.0,
+                max_output_tokens=40,
+                top_k=1,
+            ),
+        )
+    return GEMINI_15_FLASH_LLM
+
+
+def get_gemini_2_flash_llm() -> GeminiLangChainAdapter:
+    global GEMINI_2_FLASH_LLM
+    if GEMINI_2_FLASH_LLM is None:
+        GEMINI_2_FLASH_LLM = GeminiLangChainAdapter(
+            model_info=ModelInfo(
+                provider=ChatProvider.GOOGLE,
+                model="gemini-2.0-flash-exp",
+                api_key=settings.GOOGLE_API_KEY,
+            ),
+            model_config_=dict(
+                project_id=settings.GCP_PROJECT_ID,
+                region=settings.GCP_REGION_GEMINI_2,
+                temperature=0.0,
+                max_output_tokens=40,
+                top_k=1,
+            ),
+        )
+    return GEMINI_2_FLASH_LLM
+
+
+QT_LLMS = None
 QT_MAX_CONTEXT_LENGTH = {
     "gpt-4o": 128000,
     "gpt-4o-mini": 16000,
     "gemini-1.5-flash-002": 1000000,
     "gemini-2.0-flash-exp": 1000000,
 }
+
+
+def get_qt_llms() -> Mapping[str, BaseChatModel]:
+    global QT_LLMS
+    if QT_LLMS is None:
+        QT_LLMS = {
+            "gpt-4o": get_gpt_4o_llm(),
+            "gpt-4o-mini": get_gpt_4o_mini_llm(),
+            "gemini-1.5-flash-002": get_gemini_15_flash_llm(),
+            "gemini-2.0-flash-exp": get_gemini_2_flash_llm(),
+        }
+    return QT_LLMS
+
+
 # Models to use if no specific model was requested.
 MODELS_FOR_DEFAULT_QT = ["gpt-4o", "gpt-4o-mini", "gemini-2.0-flash-exp"]
 # Model to use while supplying only the prompts from the chat history, instead of the full chat history.
@@ -1171,7 +1207,7 @@ def get_quicktake_generator(
     if prompt_only:
         # Use only the prompts from the chat history.
         chat_history = [m for m in chat_history if m["role"] == "user"]
-    return QuickTakeGenerator(QT_LLMS[model], chat_history, timeout_secs=timeout_secs)
+    return QuickTakeGenerator(get_qt_llms()[model], chat_history, timeout_secs=timeout_secs)
 
 
 async def generate_quicktake(
@@ -1233,7 +1269,7 @@ async def generate_quicktake(
                     response_model = model
                     quicktake = response
                     break
-        elif request.model in QT_LLMS:
+        elif request.model in get_qt_llms():
             # Specific model requested.
             generator = get_quicktake_generator(request.model, chat_history)
             max_context_length = QT_MAX_CONTEXT_LENGTH.get(request.model, min(QT_MAX_CONTEXT_LENGTH.values()))
@@ -1242,7 +1278,7 @@ async def generate_quicktake(
             )
             response_model = request.model
         else:
-            raise ValueError(f"Unsupported model: {request.model}; supported: {','.join(QT_LLMS.keys())}")
+            raise ValueError(f"Unsupported model: {request.model}; supported: {','.join(get_qt_llms().keys())}")
     except Exception as e:
         log_dict = {
             "message": "Error generating quicktake",
