@@ -250,7 +250,7 @@ class AxisUpiFacilitator(BaseFacilitator):
                             additional_info={
                                 "user_id": user_id,
                                 "destination_identifier": destination_identifier,
-                                "destination_identifier_type": destination_identifier_type,
+                                "destination_identifier_type": str(destination_identifier_type),
                             },
                         )
                     )

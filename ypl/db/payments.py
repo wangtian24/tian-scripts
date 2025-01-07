@@ -129,7 +129,17 @@ class PaymentTransaction(BaseModel, table=True):
 
     # The reference id from the partner's system, used to track the status of the transaction.
     # Only set after the transaction is successfully initiated.
+    # This is used to track the transaction on the partner's system by our system.
+    # It may not be the same as the customer_reference_id.
     partner_reference_id: str = Field(nullable=True)
 
     # Set if this transaction is associated with a cashout.
     credits_transaction: "PointTransaction" = Relationship(back_populates="cashout_payment_transaction")
+
+    # Additional info for the transaction that is not part of the core schema.
+    additional_info: dict | None = Field(sa_column=Column(JSONB, nullable=True))
+
+    # The customer reference id from the partner's system. User can use this to track the transaction on
+    # partner's system too.
+    # E.g. for UPI this is the UTR number.
+    customer_reference_id: str | None = Field(nullable=True)

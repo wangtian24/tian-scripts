@@ -202,7 +202,7 @@ class PlaidFacilitator(BaseFacilitator):
                     additional_info={
                         "user_id": user_id,
                         "destination_identifier": destination_identifier,
-                        "destination_identifier_type": destination_identifier_type,
+                        "destination_identifier_type": str(destination_identifier_type),
                     },
                 )
                 payment_transaction_id = await create_payment_transaction(payment_transaction_request)
@@ -401,8 +401,8 @@ class PlaidFacilitator(BaseFacilitator):
                 additional_info={
                     "user_id": user_id,
                     "destination_identifier": destination_identifier,
-                    "destination_identifier_type": destination_identifier_type,
-                    "reversal_transaction_id": payment_transaction_id,
+                    "destination_identifier_type": str(destination_identifier_type),
+                    "reversal_transaction_id": str(payment_transaction_id),
                 },
             )
             payment_transaction_id = await create_payment_transaction(reversal_request)

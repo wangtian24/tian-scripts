@@ -139,7 +139,7 @@ class OnChainFacilitator(BaseFacilitator):
                     additional_info={
                         "user_id": user_id,
                         "destination_identifier": destination_identifier,
-                        "destination_identifier_type": destination_identifier_type,
+                        "destination_identifier_type": str(destination_identifier_type),
                     },
                 )
                 payment_transaction_id = await create_payment_transaction(payment_transaction_request)
