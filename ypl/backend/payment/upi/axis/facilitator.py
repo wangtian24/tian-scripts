@@ -5,11 +5,17 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlmodel import update
+from sqlalchemy.orm import selectinload
+from sqlmodel import select, update
 from ypl.backend.db import get_async_session
+from ypl.backend.llm.utils import post_to_slack, post_to_slack_with_user_name
 from ypl.backend.payment.base_types import PaymentInstrumentError, PaymentProcessingError, PaymentResponse
 from ypl.backend.payment.facilitator import BaseFacilitator
-from ypl.backend.payment.payout_utils import get_destination_instrument_id, get_source_instrument_id
+from ypl.backend.payment.payout_utils import (
+    SLACK_WEBHOOK_CASHOUT,
+    get_destination_instrument_id,
+    get_source_instrument_id,
+)
 from ypl.backend.payment.upi.axis.request_utils import AxisPaymentRequest, get_balance, make_payment
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import (
@@ -49,6 +55,128 @@ class AxisUpiFacilitator(BaseFacilitator):
             destination_identifier,
             destination_identifier_type,
         )
+
+    # TODO: Move this to the base facilitator.
+    async def undo_payment_transaction(self, payment_transaction_id: uuid.UUID) -> None:
+        try:
+            async with get_async_session() as session:
+                async with session.begin():
+                    # Set the isolation level to SERIALIZABLE to prevent concurrent
+                    # updates of all the payment transactions.
+                    await session.connection(execution_options={"isolation_level": "SERIALIZABLE"})
+
+                    # 1. Find the payment transaction and its associated point/credit transaction.
+                    payment_transaction = (
+                        await session.exec(
+                            select(PaymentTransaction)
+                            .options(selectinload(PaymentTransaction.destination_instrument))  # type: ignore
+                            .options(selectinload(PaymentTransaction.credits_transaction))  # type: ignore
+                            .where(
+                                PaymentTransaction.payment_transaction_id == payment_transaction_id,
+                                PaymentTransaction.deleted_at.is_(None),  # type: ignore
+                            )
+                        )
+                    ).one()
+
+                    # Ensure that it is not in SUCCESS or FAILED state.
+                    if payment_transaction.status in [
+                        PaymentTransactionStatusEnum.SUCCESS,
+                        PaymentTransactionStatusEnum.FAILED,
+                    ]:
+                        log_dict = {
+                            "message": (
+                                f"Could not undo payment transaction. "
+                                f"Payment transaction already in the final {payment_transaction.status} state"
+                            ),
+                            "payment_transaction_id": payment_transaction_id,
+                        }
+                        logging.info(json_dumps(log_dict))
+                        raise ValueError("Payment transaction already in the final state")
+                        return
+
+                    point_transaction = payment_transaction.credits_transaction
+
+                    log_dict = {
+                        "message": "Failed to process payout reward. Reversing transaction.",
+                        "user_id": point_transaction.user_id,
+                        "payment_transaction_id": str(payment_transaction_id),
+                        "points_transaction_id": str(point_transaction.transaction_id),
+                        "credits_to_cashout": str(point_transaction.point_delta),
+                        "amount": str(payment_transaction.amount),
+                        "source_instrument_id": str(payment_transaction.source_instrument_id),
+                        "destination_instrument_id": str(payment_transaction.destination_instrument_id),
+                        "destination_identifier": payment_transaction.destination_instrument.identifier,
+                        "destination_identifier_type": payment_transaction.destination_instrument.identifier_type,
+                    }
+                    logging.info(json_dumps(log_dict))
+                    asyncio.create_task(
+                        post_to_slack_with_user_name(
+                            str(point_transaction.user_id), json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT
+                        )
+                    )
+
+                    # 2. Update the user's points.
+                    # point_delta is negative, so we add it to the user's points.
+                    await session.exec(
+                        update(User)
+                        .values(points=User.points - point_transaction.point_delta)
+                        .where(User.user_id == point_transaction.user_id)  # type: ignore
+                    )
+
+                    # 3. Add the point transaction reversal record.
+                    # point_delta is negative, so we invert it to make it positive.
+                    session.add(
+                        PointTransaction(
+                            user_id=point_transaction.user_id,
+                            point_delta=-point_transaction.point_delta,
+                            action_type=PointsActionEnum.CASHOUT_REVERSED,
+                            cashout_payment_transaction_id=payment_transaction_id,
+                        )
+                    )
+
+                    # 4. Update the payment transaction status to FAILED.
+                    payment_transaction.status = PaymentTransactionStatusEnum.FAILED
+                    payment_transaction.last_status_change_at = datetime.now()
+
+                    session.add(payment_transaction)
+
+                    # 5. Create a reversal payment transaction.
+                    session.add(
+                        PaymentTransaction(
+                            payment_transaction_id=uuid.uuid4(),
+                            currency=payment_transaction.currency,
+                            amount=payment_transaction.amount,
+                            source_instrument_id=payment_transaction.source_instrument_id,
+                            destination_instrument_id=payment_transaction.destination_instrument_id,
+                            status=PaymentTransactionStatusEnum.REVERSED,
+                            last_status_change_at=datetime.now(),
+                        )
+                    )
+            log_dict = {
+                "message": "Successfully reversed transaction",
+                "payment_transaction_id": str(payment_transaction_id),
+                "points_transaction_id": str(point_transaction.transaction_id),
+                "user_id": point_transaction.user_id,
+                "amount": str(payment_transaction.amount),
+                "source_instrument_id": str(payment_transaction.source_instrument_id),
+                "destination_instrument_id": str(payment_transaction.destination_instrument_id),
+                "destination_identifier": payment_transaction.destination_instrument.identifier,
+                "destination_identifier_type": payment_transaction.destination_instrument.identifier_type,
+            }
+            logging.info(json_dumps(log_dict))
+            asyncio.create_task(
+                post_to_slack_with_user_name(
+                    str(point_transaction.user_id), json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT
+                )
+            )
+        except Exception as e:
+            log_dict = {
+                "message": "Failed to handle failed transaction cleanup",
+                "payment_transaction_id": str(payment_transaction_id),
+                "error": str(e),
+            }
+            logging.exception(json_dumps(log_dict))
+            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
 
     # TODO: Move this to the base facilitator.
     async def make_payment(
@@ -167,22 +295,35 @@ class AxisUpiFacilitator(BaseFacilitator):
         if destination_additional_details is None:
             destination_additional_details = {}
         destination_additional_details["destination_instrument_id"] = destination_instrument_id
-        payment_response = await self._send_payment_request(
-            user_id=user_id,
-            credits_to_cashout=credits_to_cashout,
-            amount=amount,
-            destination_identifier=destination_identifier,
-            destination_identifier_type=destination_identifier_type,
-            destination_additional_details=destination_additional_details,
-        )
-        payment_response_received = time.time()
-        log_dict = {
-            "message": "Payment request completed",
-            "user_id": user_id,
-            "duration": payment_response_received - db_inits_done,
-            "payment_transaction_id": payment_transaction_id,
-        }
-        logging.info(json_dumps(log_dict))
+
+        try:
+            payment_response = await self._send_payment_request(
+                user_id=user_id,
+                credits_to_cashout=credits_to_cashout,
+                amount=amount,
+                destination_identifier=destination_identifier,
+                destination_identifier_type=destination_identifier_type,
+                destination_additional_details=destination_additional_details,
+            )
+            payment_response_received = time.time()
+            log_dict = {
+                "message": "Successfully sent payment request to the partner",
+                "user_id": user_id,
+                "duration": payment_response_received - db_inits_done,
+                "payment_transaction_id": payment_transaction_id,
+            }
+            logging.info(json_dumps(log_dict))
+        except Exception as e:
+            log_dict = {
+                "message": "Failed to send payment request to the partner",
+                "user_id": user_id,
+                "error": str(e),
+                "facilitator": self.facilitator,
+                "payment_transaction_id": payment_transaction_id,
+            }
+            logging.exception(json_dumps(log_dict))
+            await self.undo_payment_transaction(payment_transaction_id)
+            raise PaymentProcessingError("Failed to send payment request to the partner") from e
 
         async with get_async_session() as session:
             async with session.begin():
@@ -227,6 +368,7 @@ class AxisUpiFacilitator(BaseFacilitator):
                 destination_upi_id=destination_identifier,
                 # TODO: Get the final message from Mouli.
                 # Ensure that the message is limited to 60 characters.
+                # Only alphanumeric characters are allowed.
                 receiver_display_message=f"{credits_to_cashout} YUPP credits redeemed"[:60],
             )
         )
