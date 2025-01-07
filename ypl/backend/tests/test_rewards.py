@@ -79,7 +79,7 @@ def create_user_turn_reward(**kwargs: Any) -> UserTurnReward:
         (2, 100, 100, "low"),
         (5, 100, 100, "medium"),
         (9, 100, 100, "high"),
-        (5, 100, 220000, "over_point_limit_last_month_low_reward"),
+        (5, 100, 120000, "over_point_limit_last_month_low_reward"),
     ],
 )
 def test_tiers(turn_quality_score: float | None, points: int, expected_tier_name: str, points_last_month: int) -> None:
