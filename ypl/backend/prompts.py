@@ -776,8 +776,14 @@ only adhere to them if they don't contradict the user's prompt:
 """
 
 ALL_MODELS_IN_CHAT_HISTORY_PROMPT = """
-The users in this conversation have access to additional AI models that respond to the same prompts.
-Responses from these models to past prompts are included along with your responses.
+The user in this conversation has access to additional AI models that respond to the same prompts.
+Responses from these models to previous prompts in the conversation are included along with your responses, and annotated
+with comments such as:
+- "This was your response:"
+- "A response from another assistant:"
+- "(Your response was empty)"
+- "(This response was preferred by the user)"
+You may refer to these past responses, but do not repeat them, and do not include annotations such as the ones above in your response.
 """
 
 

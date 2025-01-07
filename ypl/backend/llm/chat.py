@@ -54,6 +54,7 @@ from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provi
 from ypl.db.redis import get_upstash_redis_client
 from ypl.utils import async_timed_cache, tiktoken_trim
 
+RESPONSE_SEPARATOR = " | "
 DEFAULT_HIGH_SIM_THRESHOLD = 0.825
 DEFAULT_UNIQUENESS_THRESHOLD = 0.75
 OPENAI_FT_ID_PATTERN = re.compile(r"^ft:(?P<model>.+?):(?P<organization>.+?)::(?P<id>.+?)$")
@@ -902,7 +903,7 @@ def _get_assistant_messages(
             if content:
                 all_content.append(content)
         if all_content:
-            messages.append(AIMessage(content="\n\n---\n\n".join(all_content)))
+            messages.append(AIMessage(content=RESPONSE_SEPARATOR.join(all_content)))
     else:
         # Try to find message with SELECTED status
         selected_msg = next(
