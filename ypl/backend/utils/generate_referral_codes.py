@@ -33,7 +33,12 @@ async def generate_invite_code_for_user(session: AsyncSession, user: User) -> Sp
 
     # Generate new invite code
     code = generate_slug(num_of_words=NUMBER_OF_WORDS, options=SLUG_OPTIONS)
-    new_invite = SpecialInviteCode(code=code, creator_user_id=user.user_id, state=SpecialInviteCodeState.ACTIVE)
+    new_invite = SpecialInviteCode(
+        code=code,
+        creator_user_id=user.user_id,
+        state=SpecialInviteCodeState.ACTIVE,
+        usage_limit=3,
+    )
     session.add(new_invite)
     return new_invite
 

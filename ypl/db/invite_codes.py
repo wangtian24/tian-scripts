@@ -32,9 +32,11 @@ class SpecialInviteCode(BaseModel, table=True):
 
     state: SpecialInviteCodeState = Field(nullable=False, default=SpecialInviteCodeState.ACTIVE)
 
+    # How many times this codes can be used in total. If null, this code is unlimited.
+    # Note that this field does not represent the usage left
+    usage_limit: int | None = Field(nullable=True)
+
     claim_logs: list["SpecialInviteCodeClaimLog"] = Relationship(back_populates="special_invite_code")
-    # For now each code can be used for unlimited number of times.
-    # TODO(minqi): Add limited use codes.
 
 
 class SpecialInviteCodeClaimLog(BaseModel, table=True):
