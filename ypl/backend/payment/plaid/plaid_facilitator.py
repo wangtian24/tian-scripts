@@ -284,6 +284,7 @@ class PlaidFacilitator(BaseFacilitator):
                     payment_transaction_id,
                     partner_reference_id=transfer_id,
                     status=PaymentTransactionStatusEnum.SUCCESS,
+                    customer_reference_id=transfer_id,
                 )
 
                 # Start monitoring in background task
@@ -490,6 +491,7 @@ class PlaidFacilitator(BaseFacilitator):
                         payment_transaction_id,
                         partner_reference_id=transfer_id,
                         status=PaymentTransactionStatusEnum.SUCCESS,
+                        customer_reference_id=transfer_id,
                     )
                     log_dict = {
                         "message": "Plaid transfer completed",

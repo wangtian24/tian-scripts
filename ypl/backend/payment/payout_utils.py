@@ -99,6 +99,7 @@ async def validate_pending_cashouts_async() -> None:
                         "destination_instrument_id": str(payment.destination_instrument_id),
                         "status": str(payment.status),
                         "partner_reference_id": str(payment.partner_reference_id),
+                        "customer_reference_id": str(payment.customer_reference_id),
                     }
                     logging.info(json_dumps(log_dict))
 

@@ -237,6 +237,7 @@ class CoinbaseFacilitator(BaseFacilitator):
                     payment_transaction_id,
                     partner_reference_id=transaction_id,
                     status=self._map_coinbase_status_to_internal(transaction_status),
+                    customer_reference_id=transaction_id,
                 )
 
                 if transaction_status != TransactionStatus.COMPLETED.value:
@@ -378,6 +379,7 @@ class CoinbaseFacilitator(BaseFacilitator):
                         payment_transaction_id,
                         partner_reference_id=transaction_id,
                         status=PaymentTransactionStatusEnum.SUCCESS,
+                        customer_reference_id=transaction_id,
                     )
                     log_dict = {
                         "message": "Coinbase retail payout completed",

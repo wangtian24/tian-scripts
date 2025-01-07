@@ -221,6 +221,7 @@ class OnChainFacilitator(BaseFacilitator):
                     payment_transaction_id,
                     partner_reference_id=tx_hash,
                     status=self._map_transaction_status_to_internal(str(transfer.status).lower()),
+                    customer_reference_id=tx_hash,
                 )
 
                 if str(transfer.status).lower() != Transaction.Status.COMPLETE.value.lower():
@@ -362,6 +363,7 @@ class OnChainFacilitator(BaseFacilitator):
                     payment_transaction_id,
                     partner_reference_id=transfer.transaction_hash,
                     status=PaymentTransactionStatusEnum.SUCCESS,
+                    customer_reference_id=transfer.transaction_hash,
                 )
                 log_dict = {
                     "message": "Crypto transfer completed",

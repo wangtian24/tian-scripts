@@ -332,6 +332,7 @@ class AxisUpiFacilitator(BaseFacilitator):
                     .values(
                         status=PaymentTransactionStatusEnum.PENDING,
                         partner_reference_id=str(payment_response.payment_transaction_id),
+                        # Customer reference id is not yet known at this point.
                     )
                     .where(PaymentTransaction.payment_transaction_id == payment_transaction_id)  # type: ignore
                 )
