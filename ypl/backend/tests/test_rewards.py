@@ -387,3 +387,46 @@ def test_turn_reward_amount(
     user_with_recent_zero_reward = create_user_turn_reward(points_last_award=0)
     should_get_zero_if_no_recent_award = [user_with_recent_zero_reward.should_get_zero_reward() for _ in range(30)]
     assert sum(should_get_zero_if_no_recent_award) == 0
+
+
+@mark.parametrize("period", ["day", "week", "month"])
+def test_maybe_decay_amounts(period: str) -> None:
+    _load_rules_constants()
+
+    daily_limit = RULES["constants"]["daily_points_limit"]
+    weekly_limit = RULES["constants"]["weekly_points_limit"]
+    monthly_limit = RULES["constants"]["monthly_points_limit"]
+    assert all([daily_limit, weekly_limit, monthly_limit])
+
+    min_val, max_val = 100, 200
+
+    # Test no decay when points are low
+    low_multiplier, high_multiplier, very_high_multiplier = 0.4, 0.8, 0.95
+    utr_no_decay = create_user_turn_reward(
+        points_last_day=daily_limit * low_multiplier,
+        points_last_week=weekly_limit * low_multiplier,
+        points_last_month=monthly_limit * low_multiplier,
+    )
+    decayed_min, decayed_max = utr_no_decay._maybe_decay_amounts(min_val, max_val)
+    assert decayed_min == min_val
+    assert decayed_max == max_val
+
+    # Test decay when points are high
+    utr_decay = create_user_turn_reward(
+        points_last_day=daily_limit * (high_multiplier if period == "day" else low_multiplier),
+        points_last_week=weekly_limit * (high_multiplier if period == "week" else low_multiplier),
+        points_last_month=monthly_limit * (high_multiplier if period == "month" else low_multiplier),
+    )
+    decayed_min, decayed_max = utr_decay._maybe_decay_amounts(min_val, max_val)
+    assert 0 < decayed_min < min_val
+    assert 0 < decayed_max < max_val
+
+    # Test decay is more severe with higher point totals
+    utr_heavy_decay = create_user_turn_reward(
+        points_last_day=daily_limit * (very_high_multiplier if period == "day" else low_multiplier),
+        points_last_week=weekly_limit * (very_high_multiplier if period == "week" else high_multiplier),
+        points_last_month=monthly_limit * (very_high_multiplier if period == "month" else high_multiplier),
+    )
+    heavily_decayed_min, heavily_decayed_max = utr_heavy_decay._maybe_decay_amounts(min_val, max_val)
+    assert heavily_decayed_min < decayed_min
+    assert heavily_decayed_max < decayed_max

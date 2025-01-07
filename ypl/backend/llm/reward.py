@@ -311,20 +311,30 @@ class UserTurnReward:
     def _maybe_decay_amounts(self, min_value: int, max_value: int) -> tuple[int, int]:
         if "daily_points_limit" in RULE_CONSTANTS:
             daily_points_limit = RULE_CONSTANTS["daily_points_limit"]
-            fraction_of_limit = self.points_last_day / daily_points_limit
+            weekly_points_limit = RULE_CONSTANTS["weekly_points_limit"]
+            monthly_points_limit = RULE_CONSTANTS["monthly_points_limit"]
+            fraction_of_limit = max(
+                self.points_last_day / daily_points_limit,
+                self.points_last_week / weekly_points_limit,
+                self.points_last_month / monthly_points_limit,
+            )
             if fraction_of_limit > 0.5:
                 # A higher constant means faster decay.
                 decay_factor = math.exp(-8 * (fraction_of_limit - 0.5))
                 log_dict = {
                     "message": "Decaying reward amounts",
-                    "before_min_value": min_value,
-                    "before_max_value": max_value,
-                    "decay_factor": decay_factor,
+                    "points_last_day": f"{self.points_last_day}/{daily_points_limit}",
+                    "points_last_week": f"{self.points_last_week}/{weekly_points_limit}",
+                    "points_last_month": f"{self.points_last_month}/{monthly_points_limit}",
+                    "fraction_of_limit": str(fraction_of_limit),
+                    "before_min_value": str(min_value),
+                    "before_max_value": str(max_value),
+                    "decay_factor": str(decay_factor),
                 }
                 min_value = int(round(min_value * decay_factor, -1))
                 max_value = int(round(max_value * decay_factor, -1))
-                log_dict["after_min_value"] = min_value
-                log_dict["after_max_value"] = max_value
+                log_dict["after_min_value"] = str(min_value)
+                log_dict["after_max_value"] = str(max_value)
                 logging.info(json_dumps(log_dict))
 
         return min_value, max_value
