@@ -23,6 +23,12 @@ class PaymentInstrumentNotFoundError(PaymentInstrumentError):
     pass
 
 
+class PaymentDestinationIdentifierValidationError(Exception):
+    """Exception raised when a payment destination identifier is not valid."""
+
+    pass
+
+
 class PaymentProcessingError(Exception):
     """Base exception for payment processing errors"""
 
@@ -53,6 +59,25 @@ class PaymentResponse:
     customer_reference_id: str | None = None
     # The partner reference ID that we use to track the transaction in the partner's system.
     partner_reference_id: str | None = None
+
+
+@dataclass
+class UpiDestinationMetadata:
+    masked_name_from_bank: str
+
+
+@dataclass
+class ValidateDestinationIdentifierResponse:
+    # The encrypted token that we send to the client, which we'll get back during the payment request.
+    # We will confirm that the client has validated the destination before accepting the payment request.
+    validated_destination_details: str
+    validated_data_expiry: int | None = None
+    destination_metadata: UpiDestinationMetadata | None = None
+
+
+@dataclass
+class PaymentErrorMessage:
+    error_message: str
 
 
 class BaseFacilitator(ABC):
@@ -116,6 +141,12 @@ class BaseFacilitator(ABC):
     @abstractmethod
     async def get_payment_status(self, payment_reference_id: str) -> PaymentTransactionStatusEnum:
         pass
+
+    # This is optional for facilitators that don't need it.
+    async def validate_destination_identifier(
+        self, destination_identifier: str, destination_identifier_type: PaymentInstrumentIdentifierTypeEnum
+    ) -> ValidateDestinationIdentifierResponse:
+        raise NotImplementedError("Method is not implemented for this facilitator")
 
     @staticmethod
     def init(

@@ -1,22 +1,37 @@
 import asyncio
+import json
 import logging
 import time
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+from cryptography.fernet import Fernet
 from sqlalchemy.orm import selectinload
 from sqlmodel import select, update
+from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
 from ypl.backend.llm.utils import post_to_slack, post_to_slack_with_user_name
-from ypl.backend.payment.base_types import PaymentInstrumentError, PaymentProcessingError, PaymentResponse
+from ypl.backend.payment.base_types import (
+    PaymentInstrumentError,
+    PaymentProcessingError,
+    PaymentResponse,
+    UpiDestinationMetadata,
+    ValidateDestinationIdentifierResponse,
+)
 from ypl.backend.payment.facilitator import BaseFacilitator
 from ypl.backend.payment.payout_utils import (
     SLACK_WEBHOOK_CASHOUT,
     get_destination_instrument_id,
     get_source_instrument_id,
 )
-from ypl.backend.payment.upi.axis.request_utils import AxisPaymentRequest, get_balance, get_payment_status, make_payment
+from ypl.backend.payment.upi.axis.request_utils import (
+    AxisPaymentRequest,
+    get_balance,
+    get_payment_status,
+    make_payment,
+    verify_vpa,
+)
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import (
     CurrencyEnum,
@@ -27,6 +42,19 @@ from ypl.db.payments import (
 )
 from ypl.db.point_transactions import PointsActionEnum, PointTransaction
 from ypl.db.users import User
+
+VALIDATE_DESTINATION_IDENTIFIER_TOKEN_TTL_SECONDS = 5 * 60
+
+
+def _mask_name(name: str) -> str:
+    words = name.split()
+    masked_words = []
+    for word in words:
+        if len(word) <= 2:
+            masked_words.append(word)
+        else:
+            masked_words.append(f"{word[:2]}{'*' * (len(word)-3)}{word[-1]}")
+    return " ".join(masked_words)
 
 
 class AxisUpiFacilitator(BaseFacilitator):
@@ -492,6 +520,30 @@ class AxisUpiFacilitator(BaseFacilitator):
     async def get_payment_status(self, payment_reference_id: str) -> PaymentTransactionStatusEnum:
         # TODO: Implement this
         return PaymentTransactionStatusEnum.SUCCESS
+
+    async def validate_destination_identifier(
+        self, destination_identifier: str, destination_identifier_type: PaymentInstrumentIdentifierTypeEnum
+    ) -> ValidateDestinationIdentifierResponse:
+        verify_vpa_response = await verify_vpa(destination_identifier, destination_identifier_type)
+        current_time = datetime.now(UTC)
+        validation_token_expiry = current_time + timedelta(seconds=VALIDATE_DESTINATION_IDENTIFIER_TOKEN_TTL_SECONDS)
+        encryptor = Fernet(settings.validate_destination_identifier_secret_key)
+        payload = {
+            "input_identifier": destination_identifier,
+            "input_identifier_type": str(destination_identifier_type),
+            "validated_vpa": verify_vpa_response.validated_vpa,
+            "customer_name": verify_vpa_response.customer_name,
+        }
+        return ValidateDestinationIdentifierResponse(
+            destination_metadata=UpiDestinationMetadata(
+                masked_name_from_bank=_mask_name(verify_vpa_response.customer_name),
+            ),
+            validated_destination_details=encryptor.encrypt_at_time(
+                json.dumps(payload).encode("utf-8"),
+                int(current_time.timestamp()),
+            ).decode("utf-8"),
+            validated_data_expiry=int(validation_token_expiry.timestamp()),
+        )
 
     @staticmethod
     def get_polling_config() -> tuple[int, int]:

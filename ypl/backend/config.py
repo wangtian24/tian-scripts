@@ -159,6 +159,11 @@ class Settings(BaseSettings):
         return json.loads(self._get_gcp_secret(f"axis-upi-config-{self.ENVIRONMENT}"))  # type: ignore[no-any-return]
 
     @computed_field  # type: ignore[misc]
+    @cached_property
+    def validate_destination_identifier_secret_key(self) -> str:
+        return self._get_gcp_secret(f"validate-destination-identifier-secret-key-{self.ENVIRONMENT}")
+
+    @computed_field  # type: ignore[misc]
     @property
     def server_host(self) -> str:
         # Use HTTPS for anything other than local development

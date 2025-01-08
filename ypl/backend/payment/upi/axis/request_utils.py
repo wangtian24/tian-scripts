@@ -9,13 +9,17 @@ from typing import Literal
 
 import httpx
 from ypl.backend.config import settings
-from ypl.backend.payment.base_types import PaymentProcessingError, PaymentResponse
+from ypl.backend.payment.base_types import (
+    PaymentDestinationIdentifierValidationError,
+    PaymentProcessingError,
+    PaymentResponse,
+)
 from ypl.backend.payment.upi.axis.cryptography_utils import (
     aes128_decrypt,
     aes128_encrypt,
     calculate_request_body_checksum,
 )
-from ypl.db.payments import PaymentTransactionStatusEnum
+from ypl.db.payments import PaymentInstrumentIdentifierTypeEnum, PaymentTransactionStatusEnum
 
 RequestType = Literal["get_balance", "verify_vpa", "make_payment", "get_payment_status", "get_account_statement"]
 
@@ -342,4 +346,104 @@ async def get_payment_status(payment_transaction_id: uuid.UUID, partner_referenc
         payment_transaction_id=payment_transaction_id,
         transaction_status=transaction_status,
         customer_reference_id=customer_reference_id,
+    )
+
+
+def _make_verify_vpa_request(vpa: str) -> Request:
+    request_id = str(uuid.uuid4())
+
+    request_body = {
+        "merchId": _get_config_value("merchant_id", "verify_vpa"),
+        "merchChanId": _get_config_value("merchant_channel_id", "verify_vpa"),
+        "customerVpa": vpa,
+        "corpCode": _get_config_value("corp_code", "verify_vpa"),
+        "channelId": _get_config_value("channel_id", "verify_vpa"),
+    }
+    request_body["checksum"] = calculate_request_body_checksum(request_body)
+
+    sub_header = {
+        "requestUUID": request_id,
+        "serviceRequestId": "OpenAPI",
+        "serviceRequestVersion": "1.0",
+        "channelId": _get_config_value("channel_id", "verify_vpa"),
+    }
+
+    encrypted_request = {
+        "VerifyVPARequest": {
+            "SubHeader": sub_header,
+            "VerifyVPARequestBodyEncrypted": aes128_encrypt(
+                _get_config_value("aes_symmetric_key"), json.dumps(request_body)
+            ),
+        }
+    }
+
+    plaintext_request = {
+        "VerifyVPARequest": {
+            "SubHeader": sub_header,
+        },
+        "VerifyVPARequestBody": request_body,
+    }
+
+    return Request(
+        request_id,
+        _get_config_value("url", "verify_vpa"),
+        "verify_vpa",
+        encrypted_request,
+        plaintext_request,
+    )
+
+
+@dataclass
+class VerifyVpaResponse:
+    validated_vpa: str
+    customer_name: str
+
+
+def _map_verify_vpa_error(error_code: str, destination_identifier_type: PaymentInstrumentIdentifierTypeEnum) -> str:
+    is_phone_number = destination_identifier_type == PaymentInstrumentIdentifierTypeEnum.PHONE_NUMBER
+    if error_code == "MM2":
+        return (
+            "Could not find an associated UPI ID for the given phone number"
+            if is_phone_number
+            else "Please check the UPI ID and try again"
+        )
+    if error_code == "MM3":
+        return (
+            "The associated UPI ID for this phone number is blocked"
+            if is_phone_number
+            else "This UPI ID is blocked, please try with a different UPI ID"
+        )
+    if error_code == "MM4":
+        return (
+            "The associated UPI ID for this phone number is inactive"
+            if is_phone_number
+            else "This UPI ID is inactive, please try with a different UPI ID"
+        )
+    return "Unknown error. Please try again later!"
+
+
+async def verify_vpa(
+    destination_identifier: str, destination_identifier_type: PaymentInstrumentIdentifierTypeEnum
+) -> VerifyVpaResponse:
+    request = _make_verify_vpa_request(destination_identifier)
+    response = await _call(request)
+    decrypted_body = aes128_decrypt(
+        _get_config_value("aes_symmetric_key"),
+        response["VerifyVPAResponse"]["VerifyVPAResponseBodyEncrypted"],
+    )
+    json_body = json.loads(decrypted_body)
+    _log_response_body(request, json_body)
+    if json_body["result"] != "SUCCESS":
+        message = _map_verify_vpa_error(json_body["result"], destination_identifier_type)
+        raise PaymentDestinationIdentifierValidationError(message)
+    validated_vpa = destination_identifier
+    if destination_identifier_type == PaymentInstrumentIdentifierTypeEnum.PHONE_NUMBER:
+        validated_vpa = json_body["vpa"]
+        if not isinstance(validated_vpa, str):
+            raise PaymentDestinationIdentifierValidationError(
+                f"Could not find a valid VPA for the given phone number: {destination_identifier}"
+            )
+    return VerifyVpaResponse(
+        validated_vpa=validated_vpa,
+        customer_name=json_body["customerName"],
     )
