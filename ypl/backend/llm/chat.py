@@ -3,6 +3,7 @@ import random
 import re
 import time
 import traceback
+from collections import defaultdict
 from collections.abc import Generator, Mapping, Sequence
 from enum import Enum
 from functools import lru_cache
@@ -916,6 +917,23 @@ def _get_assistant_messages(
     return messages
 
 
+def _get_enhanced_user_message(messages: list[ChatMessage]) -> HumanMessage:
+    user_msgs = [msg for msg in messages if msg.message_type == MessageType.USER_MESSAGE]
+    if not user_msgs:
+        raise ValueError("No user messages found")
+    if len(user_msgs) > 1:
+        raise ValueError("Multiple user messages found")
+    user_msg = user_msgs[0]
+    attachments = user_msg.attachments or []
+    return HumanMessage(
+        content=user_msg.content,
+        additional_kwargs={
+            "attachments": attachments,
+            "message_id": user_msg.message_id,
+        },
+    )
+
+
 async def get_curated_chat_context(
     chat_id: UUID,
     use_all_models_in_chat_history: bool,
@@ -937,7 +955,10 @@ async def get_curated_chat_context(
         .join(Turn, Turn.turn_id == ChatMessage.turn_id)  # type: ignore[arg-type]
         .join(Chat, Chat.chat_id == Turn.chat_id)  # type: ignore[arg-type]
         .outerjoin(Attachment, Attachment.chat_message_id == ChatMessage.message_id)  # type: ignore[arg-type]
-        .options(joinedload(ChatMessage.assistant_language_model).load_only(LanguageModel.internal_name))  # type: ignore
+        .options(
+            joinedload(ChatMessage.assistant_language_model).load_only(LanguageModel.internal_name),  # type: ignore
+            joinedload(ChatMessage.attachments),  # type: ignore
+        )
         .where(
             Chat.chat_id == chat_id,
             ChatMessage.deleted_at.is_(None),  # type: ignore[union-attr]
@@ -952,26 +973,20 @@ async def get_curated_chat_context(
     if current_turn_seq_num:
         query = query.where(Turn.sequence_id < current_turn_seq_num)
 
+    formatted_messages: list[BaseMessage] = []
     async with AsyncSession(get_async_engine()) as session:
         result = await session.exec(query)
-        messages = result.all()
+        messages = result.unique().all()
+        # Group messages by turn_id
+        turns: defaultdict[UUID, list[ChatMessage]] = defaultdict(list)
+        for msg in messages:
+            turns[msg.turn_id].append(msg)
 
-    # Group messages by turn_id
-    turns: dict[UUID, list[ChatMessage]] = {}
-    for msg in messages:
-        if msg.turn_id not in turns:
-            turns[msg.turn_id] = []
-        turns[msg.turn_id].append(msg)
-
-    formatted_messages: list[BaseMessage] = []
-    for turn_messages in turns.values():
-        # Get user messages
-        user_msgs = [msg for msg in turn_messages if msg.message_type == MessageType.USER_MESSAGE]
-        if user_msgs:
-            formatted_messages.append(HumanMessage(content=user_msgs[0].content))
-
-        # Get assistant messages
-        formatted_messages.extend(_get_assistant_messages(turn_messages, model, use_all_models_in_chat_history))
+        for turn_messages in turns.values():
+            # Get user messages
+            formatted_messages.append(_get_enhanced_user_message(turn_messages))
+            # Get assistant messages
+            formatted_messages.extend(_get_assistant_messages(turn_messages, model, use_all_models_in_chat_history))
 
     return formatted_messages
 

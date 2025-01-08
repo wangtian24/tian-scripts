@@ -18,12 +18,13 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine
-from ypl.backend.llm.attachment import link_attachments
+from ypl.backend.llm.attachment import get_attachments, link_attachments
 from ypl.backend.llm.chat import Intent, check_for_stop_request, get_curated_chat_context, upsert_chat_message
 from ypl.backend.llm.crawl import enhance_citations
 from ypl.backend.llm.model.model import ModelResponseTelemetry
 from ypl.backend.llm.provider.provider_clients import get_language_model, get_provider_client
 from ypl.backend.llm.sanitize_messages import DEFAULT_MAX_TOKENS, sanitize_messages
+from ypl.backend.llm.transform_messages import transform_user_mesages
 from ypl.backend.prompts import get_system_prompt_with_modifiers
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import AssistantSelectionSource, ChatMessage, CompletionStatus, MessageType, PromptModifierAssoc
@@ -174,6 +175,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
         )
 
         messages: list[BaseMessage] = []
+        should_append_message = True
         if system_prompt and not chat_request.model.startswith("o1"):
             # use system prompt for non o1 models. o1 doesn't support system prompt
             messages.append(SystemMessage(content=system_prompt))
@@ -193,14 +195,21 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
             # so the user prompt will appear twice consecutively, which will fail for llama models.
             # This will be removed in V2
             # Check if chat_context is not empty and the last message matches the current prompt
-            should_append_message = True
             last_message = chat_context[-1]
             if last_message and isinstance(last_message, HumanMessage) and last_message.content == chat_request.prompt:
                 should_append_message = False
-            if should_append_message:
-                messages.append(HumanMessage(content=chat_request.prompt))
-        else:
-            messages.append(HumanMessage(content=chat_request.prompt))
+
+        if should_append_message:
+            attachments = await get_attachments(chat_request.attachment_ids or [])
+            latest_message = HumanMessage(
+                content=chat_request.prompt,
+                additional_kwargs={
+                    "attachments": attachments,
+                    "message_id": chat_request.message_id,
+                },
+            )
+            messages.append(latest_message)
+        messages = await transform_user_mesages(messages, chat_request.model)
 
         first_token_timestamp: float = 0
         response_tokens_num = 0

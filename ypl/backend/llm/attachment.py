@@ -3,6 +3,7 @@ import logging
 from uuid import UUID
 
 from sqlalchemy import update
+from sqlmodel import select
 
 from ypl.backend.db import get_async_session
 from ypl.db.attachments import Attachment
@@ -28,3 +29,20 @@ async def link_attachments(message_id: UUID, attachment_ids: list[UUID]) -> None
         }
         logging.exception(json.dumps(log_dict))
         raise RuntimeError(f"Failed to link attachments: {str(e)}") from e
+
+
+async def get_attachments(attachment_ids: list[UUID]) -> list[Attachment]:
+    if not attachment_ids:
+        return []
+    try:
+        async with get_async_session() as session:
+            result = await session.exec(select(Attachment).where(Attachment.attachment_id.in_(attachment_ids)))  # type: ignore
+            return list(result.all())
+    except Exception as e:
+        log_dict = {
+            "message": "Failed to get attachments",
+            "attachment_ids": attachment_ids,
+            "error": str(e),
+        }
+        logging.exception(json.dumps(log_dict))
+        raise RuntimeError(f"Failed to get attachments: {str(e)}") from e

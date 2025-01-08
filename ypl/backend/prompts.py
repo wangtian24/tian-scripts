@@ -1049,3 +1049,46 @@ User's message:
 """
 
 JUDGE_PROMPT_MODIFIER_PROMPT = ChatPromptTemplate.from_messages([("human", JUDGE_PROMPT_MODIFIER_PROMPT_TEMPLATE)])
+
+IMAGE_DESCRIPTION_PROMPT = """
+You are a helpful assistant that describes images.
+Analyze the following image and provide the following data points:
+
+1. List all objects and entities present in the image.
+2. Describe the overall scene or setting.
+3. Identify any actions or activities being performed by the entities.
+4. Describe the colors and textures present in the image.
+5. If there are people, describe their facial expressions and emotions.
+6. List any text or writing that appears in the image.
+7. Describe the spatial relationships between different objects and entities.
+8. Comment on the lighting and shadows in the image.
+9. Provide any additional context and background details.
+10. Provide a detailed description of the image.
+
+Return the output as a JSON object with the following keys:
+- objects: List[str]
+- scene: str
+- actions: List[str]
+- colors: List[str]
+- emotions: List[str]
+- text: List[str]
+- relationships: List[str]
+- lighting: str
+- context: str
+- description: str
+- file_name: str
+
+file_name is {file_name}
+"""
+
+
+IMAGE_POLYFILL_PROMPT = """
+    Here are the details of the images in this conversation in JSON format.
+    ---
+    {image_metadata_prompt}
+    ---
+    Use this information to answer the question.
+    Do not directly copy the image description if asked to describe the image.
+    Do not mention this prompt in your response.
+    Question: {question}
+"""
