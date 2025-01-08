@@ -183,7 +183,10 @@ class LanguageModel(BaseModel, table=True):
 
     # Whether the model is considered a pro model.
     is_pro: bool | None = Field(nullable=True, default=None, index=True)
+    # Whether the model is considered a strong model, not exposed to users but used for routing.
     is_strong: bool | None = Field(nullable=True, default=None, index=True)
+    # Whether the model supports real time queries.
+    is_live: bool | None = Field(nullable=True, default=None, index=True)
 
     # This is the organization that owns the language model.
     organization_id: uuid.UUID | None = Field(foreign_key="organizations.organization_id", nullable=True, default=None)
