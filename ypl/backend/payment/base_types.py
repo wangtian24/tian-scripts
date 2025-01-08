@@ -51,6 +51,8 @@ class PaymentResponse:
     # E.g. "transaction hash" in crypto, UTR Number in UPI.
     # May not be available immediately in all cases, so we set it only if it is available.
     customer_reference_id: str | None = None
+    # The partner reference ID that we use to track the transaction in the partner's system.
+    partner_reference_id: str | None = None
 
 
 class BaseFacilitator(ABC):

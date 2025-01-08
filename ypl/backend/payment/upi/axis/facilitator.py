@@ -16,7 +16,7 @@ from ypl.backend.payment.payout_utils import (
     get_destination_instrument_id,
     get_source_instrument_id,
 )
-from ypl.backend.payment.upi.axis.request_utils import AxisPaymentRequest, get_balance, make_payment
+from ypl.backend.payment.upi.axis.request_utils import AxisPaymentRequest, get_balance, get_payment_status, make_payment
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import (
     CurrencyEnum,
@@ -178,6 +178,99 @@ class AxisUpiFacilitator(BaseFacilitator):
             logging.exception(json_dumps(log_dict))
             asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
 
+    async def _monitor_payment_status(
+        self, payment_transaction_id: uuid.UUID, partner_reference_id: str, user_id: str
+    ) -> None:
+        start_time = time.time()
+        max_wait_time, poll_interval = self.get_polling_config()
+        log_dict = {
+            "message": "Payment monitoring started",
+            "payment_transaction_id": str(payment_transaction_id),
+            "partner_reference_id": partner_reference_id,
+            "user_id": user_id,
+            "max_wait_time": max_wait_time,
+            "poll_interval": poll_interval,
+        }
+        logging.info(json_dumps(log_dict))
+
+        while (time.time() - start_time) < max_wait_time:
+            try:
+                status = await get_payment_status(payment_transaction_id, partner_reference_id)
+            except Exception as e:
+                log_dict = {
+                    "message": "Failed to get payment status. Retrying after a delay.",
+                    "payment_transaction_id": str(payment_transaction_id),
+                    "partner_reference_id": partner_reference_id,
+                    "user_id": user_id,
+                    "error": str(e),
+                }
+                logging.exception(json_dumps(log_dict))
+                await asyncio.sleep(poll_interval)
+                continue
+
+            if status.transaction_status == PaymentTransactionStatusEnum.PENDING:
+                await asyncio.sleep(poll_interval)
+            elif status.transaction_status == PaymentTransactionStatusEnum.FAILED:
+                # TODO: Store the customer reference ID in the payment transaction even if the transaction fails.
+                await self.undo_payment_transaction(payment_transaction_id)
+                log_dict = {
+                    "message": "Payment failed",
+                    "payment_transaction_id": str(payment_transaction_id),
+                    "partner_reference_id": partner_reference_id,
+                    "user_id": user_id,
+                    "elapsed_time": time.time() - start_time,
+                }
+                logging.error(json_dumps(log_dict))
+                raise PaymentProcessingError("Payment failed")
+            elif status.transaction_status == PaymentTransactionStatusEnum.SUCCESS:
+                try:
+                    async with get_async_session() as session:
+                        async with session.begin():
+                            await session.exec(
+                                update(PaymentTransaction)
+                                .values(
+                                    status=PaymentTransactionStatusEnum.SUCCESS,
+                                    last_status_change_at=datetime.now(),
+                                    customer_reference_id=status.customer_reference_id,
+                                )
+                                .where(PaymentTransaction.payment_transaction_id == payment_transaction_id)  # type: ignore
+                            )
+                except Exception as e:
+                    log_dict = {
+                        "message": "Failed to update payment transaction status to SUCCESS",
+                        "payment_transaction_id": str(payment_transaction_id),
+                        "partner_reference_id": partner_reference_id,
+                        "user_id": user_id,
+                        "error": str(e),
+                    }
+                    logging.exception(json_dumps(log_dict))
+                    await asyncio.sleep(poll_interval)
+                    continue
+                log_dict = {
+                    "message": "Payment successful",
+                    "payment_transaction_id": str(payment_transaction_id),
+                    "partner_reference_id": partner_reference_id,
+                    "user_id": user_id,
+                    "elapsed_time": time.time() - start_time,
+                }
+                logging.info(json_dumps(log_dict))
+                return
+
+        # If we get here, we've timed out
+        # Do not reverse the transaction here as the txn might still complete
+        log_dict = {
+            "message": f":red_circle: *Axis UPI payment monitoring timed out*\n"
+            f"payment_transaction_id: {payment_transaction_id}\n"
+            f"user_id: {user_id}\n"
+            f"partner_reference_id: {partner_reference_id}\n"
+            f"last_status: {status}\n",
+        }
+        logging.error(json_dumps(log_dict))
+
+        asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+
+        raise PaymentProcessingError("Payment monitoring timed out")
+
     # TODO: Move this to the base facilitator.
     async def make_payment(
         self,
@@ -311,9 +404,13 @@ class AxisUpiFacilitator(BaseFacilitator):
                 "user_id": user_id,
                 "duration": payment_response_received - db_inits_done,
                 "payment_transaction_id": payment_transaction_id,
+                "partner_reference_id": payment_response.partner_reference_id,
             }
             logging.info(json_dumps(log_dict))
         except Exception as e:
+            # TODO: Have granular exceptions for different types of errors.
+            # We should only reverse the transaction if the error is known to be irrecoverable
+            # and that the parner isn't going to process it.
             log_dict = {
                 "message": "Failed to send payment request to the partner",
                 "user_id": user_id,
@@ -325,13 +422,14 @@ class AxisUpiFacilitator(BaseFacilitator):
             await self.undo_payment_transaction(payment_transaction_id)
             raise PaymentProcessingError("Failed to send payment request to the partner") from e
 
+        partner_reference_id = payment_response.partner_reference_id
         async with get_async_session() as session:
             async with session.begin():
                 await session.exec(
                     update(PaymentTransaction)
                     .values(
                         status=PaymentTransactionStatusEnum.PENDING,
-                        partner_reference_id=str(payment_response.payment_transaction_id),
+                        partner_reference_id=partner_reference_id,
                         # Customer reference id is not yet known at this point.
                     )
                     .where(PaymentTransaction.payment_transaction_id == payment_transaction_id)  # type: ignore
@@ -342,11 +440,23 @@ class AxisUpiFacilitator(BaseFacilitator):
             "user_id": user_id,
             "duration": db_updates_done - payment_response_received,
             "payment_transaction_id": payment_transaction_id,
+            "partner_reference_id": partner_reference_id,
         }
         logging.info(json_dumps(log_dict))
 
         # 5. Start monitoring the payment transaction and hand off to the async task.
-        # TODO: Implement this
+        # TODO: Improve this.
+        assert partner_reference_id is not None
+        asyncio.create_task(self._monitor_payment_status(payment_transaction_id, partner_reference_id, user_id))
+
+        log_dict = {
+            "message": "make_payment completed",
+            "user_id": user_id,
+            "duration": time.time() - start_time,
+            "payment_transaction_id": payment_transaction_id,
+            "partner_reference_id": partner_reference_id,
+        }
+        logging.info(json_dumps(log_dict))
 
         return payment_response
 
@@ -377,3 +487,15 @@ class AxisUpiFacilitator(BaseFacilitator):
     async def get_payment_status(self, payment_reference_id: str) -> PaymentTransactionStatusEnum:
         # TODO: Implement this
         return PaymentTransactionStatusEnum.SUCCESS
+
+    @staticmethod
+    def get_polling_config() -> tuple[int, int]:
+        """
+        Returns polling configuration for Axis UPI payments.
+        Returns:
+            tuple: (max_wait_time_seconds, poll_interval_seconds)
+        """
+        return (
+            5 * 60,  # 5 minutes in seconds
+            10,  # 10 seconds
+        )

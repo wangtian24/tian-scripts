@@ -244,4 +244,102 @@ async def make_payment(axis_payment_request: AxisPaymentRequest) -> PaymentRespo
     return PaymentResponse(
         payment_transaction_id=axis_payment_request.internal_payment_transaction_id,
         transaction_status=PaymentTransactionStatusEnum.SUCCESS,
+        partner_reference_id=_uuid_to_axis_unique_id(axis_payment_request.internal_payment_transaction_id),
+    )
+
+
+def _make_get_payment_status_request(partner_reference_id: str) -> Request:
+    request_id = str(uuid.uuid4())
+
+    request_body = {
+        "channelId": _get_config_value("channel_id", "get_payment_status"),
+        "corpCode": _get_config_value("corp_code", "get_payment_status"),
+        "crn": partner_reference_id,
+    }
+    request_body["checksum"] = calculate_request_body_checksum(request_body)
+
+    sub_header = {
+        "requestUUID": request_id,
+        "serviceRequestId": "OpenAPI",
+        "serviceRequestVersion": "1.0",
+        "channelId": _get_config_value("channel_id", "get_payment_status"),
+    }
+
+    encrypted_request = {
+        "GetStatusRequest": {
+            "SubHeader": sub_header,
+            "GetStatusRequestBodyEncrypted": aes128_encrypt(
+                _get_config_value("aes_symmetric_key"), json.dumps(request_body)
+            ),
+        }
+    }
+
+    plaintext_request = {
+        "GetStatusRequest": {
+            "SubHeader": sub_header,
+            "GetStatusRequestBody": request_body,
+        }
+    }
+
+    return Request(
+        request_id,
+        _get_config_value("url", "get_payment_status"),
+        "get_payment_status",
+        encrypted_request,
+        plaintext_request,
+    )
+
+
+def _map_transaction_status(transaction_status: str) -> PaymentTransactionStatusEnum | None:
+    if transaction_status == "PENDING":
+        return PaymentTransactionStatusEnum.PENDING
+    if transaction_status == "PROCESSED":
+        return PaymentTransactionStatusEnum.SUCCESS
+    if transaction_status == "REJECTED":
+        return PaymentTransactionStatusEnum.FAILED
+    return None
+
+
+async def get_payment_status(payment_transaction_id: uuid.UUID, partner_reference_id: str) -> PaymentResponse:
+    request = _make_get_payment_status_request(partner_reference_id)
+    response = await _call(request)
+    decrypted_body = aes128_decrypt(
+        _get_config_value("aes_symmetric_key"),
+        response["GetStatusResponse"]["GetStatusResponseBodyEncrypted"],
+    )
+    json_body = json.loads(decrypted_body)
+    _log_response_body(request, json_body)
+    if json_body["status"] != "S":
+        raise PaymentProcessingError("Failed to get payment status")
+
+    status_items = json_body["data"]["CUR_TXN_ENQ"]
+    transaction_status: PaymentTransactionStatusEnum | None = PaymentTransactionStatusEnum.PENDING
+    customer_reference_id = None
+    # Iterate in reverse to get the status of the last attempt for this reference ID.
+    for status_item in reversed(status_items):
+        if status_item["crn"] == partner_reference_id:
+            transaction_status = _map_transaction_status(status_item["transactionStatus"])
+            if transaction_status is None:
+                transaction_status = PaymentTransactionStatusEnum.PENDING
+                logging.error(
+                    json.dumps(
+                        {
+                            "message": "Unknown transaction status from Axis UPI",
+                            "partner_transaction_status": status_item["transactionStatus"],
+                            "partner_reference_id": partner_reference_id,
+                            "payment_transaction_id": payment_transaction_id,
+                        }
+                    )
+                )
+            # utrNo will be None if the transaction is pending.
+            customer_reference_id = status_item["utrNo"]
+            break
+
+    # We're handling the case where the transaction status is None in the loop above.
+    assert transaction_status is not None
+
+    return PaymentResponse(
+        payment_transaction_id=payment_transaction_id,
+        transaction_status=transaction_status,
+        customer_reference_id=customer_reference_id,
     )
