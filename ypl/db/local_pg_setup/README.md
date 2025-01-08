@@ -18,7 +18,9 @@ This guide will help you set up a local PostgreSQL database, dump the source db 
      ```sh
      ./install_local_pg.sh
      ```
-
+  - After the database is set up, you will be asked if you want to seed the local database with data from the source database.
+    - If you choose to seed the database, you will be asked to confirm some details and eventually be prompted with the password for the remote source database, which you can find in the `.env` file or on 1Password in the `POSTGRES_PASSWORD` variable.
+    - If you choose not to seed the database, you can still run the `seed_data_from_source.sh` script later (next step).
 
 3. **Seed the Local Database:**
    - If Step 2 succeeds, you don't need to run this step as the script would've already run this.
@@ -26,6 +28,7 @@ This guide will help you set up a local PostgreSQL database, dump the source db 
      ```sh
      ./seed_data_from_source.sh
      ```
+After the seeding is complete, you can view its content using DBeaver or any other PostgreSQL client.
 
 ## Notes
 

@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 # Default values point to the GCP Development DB fronted with PgBouncer
 DEFAULT_SRC_HOST="34.85.174.70" #pgbouncer
@@ -42,13 +43,15 @@ DROP_DB=$(prompt_with_default "Drop existing ${DEST_HOST}:${DEST_PORT}/${DEST_DB
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 DUMP_FILE="/tmp/db_dump_${TIMESTAMP}.backup"
 
-echo "***********Backing up source database...***********"
+echo "***********Dumping source database...***********"
 pg_dump -h $SRC_HOST -p $SRC_PORT -U $SRC_USER -d $SRC_DB -F c -b -v -f $DUMP_FILE
 
 if [ $? -ne 0 ]; then
     echo "***********Error: Backup failed***********"
     exit 1
 fi
+
+echo "The dump file is located at $DUMP_FILE"
 
 if [[ $DROP_DB =~ ^[Yy]$ ]]; then
     echo "***********Dropping existing database...***********"

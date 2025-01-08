@@ -6,69 +6,98 @@ Multi Intelligence Neural Distribution Service
 
 The backend for providing services over multiple LLMs.
 
-## Setup
+## Set Up, Build and Run
 
-### Conda
+To get the backend to run, you need to set up several things:
+1. Install Dependencies
+1. Set up credentials
+1. Build and run
 
-1. Install miniconda by following the [operating system-specific instructions](https://docs.conda.io/projects/miniconda/en/latest/).
+### 1. Install Dependencies
 
-    <details>
-    <summary>Sample for macOS with zsh (click to expand)</summary>
+The backend server is written in Python, so we need to install Python and all necessary dependencies. We use `miniconda`, `mamba` and `poetry` to manage Python dependencies.
+<details>
+<summary>More details about these librarires/tools</summary>
 
+`miniconda` is a lightweight python distribution, a version of `anaconda`, a Python distribution that includes many packages and an environment manager; It has a component called `conda` that manages dependencies resolution and installation, and `mamba` is a faster alternative to it. `poetry` is a tool for dependency management specifically for Python packages.
+
+</details>
+
+
+#### miniconda 
+- Install `miniconda` by following the [OS-specific instructions](https://docs.anaconda.com/miniconda/install/). For macOS with Apple Silicon:
     ```sh
-    mkdir -p ~/miniconda3
-    curl https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-arm64.sh -o ~/miniconda3/miniconda.sh
-    bash ~/miniconda3/miniconda.sh -b -u -p ~/miniconda3
-    rm -rf ~/miniconda3/miniconda.sh
+    cd ~
+    # download the installer script
+    curl https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-arm64.sh
+    # this will install to ~/miniconda3 by default
+    bash ~/Miniconda3-latest-MacOSX-arm64.sh
+    
+    # after installation, remove the installer script
+    rm ~/Miniconda3-latest-MacOSX-arm64.sh
+    # initialize the conda environment, replace zsh with your shell name if necessary
     ~/miniconda3/bin/conda init zsh
     ```
 
-    Warning: copied instructions can get outdated. Please update if you find there is a new or better way.
-    </details>
-
-1. Insta mamba through the [recommended Miniforge distribution](https://mamba.readthedocs.io/en/latest/installation/mamba-installation.html).
-
-    <details>
-    <summary>Sample macOS (click to expand)</summary>
-
+#### mamba
+- Insta mamba through the [recommended Miniforge distribution](https://mamba.readthedocs.io/en/latest/installation/mamba-installation.html). For macOS:
     ```sh
     brew install miniforge
     ```
 
-    Warning: copied instructions can get outdated. Please update if you find there is a new or better way.
-    </details>
+#### Other Dependencies
+- We also need redis and postgres installed. For macOS:
+  ```sh
+  brew install redis
+  brew install postgresql@16    # only for local mode, also solves some psycopg2 issues
+  ```
 
-1. In the yupp-mind project directory, run the following command to create the run environment `ys-dev`. This will create a minimal virtual environment.
+#### Create Virtual Environment
 
-```sh
-mamba env create -n ys-dev --file envs/dev.yml
-mamba init # needed the first time
-mamba activate ys-dev
-```
-Confirm the `ys-dev` environment is activated by running `mamba info --envs` and seeing `ys-dev` in the list with a `*` next to it.
+- In the repo root, run the following command to create a virtual environment `ys-dev`. This will create a minimal virtual environment.
 
-### Poetry
+  ```sh
+  mamba env create -n ys-dev --file envs/dev.yml
+  mamba init  # needed the first time
 
-Once the virtual environment is setup and activated, dependencies are managed by [poetry](https://python-poetry.org/). In order to install the backend dependencies, run (once the conda development environment is active):
+  # Make sure you do this every time you start a new terminal session
+  mamba activate ys-dev
+  ```
 
-```sh
-poetry install --no-root
-```
+- Confirm that the `ys-dev` environment is activated by running `mamba info --envs` and seeing `ys-dev` in the list with a `*` next to it. You will also see the text `(ys-dev)` in front of your command line prompt.
 
-If you get an error about `psycopg2`, installing postgresql fixes it. `brew install postgresql` and then rerun poetry.
+#### Actually Install Dependencies using poetry
 
-Once all the dependencies are installed, make a copy of the sample `.env.copy` environment and fill in the values. You can get the values from 1Password (yupp-mind .env file):
+- Now we actually install all dependencies **inside the virtual environment**, which is to be managed by [poetry](https://python-poetry.org/). Once you have the environment activated, run:
 
-```sh
-cp .env.copy .env
-```
+    ```sh
+    poetry install --no-root
+    ```
+- Now all your dependencies are installed in the virtual environment.
 
-Make sure to set
-```
-PYTORCH_SERVE_GCP_URL=https://backend-pytorch-service-staging-451082535721.us-central1.run.app/api/v1
+### 2. Set Up Credentials
 
-```
-if it is not present in your `.env` file.
+The backend server needs to load all necessary credentials from `.env` file in the repo root to access various services. We have these secrets stored in 1Password (and Vercel for production). To run the server locally, you need to create this file by downloading it from 1Password (it's under the entry "yupp-mind .env file"). Here is the command lines to do it on macOS:
+
+  ```sh
+  # Install 1Password CLI
+  brew install 1password-cli
+  op —version
+
+  # sign into the 1Password account, it will show some popup.
+  # If you have multiple accounts, make sure you choose the Yupp one.
+  eval $(op signin)
+  ```
+
+- Download the `.env` file from 1Password, due to some 1Password CLI bug, we need to do some postprocessing to the output.
+
+  ```sh
+  op item get "yupp-mind .env file" --vault="Founding Team Shared" --fields text |  sed '1s/^"//; $s/"$//' | sed 's/\"\"/\"/g' > .env
+  ```
+
+### 3. Build and Run
+
+#### Build with Poetry
 
 To add new dependencies or update the versions of existings ones, modify the `[poetry]` section in [pyproject.toml] and run `poetry update`. This will modify the locked package versions in [poetry.lock]. Do not modify that file directly.
 
@@ -79,30 +108,41 @@ poetry build
 pip install -e .  # editable mode for dev
 ```
 
+#### Runing the Server
+
+The server could run in four modes:
+- `local`: runs the server locally and have it talk to a local database. (Needs local database setup, see [here](ypl/db/local_pg_setup/README.md) for more details)
+- `staging`: runs the server in staging environment, using the production database.
+- `production`: runs the server in production environment, using the production database.
+- `test`: runs the server for test only, not the topic here (TBD)
+
+You can start the server in any of these modes by specifying the `ENVIRONMENT` variable either in commandline, or in the first line `.env` file. for example:
+
+
+- Local mode (needs local database)
+  ```sh
+  ENVIRONMENT=local uvicorn ypl.backend.server:app --reload
+  ```
+- Staging mode
+  ```sh
+  ENVIRONMENT=staging uvicorn ypl.backend.server:app --reload
+  ```
+
+Similarly for `production` and `test` modes.
+
+After the server is up, in the `staging`/`local` mode, you can navigate to [localhost:8000/api/docs](http://localhost:8000/api/docs) to see all API endpoints available. See [Accessing the APIs](#accessing-the-apis) for more details using the endpoints seen here.
+
+
 ## Google Cloud Logging
 
 Google Cloud Logging is disabled by default. To enable it, set `USE_GOOGLE_CLOUD_LOGGING=True` in the `.env` file. In order to do GCP logging from local environment, you need to download the GCP service account key file from 1Password and set the `GOOGLE_APPLICATION_CREDENTIALS` environment variable to the path of the downloaded key file.
 
 In order to redact sensitive data, the `redact_sensitive_data` function is used. If you need to add new sensitive data patterns to redact, you can do so by adding them to the function.
 
-## Running the service
-
-If this is the first time you are running the service, you need to install redis; on Mac, this can be done with `brew install redis`.
-For other operating systems, see [redis installation instructions](https://redis.io/docs/latest/operate/oss_and_stack/install/install-redis/).
-
-Start the backend service in any folder containing the `.env` file with:
-
-```sh
-uvicorn ypl.backend.server:app --reload
-```
-
-See [localhost:8000/api/docs](http://localhost:8000/api/docs) for the available API routes. This only works if your `ENVIRONMENT` variable in the `.env` file is set to `local`.
-
-If redis is not installed, you will see a `Redis not installed` exception when starting the service.
 
 ## Accessing the APIs
 
-The APIs are protected by API key. The key is stored in the Github Secrets (and Vercel Environment Variables), which will be injected as part of Github Actions Workflow. If you want to access the API, you need to set the `X-API-KEY` header with the right key value.
+The APIs are protected by API key. The key is stored in the Github Secrets (and Vercel Environment Variables), which will be injected as part of Github Actions Workflow. You can also find it in the `.env` file you set up earlier. If you want to access the API, you need to set the `X-API-KEY` header with the right key value.
 At the moment, `local` environment is exempt from authentication and is enabled only for other (`staging` and `production`) environments.
 
 If you need to access the APIs from FastAPI Docs, you can add the API key by clicking on `Authorize` button (top right).
@@ -130,7 +170,7 @@ Important credentials (ie LLM API keys) can be found in 1Password.
 
 This repo uses `ruff` for Python linting and `mypy` to make sure Python code is typed. Please download the IDE extensions for `ruff` and `mypy` from [here](https://code.visualstudio.com/docs/python/linting) to help with linting and type checking.
 
-When using `mypy` in VSCode, you may need to enable the "Run using active interpreter" setting to make sure `mypy` uses the daemon in the virtual environment. You can find it by going to `Settings`, searching for `mypy.runUsingActiveInterpreter`, and checking the box.
+When using `mypy` in VSCode, you may need to enable the "Run using active interpreter" setting to make sure `mypy` uses the daemon in the virtual environment. You can find it by going to `Settings`, searching for `mypy.runUsingActiveInterpreter`, and checking the box. Make sure you have selected the right virtual environment. (You can do this by pressing Cmd-Shift-P and choose `Python: Select Interpreter` and select 'ys-dev' you created before.)
 
 
 Github actions in `.github/workflows` are set up to run these linters on push and pull requests.
