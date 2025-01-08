@@ -330,6 +330,11 @@ class AxisUpiFacilitator(BaseFacilitator):
                     # updates of all the payment transactions.
                     await session.connection(execution_options={"isolation_level": "SERIALIZABLE"})
 
+                    # Ensure that the user has enough points to cash out before starting the payment steps.
+                    user = (await session.exec(select(User).where(User.user_id == user_id))).one()
+                    if user.points < credits_to_cashout:
+                        raise ValueError("User does not have enough points to cash out")
+
                     # 2. Create the payment transaction.
                     session.add(
                         PaymentTransaction(
