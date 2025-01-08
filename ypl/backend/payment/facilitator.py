@@ -331,8 +331,8 @@ class OnChainFacilitator(BaseFacilitator):
         """
         try:
             start_time = time.time()
-            max_wait_time = 300  # 5 minutes in seconds
-            poll_interval = 5  # Check every 5 seconds
+            max_wait_time = 3600  # 1 hour
+            poll_interval = 300  # Check every 5 minute
 
             # first check if the transfer is already complete
             # if not then wait for coinbase designed wait
