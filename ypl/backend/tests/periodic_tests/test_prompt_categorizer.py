@@ -2,7 +2,7 @@ from typing import Any
 
 import pytest
 
-from ypl.backend.llm.routing.router import online_yupp_model, topic_categorizer
+from ypl.backend.llm.routing.router import get_online_labeler, get_topic_labeler
 
 regression_examples = [
     dict(
@@ -39,9 +39,11 @@ regression_examples = [
 @pytest.mark.asyncio
 @pytest.mark.parametrize("example", regression_examples)
 async def test_prompt_categorizer(example: dict[str, Any]) -> None:
-    is_online = await online_yupp_model.alabel(example["content"])
+    online_labeler = get_online_labeler()
+    topic_labeler = get_topic_labeler()
+    is_online = await online_labeler.alabel(example["content"])
     online_category = "online" if is_online else "offline"
-    categories = await topic_categorizer.alabel(example["content"])
+    categories = await topic_labeler.alabel(example["content"])
     categories += [online_category]
     categories_ = set(x.lower() for x in categories)
 

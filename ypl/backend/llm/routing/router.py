@@ -13,6 +13,7 @@ import numba
 import numpy as np
 from google.auth import default
 from google.cloud import run_v2
+from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import BaseModel
 from sqlalchemy import func, text
 from sqlmodel import Session, select
@@ -32,7 +33,7 @@ from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.ranking import ConfidenceIntervalRankerMixin, Ranker, get_ranker
 from ypl.backend.llm.routing.policy import SelectionCriteria, decayed_random_fraction
 from ypl.backend.llm.routing.route_data_type import RoutingPreference
-from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter
+from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter, OpenAILangChainAdapter
 from ypl.backend.utils.json import json_dumps
 from ypl.db.language_models import LanguageModel, LanguageModelResponseStatus, LanguageModelResponseStatusEnum
 from ypl.utils import RNGMixin
@@ -1540,35 +1541,66 @@ class HighErrorRateFilter(RNGMixin, ModelFilter):
 
 
 # Begin pro router logic and routine
-gemini_2_flash_llm = GeminiLangChainAdapter(
-    model_info=ModelInfo(
-        provider=ChatProvider.GOOGLE,
-        model="gemini-2.0-flash-exp",
-        api_key=settings.GOOGLE_API_KEY,
-    ),
-    model_config_=dict(
-        project_id=settings.GCP_PROJECT_ID,
-        region=settings.GCP_REGION_GEMINI_2,
-        temperature=0.0,
-        max_output_tokens=32,
-        top_k=1,
-    ),
-)
+ROUTING_LLM: BaseChatModel | None = None
+ONLINE_LABELER = None
+TOPIC_LABELER = None
+MODIFIER_LABELER = None
+USE_GEMINI_FOR_ROUTING = False
 
-online_yupp_model = YuppOnlinePromptLabeler(
-    gemini_2_flash_llm,
-    timeout_secs=settings.ROUTING_TIMEOUT_SECS,
-)
 
-topic_categorizer = YuppMultilabelClassifier(
-    gemini_2_flash_llm,
-    timeout_secs=settings.ROUTING_TIMEOUT_SECS,
-)
+def get_routing_llm() -> BaseChatModel:
+    global ROUTING_LLM
+    if ROUTING_LLM is None:
+        if USE_GEMINI_FOR_ROUTING:
+            ROUTING_LLM = GeminiLangChainAdapter(
+                model_info=ModelInfo(
+                    provider=ChatProvider.GOOGLE,
+                    model="gemini-2.0-flash-exp",
+                    api_key=settings.GOOGLE_API_KEY,
+                ),
+                model_config_=dict(
+                    project_id=settings.GCP_PROJECT_ID,
+                    region=settings.GCP_REGION_GEMINI_2,
+                    temperature=0.0,
+                    max_output_tokens=32,
+                    top_k=1,
+                ),
+            )
+        else:
+            ROUTING_LLM = OpenAILangChainAdapter(
+                model_info=ModelInfo(
+                    provider=ChatProvider.OPENAI,
+                    model="gpt-4o-mini",
+                    api_key=settings.OPENAI_API_KEY,
+                ),
+                model_config_=dict(
+                    temperature=0.0,
+                    max_tokens=40,
+                ),
+            )
 
-modifier_categorizer = PromptModifierLabeler(
-    gemini_2_flash_llm,
-    timeout_secs=settings.ROUTING_TIMEOUT_SECS,
-)
+    return ROUTING_LLM
+
+
+def get_online_labeler() -> YuppOnlinePromptLabeler:
+    global ONLINE_LABELER
+    if ONLINE_LABELER is None:
+        ONLINE_LABELER = YuppOnlinePromptLabeler(get_routing_llm(), timeout_secs=settings.ROUTING_TIMEOUT_SECS)
+    return ONLINE_LABELER
+
+
+def get_topic_labeler() -> YuppMultilabelClassifier:
+    global TOPIC_LABELER
+    if TOPIC_LABELER is None:
+        TOPIC_LABELER = YuppMultilabelClassifier(get_routing_llm(), timeout_secs=settings.ROUTING_TIMEOUT_SECS)
+    return TOPIC_LABELER
+
+
+def get_modifier_labeler() -> PromptModifierLabeler:
+    global MODIFIER_LABELER
+    if MODIFIER_LABELER is None:
+        MODIFIER_LABELER = PromptModifierLabeler(get_routing_llm(), timeout_secs=settings.ROUTING_TIMEOUT_SECS)
+    return MODIFIER_LABELER
 
 
 async def get_simple_pro_router(
@@ -1584,16 +1616,19 @@ async def get_simple_pro_router(
 
     preference = routing_preference or RoutingPreference(turns=[])
     reputable_proposer = RandomModelProposer(providers=reputable_providers or set(settings.ROUTING_REPUTABLE_PROVIDERS))
-    responses: tuple[bool, list[str], list[str]] = await asyncio.gather(
-        online_yupp_model.alabel(prompt),
-        topic_categorizer.alabel(prompt),
-        modifier_categorizer.alabel(prompt),
+    online_labeler = get_online_labeler()
+    topic_labeler = get_topic_labeler()
+    modifier_labeler = get_modifier_labeler()
+    online_label, topic_labels, modifier_labels = await asyncio.gather(
+        online_labeler.alabel(prompt),
+        topic_labeler.alabel(prompt),
+        modifier_labeler.alabel(prompt),
     )
 
-    online_category = "online" if responses[0] else "offline"
-    categories = [online_category] + responses[1] + (provided_categories or [])
+    online_category = "online" if online_label else "offline"
+    categories = [online_category] + topic_labels + (provided_categories or [])
     categories = list(dict.fromkeys(categories))
-    applicable_modifiers = responses[2]
+    applicable_modifiers = modifier_labels
 
     rule_proposer = RoutingRuleProposer(*categories)
     rule_filter = RoutingRuleFilter(*categories)

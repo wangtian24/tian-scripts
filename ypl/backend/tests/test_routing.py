@@ -1,4 +1,3 @@
-import asyncio
 from collections import Counter
 from typing import Any
 from unittest.mock import Mock, patch
@@ -263,9 +262,9 @@ def test_fast_compute_all_conf_overlap_diffs() -> None:
     assert vals.tolist() == approx([0.0])
 
 
-@patch("ypl.backend.llm.routing.router.PromptModifierLabeler.alabel")
-@patch("ypl.backend.llm.routing.router.YuppMultilabelClassifier.alabel")
-@patch("ypl.backend.llm.routing.router.YuppOnlinePromptLabeler.alabel")
+@patch("ypl.backend.llm.routing.router.PromptModifierLabeler")
+@patch("ypl.backend.llm.routing.router.YuppMultilabelClassifier")
+@patch("ypl.backend.llm.routing.router.YuppOnlinePromptLabeler")
 @patch("ypl.backend.llm.routing.router.HighErrorRateFilter.select_models")
 @patch("ypl.backend.llm.routing.router.get_all_strong_models")
 @patch("ypl.backend.llm.routing.router.get_all_pro_models")
@@ -282,16 +281,28 @@ async def test_simple_pro_router(
     mock_get_all_pro_models: Mock,
     mock_get_all_strong_models: Mock,
     mock_error_filter: Mock,
-    mock_alabel: Mock,
-    mock_topic_categorizer: Mock,
-    mock_modifier_labeler: Mock,
+    MockOnlineYupp: Mock,
+    MockTopicCategorizer: Mock,
+    MockModifierLabeler: Mock,
 ) -> None:
+    async def mock_online_yupp_fn(*args: Any, **kwargs: Any) -> str:
+        return "advice"
+
+    async def mock_topic_categorizer_fn(*args: Any, **kwargs: Any) -> list[str]:
+        return []
+
+    async def mock_modifier_labeler_fn(*args: Any, **kwargs: Any) -> list[str]:
+        return ["concise"]
+
+    MockOnlineYupp.return_value.alabel = mock_online_yupp_fn
+    MockTopicCategorizer.return_value.alabel = mock_topic_categorizer_fn
+    MockModifierLabeler.return_value.alabel = mock_modifier_labeler_fn
+
+    mock_table = Mock()
+    mock_table.apply.return_value = ({}, set())  # empty accept_map and rejected_models
+    mock_routing_table.return_value = mock_table
+
     # Test that we get different models
-    mock_alabel.return_value = asyncio.Future()
-    mock_alabel.return_value.set_result("advice")
-    mock_modifier_labeler.return_value = ["concise"]
-    mock_topic_categorizer.return_value = []
-    mock_routing_table.return_value = RoutingTable([])
     pro_models = {"pro1", "pro2", "pro3", "pro4"}
     mock_get_all_pro_models.return_value = pro_models
     mock_semantic_group_map.return_value = {}
