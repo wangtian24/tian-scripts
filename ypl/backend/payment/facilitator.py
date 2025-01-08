@@ -338,7 +338,7 @@ class OnChainFacilitator(BaseFacilitator):
             # if not then wait for coinbase designed wait
             if str(transfer.status).lower() != Transaction.Status.COMPLETE.value.lower():
                 try:
-                    transfer.wait()
+                    transfer.wait(timeout_seconds=30)
                 except Exception as e:
                     log_dict = {
                         "message": "Error waiting for transfer completion",
