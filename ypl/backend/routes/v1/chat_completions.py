@@ -399,7 +399,7 @@ async def _get_message(chat_request: ChatRequest) -> ChatMessage | None:
             ChatMessage.completion_status == CompletionStatus.SUCCESS,
         )
         .join(LanguageModel)
-        .join(PromptModifierAssoc)
+        .outerjoin(PromptModifierAssoc)
         .group_by(ChatMessage.message_id)  # type: ignore
         .having(
             func.array_agg(PromptModifierAssoc.prompt_modifier_id) == chat_request.prompt_modifier_ids  # type: ignore
