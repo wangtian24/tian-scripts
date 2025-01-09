@@ -39,6 +39,7 @@ def load_active_models_with_providers() -> dict[str, tuple[LanguageModel, Provid
         return {model.internal_name: (model, provider) for model, provider in active_models_with_providers}
 
 
+# TODO: Ralph's comment: probably want to standardize the provider name using `standardize_provider_name`
 def get_model_provider_tuple(model_name: str) -> tuple[LanguageModel, Provider] | None:
     """
     Look up the (model, provider) tuple for a given model name.
