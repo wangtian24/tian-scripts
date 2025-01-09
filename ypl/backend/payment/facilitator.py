@@ -348,7 +348,7 @@ class OnChainFacilitator(BaseFacilitator):
                         "error": str(e),
                         "elapsed_time": time.time() - start_time,
                     }
-                    logging.error(json_dumps(log_dict))
+                    logging.warning(json_dumps(log_dict))
 
             # if still not complete then wait for max wait time
             while (
@@ -393,7 +393,7 @@ class OnChainFacilitator(BaseFacilitator):
                     "transfer_id": transfer.transfer_id,
                     "elapsed_time": time.time() - start_time,
                 }
-                logging.error(json_dumps(log_dict))
+                logging.warning(json_dumps(log_dict))
 
                 # Handle the failed transaction
                 await handle_failed_transaction(
