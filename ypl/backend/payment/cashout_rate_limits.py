@@ -10,6 +10,7 @@ from sqlalchemy import Column, and_, case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.expression import true
 from sqlalchemy.sql.functions import Function
+from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
 from ypl.backend.utils.json import json_dumps
 from ypl.db.point_transactions import PointsActionEnum, PointTransaction
@@ -307,6 +308,10 @@ async def validate_user_cashout_limits(user_id: str, credits_to_cashout: int) ->
     Checks both count of cashouts and total credits cashed out for daily, weekly and monthly periods.
     Raises HTTPException if any limit is exceeded.
     """
+
+    if settings.ENVIRONMENT != "production":
+        return
+
     now = datetime.utcnow()
     time_windows = {
         "daily": now - timedelta(days=1),
