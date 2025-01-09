@@ -1,10 +1,13 @@
 import logging
 from abc import abstractmethod
+from functools import cached_property
+from threading import Lock
 from typing import Any
 
 import google.generativeai as genai
 import google.generativeai.client as client
 import vertexai
+from google.generativeai.types import content_types
 from langchain_core.callbacks import AsyncCallbackManagerForLLMRun, CallbackManagerForLLMRun
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
@@ -64,31 +67,45 @@ class GeminiLangChainAdapter(VendorLangChainAdapter):
     def tools(self) -> list[str] | str | None:
         return self.model_config_.get("tools", None)  # type: ignore[no-any-return]
 
+    @cached_property
+    def sys_message_mutex(self) -> Lock:
+        return Lock()
+
     def _prepare_request(self, messages: list[BaseMessage], **kwargs: Any) -> dict[str, Any]:
         system_message = next((message for message in messages if message.type == "system"), None)
         model_kwargs = {}
 
-        if system_message:
-            messages = [message for message in messages if message.type != "system"]
-            model_kwargs["system_instruction"] = genai.protos.Part(text=str(system_message.content))
+        try:
+            self.sys_message_mutex.acquire()
+            old_system_instruction = self.model._system_instruction
 
-        for key in ("safety_settings", "tools", "tool_config"):
-            model_kwargs[key] = kwargs.get(key, getattr(self.model, f"_{key}", None))
+            if system_message:
+                messages = [message for message in messages if message.type != "system"]
+                self.model._system_instruction = content_types.to_content(system_message.content)
+            else:
+                self.sys_message_mutex.release()
 
-        if self.tools:
-            model_kwargs["tools"] = self.tools
+            for key in ("safety_settings", "tools", "tool_config"):
+                model_kwargs[key] = kwargs.get(key, getattr(self.model, f"_{key}", None))
 
-        request = self.model._prepare_request(
-            contents=[
-                genai.protos.Content(
-                    role=GOOGLE_ROLE_MAP.get(message.type, message.type),
-                    parts=[genai.protos.Part(text=str(message.content))],
-                )
-                for message in messages
-            ],
-            generation_config=self.model._generation_config,
-            **model_kwargs,
-        )
+            if self.tools:
+                model_kwargs["tools"] = self.tools
+
+            request = self.model._prepare_request(
+                contents=[
+                    genai.protos.Content(
+                        role=GOOGLE_ROLE_MAP.get(message.type, message.type),
+                        parts=[genai.protos.Part(text=str(message.content))],
+                    )
+                    for message in messages
+                ],
+                generation_config=self.model._generation_config,
+                **model_kwargs,
+            )
+        finally:
+            if self.sys_message_mutex.locked():
+                self.model._system_instruction = old_system_instruction  # Reset the system instruction
+                self.sys_message_mutex.release()
 
         return request  # type: ignore[no-any-return]
 
