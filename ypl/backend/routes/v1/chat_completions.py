@@ -203,7 +203,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
             # so the user prompt will appear twice consecutively, which will fail for llama models.
             # This will be removed in V2
             # Check if chat_context is not empty and the last message matches the current prompt
-            last_message = chat_context[-1]
+            last_message = chat_context[-1] if chat_context else None
             if last_message and isinstance(last_message, HumanMessage) and last_message.content == chat_request.prompt:
                 should_append_message = False
 
