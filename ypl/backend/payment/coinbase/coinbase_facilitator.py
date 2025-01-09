@@ -81,12 +81,14 @@ class CoinbaseFacilitator(BaseFacilitator):
         user_id: str,
         destination_identifier: str,
         destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
+        instrument_metadata: dict | None = None,
     ) -> uuid.UUID:
         return await get_generic_destination_instrument_id(
             PaymentInstrumentFacilitatorEnum.COINBASE,
             user_id,
             destination_identifier,
             destination_identifier_type,
+            instrument_metadata,
         )
 
     async def get_balance(self, currency: CurrencyEnum) -> Decimal:

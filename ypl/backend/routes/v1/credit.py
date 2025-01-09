@@ -53,8 +53,11 @@ class CashoutCreditsRequest:
     country_code: str | None
     # Optional dictionary for additional details like account number, routing number for USD payouts
     destination_additional_details: dict | None = None
+    # Not all facilitators will need the validated destination details.
+    validated_destination_details: str | None = None
     # If True, return the response object instead of just the string.
-    return_response_as_object: bool = False
+    # TODO: Remove after the next release (TODO added on 2025-01-08).
+    return_response_as_object: bool = True
 
 
 async def convert_credits_to_currency(credits: int, currency: CurrencyEnum) -> Decimal:
@@ -136,6 +139,9 @@ async def validate_cashout_request(request: CashoutCreditsRequest) -> None:
         logging.info(log_dict)
         raise HTTPException(status_code=400, detail=str(e)) from e
 
+    if request.validated_destination_details is None and request.facilitator == PaymentInstrumentFacilitatorEnum.UPI:
+        raise HTTPException(status_code=400, detail="Validated destination details are required for UPI cashout")
+
 
 @router.post("/credits/cashout")
 async def cashout_credits(request: CashoutCreditsRequest) -> str | None | PaymentResponse:
@@ -150,6 +156,7 @@ async def cashout_credits(request: CashoutCreditsRequest) -> str | None | Paymen
         "facilitator": request.facilitator,
         "country_code": request.country_code,
         "destination_additional_details": request.destination_additional_details,
+        "validated_destination_details_is_set": request.validated_destination_details is not None,
     }
     logging.info(json_dumps(log_dict))
 
@@ -184,6 +191,7 @@ async def cashout_credits(request: CashoutCreditsRequest) -> str | None | Paymen
         request.destination_identifier,
         request.destination_identifier_type,
         request.destination_additional_details,
+        request.validated_destination_details,
     )
 
     # Hack to continue returning 'None' when the customer reference ID is not available,

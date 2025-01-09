@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import uuid
+from copy import deepcopy
 from datetime import datetime, timedelta
 from decimal import Decimal
 
@@ -554,6 +555,7 @@ async def get_destination_instrument_id(
     user_id: str,
     destination_identifier: str,
     destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
+    instrument_metadata: dict | None = None,
 ) -> uuid.UUID:
     """Get or create the destination payment instrument ID.
 
@@ -562,6 +564,7 @@ async def get_destination_instrument_id(
         user_id: The ID of the user
         destination_identifier: The destination identifier (e.g. wallet address)
         destination_identifier_type: The type of identifier for the payment instrument
+        instrument_metadata: The metadata for the payment instrument
 
     Returns:
         UUID: The payment instrument ID
@@ -583,6 +586,7 @@ async def get_destination_instrument_id(
                 "facilitator": facilitator,
                 "user_id": user_id,
                 "identifier": destination_identifier,
+                "instrument_metadata": instrument_metadata,
             }
             logging.info(json_dumps(log_dict))
             instrument = PaymentInstrument(
@@ -590,8 +594,29 @@ async def get_destination_instrument_id(
                 identifier_type=destination_identifier_type,
                 identifier=destination_identifier,
                 user_id=user_id,
+                instrument_metadata=instrument_metadata,
             )
             session.add(instrument)
             await session.commit()
             return instrument.payment_instrument_id
+        if instrument_metadata is not None:
+            log_dict = {
+                "message": "Updating instrument metadata",
+                "instrument_id": str(instrument.payment_instrument_id),
+                "old_metadata": instrument.instrument_metadata,
+                "new_metadata": instrument_metadata,
+                "user_id": user_id,
+                "identifier": destination_identifier,
+                "identifier_type": destination_identifier_type,
+                "facilitator": facilitator,
+            }
+            logging.info(json_dumps(log_dict))
+            if instrument.instrument_metadata is None:
+                instrument.instrument_metadata = instrument_metadata
+            else:
+                new_metadata = deepcopy(instrument.instrument_metadata or {})
+                new_metadata.update(instrument_metadata)
+                instrument.instrument_metadata = new_metadata
+            session.add(instrument)
+            await session.commit()
         return instrument.payment_instrument_id

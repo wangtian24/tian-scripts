@@ -105,6 +105,7 @@ class BaseFacilitator(ABC):
         user_id: str,
         destination_identifier: str,
         destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
+        instrument_metadata: dict | None = None,
     ) -> UUID:
         pass
 
@@ -116,6 +117,7 @@ class BaseFacilitator(ABC):
         destination_identifier: str,
         destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
         destination_additional_details: dict | None = None,
+        validated_destination_details: str | None = None,
     ) -> PaymentResponse:
         return await self._send_payment_request(
             user_id,

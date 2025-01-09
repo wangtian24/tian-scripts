@@ -97,6 +97,7 @@ class PlaidFacilitator(BaseFacilitator):
         user_id: str,
         destination_identifier: str,
         destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
+        instrument_metadata: dict | None = None,
     ) -> uuid.UUID:
         async with get_async_session() as session:
             query = select(PaymentInstrument).where(

@@ -6,7 +6,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy.orm import selectinload
 from sqlmodel import select, update
 from ypl.backend.config import settings
@@ -76,12 +76,14 @@ class AxisUpiFacilitator(BaseFacilitator):
         user_id: str,
         destination_identifier: str,
         destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
+        instrument_metadata: dict | None = None,
     ) -> uuid.UUID:
         return await get_destination_instrument_id(
             PaymentInstrumentFacilitatorEnum.UPI,
             user_id,
             destination_identifier,
             destination_identifier_type,
+            instrument_metadata,
         )
 
     # TODO: Move this to the base facilitator.
@@ -299,6 +301,15 @@ class AxisUpiFacilitator(BaseFacilitator):
 
         raise PaymentProcessingError("Payment monitoring timed out")
 
+    def _get_validated_destination_details(self, validated_destination_details: str) -> dict:
+        decryptor = Fernet(settings.validate_destination_identifier_secret_key)
+        decrypted_string = decryptor.decrypt_at_time(
+            validated_destination_details.encode("utf-8"),
+            VALIDATE_DESTINATION_IDENTIFIER_TOKEN_TTL_SECONDS,
+            int(datetime.now(UTC).timestamp()),
+        ).decode("utf-8")
+        return json.loads(decrypted_string)  # type: ignore[no-any-return]
+
     # TODO: Move this to the base facilitator.
     async def make_payment(
         self,
@@ -308,17 +319,49 @@ class AxisUpiFacilitator(BaseFacilitator):
         destination_identifier: str,
         destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
         destination_additional_details: dict | None = None,
+        validated_destination_details: str | None = None,
     ) -> PaymentResponse:
         start_time = time.time()
         # TODO: Get this from where the payment is initiated (i.e., from the API handler).
         payment_transaction_id = uuid.uuid4()
+
+        instrument_metadata = destination_additional_details
+
+        if validated_destination_details is not None:
+            if instrument_metadata is None:
+                instrument_metadata = {}
+            try:
+                instrument_metadata.update(self._get_validated_destination_details(validated_destination_details))
+            except Exception as e:
+                log_dict = {
+                    "message": "Failed to decrypt validated destination details",
+                    "error": str(e),
+                    "user_id": user_id,
+                    "destination_identifier": destination_identifier,
+                    "destination_identifier_type": destination_identifier_type,
+                    "credits_to_cashout": credits_to_cashout,
+                    "amount": str(amount),
+                    "currency": self.currency,
+                    "payment_transaction_id": payment_transaction_id,
+                    "facilitator": self.facilitator,
+                }
+                logging.exception(json_dumps(log_dict))
+                if isinstance(e, InvalidToken):
+                    raise PaymentInstrumentError("Expired validated destination details, please try again") from e
+                raise PaymentInstrumentError("Failed to get validated destination details") from e
+
         try:
             # 0. Get the balance of the source instrument and verify if it is enough.
             # 1. Get the source and destination instrument IDs.
             balance, source_instrument_id, destination_instrument_id = await asyncio.gather(
                 self.get_balance(self.currency),
                 self.get_source_instrument_id(),
-                self.get_destination_instrument_id(user_id, destination_identifier, destination_identifier_type),
+                self.get_destination_instrument_id(
+                    user_id,
+                    destination_identifier,
+                    destination_identifier_type,
+                    instrument_metadata,
+                ),
             )
             if balance < amount:
                 log_dict = {
@@ -533,6 +576,7 @@ class AxisUpiFacilitator(BaseFacilitator):
             "input_identifier_type": str(destination_identifier_type),
             "validated_vpa": verify_vpa_response.validated_vpa,
             "customer_name": verify_vpa_response.customer_name,
+            "last_validated_at": int(current_time.timestamp()),
         }
         return ValidateDestinationIdentifierResponse(
             destination_metadata=UpiDestinationMetadata(
