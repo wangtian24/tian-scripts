@@ -450,7 +450,9 @@ async def update_modifier_status(chat_request: ChatRequest) -> None:
                 ChatMessage.turn_id == chat_request.turn_id,  # type: ignore
                 ChatMessage.message_id != chat_request.message_id,  # type: ignore
                 ChatMessage.assistant_language_model_id
-                == select(LanguageModel.id).where(LanguageModel.internal_name == chat_request.model).scalar_subquery(),  # type: ignore
+                == select(LanguageModel.language_model_id)
+                .where(LanguageModel.internal_name == chat_request.model)
+                .scalar_subquery(),  # type: ignore
             )
             .values(modifier_status=MessageModifierStatus.HIDDEN)
         )
