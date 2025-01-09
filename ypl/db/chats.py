@@ -278,6 +278,8 @@ class EvalType(enum.Enum):
     ALL_BAD = "all_bad"
     # QuickTake eval can contain thumbs up/down and/or comment.
     QUICK_TAKE = "quick_take"
+    # Downvote eval means the user downvoted a particular message.
+    DOWNVOTE = "downvote"
 
 
 class MessageEval(BaseModel, table=True):
