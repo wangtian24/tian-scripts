@@ -12,7 +12,7 @@ from fastapi.responses import StreamingResponse
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
-from sqlalchemy import func
+from sqlalchemy import func, update
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -27,7 +27,14 @@ from ypl.backend.llm.sanitize_messages import DEFAULT_MAX_TOKENS, sanitize_messa
 from ypl.backend.llm.transform_messages import transform_user_mesages
 from ypl.backend.prompts import get_system_prompt_with_modifiers
 from ypl.backend.utils.json import json_dumps
-from ypl.db.chats import AssistantSelectionSource, ChatMessage, CompletionStatus, MessageType, PromptModifierAssoc
+from ypl.db.chats import (
+    AssistantSelectionSource,
+    ChatMessage,
+    CompletionStatus,
+    MessageModifierStatus,
+    MessageType,
+    PromptModifierAssoc,
+)
 from ypl.db.language_models import LanguageModel
 
 CITATION_EXTRACTION_TIMEOUT = 20.0
@@ -166,6 +173,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                 },
                 "status",
             ).encode()
+            await update_modifier_status(chat_request)
             return
 
         # Send initial status
@@ -342,6 +350,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                 {"status": "message_persisted", "timestamp": datetime.now().isoformat(), "model": chat_request.model},
                 "status",
             ).encode()
+            await update_modifier_status(chat_request)
         except Exception as e:
             logging.error(
                 f"Persistence error : chat_id {chat_request.chat_id}, message_id {chat_request.message_id}: {str(e)}\n"
@@ -429,3 +438,30 @@ async def stop_stream_check(chat_id: uuid.UUID, turn_id: uuid.UUID, model: str) 
             logging.info(f"Stopping stream for chat_id={chat_id}, turn_id={turn_id}, model={model}")
             return True
         await asyncio.sleep(0.5)  # Check every 500ms
+
+
+async def update_modifier_status(chat_request: ChatRequest) -> None:
+    """Sets the status of the message in `chat_request` to SEEN and others in the turn to HIDDEN."""
+    async with AsyncSession(get_async_engine()) as session:
+        # Hide other messages in the turn that match the model
+        hide_query = (
+            update(ChatMessage)
+            .where(
+                ChatMessage.turn_id == chat_request.turn_id,  # type: ignore
+                ChatMessage.message_id != chat_request.message_id,  # type: ignore
+                ChatMessage.assistant_language_model_id
+                == select(LanguageModel.id).where(LanguageModel.internal_name == chat_request.model).scalar_subquery(),  # type: ignore
+            )
+            .values(modifier_status=MessageModifierStatus.HIDDEN)
+        )
+        await session.execute(hide_query)
+
+        # Show the current message
+        show_query = (
+            update(ChatMessage)
+            .where(ChatMessage.message_id == chat_request.message_id)  # type: ignore
+            .values(modifier_status=MessageModifierStatus.SELECTED)
+        )
+        await session.execute(show_query)
+
+        await session.commit()

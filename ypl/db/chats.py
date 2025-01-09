@@ -97,7 +97,12 @@ class MessageUIStatus(enum.Enum):
     DISMISSED = "dismissed"
     # The user has selected the message.
     SELECTED = "selected"
-    # The message is not displayed, e.g. the user has selected another message from the same assistant in the same turn.
+
+
+class MessageModifierStatus(enum.Enum):
+    # The message with this modifier is selected.
+    SELECTED = "selected"
+    # The message with this modifier is hidden.
     HIDDEN = "hidden"
 
 
@@ -247,6 +252,10 @@ class ChatMessage(BaseModel, table=True):
 
     # to track the status of the stream completion.
     completion_status: CompletionStatus = Field(sa_column=Column(SQLAlchemyEnum(CompletionStatus), nullable=True))
+
+    modifier_status: MessageModifierStatus = Field(
+        sa_column=Column(SQLAlchemyEnum(MessageModifierStatus), nullable=True, default=MessageModifierStatus.SELECTED)
+    )
 
 
 class EvalType(enum.Enum):
