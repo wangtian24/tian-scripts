@@ -3,6 +3,7 @@ import base64
 import logging
 import os
 from collections.abc import Awaitable
+from dataclasses import dataclass
 from datetime import datetime
 from io import BytesIO
 from typing import Any
@@ -11,10 +12,9 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from gcloud.aio.storage import Storage
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
-from langchain_core.output_parsers import JsonOutputParser
 from langchain_openai import ChatOpenAI
 from PIL import Image
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, SecretStr
 from sqlmodel import select
 
 from ypl.backend.db import get_async_session
@@ -27,32 +27,18 @@ client = ChatOpenAI(model="gpt-4o", api_key=SecretStr(os.getenv("OPENAI_API_KEY"
 router = APIRouter()
 
 
-class ImageDescription(BaseModel):
-    objects: list[str] = Field(description="List of objects and entities present in the image", default_factory=list)
-    scene: str = Field(description="Description of the overall scene or setting", default="")
-    actions: list[str] = Field(
-        description="Actions or activities being performed by the entities", default_factory=list
-    )
-    colors: list[str] = Field(description="Colors and textures present in the image", default_factory=list)
-    emotions: list[str] = Field(
-        description="Facial expressions and emotions of people in the image", default_factory=list
-    )
-    text: list[str] = Field(description="Text or writing that appears in the image", default_factory=list)
-    relationships: list[str] = Field(
-        description="Spatial relationships between different objects and entities", default_factory=list
-    )
-    lighting: str = Field(description="Lighting and shadows in the image", default="")
-    context: str = Field(description="Additional context and background details", default="")
-    description: str = Field(description="Detailed description of the image", default="")
-    file_name: str = Field(description="Name of the file", default="")
+class AttachmentResponse(BaseModel):
+    file_name: str
+    attachment_id: str
+    content_type: str
 
 
-@router.post("/file/upload", response_model=Attachment)
-async def upload_file(file: UploadFile = File(...)) -> Attachment:  # noqa: B008
+@router.post("/file/upload", response_model=AttachmentResponse)
+async def upload_file(file: UploadFile = File(...)) -> AttachmentResponse:  # noqa: B008
     start_time = datetime.now()
 
     attachment_gcs_bucket_path = os.getenv("ATTACHMENT_BUCKET") or "gs://yupp-attachments/staging"
-    thumbnail_gcs_bucket_path = os.getenv("THUMBNAIL_BUCKET") or "gs://yupp-open/thumbnails/staging"
+    thumbnail_gcs_bucket_path = f"{attachment_gcs_bucket_path}/thumbnails"
 
     attachment_bucket, *attachment_path_parts = attachment_gcs_bucket_path.replace("gs://", "").split("/")
     thumbnail_bucket, *thumbnail_path_parts = thumbnail_gcs_bucket_path.replace("gs://", "").split("/")
@@ -112,7 +98,7 @@ async def upload_file(file: UploadFile = File(...)) -> Attachment:  # noqa: B008
                 if file.content_type and file.content_type.startswith("image/"):
                     async with Storage() as async_client:
                         image = Image.open(BytesIO(file_content))
-                        image.thumbnail((144, 192))
+                        image.thumbnail((1024, 1024))
                         image_bytes = BytesIO()
                         image.save(image_bytes, format="PNG")
                         image_bytes.seek(0)
@@ -136,15 +122,16 @@ async def upload_file(file: UploadFile = File(...)) -> Attachment:  # noqa: B008
         async def create_attachment(file_uuid: UUID, thumbnail_uuid: UUID) -> Attachment:
             async with get_async_session() as session:
                 thumbnail_url = (
-                    f"https://storage.googleapis.com/{thumbnail_bucket}/{'/'.join(thumbnail_path_parts)}/{thumbnail_uuid}"
+                    f"gs://{thumbnail_bucket}/{'/'.join(thumbnail_path_parts)}/{thumbnail_uuid}"
                     if file.content_type and file.content_type.startswith("image/")
                     else ""
                 )
+                url = f"gs://{attachment_bucket}/{'/'.join(attachment_path_parts)}/{file_uuid}"
                 attachment = Attachment(
                     attachment_id=uuid4(),
                     file_name=file.filename,
                     content_type=file.content_type,
-                    url=f"gs://{attachment_bucket}/{'/'.join(attachment_path_parts)}/{file_uuid}",
+                    url=url,
                     thumbnail_url=thumbnail_url,
                 )
                 session.add(attachment)
@@ -215,10 +202,15 @@ async def upload_file(file: UploadFile = File(...)) -> Attachment:  # noqa: B008
                     "start_time": start_time,
                     "total_duration_ms": total_duration,
                     "file_name": file.filename,
+                    "attachment_id": str(attachment.attachment_id),
                 }
             )
         )
-        return attachment
+        return AttachmentResponse(
+            file_name=file.filename,
+            attachment_id=str(attachment.attachment_id),
+            content_type=file.content_type,
+        )
 
     except Exception as e:
         total_duration = datetime.now() - start_time
@@ -234,7 +226,7 @@ async def upload_file(file: UploadFile = File(...)) -> Attachment:  # noqa: B008
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-async def generate_image_description(file: TransientAttachment) -> dict[str, Any]:
+async def generate_image_description(file: TransientAttachment) -> dict[str, str]:
     start = datetime.now()
     image_bytes = file.file
     await asyncio.sleep(0)
@@ -253,9 +245,8 @@ async def generate_image_description(file: TransientAttachment) -> dict[str, Any
                 ]
             ),
         ]
-        chain = client | JsonOutputParser(pydantic_object=ImageDescription)
-        response: dict[str, Any] = await chain.ainvoke(messages)
-        return response
+        result = await client.ainvoke(messages)
+        return {"description": str(result.content)}
     finally:
         logging.info(
             json_dumps(
@@ -268,7 +259,7 @@ async def generate_image_description(file: TransientAttachment) -> dict[str, Any
         )
 
 
-async def update_metadata(attachment: Attachment, image_description_task: Awaitable[dict[str, Any]]) -> None:
+async def update_metadata(attachment: Attachment, image_description_task: Awaitable[Any]) -> None:
     await asyncio.sleep(0)
     start_time = datetime.now()
     try:
@@ -306,3 +297,43 @@ async def update_metadata(attachment: Attachment, image_description_task: Awaita
                 }
             )
         )
+
+
+@dataclass
+class DataUrlResponse:
+    data_url: str
+
+
+@router.get("/file/{attachment_id}/thumbnail", response_model=DataUrlResponse)
+async def get_data_url(attachment_id: str) -> DataUrlResponse:
+    async with get_async_session() as session:
+        result = await session.exec(select(Attachment).where(Attachment.attachment_id == attachment_id))
+        attachment = result.one()
+
+        if not attachment.content_type or not attachment.content_type.startswith("image/"):
+            return DataUrlResponse(data_url="")
+
+        thumbnail_url = attachment.thumbnail_url
+
+        if not thumbnail_url:
+            return DataUrlResponse(data_url="")
+
+        if not thumbnail_url.startswith("gs://"):
+            raise ValueError(f"Invalid GCS path: {thumbnail_url}")
+
+        bucket_name, *path_parts = thumbnail_url.replace("gs://", "").split("/")
+        if not bucket_name or not path_parts:
+            raise ValueError(f"Invalid GCS path format: {thumbnail_url}")
+
+        try:
+            async with Storage() as async_client:
+                image_bytes = await async_client.download(
+                    bucket=bucket_name,
+                    object_name=f"{'/'.join(path_parts)}",
+                )
+                base64_image = base64.b64encode(image_bytes).decode("utf-8")
+                data_url = f"data:image/png;base64,{base64_image}"
+                return DataUrlResponse(data_url=data_url)
+        except Exception as e:
+            logging.exception(f"Error downloading thumbnail: {str(e)}")
+            return DataUrlResponse(data_url="")

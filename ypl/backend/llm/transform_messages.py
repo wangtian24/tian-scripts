@@ -180,19 +180,19 @@ async def transform_user_mesages(messages: list[BaseMessage], model_name: str) -
 def get_image_polyfill_prompt(attachment: Attachment) -> str:
     if not attachment.attachment_metadata:
         return ""
-    metadata = {
-        **attachment.attachment_metadata,
-        "filename": attachment.file_name,
-        "content_type": attachment.content_type,
-        "image_url": attachment.url,
-    }
-    return f"""{json_dumps(metadata)}""".strip()
+    prompt = f"""
+    file_name: {attachment.file_name}
+    description: {attachment.attachment_metadata.get("description", "")}
+    """
+    return prompt.strip()
 
 
 def get_images_polyfill_prompt(attachments: list[Attachment], question: str) -> str:
     if not attachments:
         return question
     image_metadata_prompt = "\n---\n".join(
-        [get_image_polyfill_prompt(attachment) for attachment in attachments]
+        [get_image_polyfill_prompt(attachment) for attachment in attachments if attachment.attachment_metadata]
     ).strip()
+    if not image_metadata_prompt:
+        return question
     return IMAGE_POLYFILL_PROMPT.format(image_metadata_prompt=image_metadata_prompt, question=question)

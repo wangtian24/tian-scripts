@@ -1052,38 +1052,24 @@ JUDGE_PROMPT_MODIFIER_PROMPT = ChatPromptTemplate.from_messages([("human", JUDGE
 
 IMAGE_DESCRIPTION_PROMPT = """
 You are a helpful assistant that describes images.
-Analyze the following image and provide the following data points:
+Please provide a comprehensive and detailed description of this image, covering the following aspects:
 
-1. List all objects and entities present in the image.
-2. Describe the overall scene or setting.
-3. Identify any actions or activities being performed by the entities.
-4. Describe the colors and textures present in the image.
-5. If there are people, describe their facial expressions and emotions.
-6. List any text or writing that appears in the image.
-7. Describe the spatial relationships between different objects and entities.
-8. Comment on the lighting and shadows in the image.
-9. Provide any additional context and background details.
-10. Provide a detailed description of the image.
+1. Main subject and overall composition
+2. Visual elements (colors, lighting, textures, patterns, etc.)
+3. Spatial relationships and depth
+4. Notable details and distinctive features
+5. Mood or atmosphere conveyed
+6. Technical aspects if relevant (camera angle, focal point, etc.)
+7. Any other relevant information that you can infer from the image
 
-Return the output as a JSON object with the following keys:
-- objects: List[str]
-- scene: str
-- actions: List[str]
-- colors: List[str]
-- emotions: List[str]
-- text: List[str]
-- relationships: List[str]
-- lighting: str
-- context: str
-- description: str
-- file_name: str
+Please be specific and use precise language. Describe the image as if explaining it to someone who cannot see it, avoiding subjective interpretations unless they're clearly evident from the visual elements.
 
 file_name is {file_name}
 """
 
 
 IMAGE_POLYFILL_PROMPT = """
-    Here are the details of the images in this conversation in JSON format.
+    Here are the descriptions of the images in this conversation.
     ---
     {image_metadata_prompt}
     ---
