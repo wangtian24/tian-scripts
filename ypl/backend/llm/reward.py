@@ -472,6 +472,8 @@ def _handle_turn_based_reward(
             reward_comment=reward_comment,
             probability_rule=None,
             amount_rule=None,
+            high_value_reward_amount=high_value_reward_amount,
+            turn_id=user_turn_reward.turn_id,
         )
 
         return should_reward, reward_amount, high_value_reward_amount, reward_comment, None, None
