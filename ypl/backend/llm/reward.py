@@ -33,6 +33,7 @@ from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import Chat, Eval, Turn, TurnQuality
+from ypl.db.invite_codes import SpecialInviteCodeClaimLog
 from ypl.db.point_transactions import PointsActionEnum, PointTransaction
 from ypl.db.rewards import (
     Reward,
@@ -868,6 +869,7 @@ async def get_referrer_user_id(user_id: str) -> str | None:
         result = await session.execute(
             select(WaitlistedUser.referrer_id)
             .join(User, User.email == WaitlistedUser.email)  # type: ignore
+            .join(SpecialInviteCodeClaimLog, SpecialInviteCodeClaimLog.user_id == User.user_id)  # type: ignore
             .where(User.user_id == user_id)
         )
         referrer_id = result.scalar_one_or_none()
