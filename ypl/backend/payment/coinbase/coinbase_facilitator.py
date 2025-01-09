@@ -337,9 +337,13 @@ class CoinbaseFacilitator(BaseFacilitator):
             # For unknown status, keep it as PENDING since we don't know if it failed
             return PaymentTransactionStatusEnum.PENDING
 
-    async def get_payment_status(self, payment_reference_id: str) -> PaymentTransactionStatusEnum:
+    async def get_payment_status(self, payment_transaction_id: uuid.UUID) -> PaymentResponse:
         # TODO: Implement this as an account_id is required to get the status
-        return PaymentTransactionStatusEnum.PENDING
+        return PaymentResponse(
+            payment_transaction_id=payment_transaction_id,
+            transaction_status=PaymentTransactionStatusEnum.PENDING,
+            customer_reference_id=str(payment_transaction_id),
+        )
 
     async def _monitor_transaction_completion(
         self,

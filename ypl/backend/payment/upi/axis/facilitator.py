@@ -560,9 +560,22 @@ class AxisUpiFacilitator(BaseFacilitator):
             )
         )
 
-    async def get_payment_status(self, payment_reference_id: str) -> PaymentTransactionStatusEnum:
-        # TODO: Implement this
-        return PaymentTransactionStatusEnum.SUCCESS
+    async def get_payment_status(self, payment_transaction_id: uuid.UUID) -> PaymentResponse:
+        async with get_async_session() as session:
+            payment_transaction = (
+                await session.exec(
+                    select(PaymentTransaction).where(
+                        PaymentTransaction.payment_transaction_id == payment_transaction_id,
+                        PaymentTransaction.deleted_at.is_(None),  # type: ignore
+                    )
+                )
+            ).one()
+
+        return PaymentResponse(
+            payment_transaction_id=payment_transaction_id,
+            transaction_status=payment_transaction.status,
+            customer_reference_id=payment_transaction.customer_reference_id,
+        )
 
     async def validate_destination_identifier(
         self, destination_identifier: str, destination_identifier_type: PaymentInstrumentIdentifierTypeEnum

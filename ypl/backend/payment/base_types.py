@@ -1,3 +1,4 @@
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from decimal import Decimal
@@ -141,7 +142,7 @@ class BaseFacilitator(ABC):
         pass
 
     @abstractmethod
-    async def get_payment_status(self, payment_reference_id: str) -> PaymentTransactionStatusEnum:
+    async def get_payment_status(self, payment_transaction_id: uuid.UUID) -> PaymentResponse:
         pass
 
     # This is optional for facilitators that don't need it.
@@ -175,7 +176,7 @@ class BaseFacilitator(ABC):
         raise ValueError(f"Unsupported currency: {currency}")
 
     @staticmethod
-    async def for_transaction_reference_id(transaction_reference_id: str) -> "BaseFacilitator":
+    async def for_payment_transaction_id(payment_transaction_id: uuid.UUID) -> "BaseFacilitator":
         from ypl.backend.payment.upi.axis.facilitator import AxisUpiFacilitator
 
         # TODO: Implement this

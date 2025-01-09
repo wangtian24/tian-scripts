@@ -1,4 +1,5 @@
 import logging
+import uuid
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -18,7 +19,6 @@ from ypl.db.payments import (
     CurrencyEnum,
     PaymentInstrumentFacilitatorEnum,
     PaymentInstrumentIdentifierTypeEnum,
-    PaymentTransactionStatusEnum,
 )
 from ypl.db.users import SIGNUP_CREDITS
 
@@ -199,7 +199,7 @@ async def cashout_credits(request: CashoutCreditsRequest) -> str | None | Paymen
     return payment_response if request.return_response_as_object else str(payment_response.customer_reference_id)
 
 
-@router.get("/credits/cashout/transaction/{transaction_reference_id}/status")
-async def get_cashout_transaction_status(transaction_reference_id: str) -> PaymentTransactionStatusEnum:
-    facilitator = await BaseFacilitator.for_transaction_reference_id(transaction_reference_id)
-    return await facilitator.get_payment_status(transaction_reference_id)
+@router.get("/credits/cashout/transaction/{payment_transaction_id}/status")
+async def get_cashout_transaction_status(payment_transaction_id: uuid.UUID) -> PaymentResponse:
+    facilitator = await BaseFacilitator.for_payment_transaction_id(payment_transaction_id)
+    return await facilitator.get_payment_status(payment_transaction_id)

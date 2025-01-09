@@ -301,9 +301,13 @@ class OnChainFacilitator(BaseFacilitator):
             logging.exception(json_dumps(log_dict))
             raise PaymentProcessingError("Payment processing failed") from e
 
-    async def get_payment_status(self, payment_reference_id: str) -> PaymentTransactionStatusEnum:
+    async def get_payment_status(self, payment_transaction_id: uuid.UUID) -> PaymentResponse:
         # TODO: Implement this
-        return PaymentTransactionStatusEnum.SUCCESS
+        return PaymentResponse(
+            payment_transaction_id=payment_transaction_id,
+            transaction_status=PaymentTransactionStatusEnum.SUCCESS,
+            customer_reference_id=str(payment_transaction_id),
+        )
 
     async def _monitor_transfer_completion(
         self,
