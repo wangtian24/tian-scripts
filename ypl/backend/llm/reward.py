@@ -43,7 +43,7 @@ from ypl.db.rewards import (
     RewardRule,
     RewardStatusEnum,
 )
-from ypl.db.users import User
+from ypl.db.users import User, WaitlistedUser
 
 # Load environment variables from .env file
 load_dotenv()
@@ -844,6 +844,73 @@ async def sign_up_reward(user_id: str) -> tuple[bool, int, str, RewardAmountRule
         reward_amount = 0
 
     reward_comment = f"Sign up reward: {reward_amount} credits."
+
+    log_reward_debug_info(
+        should_reward=should_reward,
+        reward_amount=reward_amount,
+        probability_rule=probability_rule,
+        amount_rule=amount_rule,
+        user_name=None,
+        **params,  # type: ignore
+    )
+
+    return (
+        should_reward,
+        reward_amount,
+        reward_comment,
+        amount_rule,
+        probability_rule,
+    )
+
+
+async def get_referrer_user_id(user_id: str) -> str | None:
+    async with AsyncSession(get_async_engine()) as session:
+        result = await session.execute(
+            select(WaitlistedUser.referrer_id)
+            .join(User, User.email == WaitlistedUser.email)  # type: ignore
+            .where(User.user_id == user_id)
+        )
+        referrer_id = result.scalar_one_or_none()
+        return referrer_id
+
+
+async def referral_bonus_reward(
+    user_id: str, action_type: RewardActionEnum
+) -> tuple[bool, int, str, RewardAmountRule | None, RewardProbabilityRule | None]:
+    params = {
+        "user_id": user_id,
+        "action_type": action_type,
+    }
+
+    if action_type == RewardActionEnum.REFERRAL_BONUS_REFERRER:
+        params["referrer_reward_count"] = await get_user_reward_count_by_action_type(
+            user_id, RewardActionEnum.REFERRAL_BONUS_REFERRER.name
+        )
+    elif action_type == RewardActionEnum.REFERRAL_BONUS_REFERRED_USER:
+        params["referred_user_reward_count"] = await get_user_reward_count_by_action_type(
+            user_id, RewardActionEnum.REFERRAL_BONUS_REFERRED_USER.name
+        )
+
+    amount_rule: RewardAmountRule | None = get_matching_rule(get_reward_amount_rules(action_type), params)  # type: ignore
+    probability_rule: RewardProbabilityRule | None = get_matching_rule(  # type: ignore
+        get_reward_probability_rules(action_type), params
+    )
+
+    if probability_rule:
+        should_reward = random.random() < probability_rule.probability
+    else:
+        should_reward = False
+
+    if amount_rule:
+        reward_amount = await generate_bounded_reward(amount_rule.min_value, amount_rule.max_value)
+    else:
+        reward_amount = 0
+
+    reward_comment = (
+        f"Sign up bonus for being referred: {reward_amount} credits."
+        if action_type == RewardActionEnum.REFERRAL_BONUS_REFERRED_USER
+        else f"Referral bonus for referring a friend: {reward_amount} credits."
+    )
 
     log_reward_debug_info(
         should_reward=should_reward,

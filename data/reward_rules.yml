@@ -164,6 +164,34 @@ amount_rules:
     max_value: 1200
     mean_value: 1100
 
+  - name: new_user_being_referred_bonus
+    priority: 0
+    is_active: true
+    is_default: true
+    action_type: REFERRAL_BONUS_REFERRED_USER
+    conditions:
+      all:
+        - name: referred_user_reward_count
+          operator: greater_than_or_equal_to
+          value: 0
+    min_value: 1000
+    max_value: 1000
+    mean_value: 1000
+
+  - name: referring_a_friend_bonus
+    priority: 0
+    is_active: true
+    is_default: true
+    action_type: REFERRAL_BONUS_REFERRER
+    conditions:
+      all:
+        - name: referrer_reward_count        
+          operator: greater_than_or_equal_to
+          value: 0
+    min_value: 10000
+    max_value: 10000
+    mean_value: 10000
+
 probability_rules:
   - name: under_point_limits_feedback_reward
     priority: 100
@@ -480,3 +508,39 @@ probability_rules:
           operator: greater_than
           value: 0
     probability: 0.0
+
+  - name: new_user_being_referred_bonus
+    priority: 10
+    is_active: true
+    action_type: REFERRAL_BONUS_REFERRED_USER
+    conditions:
+      all:
+        - name: referred_user_reward_count
+          operator: equal_to
+          value: 0
+    probability: 1.0
+
+  - name: new_user_bonus_already_claimed
+    priority: 0
+    is_active: true
+    is_default: true
+    action_type: REFERRAL_BONUS_REFERRED_USER
+    conditions:
+      all:
+        - name: referred_user_reward_count
+          operator: greater_than
+          value: 0
+    probability: 0.0
+
+  - name: referring_a_friend_bonus
+    priority: 0
+    is_active: true
+    is_default: true
+    action_type: REFERRAL_BONUS_REFERRER
+    conditions:
+      all:
+        # TODO: add a rule to cap weekly earns
+        - name: referrer_reward_count        
+          operator: greater_than_or_equal_to
+          value: 0
+    probability: 1.0

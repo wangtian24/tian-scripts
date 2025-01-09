@@ -14,9 +14,11 @@ from ypl.backend.llm.reward import (
     create_reward,
     create_reward_action_log,
     feedback_based_reward,
+    get_referrer_user_id,
     get_reward_action_log_by_user_and_turn,
     process_reward_claim,
     qt_eval_reward,
+    referral_bonus_reward,
     sign_up_reward,
     turn_based_reward,
     update_reward_status,
@@ -245,6 +247,81 @@ async def handle_sign_up_reward(reward_action_log: RewardActionLog) -> RewardCre
     return RewardCreationResponse(is_rewarded=False)
 
 
+async def handle_referral_bonus_reward(reward_action_log: RewardActionLog) -> RewardCreationResponse:
+    """Handle reward creation for granting referral bonus.
+
+    This action is intended to be called by the referred user. If the referred user is eligible for a bonus reward,
+    we also create a reward for the referrer and claim both rewards.
+    """
+    user_id = reward_action_log.user_id
+    if user_id is None or reward_action_log.turn_id is None:
+        raise HTTPException(status_code=400, detail="User ID and turn ID are required for creating a referral bonus")
+
+    referrer_user_id = await get_referrer_user_id(user_id)
+    if referrer_user_id is None:
+        return RewardCreationResponse(is_rewarded=False)
+
+    # Create a reward for the user that is completing the bonus action
+    current_user_reward_action_log = await create_reward_action_log(
+        RewardActionLog(
+            user_id=user_id,
+            action_type=RewardActionEnum.REFERRAL_BONUS_REFERRED_USER,
+            turn_id=reward_action_log.turn_id,
+            referrer_id=referrer_user_id,
+        )
+    )
+    (
+        should_reward_current_user,
+        credit_delta,
+        comment,
+        reward_amount_rule,
+        reward_probability_rule,
+    ) = await referral_bonus_reward(current_user_reward_action_log.user_id, current_user_reward_action_log.action_type)
+
+    current_user_reward_response = None
+    if should_reward_current_user:
+        current_user_reward_response = await process_reward_creation_and_claim(
+            user_id=current_user_reward_action_log.user_id,
+            credit_delta=credit_delta,
+            comment=comment,
+            reward_action_log=current_user_reward_action_log,
+            turn_id=reward_action_log.turn_id,
+            reward_amount_rule=reward_amount_rule,
+            reward_probability_rule=reward_probability_rule,
+        )
+
+        # Create a reward action log for the referrer
+        referrer_reward_action_log = RewardActionLog(
+            user_id=referrer_user_id,
+            action_type=RewardActionEnum.REFERRAL_BONUS_REFERRER,
+            turn_id=reward_action_log.turn_id,
+            referred_user_id=user_id,
+        )
+        updated_referrer_reward_action_log = await create_reward_action_log(referrer_reward_action_log)
+
+        # Calculate reward for the referrer
+        (
+            should_reward_referrer,
+            referrer_credit_delta,
+            referrer_comment,
+            referrer_reward_amount_rule,
+            referrer_reward_probability_rule,
+        ) = await referral_bonus_reward(referrer_user_id, RewardActionEnum.REFERRAL_BONUS_REFERRER)
+
+        if should_reward_referrer:
+            await process_reward_creation_and_claim(
+                user_id=referrer_user_id,
+                credit_delta=referrer_credit_delta,
+                comment=referrer_comment,
+                reward_action_log=updated_referrer_reward_action_log,
+                turn_id=reward_action_log.turn_id,
+                reward_amount_rule=referrer_reward_amount_rule,
+                reward_probability_rule=referrer_reward_probability_rule,
+            )
+
+    return current_user_reward_response or RewardCreationResponse(is_rewarded=False)
+
+
 @router.post("/rewards/record-action", response_model=RewardCreationResponse)
 async def record_reward_action(reward_action_log: RewardActionLog) -> RewardCreationResponse:
     try:
@@ -254,6 +331,8 @@ async def record_reward_action(reward_action_log: RewardActionLog) -> RewardCrea
             return await handle_qt_eval_reward(reward_action_log)
         elif reward_action_log.action_type == RewardActionEnum.SIGN_UP.name:
             return await handle_sign_up_reward(reward_action_log)
+        elif reward_action_log.action_type == RewardActionEnum.REFERRAL_BONUS_REFERRED_USER.name:
+            return await handle_referral_bonus_reward(reward_action_log)
         else:
             return await handle_turn_reward(reward_action_log)
 

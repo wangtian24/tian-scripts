@@ -22,6 +22,7 @@ from ypl.backend.llm.reward import (
     _load_rules_constants,
     feedback_based_reward,
     qt_eval_reward,
+    referral_bonus_reward,
     sign_up_reward,
 )
 from ypl.backend.tests.test_utils import MockSession
@@ -327,6 +328,91 @@ async def test_sign_up_reward_no_repeat(
     result = await sign_up_reward(test_user_id)
     should_reward, reward_amount, comment, rule_amount, rule_prob = result
     assert should_reward is False  # should only reward once
+
+
+@patch("ypl.backend.llm.reward.get_async_engine")
+@patch("ypl.backend.llm.reward.get_user_reward_count_by_action_type")
+@patch("ypl.backend.llm.reward.Session")
+@patch("ypl.backend.config.settings")
+@patch("pydantic.PostgresDsn.build")
+async def test_referral_bonus_reward_referred_user(
+    mock_postgres_dsn: Any,
+    mock_settings: Any,
+    mock_session: Any,
+    mock_get_user_reward_count_by_action_type: Any,
+    mock_engine: Any,
+) -> None:
+    # Mock PostgresDsn.build to return a valid URL string
+    mock_postgres_dsn.return_value.unicode_string.return_value = "postgresql://test_user:test_pass@test_host/test_db"
+
+    # Configure the mock session
+    mock_session.return_value = MockSession()
+
+    # Configure the mock engine to return a mock connection
+    mock_engine_instance = AsyncMock()
+    mock_engine.return_value = mock_engine_instance
+
+    for existing_claims in (0, 1, 2):
+        # Configure the user reward count mock
+        mock_get_user_reward_count_by_action_type.side_effect = (
+            lambda mocked_response: lambda user_id, action_type: mocked_response
+        )(existing_claims)
+        test_user_id = "test_user"
+
+        result = await referral_bonus_reward(test_user_id, RewardActionEnum.REFERRAL_BONUS_REFERRED_USER)
+        should_reward, reward_amount, comment, rule_amount, rule_prob = result
+
+        assert should_reward is (existing_claims == 0)
+        assert reward_amount == 1000
+        assert isinstance(comment, str)
+        assert rule_amount is not None
+        assert rule_amount.name == "new_user_being_referred_bonus"
+        assert rule_prob is not None
+        if existing_claims == 0:
+            assert rule_prob.name == "new_user_being_referred_bonus"
+        else:
+            assert rule_prob.name == "new_user_bonus_already_claimed"
+
+
+@patch("ypl.backend.llm.reward.get_async_engine")
+@patch("ypl.backend.llm.reward.get_user_reward_count_by_action_type")
+@patch("ypl.backend.llm.reward.Session")
+@patch("ypl.backend.config.settings")
+@patch("pydantic.PostgresDsn.build")
+async def test_referral_bonus_reward_referrer(
+    mock_postgres_dsn: Any,
+    mock_settings: Any,
+    mock_session: Any,
+    mock_get_user_reward_count_by_action_type: Any,
+    mock_engine: Any,
+) -> None:
+    # Mock PostgresDsn.build to return a valid URL string
+    mock_postgres_dsn.return_value.unicode_string.return_value = "postgresql://test_user:test_pass@test_host/test_db"
+
+    # Configure the mock session
+    mock_session.return_value = MockSession()
+
+    # Configure the mock engine to return a mock connection
+    mock_engine_instance = AsyncMock()
+    mock_engine.return_value = mock_engine_instance
+
+    for existing_claims in (0, 1, 2):
+        # Configure the user reward count mock
+        mock_get_user_reward_count_by_action_type.side_effect = (
+            lambda mocked_response: lambda user_id, action_type: mocked_response
+        )(existing_claims)
+        test_user_id = "test_user"
+
+        result = await referral_bonus_reward(test_user_id, RewardActionEnum.REFERRAL_BONUS_REFERRER)
+        should_reward, reward_amount, comment, rule_amount, rule_prob = result
+
+        assert should_reward is True  # referrer can earn multiple entries
+        assert reward_amount == 10000
+        assert isinstance(comment, str)
+        assert rule_amount is not None
+        assert rule_amount.name == "referring_a_friend_bonus"
+        assert rule_prob is not None
+        assert rule_prob.name == "referring_a_friend_bonus"
 
 
 @patch("ypl.backend.llm.reward.get_async_engine")

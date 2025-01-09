@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 
 class RewardActionEnum(Enum):
-    # User signs up.
+    # User signs up. Can only be awarded once.
     SIGN_UP = "sign_up"
     # Deprecated. Use TURN instead.
     EVALUATION = "evaluation"
@@ -28,12 +28,29 @@ class RewardActionEnum(Enum):
     FEEDBACK = "feedback"
     # Selection of a canned response (On target! Too long. etc) from the model feedback box.
     MODEL_FEEDBACK = "model_feedback"
+    # Referral bonus for completing onboarding tasks as a referred user. Can only be awarded once.
+    REFERRAL_BONUS_REFERRED_USER = "referral_bonus_referred_user"
+    # Referral bonus for referring someone else. Can be claimed multiple times.
+    REFERRAL_BONUS_REFERRER = "referral_bonus_referrer"
 
 
 class RewardActionLog(BaseModel, table=True):
     __tablename__ = "reward_action_logs"
 
-    __table_args__ = (sa.Index("ix_reward_action_logs_user_turn", "user_id", "turn_id"),)
+    __table_args__ = (
+        sa.Index("ix_reward_action_logs_user_turn", "user_id", "turn_id"),
+        # Ensure that a user can only have one referral bonus reward.
+        # Postgres supports unique constraint through a unique index.
+        sa.Index(
+            "uq_reward_action_logs_user_referral_bonus",
+            "user_id",
+            "action_type",
+            unique=True,
+            postgresql_where=sa.and_(
+                sa.text("action_type = 'REFERRAL_BONUS_REFERRED_USER'"), sa.text("associated_reward_id IS NOT NULL")
+            ),
+        ),
+    )
 
     reward_action_log_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
 
@@ -58,6 +75,14 @@ class RewardActionLog(BaseModel, table=True):
     # - "turn": "turn_id"
     # - "evaluation": "eval_id" and "turn_id"
     action_details: dict[str, str] = Field(default_factory=dict, sa_type=sa.JSON)
+
+    # The referrer ID that is associated with this action.
+    # Only set if the action type is "referral_bonus_referred_user".
+    referrer_id: str | None = Field(nullable=True)
+
+    # The referred user ID that is associated with this action.
+    # Only set if the action type is "referral_bonus_referrer".
+    referred_user_id: str | None = Field(nullable=True)
 
     # If we reward a user for an action, we store the reward id here.
     # Multiple actions can be rewarded with the same reward id.
@@ -182,6 +207,14 @@ class RewardVariables(BaseVariables):
     @numeric_rule_variable
     def sign_up_reward_count(self) -> int | None:
         return self.context.get("sign_up_reward_count")
+
+    @numeric_rule_variable
+    def referred_user_reward_count(self) -> int | None:
+        return self.context.get("referred_user_reward_count")
+
+    @numeric_rule_variable
+    def referrer_reward_count(self) -> int | None:
+        return self.context.get("referrer_reward_count")
 
 
 class RewardRule(BaseModel, table=False):
