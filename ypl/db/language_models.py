@@ -188,6 +188,9 @@ class LanguageModel(BaseModel, table=True):
     # Whether the model supports real time queries.
     is_live: bool | None = Field(nullable=True, default=None, index=True)
 
+    # Eventually we will link to our own model info pages. But this is a short term solution.
+    external_model_info_url: str | None = Field(nullable=True, default=None)
+
     # This is the organization that owns the language model.
     organization_id: uuid.UUID | None = Field(foreign_key="organizations.organization_id", nullable=True, default=None)
     organization: "Organization" = Relationship(back_populates="language_models")
