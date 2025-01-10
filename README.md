@@ -29,17 +29,19 @@ The backend server is written in Python, so we need to install Python and all ne
     ```sh
     cd ~
     # download the installer script
-    curl https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-arm64.sh
+    curl https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-arm64.sh > ./Miniconda3-latest-MacOSX-arm64.sh
     # this will install to ~/miniconda3 by default
-    bash ~/Miniconda3-latest-MacOSX-arm64.sh
+    bash ./Miniconda3-latest-MacOSX-arm64.sh
+    # the installer will ask, "Do you wish to update your shell profile to automatically initialize conda?"
+    # respond with "yes" and let it do that.
     
     # after installation, remove the installer script
     rm ~/Miniconda3-latest-MacOSX-arm64.sh
-    # initialize the conda environment, replace zsh with your shell name if necessary
-    ~/miniconda3/bin/conda init zsh
     ```
 
 #### mamba
+Make sure Homebrew is installed. If not, follow instructions [here](https://brew.sh/).
+
 - Insta mamba through the [recommended Miniforge distribution](https://mamba.readthedocs.io/en/latest/installation/mamba-installation.html). For macOS:
     ```sh
     brew install miniforge
@@ -58,9 +60,11 @@ The backend server is written in Python, so we need to install Python and all ne
 
   ```sh
   mamba env create -n ys-dev --file envs/dev.yml
-  mamba init  # needed the first time
+  # needed the first time
+  # assumes bash by default, but macOS defaults to zsh
+  mamba init --shell zsh
 
-  # Make sure you do this every time you start a new terminal session
+  # make sure you do this every time you start a new terminal session
   mamba activate ys-dev
   ```
 
@@ -82,7 +86,8 @@ The backend server needs to load all necessary credentials from `.env` file in t
   ```sh
   # Install 1Password CLI
   brew install 1password-cli
-  op —version
+  # TODO: explain 'op' better
+  op --version
 
   # sign into the 1Password account, it will show some popup.
   # If you have multiple accounts, make sure you choose the Yupp one.
