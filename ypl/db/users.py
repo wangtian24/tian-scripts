@@ -6,7 +6,8 @@ from typing import TYPE_CHECKING, Any
 import sqlalchemy as sa
 from sqlalchemy import Column, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlmodel import Field, Relationship
+from sqlalchemy.orm import joinedload, object_session
+from sqlmodel import Field, Relationship, select
 
 from ypl.db.base import BaseModel
 from ypl.db.point_transactions import PointTransaction
@@ -137,9 +138,18 @@ class User(BaseModel, table=True):
 
     def get_pref_rewards_count(self, start_date: datetime | None = None, end_date: datetime | None = None) -> int:
         """Returns the number of PREF rewards within a specified date range."""
+
+        # Eager load reward_action_logs to make the query more efficient later.
+        load_rewards_query = (
+            select(User)
+            .where(User.user_id == self.user_id)
+            .options(joinedload(User.rewards).joinedload(Reward.reward_action_logs))  # type: ignore
+        )
+
+        user = object_session(self).exec(load_rewards_query).first()  # type: ignore
         return sum(
             1
-            for r in self.rewards
+            for r in user.rewards
             if r.status == RewardStatusEnum.CLAIMED
             and r.reward_action_logs
             and r.reward_action_logs[0].action_type == RewardActionEnum.TURN
