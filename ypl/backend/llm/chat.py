@@ -950,6 +950,15 @@ async def get_curated_chat_context(
     """
     if not current_turn_seq_num:
         return []
+    get_sequence_id_subquery = (
+        select(Turn.sequence_id)
+        .where(Turn.turn_id == ChatMessage.turn_id)
+        .order_by(Turn.sequence_id.asc())  # type: ignore
+        .limit(1)
+        .correlate(Turn)
+        .scalar_subquery()
+    )
+
     query = (
         select(ChatMessage)
         .join(Turn, Turn.turn_id == ChatMessage.turn_id)  # type: ignore[arg-type]
@@ -964,7 +973,7 @@ async def get_curated_chat_context(
             ChatMessage.deleted_at.is_(None),  # type: ignore[union-attr]
             Turn.deleted_at.is_(None),  # type: ignore[union-attr]
             Chat.deleted_at.is_(None),  # type: ignore[union-attr]
-            Turn.sequence_id < (select(Turn.sequence_id).where(Turn.turn_id == ChatMessage.turn_id).scalar_subquery()),
+            Turn.sequence_id < get_sequence_id_subquery,
         )
         .order_by(
             Turn.sequence_id.asc(),  # type: ignore[attr-defined]
@@ -976,6 +985,7 @@ async def get_curated_chat_context(
     async with AsyncSession(get_async_engine()) as session:
         result = await session.exec(query)
         messages = result.unique().all()
+
         # Group messages by turn_id
         turns: defaultdict[UUID, list[ChatMessage]] = defaultdict(list)
         for msg in messages:
