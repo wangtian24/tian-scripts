@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import random
 import re
@@ -36,7 +37,6 @@ from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.prompt_selector import CategorizedPromptModifierSelector, get_modifiers_by_model, store_modifiers
 from ypl.backend.llm.provider.provider_clients import get_model_provider_tuple
 from ypl.backend.llm.routing.route_data_type import PreferredModel, RoutingPreference
-from ypl.backend.llm.utils import GlobalThreadPoolExecutor
 from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter, OpenAILangChainAdapter
 from ypl.backend.prompts import ALL_MODELS_IN_CHAT_HISTORY_PREAMBLE, RESPONSE_SEPARATOR
 from ypl.backend.utils.json import json_dumps
@@ -602,21 +602,24 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
     models = models[: request.num_models]
     fallback_models = fallback_models[: request.num_models]
 
-    try:
-        selector = CategorizedPromptModifierSelector.make_default_from_db()
+    prompt_modifiers: dict[str, list[tuple[str, str]]] = {}
+    if request.intent != SelectIntent.NEW_CHAT:
+        try:
+            selector = CategorizedPromptModifierSelector.make_default_from_db()
 
-        if request.chat_id:
-            modifier_history = get_modifiers_by_model(request.chat_id)
-        else:
-            modifier_history = {}
+            if request.chat_id:
+                modifier_history = get_modifiers_by_model(request.chat_id)
+            else:
+                modifier_history = {}
 
-        prompt_modifiers = selector.select_modifiers(models + fallback_models, modifier_history, applicable_modifiers)
+            prompt_modifiers = selector.select_modifiers(
+                models + fallback_models, modifier_history, applicable_modifiers
+            )
 
-        if request.turn_id:
-            GlobalThreadPoolExecutor.get_instance().submit(store_modifiers, request.turn_id, prompt_modifiers)
-    except Exception as e:
-        logging.error(f"Error selecting modifiers: {e}")
-        prompt_modifiers = {}
+            if request.turn_id:
+                asyncio.create_task(store_modifiers(request.turn_id, prompt_modifiers))
+        except Exception as e:
+            logging.error(f"Error selecting modifiers: {e}")
 
     return SelectModelsV2Response(
         models=[(model, prompt_modifiers.get(model, [])) for model in models],
