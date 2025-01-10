@@ -115,6 +115,8 @@ class Settings(BaseSettings):
     BASESCAN_API_KEY: str = os.getenv("BASESCAN_API_KEY", "")
     BASESCAN_API_URL: str = os.getenv("BASESCAN_API_URL", "")
 
+    RESEND_API_KEY: str = os.getenv("RESEND_API_KEY", "")
+
     CRYPTO_WALLET_PATH: str = os.getenv("CRYPTO_WALLET_PATH", ".")
     CRYPTO_EXCHANGE_PRICE_API_URL_COINBASE: str = os.getenv("CRYPTO_EXCHANGE_PRICE_API_URL_COINBASE", "")
     CRYPTO_EXCHANGE_PRICE_API_URL_COINGECKO: str = os.getenv("CRYPTO_EXCHANGE_PRICE_API_URL_COINGECKO", "")
