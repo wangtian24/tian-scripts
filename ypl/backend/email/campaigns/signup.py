@@ -1,16 +1,16 @@
-SIC_AVAILABILITY_EMAIL_TITLE = "Yupp is now available to your friends!"
+SIC_AVAILABILITY_EMAIL_TITLE = "Thanks for using Yupp (Beta). New from us just for you – share Yupp with your friends!"
 SIC_AVAILABILITY_EMAIL_TEMPLATE = """
 Hey {name},
 
-Thanks for being a valuable Trusted Tester of Yupp. Your feedback so far has given us invaluable insights and we continue to iterate the product! We hope you are enjoying your experience and finding Yupp useful.
+Thanks for being a valuable Trusted Tester of Yupp. Your feedback so far has given us invaluable insights and we continue to iterate on the product! We hope you are enjoying your experience and finding Yupp useful.
 
-We are thrilled to release our 'referral' feature. With this functionality, you would be able to invite your friends, using a special invite code created just for you. This feature would start rolling out to other users in the upcoming weeks, but we thought it would be great to let you in early.
+We are thrilled to release our ‘referral’ feature. With this functionality, you would be able to invite your friends, using a special invite code created just for you. This feature would start rolling out to other users in the upcoming weeks, but we thought it would be great to let you in early.
 
-Click on your profile picture, and you will see "Refer your friends". When you click on it, you will see your specialinvite code.
+Click on your profile picture, and you will see “Refer your friends”. When you click on it, you will see your special invite code.
 
-Ask your friends to visit https://gg.yupp.ai, login using their gmail id, and enter your invite code when prompted. And that's it, they are in. Note: There's a limit on the number of friends you can invite per week.
+Ask your friends to visit https://gg.yupp.ai, login using their gmail id, and enter your invite code when prompted. And that’s it, they are in. Note: There’s a limit on the number of friends you can invite per week.
 
-And well, that's not all - the referral program gets you 10000 extra YUPP credits and your friend 1000! Please refer your friends now. One extra request - please don't refer to journalists, investors, competitors etc. and continue to keep the product confidential. We want to remain in stealth for now.
+And well, that’s not all - the referral program gets you 10000 extra YUPP credits and your friend 1000! Please refer your friends now.  One extra request - please don’t refer to journalists, investors, competitors etc. and continue to keep the product confidential. We want to remain in stealth for now.
 
 Thank you for being a part of this journey with us 🫶🏼.
 
@@ -18,6 +18,27 @@ Cheers,
 
 Mouli
 [from the Product team]
+"""  # noqa: E501
+
+SIC_AVAILABILITY_EMAIL_TEMPLATE_HTML = """
+<p>Hey {name},</p>
+
+<p>Thanks for being a valuable Trusted Tester of Yupp. Your feedback so far has given us invaluable insights and we continue to iterate on the product! We hope you are enjoying your experience and finding Yupp useful.</p>
+
+<p>We are thrilled to release our ‘referral’ feature. With this functionality, you would be able to invite your friends, using a special invite code created <strong>just for you</strong>. This feature would start rolling out to other users in the upcoming weeks, <strong>but we thought it would be great to let you in early</strong>.</p>
+
+<ol>
+<li>Click on your profile picture, and you will see “Refer your friends”. When you click on it, you will see your special invite code.</li>
+<li>Ask your friends to visit <a href="https://gg.yupp.ai">https://gg.yupp.ai</a>, login using their gmail id, and enter your invite code when prompted. And that’s it, they are in. <em>Note: There’s a limit on the number of friends you can invite per week.</em></li>
+</ol>
+
+<p>And well, that’s not all - the referral program gets you 10000 extra YUPP credits and your friend 1000! Please refer your friends now.  One extra request - please don’t refer to journalists, investors, competitors etc. and continue to keep the product confidential. We want to remain in stealth for now.</p>
+
+<p>Thank you for being a part of this journey with us 🫶🏼.</p>
+
+<p>Cheers,</p>
+
+<p>Mouli<br/>[from the Product team]</p>
 """  # noqa: E501
 
 

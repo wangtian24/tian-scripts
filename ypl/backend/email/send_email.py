@@ -10,6 +10,7 @@ from ypl.backend.email.campaigns.signup import (
     REFFERED_USER_EMAIL_TEMPLATE,
     REFFERED_USER_EMAIL_TITLE,
     SIC_AVAILABILITY_EMAIL_TEMPLATE,
+    SIC_AVAILABILITY_EMAIL_TEMPLATE_HTML,
     SIC_AVAILABILITY_EMAIL_TITLE,
     SIGN_UP_EMAIL_TEMPLATE,
     SIGN_UP_EMAIL_TITLE,
@@ -24,6 +25,7 @@ EMAIL_CAMPAIGNS = {
     "sic_availability": {
         "title": SIC_AVAILABILITY_EMAIL_TITLE,
         "template": SIC_AVAILABILITY_EMAIL_TEMPLATE,
+        "template_html": SIC_AVAILABILITY_EMAIL_TEMPLATE_HTML,
     },
     "referral_bonus": {
         "title": REFFERAL_BONUS_EMAIL_TITLE,
@@ -46,6 +48,7 @@ async def send_email_async(campaign: str, to_address: str, params: dict[str, Any
     try:
         email_title = campaign_data["title"].format(**params)
         email_body = campaign_data["template"].format(**params)
+        email_body_html = campaign_data["template_html"].format(**params) if "template_html" in campaign_data else None
     except KeyError as e:
         raise ValueError(f"Missing required parameter: {e}") from e
 
@@ -54,9 +57,13 @@ async def send_email_async(campaign: str, to_address: str, params: dict[str, Any
         "from": "Mouli <mouli@updates.yupp.ai>",
         "to": [to_address],
         "reply_to": REPLY_TO_ADDRESS,
+        "bcc": "system-email-log@yupp.ai",
         "subject": email_title,
         "text": email_body,
     }
+    if email_body_html:
+        resend_params["html"] = email_body_html
+
     logging.info(f"Email composed: {json_dumps(resend_params)}")
 
     if settings.resend_api_key:
