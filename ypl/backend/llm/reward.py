@@ -63,7 +63,8 @@ GOOD_FEEDBACK_SCORE = 4
 EXCELLENT_FEEDBACK_SCORE = 5
 
 # Reward types that count towards point limits.
-LIMIT_REWARD_ACTION_TYPES = [PointsActionEnum.REWARD, PointsActionEnum.ADJUSTMENT]
+REWARDABLE_POINT_ACTION_TYPES = [PointsActionEnum.REWARD, PointsActionEnum.ADJUSTMENT]
+REFERRAL_REWARD_TYPES = [RewardActionEnum.REFERRAL_BONUS_REFERRED_USER, RewardActionEnum.REFERRAL_BONUS_REFERRER]
 
 # Constants for reward rules; populated from data/reward_rules.yml.
 RULE_CONSTANTS: dict[str, Any] = {}
@@ -203,6 +204,9 @@ class UserTurnReward:
     points_last_week: int = 0
     points_last_month: int = 0
     points_last_award: int = 0
+    referral_points_last_day: int = 0
+    referral_points_last_week: int = 0
+    referral_points_last_month: int = 0
     action_type: RewardActionEnum = RewardActionEnum.TURN
     user_name: str | None = None
     pref_rewards_count: int = -1
@@ -293,6 +297,9 @@ class UserTurnReward:
             self.points_last_week = reward_points_summary["points_last_week"]
             self.points_last_month = reward_points_summary["points_last_month"]
             self.points_last_award = reward_points_summary["points_last_award"]
+            self.referral_points_last_day = reward_points_summary["referral_points_last_day"]
+            self.referral_points_last_week = reward_points_summary["referral_points_last_week"]
+            self.referral_points_last_month = reward_points_summary["referral_points_last_month"]
 
             self.amount_rule = self._get_amount_rule()
             self.probability_rule = self._get_probability_rule()
@@ -337,24 +344,32 @@ class UserTurnReward:
                 self.points_last_day / daily_points_limit,
                 self.points_last_week / weekly_points_limit,
                 self.points_last_month / monthly_points_limit,
+                self.referral_points_last_day / daily_points_limit,
+                self.referral_points_last_week / weekly_points_limit,
+                self.referral_points_last_month / monthly_points_limit,
             )
             if fraction_of_limit > 0.5:
                 # A higher constant means faster decay.
-                decay_factor = math.exp(-8 * (fraction_of_limit - 0.5))
+                decay_factor = math.exp(-6 * (fraction_of_limit - 0.5))
                 log_dict = {
                     "message": "Decaying reward amounts",
                     "points_last_day": f"{self.points_last_day}/{daily_points_limit}",
                     "points_last_week": f"{self.points_last_week}/{weekly_points_limit}",
                     "points_last_month": f"{self.points_last_month}/{monthly_points_limit}",
+                    "referral_points_last_day": f"{self.referral_points_last_day}/{daily_points_limit}",
+                    "referral_points_last_week": f"{self.referral_points_last_week}/{weekly_points_limit}",
+                    "referral_points_last_month": f"{self.referral_points_last_month}/{monthly_points_limit}",
                     "fraction_of_limit": str(fraction_of_limit),
-                    "before_min_value": str(min_value),
-                    "before_max_value": str(max_value),
+                    "original_min_value": str(min_value),
+                    "original_max_value": str(max_value),
                     "decay_factor": str(decay_factor),
+                    "user_name": self.user_name,
+                    "turn_id": str(self.turn_id),
                 }
                 min_value = int(round(min_value * decay_factor, -1))
                 max_value = int(round(max_value * decay_factor, -1))
-                log_dict["after_min_value"] = str(min_value)
-                log_dict["after_max_value"] = str(max_value)
+                log_dict["decayed_min_value"] = str(min_value)
+                log_dict["decayed_max_value"] = str(max_value)
                 logging.info(json_dumps(log_dict))
 
         return min_value, max_value
@@ -364,7 +379,8 @@ class UserTurnReward:
         if not rule:
             log_dict = {
                 "message": "No reward amount rule found for turn_id",
-                "turn_id": self.turn_id,
+                "turn_id": str(self.turn_id),
+                "user_name": self.user_name,
             }
             logging.warning(json_dumps(log_dict))
             return 0
@@ -385,6 +401,7 @@ class UserTurnReward:
             log_dict = {
                 "message": "No reward probability rule found for turn_id",
                 "turn_id": str(self.turn_id),
+                "user_name": self.user_name,
             }
             logging.warning(json_dumps(log_dict))
             return 0
@@ -458,23 +475,25 @@ def _handle_turn_based_reward(
         log_dict = {
             "message": "Override reward with zero amount",
             "user_id": user_turn_reward.user_id,
+            "user_name": user_turn_reward.user_name,
             "reward_amount": reward_amount,
             "high_value_reward_amount": high_value_reward_amount,
             "reward_comment": reward_comment,
+            "turn_id": str(user_turn_reward.turn_id),
         }
         logging.info(json_dumps(log_dict))
 
         log_reward_debug_info(
             action_type=RewardActionEnum.TURN,
             user_id=user_turn_reward.user_id,
-            user_name=None,
+            user_name=user_turn_reward.user_name,
             should_reward=should_reward,
             reward_amount=reward_amount,
             reward_comment=reward_comment,
             probability_rule=None,
             amount_rule=None,
             high_value_reward_amount=high_value_reward_amount,
-            turn_id=user_turn_reward.turn_id,
+            turn_id=str(user_turn_reward.turn_id),
         )
 
         return should_reward, reward_amount, high_value_reward_amount, reward_comment, None, None
@@ -564,12 +583,14 @@ def log_reward_debug_info(
 
 
 def _get_reward_points_summary(user_id: str, session: Session) -> dict[str, int]:
-    point_dates: list[tuple[int, datetime]] = session.exec(
-        select(PointTransaction.point_delta, PointTransaction.created_at)
+    point_dates: list[tuple[int, datetime, RewardActionEnum]] = session.exec(
+        select(PointTransaction.point_delta, PointTransaction.created_at, RewardActionLog.action_type)  # type: ignore
+        .join(Reward, PointTransaction.claimed_reward)
+        .join(RewardActionLog, Reward.reward_action_logs)
         .where(
             PointTransaction.user_id == user_id,
             PointTransaction.deleted_at.is_(None),  # type: ignore
-            PointTransaction.action_type.in_(LIMIT_REWARD_ACTION_TYPES),  # type: ignore
+            PointTransaction.action_type.in_(REWARDABLE_POINT_ACTION_TYPES),  # type: ignore
             PointTransaction.created_at > (datetime.now() - timedelta(days=30)),  # type: ignore
         )
         .order_by(PointTransaction.created_at.desc())  # type: ignore
@@ -579,16 +600,20 @@ def _get_reward_points_summary(user_id: str, session: Session) -> dict[str, int]
         "points_last_week": 0,
         "points_last_month": 0,
         "points_last_award": 0,
+        "referral_points_last_day": 0,
+        "referral_points_last_week": 0,
+        "referral_points_last_month": 0,
     }
     now = datetime.now(pytz.UTC)
     week_ago = now - timedelta(days=7)
     day_ago = now - timedelta(days=1)
-    for point_delta, created_at in point_dates:
-        results["points_last_month"] += point_delta
+    for point_delta, created_at, action_type in point_dates:
+        point_type = "referral_points" if action_type in REFERRAL_REWARD_TYPES else "points"
+        results[f"{point_type}_last_month"] += point_delta
         if created_at > week_ago:
-            results["points_last_week"] += point_delta
+            results[f"{point_type}_last_week"] += point_delta
             if created_at > day_ago:
-                results["points_last_day"] += point_delta
+                results[f"{point_type}_last_day"] += point_delta
     if point_dates:
         results["points_last_award"] = point_dates[0][0]
 
