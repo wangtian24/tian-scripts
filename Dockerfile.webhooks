@@ -2,36 +2,23 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && \
+    apt-get install -y g++ && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
-# Install Cloud SQL Proxy
-RUN curl -o /usr/local/bin/cloud_sql_proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.1.2/cloud-sql-proxy.linux.amd64 \
-    && chmod +x /usr/local/bin/cloud_sql_proxy
+RUN pip install poetry==1.8.2 && \
+    poetry config virtualenvs.create false
 
-# Install Poetry
-RUN curl -sSL https://install.python-poetry.org | python3 -
-ENV PATH="/root/.local/bin:$PATH"
+COPY pyproject.toml poetry.lock ./
 
-# Copy only requirements to cache them in docker layer
-COPY poetry.lock pyproject.toml ./
-RUN poetry config virtualenvs.create false \
-    && poetry install --no-interaction --no-ansi --no-root
+RUN poetry install --no-root --no-dev --no-cache && \
+    rm -rfv /root/.cache/
 
-# Copy application code
 COPY . .
-
-# Make entrypoint executable
 RUN chmod +x /app/ypl/webhooks/entrypoint.sh
 
-# Set environment variables
-ENV PYTHONPATH=/app
 ENV PORT=8081
-
 EXPOSE 8081
 
-ENTRYPOINT ["/app/ypl/webhooks/entrypoint.sh"]
-CMD ["service"] 
+ENTRYPOINT ["/app/ypl/webhooks/entrypoint.sh"] 
