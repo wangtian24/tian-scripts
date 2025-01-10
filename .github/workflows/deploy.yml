@@ -29,6 +29,7 @@ on:
         - backend
         - backend-pytorch-service
         - backend-pytorch-service-bleeding
+        - webhooks-service
       region:
         description: 'Region to deploy to'
         required: true
@@ -120,6 +121,8 @@ jobs:
 
         if [[ "${{ github.event.inputs.image }}" == "backend-pytorch-service" || "${{ github.event.inputs.image }}" == "backend-pytorch-service-bleeding" ]]; then
           echo "DOCKERFILE=Dockerfile.pytorch-service" >> $GITHUB_ENV
+        elif [[ "${{ github.event.inputs.image }}" == "webhooks-service" ]]; then
+          echo "DOCKERFILE=Dockerfile.webhooks" >> $GITHUB_ENV
         else
           echo "DOCKERFILE=Dockerfile" >> $GITHUB_ENV
         fi
@@ -281,6 +284,17 @@ jobs:
             --no-cpu-throttling \
             --add-cloudsql-instances=${{ env.CLOUD_SQL_CONNECTION_NAME }} \
             --command="/app/ypl/pytorch/serve/entrypoint.sh"
+        elif [[ "${{ env.SERVICE_NAME }}" == "webhooks-service"* ]]; then
+          gcloud beta run deploy ${{ env.SERVICE_NAME }} \
+            --image ${{ env.IMAGE_NAME }} \
+            --platform managed \
+            --region ${{ env.REGION }} \
+            --allow-unauthenticated \
+            --cpu 1 \
+            --memory 1Gi \
+            --args=service \
+            --add-cloudsql-instances=${{ env.CLOUD_SQL_CONNECTION_NAME }} \
+            --command="/app/ypl/webhooks/entrypoint.sh"
         else
           gcloud beta run deploy ${{ env.SERVICE_NAME }} \
             --image ${{ env.IMAGE_NAME }} \
