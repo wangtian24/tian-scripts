@@ -559,7 +559,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
     match request.intent:
         case SelectIntent.NEW_TURN:
             preference, user_selected_models = get_preferences(request.chat_id)  # type: ignore[arg-type]
-            request.required_models = list(dict.fromkeys((request.required_models or []) + user_selected_models))
+            request.required_models = list(dict.fromkeys(user_selected_models + (request.required_models or [])))
         case SelectIntent.SHOW_ME_MORE:
             preference, user_selected_models = get_preferences(request.chat_id)  # type: ignore[arg-type]
             preference.turns = preference.turns or []
