@@ -42,9 +42,11 @@ SIC_AVAILABILITY_EMAIL_TEMPLATE_HTML = """
 """  # noqa: E501
 
 
-SIGN_UP_EMAIL_TITLE = "Welcome to Yupp.AI!"
+SIGN_UP_EMAIL_TITLE = "Thanks for joining Yupp (Beta) as an early Trusted Tester! Please keep it confidential"
 SIGN_UP_EMAIL_TEMPLATE = """
 Hey {name},
+
+(Please keep it confidential, and remember to thank the person who referred you when you see them next.)
 
 We’re thrilled to have you as an early Trusted Tester user! Your feedback will play a crucial role in refining the product, and we can’t wait to hear your thoughts.
 
