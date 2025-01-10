@@ -116,23 +116,6 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
     stop_stream_task: asyncio.Task[Any] | None = None
     try:
         start_time = datetime.now()
-        # Create task to eagerly persist user message
-        # This is a product requirement to enable "I prefer this" button
-        # before both side-by-side streams finish generating their responses.
-        # The eager persistence allows users to select their preferred response
-        # without waiting for complete generation.
-        eager_persist_task = asyncio.create_task(
-            upsert_chat_message(
-                intent=Intent.EAGER_PERSIST,
-                turn_id=chat_request.turn_id,
-                message_id=chat_request.message_id,
-                model=chat_request.model,
-                message_type=MessageType.ASSISTANT_MESSAGE,
-                turn_seq_num=chat_request.turn_seq_num,
-                assistant_selection_source=chat_request.assistant_selection_source,
-                prompt_modifier_ids=chat_request.prompt_modifier_ids,
-            )
-        )
         # Create task keep checking for "Stop Stream" signal from user
         stop_stream_task = asyncio.create_task(
             stop_stream_check(chat_id=chat_request.chat_id, turn_id=chat_request.turn_id, model=chat_request.model)
@@ -175,6 +158,24 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
             ).encode()
             await update_modifier_status(chat_request)
             return
+
+        # Create task to eagerly persist user message
+        # This is a product requirement to enable "I prefer this" button
+        # before both side-by-side streams finish generating their responses.
+        # The eager persistence allows users to select their preferred response
+        # without waiting for complete generation.
+        eager_persist_task = asyncio.create_task(
+            upsert_chat_message(
+                intent=Intent.EAGER_PERSIST,
+                turn_id=chat_request.turn_id,
+                message_id=chat_request.message_id,
+                model=chat_request.model,
+                message_type=MessageType.ASSISTANT_MESSAGE,
+                turn_seq_num=chat_request.turn_seq_num,
+                assistant_selection_source=chat_request.assistant_selection_source,
+                prompt_modifier_ids=chat_request.prompt_modifier_ids,
+            )
+        )
 
         # Send initial status
         yield StreamResponse(intial_status, "status").encode()
