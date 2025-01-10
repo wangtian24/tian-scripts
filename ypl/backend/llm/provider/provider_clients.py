@@ -11,7 +11,10 @@ from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 from sqlalchemy import select
 from sqlmodel import Session
+from ypl.backend.config import settings
 from ypl.backend.db import get_engine
+from ypl.backend.llm.model_data_type import ModelInfo
+from ypl.backend.llm.provider.google_grounded_gemini import GoogleGroundedGemini
 from ypl.backend.llm.provider.perplexity import CustomChatPerplexity
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
 
@@ -71,6 +74,20 @@ async def get_provider_client(model_name: str) -> BaseChatModel:
             return ChatGoogleGenerativeAI(
                 model=model.internal_name,
                 api_key=SecretStr(os.getenv("GOOGLE_API_KEY", "")),
+            )
+
+        case "GoogleGrounded":
+            return GoogleGroundedGemini(  # type: ignore[call-arg]
+                model_info=ModelInfo(
+                    provider="GoogleGrounded",
+                    model=model.internal_name.replace("-online", ""),  # TODO: make more robust
+                    api_key=settings.GOOGLE_API_KEY,
+                ),
+                model_config_=dict(
+                    project_id=settings.GCP_PROJECT_ID,
+                    region=settings.GCP_REGION_GEMINI_2,
+                    temperature=0.0,
+                ),
             )
 
         case "OpenAI":

@@ -54,8 +54,10 @@ class GeminiLangChainAdapter(VendorLangChainAdapter):
         kwargs["region"] = kwargs["model_config_"].pop("region")
 
         try:
-            vertexai.init(project=kwargs["project_id"], location=kwargs["region"], api_key=kwargs["model_info"].api_key)
-            genai.configure(api_key=kwargs["model_info"].api_key)
+            vertexai.init(
+                project=kwargs["project_id"], location=kwargs["region"], api_key=str(kwargs["model_info"].api_key)
+            )
+            genai.configure(api_key=str(kwargs["model_info"].api_key))
         except Exception as e:
             logging.error(f"Failed to initialize Vertex AI: {e}")
             raise ValueError("Failed to initialize Vertex AI") from e
