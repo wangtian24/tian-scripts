@@ -464,10 +464,8 @@ class TurnAnnotationsResponse(BaseModel):
     negative_notes: list[tuple[str, str]] | None = None
 
 
-@router.get("/chats/{chat_id}/turns/{turn_id}/turn_annotations", response_model=TurnAnnotationsResponse)
+@router.get("/turns/{turn_id}/turn_annotations", response_model=TurnAnnotationsResponse)
 async def get_turn_annotations(
-    # chat_id not used, but kept for consistency with other /chats routes.
-    chat_id: str = Path(..., description="The ID of the chat"),
     turn_id: str = Path(..., description="The ID of the turn"),
 ) -> TurnAnnotationsResponse:
     response = TurnAnnotationsResponse()
