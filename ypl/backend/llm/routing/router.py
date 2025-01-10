@@ -124,11 +124,20 @@ class RouterState(BaseModel):
         """
         return set(self.selected_models.keys())
 
-    def get_sorted_selected_models(self) -> list[str]:
+    def get_sorted_selected_models(self, priority_models: list[str] | None = None) -> list[str]:
         """
-        Return the models that have been selected, sorted by the sum of their scores.
+        Return the models that have been selected, sorted by the sum of their scores, highest to lowest.
+        If priority_models is provided, they are pulled to the front of the list.
         """
-        return sorted(self.get_selected_models(), key=lambda x: sum(self.selected_models[x].values()), reverse=True)
+        sorted_models = sorted(
+            self.get_selected_models(), key=lambda x: sum(self.selected_models[x].values()), reverse=True
+        )
+        if priority_models:
+            return [model for model in priority_models if model in sorted_models] + [
+                model for model in sorted_models if model not in priority_models
+            ]
+        else:
+            return sorted_models
 
     def get_selectable_models(self) -> set[str]:
         """
@@ -1150,6 +1159,10 @@ class MaxSpeedProposer(ModelProposer):
 
 
 class Exclude(ModelFilter):
+    """
+    Represents a filter to remove certain models and models from certain providers.
+    """
+
     def __init__(self, *, models: set[str] | None = None, providers: set[str] | None = None):
         super().__init__(persist=True)
         self.models = models or set()
@@ -1229,6 +1242,18 @@ class RoutingDecision:
         logging.info(json_dumps(log_dict))
 
 
+def group_models_by_key(model_to_key_map: dict[str, str], sorted_model_list: list[str]) -> dict[str | None, list[str]]:
+    """
+    Group models in sorted_model_list by their keys found in map, keep the order.
+    All models without keys in map are grouped under 'None'.
+    """
+    model_list_by_key: dict[str | None, list[str]] = defaultdict(list[str])
+    for model in sorted_model_list:
+        key = model_to_key_map.get(model, None)
+        model_list_by_key[key].append(model)
+    return model_list_by_key
+
+
 class ProviderFilter(ModelFilter):
     """
     Filters models based on their provider. If `one_per_provider` is set, only one model per provider is selected, e.g.
@@ -1242,7 +1267,8 @@ class ProviderFilter(ModelFilter):
     def __init__(
         self,
         one_per_provider: bool = False,
-        providers: set[str] | str = "",
+        providers: set[str] | None = None,
+        priority_models: list[str] | None = None,
         inverse: bool = False,
         persist: bool = False,
     ) -> None:
@@ -1254,88 +1280,77 @@ class ProviderFilter(ModelFilter):
             inverse: Whether to invert the filter.
             persist: Whether to persist the filter across requests, storing the removed models in the `excluded_models`
                 field of the router state.
+            priority_models: A list of models we always want to keep.
         """
         super().__init__(persist)
 
         if isinstance(providers, str):
             providers = {providers}
 
-        self.providers: set[str] = providers
+        self.providers: set[str] | None = providers
         self.inverse = inverse
         self.one_per_provider = one_per_provider
+        self.priority_models = priority_models or []
+        assert self.providers or self.one_per_provider, "Either providers or one_per_provider must be set"
+
+    def should_keep_for_provider(self, provider: str | None) -> bool:
+        """check if any model from this provider should be kept"""
+        if provider is None:
+            return False  # provider-less models are always dropped
+        return not self.providers or (self.inverse ^ (provider in self.providers))
 
     def _filter(self, state: RouterState) -> tuple[RouterState, set[str]]:
-        assert self.providers or self.one_per_provider, "Either providers or one_per_provider must be set"
+        sorted_models = state.get_sorted_selected_models(priority_models=self.priority_models)
+        provider_map = deduce_original_providers(tuple(sorted_models))
+        models_by_provider = group_models_by_key(provider_map, sorted_models)
 
-        filtered_models = state.selected_models
-        curr_providers = set()
-        provider_map = deduce_original_providers(tuple(state.selected_models.keys()))
+        keep_models = set()
+        for provider, models in models_by_provider.items():
+            if self.should_keep_for_provider(provider):
+                if not self.one_per_provider:
+                    keep_models.update(models)  # every models get to stay
+                else:
+                    added = False
+                    for model in models:
+                        if self.priority_models and model in self.priority_models or not added:
+                            keep_models.add(model)
+                            added = True
+                        else:
+                            break
 
-        if self.providers:
-            filtered_models = {
-                model: criteria
-                for model, criteria in state.selected_models.items()
-                if (not self.inverse and provider_map[model] in self.providers)
-                or (self.inverse and provider_map[model] not in self.providers)
-            }
-
-        if self.one_per_provider:
-            filtered_models = {}
-
-            for model in state.get_sorted_selected_models():
-                if provider_map[model] not in curr_providers:
-                    filtered_models[model] = state.selected_models[model]
-                    curr_providers.add(provider_map[model])
-
-        excluded_models = state.selected_models.keys() - filtered_models.keys()
+        excluded_models = state.selected_models.keys() - keep_models
 
         return state.emplaced(
-            selected_models=filtered_models,
-            all_models=state.all_models,
+            selected_models={model: state.selected_models[model] for model in keep_models}
         ), excluded_models
-
-    async def _afilter(self, state: RouterState) -> tuple[RouterState, set[str]]:
-        assert self.providers or self.one_per_provider, "Either providers or one_per_provider must be set"
-
-        filtered_models = state.selected_models
-        curr_providers = set()
-
-        if self.providers:
-            filtered_models = {
-                model: criteria
-                for model, criteria in state.selected_models.items()
-                if (not self.inverse and await adeduce_original_provider(model) in self.providers)
-                or (self.inverse and await adeduce_original_provider(model) not in self.providers)
-            }
-
-        if self.one_per_provider:
-            filtered_models = {}
-
-            for model in state.get_sorted_selected_models():
-                if (provider := await adeduce_original_provider(model)) not in curr_providers:
-                    filtered_models[model] = state.selected_models[model]
-                    curr_providers.add(provider)
-
-        excluded_models = state.selected_models.keys() - filtered_models.keys()
-
-        return state.emplaced(selected_models=filtered_models), excluded_models
 
 
 class OnePerSemanticGroupFilter(ModelFilter):
     """
-    Filters models based on their semantic group.
+    Filters models based on their semantic group. User selected models are always kept.
     """
 
-    def __init__(self, persist: bool = False) -> None:
+    def __init__(self, persist: bool = False, priority_models: list[str] | None = None) -> None:
         super().__init__(persist=persist)
+        self.priority_models = priority_models or []
 
     def _filter(self, state: RouterState) -> tuple[RouterState, set[str]]:
-        sorted_models = state.get_sorted_selected_models()
+        sorted_models = state.get_sorted_selected_models(priority_models=self.priority_models)
         semantic_group_map = deduce_semantic_groups(tuple(sorted_models))
+        models_by_semantic_group = group_models_by_key(semantic_group_map, sorted_models)
 
-        keep_models = set(
-            {semantic_group_map.get(model, idx): model for idx, model in enumerate(reversed(sorted_models))}.values()
-        )
+        keep_models = set()
+        for semantic_group, models in models_by_semantic_group.items():
+            if semantic_group is None:
+                keep_models.update(models)  # add all models with no semantic group
+            else:
+                added = False
+                for model in models:
+                    if (self.priority_models and model in self.priority_models) or not added:
+                        keep_models.add(model)
+                        added = True
+                    else:
+                        break
 
         excluded_models = state.selected_models.keys() - keep_models
 
@@ -1603,6 +1618,25 @@ def get_modifier_labeler() -> PromptModifierLabeler:
     return MODIFIER_LABELER
 
 
+def get_good_and_bad_models(preference: RoutingPreference) -> tuple[set[str], set[str]]:
+    """
+    Go through all previous turns and split models into a good set and a bad set based on their user evaluation.
+    """
+    all_good_models = set()
+    all_bad_models = set()
+    # Go through all previous turns, add preferred models to all_good_models and others to all_bad_models
+    for turn in preference.turns or []:
+        if not turn.has_evaluation:
+            continue
+        if turn.preferred:
+            all_good_models.add(turn.preferred)
+            all_bad_models.update([m for m in turn.models if m != turn.preferred])
+        else:
+            all_bad_models.update(turn.models)
+    all_good_models = all_good_models - all_bad_models
+    return all_good_models, all_bad_models
+
+
 async def get_simple_pro_router(
     prompt: str,
     num_models: int,
@@ -1636,16 +1670,44 @@ async def get_simple_pro_router(
     pro_proposer = ProModelProposer()
     num_pro = int(pro_proposer.get_rng().random() * 2 + 1)
 
-    if show_me_more_models:
-        show_me_more_providers = set(deduce_original_providers(tuple(show_me_more_models)).values())
-    else:
-        show_me_more_providers = set()
+    show_me_more_providers = (
+        set(deduce_original_providers(tuple(show_me_more_models)).values()) if show_me_more_models else set()
+    )
+
+    def get_postprocessing_stage(exclude_models: set[str] | None = None) -> RouterModule:
+        """
+        Common post-processing stages that's shared in first-turn and non-first-turn routers
+        """
+        return (
+            # -- filter stage --
+            Exclude(providers=show_me_more_providers, models=exclude_models)
+            # inject user selected model, even if they are already used before.
+            # Also they are always treated with priority in the following dedup filters.
+            | Inject(user_selected_models or [], score=10000000)
+            | OnePerSemanticGroupFilter(priority_models=user_selected_models)  # dedupe by semantic group
+            | ProviderFilter(one_per_provider=True, priority_models=user_selected_models)  # dedupe by provider
+            # -- ranking stage --
+            | TopK(num_models)  # keeps only top k models
+            # -- annotation stage --
+            | ModifierAnnotator(applicable_modifiers)  # annotate models with modifiers
+            # -- logging stage --
+            | RoutingDecisionLogger(
+                enabled=settings.ROUTING_DO_LOGGING,
+                prefix="first-prompt-simple-pro-router",
+                metadata={
+                    "categories": categories,
+                },
+            )
+        )
 
     if not preference.turns:
+        # --- First Turn Router ---
         # Construct a first-turn router guaranteeing at least one pro model and one reputable model.
         router: RouterModule = (
-            rule_filter
-            | (
+            # -- candidate prep stage --
+            rule_filter  # apply rules for an initial pass clean up on all candidate models, reject based on prompt
+            # -- proposal stage --
+            | (  # propose a set of models based on several heuristics
                 (rule_proposer.with_flags(always_include=True) | RandomJitter(jitter_range=1))
                 & (pro_proposer | error_filter | TopK(num_pro)).with_flags(always_include=True, offset=100000)
                 & (StrongModelProposer() | error_filter | TopK(1)).with_flags(always_include=True, offset=50000)
@@ -1658,46 +1720,19 @@ async def get_simple_pro_router(
                     | ProviderFilter(one_per_provider=True)
                 ).with_flags(always_include=True, offset=5000)
             )
-            | error_filter
-            | Exclude(providers=show_me_more_providers)
-            | OnePerSemanticGroupFilter()
-            | ProviderFilter(one_per_provider=True)
-            | Inject(user_selected_models or [], score=10000000)
-            | TopK(num_models)
-            | ModifierAnnotator(applicable_modifiers)
-            | RoutingDecisionLogger(
-                enabled=settings.ROUTING_DO_LOGGING,
-                prefix="first-prompt-simple-pro-router",
-                metadata={
-                    "categories": categories,
-                },
-            )
+            | error_filter  # removes models with high error rate
+            # -- post processing stage --
+            | get_postprocessing_stage(exclude_models=None)
         )
     else:
-        # This is the router for all turns after the first; construct it based on the preference
-        # and the branding. If both are bad, we default to one branded and one random. If one branded one is
-        # good, we choose that and use a random model for the other.
-        all_good_models = set()
-        all_bad_models = set()
-
-        for turn in preference.turns:
-            if not turn.has_evaluation:
-                continue
-
-            for model in turn.models:
-                if turn.preferred is None:
-                    all_bad_models.add(model)
-                else:
-                    if model == turn.preferred:
-                        all_good_models.add(model)
-                    else:
-                        all_bad_models.add(model)
-
-        all_good_models = all_good_models - all_bad_models
+        # --- Non-First Turn Router ---
+        all_good_models, all_bad_models = get_good_and_bad_models(preference)
         rule_filter.exempt_models = all_good_models
 
         router: RouterModule = (  # type: ignore[no-redef]
+            # -- preprocessing stage --
             rule_filter
+            # -- proposal stage --
             | (
                 (RandomModelProposer(models=all_good_models) | error_filter | TopK(1)).with_flags(
                     always_include=True,
@@ -1724,24 +1759,9 @@ async def get_simple_pro_router(
                 )
                 & RandomModelProposer().with_flags(offset=-1000, always_include=True)
             )
-            | error_filter
-            | Exclude(models=all_bad_models, providers=show_me_more_providers)
-            | OnePerSemanticGroupFilter()
-            | ProviderFilter(one_per_provider=True)
-            | Inject(user_selected_models or [], score=100000000)
-            | TopK(num_models)
-            | ModifierAnnotator(applicable_modifiers)
-            | RoutingDecisionLogger(
-                enabled=settings.ROUTING_DO_LOGGING,
-                prefix="nonfirst-prompt-simple-pro-router",
-                metadata={
-                    "turns": [t.model_dump() for t in preference.turns],
-                    "all_good_models": list(all_good_models),
-                    "all_bad_models": list(all_bad_models),
-                    "user_selected_models": user_selected_models or [],
-                    "categories": categories,
-                },
-            )
+            | error_filter  # removes models with high error rate
+            # -- post processing stage --
+            | get_postprocessing_stage(exclude_models=all_bad_models)
         )
 
     return router
