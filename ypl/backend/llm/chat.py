@@ -1384,3 +1384,25 @@ async def check_for_stop_request(chat_uuid: UUID, turn_uuid: UUID, model_name: s
     except Exception as e:
         logging.error(f"Error checking stop request: {str(e)}")
         return False
+
+
+BILLING_ERROR_KEYWORDS = [
+    "quota",
+    "plan",
+    "billing",
+    "insufficient",
+    "exceeded",
+    "limit",
+    "payment",
+    "subscription",
+    "credit",
+    "balance",
+    "access",
+    "unauthorized",
+]
+
+
+def contains_billing_keywords(message: str) -> bool:
+    """Checks if a message contains keywords that indicate severe billing/quota issues"""
+    message_lower = message.lower()
+    return any(keyword in message_lower for keyword in BILLING_ERROR_KEYWORDS)

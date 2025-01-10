@@ -19,12 +19,19 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine
 from ypl.backend.llm.attachment import get_attachments, link_attachments
-from ypl.backend.llm.chat import Intent, check_for_stop_request, get_curated_chat_context, upsert_chat_message
+from ypl.backend.llm.chat import (
+    Intent,
+    check_for_stop_request,
+    contains_billing_keywords,
+    get_curated_chat_context,
+    upsert_chat_message,
+)
 from ypl.backend.llm.crawl import enhance_citations
 from ypl.backend.llm.model.model import ModelResponseTelemetry
 from ypl.backend.llm.provider.provider_clients import get_language_model, get_provider_client
 from ypl.backend.llm.sanitize_messages import DEFAULT_MAX_TOKENS, sanitize_messages
 from ypl.backend.llm.transform_messages import transform_user_mesages
+from ypl.backend.llm.utils import post_to_slack
 from ypl.backend.prompts import get_system_prompt_with_modifiers
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import (
@@ -300,6 +307,14 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
             yield StreamResponse(
                 {"error": f"Streaming error: {str(e)}", "code": "stream_error", "model": chat_request.model}, "error"
             ).encode()
+            # check if it's a potential billing error & async post to Slack
+            if contains_billing_keywords(str(e)):
+                asyncio.create_task(
+                    post_to_slack(
+                        f"Potential Billing error, for model {chat_request.model} , chat_id {chat_request.chat_id},"
+                        f" client {str(client)}"
+                    )
+                )
 
         # Send completion status
         end_time = datetime.now()
