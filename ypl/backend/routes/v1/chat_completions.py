@@ -193,7 +193,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                 chat_request.chat_id,
                 chat_request.use_all_models_in_chat_history,
                 chat_request.model,
-                chat_request.turn_seq_num,
+                chat_request.turn_id,
             )
             language_model = await get_language_model(chat_request.model)
             chat_context = sanitize_messages(

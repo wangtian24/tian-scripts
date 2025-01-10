@@ -5,6 +5,7 @@ from sqlalchemy.orm.state import InstanceState
 
 import ypl.db.all_models  # noqa
 from ypl.backend.llm.chat import RESPONSE_SEPARATOR, _get_assistant_messages
+from ypl.backend.prompts import ALL_MODELS_IN_CHAT_HISTORY_PREAMBLE
 from ypl.db.chats import ChatMessage, MessageType, MessageUIStatus
 
 
@@ -58,9 +59,8 @@ def test_get_assistant_messages() -> None:
 
     messages = _get_assistant_messages(turn_messages, model, use_all_models_in_chat_history=True)
     assert len(messages) == 1
-    expected = (
-        textwrap.dedent(
-            """
+    expected = ALL_MODELS_IN_CHAT_HISTORY_PREAMBLE + textwrap.dedent(
+        """
         This was your response:
 
         Response from assistant 1.
@@ -83,9 +83,6 @@ def test_get_assistant_messages() -> None:
 
         (Your response was empty)
         """
-        )
-        .strip()
-        .replace("\n\n---\n\n", RESPONSE_SEPARATOR)
-    )
+    ).strip().replace("\n\n---\n\n", RESPONSE_SEPARATOR)
 
     assert messages[0].content == expected

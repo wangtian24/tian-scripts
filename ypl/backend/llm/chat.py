@@ -38,6 +38,7 @@ from ypl.backend.llm.provider.provider_clients import get_model_provider_tuple
 from ypl.backend.llm.routing.route_data_type import PreferredModel, RoutingPreference
 from ypl.backend.llm.utils import GlobalThreadPoolExecutor
 from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter, OpenAILangChainAdapter
+from ypl.backend.prompts import ALL_MODELS_IN_CHAT_HISTORY_PREAMBLE, RESPONSE_SEPARATOR
 from ypl.backend.utils.json import json_dumps
 from ypl.db.attachments import Attachment
 from ypl.db.chats import (
@@ -55,7 +56,7 @@ from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provi
 from ypl.db.redis import get_upstash_redis_client
 from ypl.utils import async_timed_cache, tiktoken_trim
 
-RESPONSE_SEPARATOR = " | "
+MAX_LOGGED_MESSAGE_LENGTH = 200
 DEFAULT_HIGH_SIM_THRESHOLD = 0.825
 DEFAULT_UNIQUENESS_THRESHOLD = 0.75
 OPENAI_FT_ID_PATTERN = re.compile(r"^ft:(?P<model>.+?):(?P<organization>.+?)::(?P<id>.+?)$")
@@ -892,7 +893,7 @@ def _get_assistant_messages(
     if not assistant_msgs:
         return messages
 
-    if use_all_models_in_chat_history:
+    if use_all_models_in_chat_history and len(assistant_msgs) > 1:
         all_content = []
         for msg in assistant_msgs:
             content = msg.content or ""
@@ -912,7 +913,8 @@ def _get_assistant_messages(
             if content:
                 all_content.append(content)
         if all_content:
-            messages.append(AIMessage(content=RESPONSE_SEPARATOR.join(all_content)))
+            content = ALL_MODELS_IN_CHAT_HISTORY_PREAMBLE + RESPONSE_SEPARATOR.join(all_content)
+            messages.append(AIMessage(content=content))
     else:
         # Try to find message with SELECTED status
         selected_msg = next(
@@ -946,7 +948,7 @@ async def get_curated_chat_context(
     chat_id: UUID,
     use_all_models_in_chat_history: bool,
     model: str,
-    current_turn_seq_num: int | None = None,
+    current_turn_id: UUID | None = None,
 ) -> list[BaseMessage]:
     """Fetch chat history and format it for OpenAI context.
 
@@ -954,19 +956,8 @@ async def get_curated_chat_context(
         chat_id: The chat ID to fetch history for.
         use_all_models_in_chat_history: Whether to include all models in the chat history.
         model: The model to fetch history for.
-        current_turn_seq_num: The sequence number of the current turn.
+        current_turn_id: The current turn ID.
     """
-    if not current_turn_seq_num:
-        return []
-    get_sequence_id_subquery = (
-        select(Turn.sequence_id)
-        .where(Turn.turn_id == ChatMessage.turn_id)
-        .order_by(Turn.sequence_id.asc())  # type: ignore
-        .limit(1)
-        .correlate(Turn)
-        .scalar_subquery()
-    )
-
     query = (
         select(ChatMessage)
         .join(Turn, Turn.turn_id == ChatMessage.turn_id)  # type: ignore[arg-type]
@@ -981,7 +972,7 @@ async def get_curated_chat_context(
             ChatMessage.deleted_at.is_(None),  # type: ignore[union-attr]
             Turn.deleted_at.is_(None),  # type: ignore[union-attr]
             Chat.deleted_at.is_(None),  # type: ignore[union-attr]
-            Turn.sequence_id < get_sequence_id_subquery,
+            Turn.turn_id != current_turn_id,
         )
         .order_by(
             Turn.sequence_id.asc(),  # type: ignore[attr-defined]
@@ -1004,6 +995,20 @@ async def get_curated_chat_context(
             formatted_messages.append(_get_enhanced_user_message(turn_messages))
             # Get assistant messages
             formatted_messages.extend(_get_assistant_messages(turn_messages, model, use_all_models_in_chat_history))
+
+    info = {
+        "message": "chat_context",
+        "chat_id": str(chat_id),
+        "model": model,
+    }
+    for i, fmsg in enumerate(formatted_messages):
+        info[f"message_{i}_content"] = (
+            str(fmsg.content[:MAX_LOGGED_MESSAGE_LENGTH]) + "..."
+            if len(fmsg.content) > MAX_LOGGED_MESSAGE_LENGTH
+            else str(fmsg.content)
+        )
+        info[f"message_{i}_type"] = type(fmsg).__name__
+    logging.info(json_dumps(info))
 
     return formatted_messages
 

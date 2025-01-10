@@ -787,6 +787,13 @@ You may refer to these past responses, but do not repeat them, and never include
 "A response from another assistant:" and the other ones above in your response.
 """
 
+HORIZONTAL_RULE = "---"
+RESPONSE_SEPARATOR = f"\n\n{HORIZONTAL_RULE}\n\n"
+
+ALL_MODELS_IN_CHAT_HISTORY_PREAMBLE = f"""
+Multiple assistants responded to the user's prompt.
+These responses are listed below and separated by "{HORIZONTAL_RULE}".
+"""
 
 MODEL_SPECIFIC_PROMPTS = {
     r"^claude-.*-haiku": CLAUDE_HAIKU_SYSTEM_PROMPT,
