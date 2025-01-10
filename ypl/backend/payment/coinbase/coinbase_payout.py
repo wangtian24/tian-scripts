@@ -95,13 +95,34 @@ class CoinbaseRetailPayout:
 
 def build_jwt(method: str, path: str, key_name: str, key_secret: str) -> str:
     """Build a JWT token for Coinbase API authentication."""
-    private_key_bytes = key_secret.encode("utf-8")
-    private_key = serialization.load_pem_private_key(private_key_bytes, password=None)
-    private_key_str = private_key.private_bytes(
+    # Handle both \n string literals and actual newlines
+    if "\\n" in key_secret:
+        # If the key contains string literal \n, evaluate them
+        key_secret = key_secret.encode("utf-8").decode("unicode_escape")
+
+    # Debug log to see the exact format
+    log_dict = {
+        "message": "Debug PEM key format",
+        "key_length": len(key_secret),
+        "key_start": key_secret[:50],  # Log just the start to avoid exposing the full key
+        "contains_literal_newlines": "\\n" in key_secret,
+        "contains_actual_newlines": "\n" in key_secret,
+    }
+    logging.info(json_dumps(log_dict))
+
+    # Ensure the key has proper line endings
+    key_lines = key_secret.strip().split("\n")
+    key_secret = "\n".join(key_lines) + "\n"  # Ensure there's exactly one newline at the end
+
+    # Load and validate the private key
+    private_key = serialization.load_pem_private_key(key_secret.encode("utf-8"), password=None)
+
+    # Convert back to PEM format for JWT signing
+    private_key_pem = private_key.private_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PrivateFormat.PKCS8,
         encryption_algorithm=serialization.NoEncryption(),
-    ).decode("utf-8")
+    )
 
     uri = f"{method} {REQUEST_HOST}{path}"
     jwt_payload = {
@@ -114,7 +135,7 @@ def build_jwt(method: str, path: str, key_name: str, key_secret: str) -> str:
 
     jwt_token = jwt.encode(
         jwt_payload,
-        private_key_str,
+        private_key_pem,
         algorithm="ES256",
         headers={"kid": key_name, "nonce": secrets.token_hex()},
     )
