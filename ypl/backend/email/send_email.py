@@ -49,8 +49,6 @@ async def send_email_async(campaign: str, to_address: str, params: dict[str, Any
     except KeyError as e:
         raise ValueError(f"Missing required parameter: {e}") from e
 
-    resend_api_key = settings.RESEND_API_KEY
-
     resend_params: resend.Emails.SendParams = {
         # TODO(minqi): Finalize sender and reply-to address
         "from": "Mouli <mouli@updates.yupp.ai>",
@@ -61,7 +59,8 @@ async def send_email_async(campaign: str, to_address: str, params: dict[str, Any
     }
     logging.info(f"Email composed: {json_dumps(resend_params)}")
 
-    if resend_api_key and settings.ENVIRONMENT == "production":
+    if settings.resend_api_key:
+        resend.api_key = settings.resend_api_key
         email = resend.Emails.send(resend_params)
         logging.info(f"Email sent: {json_dumps(email)}")
         return email
