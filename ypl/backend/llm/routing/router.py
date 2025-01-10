@@ -1402,7 +1402,7 @@ def get_prompt_conditional_router(
 
     endpoint = settings.PYTORCH_SERVE_GCP_URL
     key = settings.X_API_KEY
-    preference = routing_preference or RoutingPreference(turns=[])
+    preference = routing_preference or RoutingPreference(turns=[], user_id=None)
 
     reputable_proposer = RandomModelProposer(providers=set(settings.ROUTING_REPUTABLE_PROVIDERS))
     categorizer_proposer = RemotePromptCategorizerProposer(
@@ -1431,7 +1431,11 @@ def get_prompt_conditional_router(
             )
             | ProviderFilter(one_per_provider=True)
             | TopK(num_models)
-            | RoutingDecisionLogger(enabled=settings.ROUTING_DO_LOGGING, prefix="first-prompt-conditional-router")
+            | RoutingDecisionLogger(
+                enabled=settings.ROUTING_DO_LOGGING,
+                prefix="first-prompt-conditional-router",
+                metadata={"user_id": preference.user_id},
+            )
         )
     else:
         # This is the router for all turns after the first; construct it based on the preference
@@ -1480,6 +1484,7 @@ def get_prompt_conditional_router(
                 enabled=settings.ROUTING_DO_LOGGING,
                 prefix="nonfirst-prompt-conditional-router",
                 metadata={
+                    "user_id": preference.user_id,
                     "turns": [t.model_dump() for t in preference.turns],
                     "all_good_models": list(all_good_models),
                     "all_bad_models": list(all_bad_models),
@@ -1648,7 +1653,7 @@ async def get_simple_pro_router(
 ) -> RouterModule:
     from ypl.backend.llm.routing.rule_router import RoutingRuleFilter, RoutingRuleProposer
 
-    preference = routing_preference or RoutingPreference(turns=[])
+    preference = routing_preference or RoutingPreference(turns=[], user_id=None)
     reputable_proposer = RandomModelProposer(providers=reputable_providers or set(settings.ROUTING_REPUTABLE_PROVIDERS))
     online_labeler = get_online_labeler()
     topic_labeler = get_topic_labeler()
@@ -1695,6 +1700,7 @@ async def get_simple_pro_router(
                 enabled=settings.ROUTING_DO_LOGGING,
                 prefix="first-prompt-simple-pro-router",
                 metadata={
+                    "user_id": preference.user_id,
                     "categories": categories,
                 },
             )

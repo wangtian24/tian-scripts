@@ -155,3 +155,4 @@ class RoutingPreference(BaseModel):
             "An empty list indicates that there were no prior turns."
         )
     )
+    user_id: str | None = Field(description="The user ID of the user who is being routed.")
