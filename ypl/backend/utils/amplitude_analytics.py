@@ -264,9 +264,9 @@ async def post_data_from_cohorts(auth: str, start_date: datetime, end_date: date
                 user_ids = cohort_data.get("ids", [])
                 total_users = len(user_ids)
                 metrics[cohort_name] = total_users
-                message += f"\n*{cohort_info['description']}: {total_users}*\n"
-                user_names = await fetch_user_names(user_ids)
-                message += ", ".join(user_names.values())
+                message += f"\n\n*{cohort_info['description']}: {total_users}*\n\n"
+                user_names_dict = await fetch_user_names(user_ids)
+                message += ", ".join(sorted(user_names_dict.values(), key=lambda name: name.lower()))
             except (KeyError, RequestException) as e:
                 logging.error(f"Failed to process data for cohort {cohort_name}: {e}")
                 metrics[cohort_name] = 0

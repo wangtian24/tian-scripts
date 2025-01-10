@@ -2,7 +2,7 @@ name: Post Amplitude Metrics
 
 on:
   schedule:
-    - cron: '0 16 * * *'  # 8:00 AM PST (16:00 UTC)
+    - cron: '2 8 * * *'  # 12:02 AM PST (8:02 UTC)
   workflow_dispatch:
 
 jobs:
