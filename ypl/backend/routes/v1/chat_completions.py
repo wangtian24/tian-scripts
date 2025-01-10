@@ -141,7 +141,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
         final_status = {"status": "completed", "model": chat_request.model}
 
         existing_message = None
-        if not chat_request.is_new_chat and chat_request.load_existing:
+        if chat_request.load_existing:
             existing_message = await _get_message(chat_request)
 
         if existing_message:
@@ -428,7 +428,8 @@ async def _get_message(chat_request: ChatRequest) -> ChatMessage | None:
 
     async with AsyncSession(get_async_engine()) as session:
         result = await session.execute(query)
-        return result.scalar_one_or_none()
+        row = result.first()
+        return row[0] if row else None
 
 
 async def stop_stream_check(chat_id: uuid.UUID, turn_id: uuid.UUID, model: str) -> bool:

@@ -964,14 +964,13 @@ async def get_curated_chat_context(
             ChatMessage.deleted_at.is_(None),  # type: ignore[union-attr]
             Turn.deleted_at.is_(None),  # type: ignore[union-attr]
             Chat.deleted_at.is_(None),  # type: ignore[union-attr]
+            Turn.sequence_id < (select(Turn.sequence_id).where(Turn.turn_id == ChatMessage.turn_id).scalar_subquery()),
         )
         .order_by(
             Turn.sequence_id.asc(),  # type: ignore[attr-defined]
             ChatMessage.turn_sequence_number.asc(),  # type: ignore[union-attr]
         )
     )
-    if current_turn_seq_num:
-        query = query.where(Turn.sequence_id < current_turn_seq_num)
 
     formatted_messages: list[BaseMessage] = []
     async with AsyncSession(get_async_engine()) as session:
