@@ -1230,6 +1230,7 @@ class RoutingDecision:
         `additional_metadata` field in the log.
         """
         log_dict = {
+            "message": f"Model routing decision: {', '.join(self.chosen_model_names)}",
             "codebase_version": self.codebase_version,
             "prefix": self.prefix,
             "candidate_model_names": self.candidate_model_names,

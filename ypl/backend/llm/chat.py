@@ -1329,6 +1329,8 @@ async def generate_quicktake(
     end_time = time.time()
     log_dict = {
         "message": "Quicktake generated",
+        "chat_id": chat_id,
+        "turn_id": turn_id,
         "model": response_model,
         "duration_secs": str(end_time - start_time),
         "content_length": str(len(quicktake)),
@@ -1366,7 +1368,7 @@ async def check_for_stop_request(chat_uuid: UUID, turn_uuid: UUID, model_name: s
 
         for value in all_values:
             if value == model_name or value == "":
-                logging.info(f"found stop signal for mode:{model_name}, key:{str(value)}")
+                logging.info(f"Found stop signal for model: {model_name}, key: {str(key)}")
                 # Clear the KV store value since we've detected it
                 try:
                     await redis_client.delete(key)
