@@ -40,6 +40,7 @@ from ypl.backend.payment.payout_utils import (
 from ypl.backend.payment.payout_utils import (
     get_source_instrument_id as get_generic_source_instrument_id,
 )
+from ypl.backend.routes.v1.credit import convert_credits_to_currency
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import (
     CurrencyEnum,
@@ -118,6 +119,11 @@ class CoinbaseFacilitator(BaseFacilitator):
         start_time = time.time()
         try:
             try:
+                # coinbase requires a minimum of 1 USD
+                amount = await convert_credits_to_currency(credits_to_cashout, CurrencyEnum.USD)
+                if amount < 1:
+                    raise ValueError("Minimum amount of 1 USD is required")
+
                 credits_to_cashout += CASHOUT_TXN_COST
                 # Get the balance of the source instrument
                 source_instrument_balance = await self.get_balance(self.currency)
