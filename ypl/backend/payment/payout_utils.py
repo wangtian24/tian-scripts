@@ -404,6 +404,7 @@ async def handle_failed_transaction(
             "destination_instrument_id": str(destination_instrument_id),
             "destination_identifier": destination_identifier,
             "destination_identifier_type": destination_identifier_type,
+            "currency": currency,
         }
         logging.info(json_dumps(log_dict))
         asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
