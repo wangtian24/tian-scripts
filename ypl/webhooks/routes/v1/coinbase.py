@@ -196,7 +196,7 @@ async def potential_matching_pending_transactions(event_data: dict[str, Any]) ->
     event_type = event_data.get("eventType")
     if event_type not in ["erc20_transfer", "transaction"]:
         log_dict = {
-            "message": "Event type is not supported",
+            "message": "Coinbase Webhook: Event type is not supported",
             "event_type": event_type,
             "event_data": event_data,
         }
@@ -222,7 +222,7 @@ async def potential_matching_pending_transactions(event_data: dict[str, Any]) ->
 
     if not all(required_fields.values()):
         log_dict = {
-            "message": "Missing required fields in event data",
+            "message": "Coinbase Webhook: Missing required fields in event data",
             "event_type": event_type,
             **required_fields,
             "event_data": event_data,
@@ -247,7 +247,7 @@ async def potential_matching_pending_transactions(event_data: dict[str, Any]) ->
 
         if exact_match:
             log_dict = {
-                "message": "Found exact transaction hash match",
+                "message": "Coinbase Webhook: :white_check_mark: Coinbase webhook found exact transaction hash match",
                 "event_type": event_type,
                 "webhook_transaction_hash": transaction_hash,
                 "payment_transaction_id": str(exact_match.payment_transaction_id),
@@ -317,7 +317,7 @@ async def potential_matching_pending_transactions(event_data: dict[str, Any]) ->
             if address_match or value_match:
                 potential_matches_found = True
                 log_dict = {
-                    "message": "Found potential matching transaction",
+                    "message": "Coinbase Webhook: :warning: Coinbase webhook found potential matching transaction",
                     "event_type": event_type,
                     "webhook_transaction_hash": transaction_hash,
                     "payment_transaction_id": str(txn.payment_transaction_id),
@@ -335,7 +335,7 @@ async def potential_matching_pending_transactions(event_data: dict[str, Any]) ->
         # If no potential matches found, log warning and send critical alert
         if not potential_matches_found:
             log_dict = {
-                "message": ":x: NO MATCHING TRANSACTIONS FOUND :x:",
+                "message": "Coinbase Webhook: :x: NO MATCHING TRANSACTIONS FOUND :x:",
                 "event_type": event_type,
                 "webhook_transaction_hash": transaction_hash,
                 "webhook_address": destination_address,
