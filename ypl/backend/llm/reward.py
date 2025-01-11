@@ -908,6 +908,8 @@ async def referral_bonus_reward(
         "user_id": user_id,
         "action_type": action_type,
     }
+    with Session(get_engine()) as session:
+        params.update(_get_reward_points_summary(user_id, session))
 
     if action_type == RewardActionEnum.REFERRAL_BONUS_REFERRER:
         params["referrer_reward_count"] = await get_user_reward_count_by_action_type(

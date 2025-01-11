@@ -179,6 +179,18 @@ def mock_chat_model() -> Generator[Any, None, None]:
         yield mock
 
 
+def get_reward_points_summary(daily: int, weekly: int, monthly: int, last_award: int) -> dict[str, int]:
+    return {
+        "points_last_day": daily,
+        "points_last_week": weekly,
+        "points_last_month": monthly,
+        "points_last_award": last_award,
+        "referral_points_last_day": daily,
+        "referral_points_last_week": weekly,
+        "referral_points_last_month": monthly,
+    }
+
+
 @patch("ypl.backend.llm.reward.get_async_engine")
 @patch("ypl.backend.llm.reward.get_chat_model")
 @patch("ypl.backend.llm.reward.GeminiLangChainAdapter")
@@ -205,14 +217,6 @@ async def test_feedback_and_qt_eval_reward(
     mock_llm_instance = MockLLM()
     mock_get_chat_model.return_value = mock_llm_instance
     mock_gemini_adapter.return_value = mock_llm_instance
-
-    def get_reward_points_summary(daily: int, weekly: int, monthly: int, last_award: int) -> dict[str, int]:
-        return {
-            "points_last_day": daily,
-            "points_last_week": weekly,
-            "points_last_month": monthly,
-            "points_last_award": last_award,
-        }
 
     mock_get_reward_points_summary.side_effect = lambda user_id, session: get_reward_points_summary(100, 500, 2000, 10)
 
@@ -330,6 +334,7 @@ async def test_sign_up_reward_no_repeat(
     assert should_reward is False  # should only reward once
 
 
+@patch("ypl.backend.llm.reward._get_reward_points_summary")
 @patch("ypl.backend.llm.reward.get_async_engine")
 @patch("ypl.backend.llm.reward.get_user_reward_count_by_action_type")
 @patch("ypl.backend.llm.reward.Session")
@@ -341,6 +346,7 @@ async def test_referral_bonus_reward_referred_user(
     mock_session: Any,
     mock_get_user_reward_count_by_action_type: Any,
     mock_engine: Any,
+    mock_get_reward_points_summary: Any,
 ) -> None:
     # Mock PostgresDsn.build to return a valid URL string
     mock_postgres_dsn.return_value.unicode_string.return_value = "postgresql://test_user:test_pass@test_host/test_db"
@@ -351,6 +357,7 @@ async def test_referral_bonus_reward_referred_user(
     # Configure the mock engine to return a mock connection
     mock_engine_instance = AsyncMock()
     mock_engine.return_value = mock_engine_instance
+    mock_get_reward_points_summary.side_effect = lambda user_id, session: get_reward_points_summary(10, 50, 200, 10)
 
     for existing_claims in (0, 1, 2):
         # Configure the user reward count mock
@@ -374,6 +381,7 @@ async def test_referral_bonus_reward_referred_user(
             assert rule_prob.name == "new_user_bonus_already_claimed"
 
 
+@patch("ypl.backend.llm.reward._get_reward_points_summary")
 @patch("ypl.backend.llm.reward.get_async_engine")
 @patch("ypl.backend.llm.reward.get_user_reward_count_by_action_type")
 @patch("ypl.backend.llm.reward.Session")
@@ -385,6 +393,7 @@ async def test_referral_bonus_reward_referrer(
     mock_session: Any,
     mock_get_user_reward_count_by_action_type: Any,
     mock_engine: Any,
+    mock_get_reward_points_summary: Any,
 ) -> None:
     # Mock PostgresDsn.build to return a valid URL string
     mock_postgres_dsn.return_value.unicode_string.return_value = "postgresql://test_user:test_pass@test_host/test_db"
@@ -395,6 +404,7 @@ async def test_referral_bonus_reward_referrer(
     # Configure the mock engine to return a mock connection
     mock_engine_instance = AsyncMock()
     mock_engine.return_value = mock_engine_instance
+    mock_get_reward_points_summary.side_effect = lambda user_id, session: get_reward_points_summary(10, 50, 200, 10)
 
     for existing_claims in (0, 1, 2):
         # Configure the user reward count mock
@@ -410,9 +420,18 @@ async def test_referral_bonus_reward_referrer(
         assert reward_amount == 10000
         assert isinstance(comment, str)
         assert rule_amount is not None
-        assert rule_amount.name == "referring_a_friend_bonus"
+        assert rule_amount.name == "referring_a_friend_bonus_under_limit"
         assert rule_prob is not None
-        assert rule_prob.name == "referring_a_friend_bonus"
+        assert rule_prob.name == "referring_a_friend_bonus_under_limit"
+
+    n = 10000000
+    mock_get_reward_points_summary.side_effect = lambda user_id, session: get_reward_points_summary(n, n, n, 10)
+    result = await referral_bonus_reward(test_user_id, RewardActionEnum.REFERRAL_BONUS_REFERRER)
+    should_reward, reward_amount, comment, rule_amount, rule_prob = result
+    assert should_reward is False
+    assert rule_prob.name == "referring_a_friend_bonus_over_limit"  # type: ignore[union-attr]
+    assert rule_amount.name == "referring_a_friend_bonus_over_limit"  # type: ignore[union-attr]
+    assert reward_amount == 0
 
 
 @patch("ypl.backend.llm.reward.get_async_engine")

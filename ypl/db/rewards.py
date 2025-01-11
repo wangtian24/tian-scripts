@@ -205,6 +205,18 @@ class RewardVariables(BaseVariables):
         return self.context.get("points_last_month")
 
     @numeric_rule_variable
+    def referral_points_last_day(self) -> float | None:
+        return self.context.get("referral_points_last_day")
+
+    @numeric_rule_variable
+    def referral_points_last_week(self) -> float | None:
+        return self.context.get("referral_points_last_week")
+
+    @numeric_rule_variable
+    def referral_points_last_month(self) -> float | None:
+        return self.context.get("referral_points_last_month")
+
+    @numeric_rule_variable
     def sign_up_reward_count(self) -> int | None:
         return self.context.get("sign_up_reward_count")
 

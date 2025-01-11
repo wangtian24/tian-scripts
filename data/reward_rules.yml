@@ -2,6 +2,9 @@ constants: &constants
   daily_points_limit: &daily_points_limit 25000
   weekly_points_limit: &weekly_points_limit 50000
   monthly_points_limit: &monthly_points_limit 100000
+  daily_referral_points_limit: &daily_referral_points_limit 100000
+  weekly_referral_points_limit: &weekly_referral_points_limit 200000
+  monthly_referral_points_limit: &monthly_referral_points_limit 500000
   zero_turn_based_reward_probability: &zero_turn_based_reward_probability 0.25
 
 amount_rules:
@@ -178,19 +181,42 @@ amount_rules:
     max_value: 1000
     mean_value: 1000
 
-  - name: referring_a_friend_bonus
+  - name: referring_a_friend_bonus_under_limit
+    priority: 1
+    is_active: true
+    is_default: false
+    action_type: REFERRAL_BONUS_REFERRER
+    conditions:
+      all:
+        - name: referral_points_last_day
+          operator: less_than
+          value: *daily_referral_points_limit
+        - name: referral_points_last_week
+          operator: less_than
+          value: *weekly_referral_points_limit
+        - name: referral_points_last_month
+          operator: less_than
+          value: *monthly_referral_points_limit
+        - name: referrer_reward_count
+          operator: greater_than_or_equal_to
+          value: 0
+    min_value: 10000
+    max_value: 10000
+    mean_value: 10000
+
+  - name: referring_a_friend_bonus_over_limit
     priority: 0
     is_active: true
     is_default: true
     action_type: REFERRAL_BONUS_REFERRER
     conditions:
       all:
-        - name: referrer_reward_count        
+        - name: referrer_reward_count
           operator: greater_than_or_equal_to
           value: 0
-    min_value: 10000
-    max_value: 10000
-    mean_value: 10000
+    min_value: 0
+    max_value: 0
+    mean_value: 0
 
 probability_rules:
   - name: under_point_limits_feedback_reward
@@ -532,15 +558,35 @@ probability_rules:
           value: 0
     probability: 0.0
 
-  - name: referring_a_friend_bonus
+  - name: referring_a_friend_bonus_under_limit
+    priority: 1
+    is_active: true
+    is_default: false
+    action_type: REFERRAL_BONUS_REFERRER
+    conditions:
+      all:
+        - name: referral_points_last_day
+          operator: less_than
+          value: *daily_referral_points_limit
+        - name: referral_points_last_week
+          operator: less_than
+          value: *weekly_referral_points_limit
+        - name: referral_points_last_month
+          operator: less_than
+          value: *monthly_referral_points_limit
+        - name: referrer_reward_count
+          operator: greater_than_or_equal_to
+          value: 0
+    probability: 1.0
+
+  - name: referring_a_friend_bonus_over_limit
     priority: 0
     is_active: true
     is_default: true
     action_type: REFERRAL_BONUS_REFERRER
     conditions:
       all:
-        # TODO: add a rule to cap weekly earns
-        - name: referrer_reward_count        
+        - name: referrer_reward_count
           operator: greater_than_or_equal_to
           value: 0
-    probability: 1.0
+    probability: 0.0
