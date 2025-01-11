@@ -10,6 +10,7 @@ from decimal import Decimal
 from hashlib import sha256
 from typing import Any
 
+import ypl.db.all_models  # noqa: F401
 from fastapi import APIRouter, Header, Request
 from sqlalchemy.orm import selectinload
 from sqlmodel import select
