@@ -18,7 +18,7 @@ RUN poetry install --no-root --no-dev --no-cache && \
 COPY . .
 RUN chmod +x /app/ypl/webhooks/entrypoint.sh
 
-ENV PORT=8081
-EXPOSE 8081
+ENV PORT=8080
+EXPOSE 8080
 
 ENTRYPOINT ["/app/ypl/webhooks/entrypoint.sh"] 

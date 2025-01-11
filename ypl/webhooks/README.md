@@ -123,7 +123,7 @@ The webhook service is deployed using GitHub Actions to Google Cloud Run. The de
    - Manages secrets through GitHub Actions secrets
 
 3. **Service Configuration**:
-   - Runs on port 8081 using uvicorn server
+   - Runs on port 8080 using uvicorn server
    - Includes automatic health checks
    - Supports both manual triggers and automated deployments
 
