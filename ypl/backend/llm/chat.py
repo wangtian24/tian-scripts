@@ -1113,8 +1113,19 @@ async def get_active_prompt_modifiers() -> list[PromptModifier]:
         return result.scalars().all()  # type: ignore
 
 
+# Models to use if no specific model was requested.
+MODELS_FOR_DEFAULT_QT = ["gpt-4o", "gpt-4o-mini", "gemini-2.0-flash-exp"]
+# Model to use while supplying only the prompts from the chat history, instead of the full chat history.
+MODEL_FOR_PROMPT_ONLY = "gpt-4o"
+MODEL_FOR_PROMPT_ONLY_FULL_NAME = MODEL_FOR_PROMPT_ONLY + ":prompt-only"
+# Fine-tuned model to use that minimizes truncations and formatting in responses
+# More details at https://platform.openai.com/finetune/ftjob-VupgrOxNp0ApGhGKDgspdGjb
+MODEL_FOR_FINETUNE_QT = "gpt-4o"
+MODEL_FOR_FINETUNE_QT_FULL_NAME = "ft:gpt-4o-2024-08-06:yupp::AgJJZBsG"
+
 GPT_4O_MINI_LLM = None
 GPT_4O_LLM = None
+FINE_TUNED_GPT_4O_LLM = None
 GEMINI_15_FLASH_LLM = None
 GEMINI_2_FLASH_LLM = None
 
@@ -1151,6 +1162,23 @@ def get_gpt_4o_llm() -> OpenAILangChainAdapter:
             ),
         )
     return GPT_4O_LLM
+
+
+def get_fine_tuned_gpt_4o_llm() -> OpenAILangChainAdapter:
+    global FINE_TUNED_GPT_4O_LLM
+    if FINE_TUNED_GPT_4O_LLM is None:
+        FINE_TUNED_GPT_4O_LLM = OpenAILangChainAdapter(
+            model_info=ModelInfo(
+                provider=ChatProvider.OPENAI,
+                model=MODEL_FOR_FINETUNE_QT_FULL_NAME,
+                api_key=settings.OPENAI_API_KEY,
+            ),
+            model_config_=dict(
+                temperature=0.0,
+                max_tokens=40,
+            ),
+        )
+    return FINE_TUNED_GPT_4O_LLM
 
 
 def get_gemini_15_flash_llm() -> GeminiLangChainAdapter:
@@ -1208,17 +1236,11 @@ def get_qt_llms() -> Mapping[str, BaseChatModel]:
         QT_LLMS = {
             "gpt-4o": get_gpt_4o_llm(),
             "gpt-4o-mini": get_gpt_4o_mini_llm(),
+            MODEL_FOR_FINETUNE_QT_FULL_NAME: get_fine_tuned_gpt_4o_llm(),
             "gemini-1.5-flash-002": get_gemini_15_flash_llm(),
             "gemini-2.0-flash-exp": get_gemini_2_flash_llm(),
         }
     return QT_LLMS
-
-
-# Models to use if no specific model was requested.
-MODELS_FOR_DEFAULT_QT = ["gpt-4o", "gpt-4o-mini", "gemini-2.0-flash-exp"]
-# Model to use while supplying only the prompts from the chat history, instead of the full chat history.
-MODEL_FOR_PROMPT_ONLY = "gpt-4o"
-MODEL_FOR_PROMPT_ONLY_FULL_NAME = MODEL_FOR_PROMPT_ONLY + ":prompt-only"
 
 
 class QuickTakeResponse(BaseModel):
@@ -1292,6 +1314,10 @@ async def generate_quicktake(
             labelers[MODEL_FOR_PROMPT_ONLY_FULL_NAME] = get_quicktake_generator(
                 MODEL_FOR_PROMPT_ONLY, chat_history, prompt_only=True, timeout_secs=timeout_secs
             )
+            # Add a fine-tuned model that minimizes truncations and formatting in responses.
+            labelers[MODEL_FOR_FINETUNE_QT_FULL_NAME] = get_quicktake_generator(
+                MODEL_FOR_FINETUNE_QT_FULL_NAME, chat_history, timeout_secs=timeout_secs
+            )
             multi_generator = MultiLLMLabeler(
                 labelers=labelers,
                 timeout_secs=timeout_secs,
@@ -1339,9 +1365,11 @@ async def generate_quicktake(
         "content_length": str(len(quicktake)),
     }
     logging.info(json_dumps(log_dict))
-    # The client is not aware of this private model, so return its base name; keep the full name in the log above.
+    # The client is not aware of these private models, so return its base name; keep the full name in the log above.
     if response_model == MODEL_FOR_PROMPT_ONLY_FULL_NAME:
         response_model = MODEL_FOR_PROMPT_ONLY
+    if response_model == MODEL_FOR_FINETUNE_QT_FULL_NAME:
+        response_model = MODEL_FOR_FINETUNE_QT
     return QuickTakeResponse(quicktake=quicktake, model=response_model)
 
 
