@@ -82,6 +82,7 @@ from ypl.db.message_annotations import (
     get_turns_to_evaluate,
     update_message_annotations_in_chunks,
 )
+from ypl.db.oneoffs.reset_points import reset_points
 from ypl.db.rewards import RewardAmountRule, RewardProbabilityRule, RewardRule
 
 logging.getLogger().setLevel(logging.INFO)
@@ -1353,6 +1354,14 @@ def validate_pending_cashouts() -> None:
 def generate_invite_codes_for_yuppster() -> None:
     """Generate invite codes for all users with emails ending in specified domain."""
     asyncio.run(generate_invite_codes_for_yuppster_async())
+
+
+@cli.command()
+@click.option("--init-value", default=10000, help="Initial value to reset points to")
+@db_cmd
+def reset_yuppster_points(init_value: int) -> None:
+    """Reset points for Yupp employees to the specified initial value."""
+    reset_points(init_value=init_value)
 
 
 if __name__ == "__main__":

@@ -1,14 +1,18 @@
+import logging
+
 from sqlalchemy import select
 from sqlmodel import Session
 
 from ypl.backend.db import get_engine
+from ypl.backend.utils.json import json_dumps
 from ypl.db.point_transactions import PointsActionEnum, PointTransaction
 from ypl.db.users import User
 
 
-def reset_points(init_value: int = 100):
+def reset_points(init_value: int = 10000) -> None:
     with Session(get_engine()) as session:
-        yuppsters = session.exec(select(User).where(User.email.like("%@yupp.ai"))).scalars().all()
+        stmt = select(User).where(User.email.like("%@yupp.ai"))  # type: ignore[attr-defined]
+        yuppsters = session.exec(stmt).scalars().all()  # type: ignore[call-overload]
 
         for user in yuppsters:
             if user.points <= init_value:
@@ -25,6 +29,14 @@ def reset_points(init_value: int = 100):
                 action_details={"adjustment_reason": reason},
             )
             session.add(adjustment)
-            print(f"{user.email:>20}:\t{reason}")
+            log_dict = {
+                "message": "Weekly reset of points for Yuppster",
+                "user_id": user.user_id,
+                "user_email": user.email,
+                "point_delta": point_delta,
+                "action_type": PointsActionEnum.ADJUSTMENT,
+                "action_details": {"adjustment_reason": reason},
+            }
+            logging.info(json_dumps(log_dict))
 
         session.commit()

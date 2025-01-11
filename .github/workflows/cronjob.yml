@@ -29,6 +29,7 @@ on:
           - judge-refusals
           - post-amplitude-metrics
           - process-crypto-rewards
+          - reset-yuppster-points
           - store-prompt-language
           - update-ranking
           - update-ranking-all-categories

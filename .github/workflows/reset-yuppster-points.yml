@@ -1,0 +1,15 @@
+name: Reset Yuppster Points
+
+on:
+  schedule:
+    # Runs at 8 AM PT (15:00 UTC) every Monday
+    - cron: '0 15 * * 1'
+  workflow_dispatch:  # Allows manual triggering
+
+jobs:
+  reset-points:
+    uses: ./.github/workflows/cronjob.yml
+    with:
+      command: reset-yuppster-points
+      environment: production
+    secrets: inherit 
