@@ -119,6 +119,8 @@ class Settings(BaseSettings):
     CRYPTO_EXCHANGE_PRICE_API_URL_COINBASE: str = os.getenv("CRYPTO_EXCHANGE_PRICE_API_URL_COINBASE", "")
     CRYPTO_EXCHANGE_PRICE_API_URL_COINGECKO: str = os.getenv("CRYPTO_EXCHANGE_PRICE_API_URL_COINGECKO", "")
 
+    SLACK_WEBHOOK_CASHOUT: str = os.getenv("SLACK_WEBHOOK_CASHOUT", "")
+
     DEFAULT_QT_TIMEOUT_SECS: float = 1.5
 
     # The base URL of the yupp-head app, set to staging by default.

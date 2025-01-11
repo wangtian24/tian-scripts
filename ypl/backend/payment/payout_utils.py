@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import os
 import uuid
 from copy import deepcopy
 from datetime import datetime, timedelta
@@ -18,6 +17,7 @@ from tenacity import (
     wait_fixed,
 )
 from tenacity.asyncio import AsyncRetrying
+from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
 from ypl.backend.llm.utils import post_to_slack, post_to_slack_with_user_name
 from ypl.backend.payment.base_types import PaymentInstrumentNotFoundError
@@ -46,7 +46,7 @@ RETRY_ATTEMPTS = 3
 RETRY_WAIT_MULTIPLIER = 1
 RETRY_WAIT_MIN = 4
 RETRY_WAIT_MAX = 15
-SLACK_WEBHOOK_CASHOUT = os.environ.get("SLACK_WEBHOOK_CASHOUT")
+SLACK_WEBHOOK_CASHOUT = settings.SLACK_WEBHOOK_CASHOUT
 CASHOUT_TXN_COST = 0
 
 

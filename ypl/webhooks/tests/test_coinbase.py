@@ -14,6 +14,7 @@ def valid_payload() -> dict[str, Any]:
     return {
         "type": "charge:created",
         "id": "123",
+        "webhook_id": "test-webhook-id",
         "data": {"code": "ABC123", "name": "Test Charge", "amount": "100.00", "currency": "USD"},
     }
 
