@@ -1680,7 +1680,7 @@ async def get_simple_pro_router(
         set(deduce_original_providers(tuple(show_me_more_models)).values()) if show_me_more_models else set()
     )
 
-    def get_postprocessing_stage(exclude_models: set[str] | None = None) -> RouterModule:
+    def get_postprocessing_stage(exclude_models: set[str] | None = None, prefix: str = "first") -> RouterModule:
         """
         Common post-processing stages that's shared in first-turn and non-first-turn routers
         """
@@ -1699,7 +1699,7 @@ async def get_simple_pro_router(
             # -- logging stage --
             | RoutingDecisionLogger(
                 enabled=settings.ROUTING_DO_LOGGING,
-                prefix="first-prompt-simple-pro-router",
+                prefix=f"{prefix}-prompt-simple-pro-router",
                 metadata={
                     "user_id": preference.user_id,
                     "categories": categories,
@@ -1729,7 +1729,7 @@ async def get_simple_pro_router(
             )
             | error_filter  # removes models with high error rate
             # -- post processing stage --
-            | get_postprocessing_stage(exclude_models=None)
+            | get_postprocessing_stage(exclude_models=None, prefix="first")
         )
     else:
         # --- Non-First Turn Router ---
@@ -1768,7 +1768,7 @@ async def get_simple_pro_router(
             )
             | error_filter  # removes models with high error rate
             # -- post processing stage --
-            | get_postprocessing_stage(exclude_models=all_bad_models)
+            | get_postprocessing_stage(exclude_models=all_bad_models, prefix="nonfirst")
         )
 
     return router
