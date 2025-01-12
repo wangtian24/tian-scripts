@@ -72,18 +72,22 @@ def validate_payload(payload: bytes, webhook_id: str, x_coinbase_signature: str)
         webhook_id: The webhook ID from the payload
         x_coinbase_signature: The X-Coinbase-Signature header value
     """
-    if settings.ENVIRONMENT != "production":
+    if settings.ENVIRONMENT == "local":
         return
 
     try:
-        # Concatenate webhookId and payload as bytes
-        message = webhook_id.encode() + payload
+        # Use webhook_id as the secret key
+        webhook_secret = webhook_id.encode()
 
-        # Generate hash of the concatenated message
-        calculated_signature = sha256(message).hexdigest()
+        # Use the raw payload as the message
+        message = payload
+
+        # Generate HMAC-SHA256 hash using webhook_id as key and payload as message
+        calculated_signature = hmac.new(webhook_secret, message, sha256).hexdigest()
+
         if not hmac.compare_digest(calculated_signature, x_coinbase_signature):
             log_dict = {
-                "message": "Invalid Coinbase webhook signature",
+                "message": "Coinbase Webhook: Invalid Coinbase webhook signature",
                 "webhook_id": webhook_id,
                 "x_coinbase_signature": x_coinbase_signature,
                 "calculated_signature": calculated_signature,
@@ -93,7 +97,7 @@ def validate_payload(payload: bytes, webhook_id: str, x_coinbase_signature: str)
 
     except Exception as err:
         log_dict = {
-            "message": "Error validating Coinbase webhook payload",
+            "message": "Coinbase Webhook: Error validating Coinbase webhook payload",
             "error": str(err),
             "webhook_id": webhook_id,
         }
@@ -131,44 +135,62 @@ async def handle_coinbase_webhook(
     Returns:
         Dict[str, Any]: Response indicating success
     """
-    # Do not raise an error for anything otherwise coinbase will try again and after multiple
-    # attempts will disable the webhook
-    validate_signature(token, x_coinbase_signature)
-
+    # Return success immediately to prevent Coinbase from retrying
+    # Create background task to handle all processing
     try:
         payload = await request.body()
-        event_data = json.loads(payload)
-    except json.JSONDecodeError as err:
+        asyncio.create_task(process_coinbase_webhook(token, payload, x_coinbase_signature))
+    except Exception as err:
+        # Log error but still return success to prevent retries
         log_dict = {
-            "message": "Invalid JSON payload",
+            "message": "Coinbase Webhook: Error reading payload",
             "error": str(err),
         }
         logging.warning(json_dumps(log_dict))
-        return {"status": "success"}
+
+    return {"status": "success"}
+
+
+async def process_coinbase_webhook(token: str, payload: bytes, x_coinbase_signature: str | None) -> None:
+    """Process the Coinbase webhook asynchronously.
+
+    Args:
+        token: The webhook token from the URL
+        payload: The raw request body
+        x_coinbase_signature: The X-Coinbase-Signature header for webhook verification
+    """
+    validate_signature(token, x_coinbase_signature)
+
+    try:
+        event_data = json.loads(payload)
+    except json.JSONDecodeError as err:
+        log_dict = {
+            "message": "Coinbase Webhook: Invalid JSON payload",
+            "error": str(err),
+        }
+        logging.warning(json_dumps(log_dict))
+        return
 
     webhook_id = event_data.get("webhookId")
     if not webhook_id:
         log_dict = {
-            "message": "Missing webhookId",
+            "message": "Coinbase Webhook: Missing webhookId",
             "event_data": event_data,
         }
         logging.warning(json_dumps(log_dict))
-        return {"status": "success"}
+        return
 
     validate_payload(payload, webhook_id, x_coinbase_signature or "")
     await validate_token(token)
 
-    # Only log success and create tasks if we get past all validations
     log_dict = {
-        "message": "Coinbase webhook validated",
+        "message": "Coinbase Webhook: Validated",
         "token": token,
         "event_data": event_data,
     }
     logging.info(json_dumps(log_dict))
 
-    asyncio.create_task(potential_matching_pending_transactions(event_data))
-
-    return {"status": "success"}
+    await potential_matching_pending_transactions(event_data)
 
 
 async def potential_matching_pending_transactions(event_data: dict[str, Any]) -> None:
@@ -201,7 +223,6 @@ async def potential_matching_pending_transactions(event_data: dict[str, Any]) ->
             "event_data": event_data,
         }
         logging.warning(json_dumps(log_dict))
-        asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
         return
 
     # Common fields for both event types
@@ -228,7 +249,6 @@ async def potential_matching_pending_transactions(event_data: dict[str, Any]) ->
             "event_data": event_data,
         }
         logging.warning(json_dumps(log_dict))
-        asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
         return
 
     # Type assertions after validation
@@ -247,14 +267,22 @@ async def potential_matching_pending_transactions(event_data: dict[str, Any]) ->
 
         if exact_match:
             log_dict = {
-                "message": "Coinbase Webhook: :white_check_mark: Coinbase webhook found exact transaction hash match",
+                "message": "Coinbase Webhook: Coinbase webhook found exact transaction hash match",
                 "event_type": event_type,
                 "webhook_transaction_hash": transaction_hash,
                 "payment_transaction_id": str(exact_match.payment_transaction_id),
                 "transaction_status": str(exact_match.status),
             }
             logging.info(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+            # log to slack if the transaction is pending
+            log_dict[
+                "message"
+            ] = "Coinbase Webhook: :warning: Coinbase webhook found exact transaction hash match :warning:"
+            if (
+                exact_match.status == PaymentTransactionStatusEnum.PENDING
+                or exact_match.status == PaymentTransactionStatusEnum.NOT_STARTED
+            ):
+                asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
             return
 
         # If no exact match, look for potential matches based on status, address, and value

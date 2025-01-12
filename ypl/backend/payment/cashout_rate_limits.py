@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from datetime import datetime, timedelta
@@ -12,6 +13,7 @@ from sqlalchemy.sql.expression import true
 from sqlalchemy.sql.functions import Function
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
+from ypl.backend.llm.utils import post_to_slack_with_user_name
 from ypl.backend.utils.json import json_dumps
 from ypl.db.point_transactions import PointsActionEnum, PointTransaction
 
@@ -24,6 +26,8 @@ MAX_FIRST_TIME_CASHOUT_CREDITS = 5000
 # Global constants loaded from reward_rules.yml
 RULE_CONSTANTS: dict[str, Any] = {}
 RULES_PATH = "data/reward_rules.yml"
+
+SLACK_WEBHOOK_CASHOUT = settings.SLACK_WEBHOOK_CASHOUT
 
 
 def _load_rules_constants() -> None:
@@ -108,6 +112,7 @@ class CashoutLimitError(HTTPException):
             "period": period,
         }
         logging.warning(json_dumps(log_dict))
+        asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
 
 
 def build_time_window_stats(
