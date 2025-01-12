@@ -106,9 +106,9 @@ The webhook service is deployed using GitHub Actions to Google Cloud Run. The de
 ### Deployment Configuration
 
 - **Environments**: Supports both staging and production environments
-- **Service Name**: Deployed as `webhooks-service`
-- **Container Registry**: Images are stored in Google Container Registry (GCR)
-- **Memory/CPU**: Configured with 24Gi memory and 6 CPU cores
+- **Service Name**: Deployed as `webhooks-service-{environment}`
+- **Container Registry**: Images are stored in Google Container Registry (GCR) as `gcr.io/yupp-llms/webhooks-service-{environment}:v1`
+- **Memory/CPU**: Configured with 1Gi memory and 1 CPU core
 - **Database**: Uses Cloud SQL for PostgreSQL database connectivity
 
 ### Deployment Process
@@ -131,11 +131,10 @@ The webhook service is deployed using GitHub Actions to Google Cloud Run. The de
 
 To manually trigger a deployment:
 1. Go to GitHub Actions
-2. Select "Build and Deploy" workflow
+2. Select "Deploy Webhooks Service" workflow
 3. Choose "Run workflow"
 4. Configure the following parameters:
    - Environment: `staging` or `production`
-   - Image: `webhooks-service`
    - Region: `us-east4` or `us-central1`
 
-The service automatically handles database migrations and configuration updates during deployment. 
+The service uses its own dedicated deployment workflow separate from the main backend service.
