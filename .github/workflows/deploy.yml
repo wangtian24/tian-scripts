@@ -294,6 +294,13 @@ jobs:
             --command="/app/ypl/backend/entrypoint.sh"
         fi
 
+    - name: Update traffic to latest version
+      run: |
+        gcloud run services update-traffic ${{ env.SERVICE_NAME }} \
+          --to-latest \
+          --region ${{ env.REGION }} \
+          --platform managed
+
     - name: Setup Python
       uses: actions/setup-python@v5
       with:
