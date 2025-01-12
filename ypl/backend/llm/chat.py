@@ -97,6 +97,8 @@ def get_canonical_model_name(model: str, provider: ChatProvider) -> str:
 
 @lru_cache(maxsize=1024)
 def standardize_provider_name(provider: str) -> str:
+    if provider == "GoogleGrounded":
+        return "google"
     return re.sub(r"\s+", "", provider).lower()
 
 

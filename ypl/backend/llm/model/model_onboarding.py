@@ -424,7 +424,10 @@ def verify_inference_running(model: LanguageModel, provider_name: str, base_url:
     try:
         api_key = get_provider_api_key(provider_name)
         cleaned_provider_name = standardize_provider_name(provider_name)
-        client = get_provider_client(cleaned_provider_name, api_key, model.internal_name, base_url)
+        internal_name = model.internal_name
+        if internal_name.endswith("-online") and internal_name.startswith("gemini-"):
+            internal_name = internal_name.replace("-online", "")
+        client = get_provider_client(cleaned_provider_name, api_key, internal_name, base_url)
 
         is_inference_running = check_inference_with_retries(
             client=client,
