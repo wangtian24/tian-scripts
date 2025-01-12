@@ -63,7 +63,7 @@ class CashoutCreditsRequest:
 async def convert_credits_to_currency(credits: int, currency: CurrencyEnum) -> Decimal:
     # TODO: Put them in a config somewhere.
     CREDITS_TO_INR_RATE = Decimal("0.05")
-    CREDITS_TO_USD_RATE = Decimal("0.0012")
+    CREDITS_TO_USD_RATE = Decimal("0.001")
 
     credits_decimal: Decimal = Decimal(credits)
 
