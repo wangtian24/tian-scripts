@@ -135,6 +135,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
             existing_message = await _get_message(chat_request)
 
         if existing_message:
+            asyncio.create_task(update_modifier_status(chat_request))
             log_dict = {
                 "message": "Existing message found",
                 "chat_id": str(chat_request.chat_id),
@@ -143,6 +144,8 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                 "content_length": str(len(existing_message.content)),
                 "model": chat_request.model,
             }
+            if chat_request.prompt_modifier_ids:
+                log_dict["prompt_modifier_ids"] = ",".join(str(id) for id in chat_request.prompt_modifier_ids)
             logging.info(json_dumps(log_dict))
             # Send initial status.
             yield StreamResponse(
@@ -163,7 +166,6 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                 },
                 "status",
             ).encode()
-            await update_modifier_status(chat_request)
             return
 
         # Create task to eagerly persist user message
@@ -181,8 +183,11 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                 turn_seq_num=chat_request.turn_seq_num,
                 assistant_selection_source=chat_request.assistant_selection_source,
                 prompt_modifier_ids=chat_request.prompt_modifier_ids,
+                modifier_status=MessageModifierStatus.SELECTED,
             )
         )
+        # Mark other messages from the same model in the same turn as HIDDEN.
+        asyncio.create_task(update_modifier_status(chat_request))
 
         # Send initial status
         yield StreamResponse(intial_status, "status").encode()
@@ -358,6 +363,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                 streaming_metrics=modelResponseTelemetry.model_dump(),
                 message_metadata=message_metadata,
                 completion_status=stream_completion_status,
+                modifier_status=MessageModifierStatus.SELECTED,
             )
             if chat_request.attachment_ids and chat_request.user_message_id:
                 await link_attachments(chat_request.user_message_id, chat_request.attachment_ids)
@@ -366,7 +372,6 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                 {"status": "message_persisted", "timestamp": datetime.now().isoformat(), "model": chat_request.model},
                 "status",
             ).encode()
-            await update_modifier_status(chat_request)
         except Exception as e:
             logging.error(
                 f"Persistence error : chat_id {chat_request.chat_id}, message_id {chat_request.message_id}: {str(e)}\n"

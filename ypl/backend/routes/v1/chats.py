@@ -478,9 +478,9 @@ async def get_turn_annotations(
                 details_dict = json.loads(details)
                 response.comment = details_dict.get("comment")
                 if "positive_notes" in details_dict:
-                    response.positive_notes = [n.rsplit(maxsplit=1) for n in details_dict["positive_notes"]]
+                    response.positive_notes = [tuple(n.rsplit(maxsplit=1)) for n in details_dict["positive_notes"]]
                 if "negative_notes" in details_dict:
-                    response.negative_notes = [n.rsplit(maxsplit=1) for n in details_dict["negative_notes"]]
+                    response.negative_notes = [tuple(n.rsplit(maxsplit=1)) for n in details_dict["negative_notes"]]
     except Exception as e:
         log_dict = {"message": f"Error getting annotations for turn {turn_id}: {str(e)}"}
         logging.exception(json_dumps(log_dict))

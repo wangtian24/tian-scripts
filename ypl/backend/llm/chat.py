@@ -46,6 +46,7 @@ from ypl.db.chats import (
     Chat,
     ChatMessage,
     CompletionStatus,
+    MessageModifierStatus,
     MessageType,
     MessageUIStatus,
     PromptModifier,
@@ -1035,6 +1036,7 @@ async def upsert_chat_message(
     streaming_metrics: dict[str, str] | None = None,
     message_metadata: dict[str, str] | None = None,
     completion_status: CompletionStatus | None = None,
+    modifier_status: MessageModifierStatus | None = None,
 ) -> None:
     """
     We have split the columns into two parts.
@@ -1067,6 +1069,7 @@ async def upsert_chat_message(
                 "assistant_selection_source": assistant_selection_source,
                 "message_metadata": message_metadata,
                 "completion_status": completion_status,
+                "modifier_status": modifier_status,
             }
 
             # Perform upsert using ON CONFLICT for ChatMessage
@@ -1084,6 +1087,7 @@ async def upsert_chat_message(
                         "message_metadata": stmt.excluded.message_metadata,
                         "completion_status": stmt.excluded.completion_status,
                         "modified_at": func.current_timestamp(),
+                        "modifier_status": stmt.excluded.modifier_status,
                     },
                 )
             await session.exec(stmt)  # type: ignore[call-overload]
