@@ -9,7 +9,7 @@ from ypl.db.point_transactions import PointsActionEnum, PointTransaction
 from ypl.db.users import User
 
 
-def reset_points(init_value: int = 10000) -> None:
+def reset_points(init_value: int = 1500) -> None:
     with Session(get_engine()) as session:
         stmt = select(User).where(User.email.like("%@yupp.ai"))  # type: ignore[attr-defined]
         yuppsters = session.exec(stmt).scalars().all()  # type: ignore[call-overload]
