@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import random
+import time
 from contextvars import ContextVar
 from typing import Any, Generic, Literal, TypeVar
 
@@ -130,18 +131,31 @@ class LLMLabeler(Generic[InputType, OutputType]):
             return input[:200] + "... (truncated)"
         return input
 
-    def _log_error(self, input: InputType, prepared_input: dict[str, Any], e: Exception) -> None:
+    def _get_log_info(self, input: InputType, start_time: float) -> dict[str, Any]:
         info = {
-            "message": "Error labeling input",
             "labeler": self.__class__.__name__,
-            "error": str(e),
+            "elapsed_secs": time.time() - start_time,
         }
         if isinstance(input, str):
             info["input"] = self._maybe_truncate(input)
+        return info
+
+    def _log_error(self, input: InputType, prepared_input: dict[str, Any], e: Exception, start_time: float) -> None:
+        info = self._get_log_info(input, start_time) | {
+            "message": "Error labeling input",
+            "error": str(e),
+        }
         for k, v in prepared_input.items():
             info[f"prepared_input_{k}"] = self._maybe_truncate(v)
 
         logging.warning(json_dumps(info))
+
+    def _log_success(self, input: InputType, output: BaseMessage, start_time: float) -> None:
+        info = self._get_log_info(input, start_time) | {
+            "message": "Labeled input",
+            "output": str(output.content),
+        }
+        logging.info(json_dumps(info))
 
     def __init__(
         self, llm: BaseChatModel, timeout_secs: float = 5.0, on_error: OnErrorBehavior = "use_error_value"
@@ -186,12 +200,13 @@ class LLMLabeler(Generic[InputType, OutputType]):
     def label_full(self, input: InputType) -> tuple[OutputType, str]:
         """Labels the input."""
         try:
+            start_time = time.time()
             prepared_input = self._prepare_input(input)
             output = self.llm.invoke(prepared_input)  # type: ignore
-
+            self._log_success(input, output, start_time)
             return self._parse_output(output), self._clean_output(output)
         except Exception as e:
-            self._log_error(input, prepared_input, e)
+            self._log_error(input, prepared_input, e, start_time)
             if self.on_error == "raise":
                 raise e
             else:
@@ -208,12 +223,14 @@ class LLMLabeler(Generic[InputType, OutputType]):
     async def alabel_full(self, input: InputType) -> tuple[OutputType, str]:
         """Labels the input asynchronously."""
         try:
+            start_time = time.time()
             async with asyncio.timeout(self.timeout_secs):
                 prepared_input = self._prepare_input(input)
                 output = await self.llm.ainvoke(prepared_input)  # type: ignore
+                self._log_success(input, output, start_time)
                 return await self._aparse_output(output), self._clean_output(output)
         except Exception as e:
-            self._log_error(input, prepared_input, e)
+            self._log_error(input, prepared_input, e, start_time)
             if self.on_error == "raise":
                 raise e
             else:
