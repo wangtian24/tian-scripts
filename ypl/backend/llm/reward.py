@@ -55,7 +55,7 @@ FEEDBACK_REWARD_UPPER_BOUND = 500
 QT_EVAL_REWARD_LOWER_BOUND = 400
 QT_EVAL_REWARD_UPPER_BOUND = 800
 
-FEEDBACK_QUALITY_JUDGING_TIMEOUT = 0.3
+FEEDBACK_QUALITY_JUDGING_TIMEOUT = 0.4
 VERY_POOR_FEEDBACK_SCORE = 1
 POOR_FEEDBACK_SCORE = 2
 AVERAGE_FEEDBACK_SCORE = 3
@@ -666,8 +666,8 @@ async def get_feedback_quality_score(user_id: str, feedback: str) -> int:
                         "feedback_length": len(feedback),
                     }
                     logging.warning(json_dumps(log_dict))
-                    return FALLBACK_QUALITY_SCORE
-                return result
+                else:
+                    return result
 
         log_dict = {
             "message": "Timeout getting feedback quality score",
@@ -853,6 +853,8 @@ async def sign_up_reward(user_id: str) -> tuple[bool, int, str, RewardAmountRule
         "action_type": action_type,
         "sign_up_reward_count": await get_user_reward_count_by_action_type(user_id, action_type.name),
     }
+    with Session(get_engine()) as session:
+        params.update(_get_reward_points_summary(user_id, session))
 
     amount_rule: RewardAmountRule | None = get_matching_rule(get_reward_amount_rules(action_type), params)  # type: ignore
     probability_rule: RewardProbabilityRule | None = get_matching_rule(  # type: ignore

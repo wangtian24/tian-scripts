@@ -268,6 +268,7 @@ async def test_feedback_and_qt_eval_reward(
             assert rule_prob.name == expected_rule_name
 
 
+@patch("ypl.backend.llm.reward._get_reward_points_summary")
 @patch("ypl.backend.llm.reward.get_async_engine")
 @patch("ypl.backend.llm.reward.get_user_reward_count_by_action_type")
 @patch("ypl.backend.llm.reward.Session")
@@ -279,9 +280,11 @@ async def test_sign_up_reward(
     mock_session: Any,
     mock_get_user_reward_count_by_action_type: Any,
     mock_engine: Any,
+    mock_get_reward_points_summary: Any,
 ) -> None:
     # Mock PostgresDsn.build to return a valid URL string
     mock_postgres_dsn.return_value.unicode_string.return_value = "postgresql://test_user:test_pass@test_host/test_db"
+    mock_get_reward_points_summary.side_effect = lambda user_id, session: get_reward_points_summary(10, 50, 200, 10)
 
     # Configure the mock session
     mock_session.return_value = MockSession()
@@ -307,6 +310,7 @@ async def test_sign_up_reward(
     assert rule_prob.name == "base_sign_up_reward"
 
 
+@patch("ypl.backend.llm.reward._get_reward_points_summary")
 @patch("ypl.backend.llm.reward.get_async_engine")
 @patch("ypl.backend.llm.reward.get_user_reward_count_by_action_type")
 @patch("ypl.backend.llm.reward.Session")
@@ -318,9 +322,11 @@ async def test_sign_up_reward_no_repeat(
     mock_session: Any,
     mock_get_user_reward_count_by_action_type: Any,
     mock_engine: Any,
+    mock_get_reward_points_summary: Any,
 ) -> None:
     # Mock PostgresDsn.build to return a valid URL string
     mock_postgres_dsn.return_value.unicode_string.return_value = "postgresql://test_user:test_pass@test_host/test_db"
+    mock_get_reward_points_summary.side_effect = lambda user_id, session: get_reward_points_summary(10, 50, 200, 10)
 
     mock_session.return_value = MockSession()
     mock_engine.return_value = AsyncMock()
