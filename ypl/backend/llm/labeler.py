@@ -23,6 +23,7 @@ from ypl.backend.prompts import (
     USER_QUICKTAKE_PROMPT,
     WILDCHAT_REALISM_PROMPT_TEMPLATE,
 )
+from ypl.backend.utils.json import json_dumps
 from ypl.utils import Delegator
 
 logging.basicConfig(level=logging.WARNING)
@@ -124,6 +125,24 @@ class LLMLabeler(Generic[InputType, OutputType]):
 
     cached = False
 
+    def _maybe_truncate(self, input: str) -> str:
+        if len(input) > 200:
+            return input[:200] + "... (truncated)"
+        return input
+
+    def _log_error(self, input: InputType, prepared_input: dict[str, Any], e: Exception) -> None:
+        info = {
+            "message": "Error labeling input",
+            "labeler": self.__class__.__name__,
+            "error": str(e),
+        }
+        if isinstance(input, str):
+            info["input"] = self._maybe_truncate(input)
+        for k, v in prepared_input.items():
+            info[f"prepared_input_{k}"] = self._maybe_truncate(v)
+
+        logging.warning(json_dumps(info))
+
     def __init__(
         self, llm: BaseChatModel, timeout_secs: float = 5.0, on_error: OnErrorBehavior = "use_error_value"
     ) -> None:
@@ -172,10 +191,10 @@ class LLMLabeler(Generic[InputType, OutputType]):
 
             return self._parse_output(output), self._clean_output(output)
         except Exception as e:
+            self._log_error(input, prepared_input, e)
             if self.on_error == "raise":
                 raise e
             else:
-                logging.warning(f"Error labeling input '{input}': {e}")
                 return self.error_value, ""
 
     def label(self, input: InputType) -> OutputType:
@@ -194,10 +213,10 @@ class LLMLabeler(Generic[InputType, OutputType]):
                 output = await self.llm.ainvoke(prepared_input)  # type: ignore
                 return await self._aparse_output(output), self._clean_output(output)
         except Exception as e:
+            self._log_error(input, prepared_input, e)
             if self.on_error == "raise":
                 raise e
             else:
-                logging.warning(f"Error labeling input '{input}': {e}")
                 return self.error_value, ""
 
     async def alabel(self, input: InputType) -> OutputType:
