@@ -42,20 +42,21 @@ SIC_AVAILABILITY_EMAIL_TEMPLATE_HTML = """
 """  # noqa: E501
 
 
-SIGN_UP_EMAIL_TITLE = "Thanks for joining Yupp (Beta) as an early Trusted Tester! Please keep it confidential"
+SIGN_UP_EMAIL_TITLE = "Thanks for joining Yupp (Beta) as an early Trusted Tester."
 SIGN_UP_EMAIL_TEMPLATE = """
 Hey {name},
 
-(Please keep it confidential, and remember to thank the person who referred you when you see them next.)
+Please keep it confidential, and remember to thank the person who referred you when you see them next.
 
 We’re thrilled to have you as an early Trusted Tester user! Your feedback will play a crucial role in refining the product, and we can’t wait to hear your thoughts.
 
 Before you dive in, here are a few important points to note:
 • Confidential Access: This early access is exclusive to you, so please refrain from sharing it with others. Your discretion is greatly appreciated. 🔐
-• Personalized Invite: Your access is tied to your email and won’t work for anyone else. 📩
 • Logging: To help us improve, we’ll be logging extensively. Please avoid writing any prompts that you consider confidential. 🔍
 • It’s early: The product is in its early stages, so you may encounter some rough edges or unexpected issues. We appreciate your patience as we work to improve!
 • Try it out now! Send a prompt - whatever's on your mind - to the AIs, and share a quick feedback on which one you prefer. We will give you a one-time 1000 YUPP credits as a bonus.
+
+For updates, AI discussions with our devs (and other Trusted Testers like yourself), and funny memes, join our nascent Discord community here: https://discord.gg/AGHSbyqgXP
 
 Your inputs are invaluable, and we’re excited to hear your thoughts!
 
