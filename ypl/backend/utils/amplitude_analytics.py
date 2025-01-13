@@ -62,6 +62,8 @@ AMPLITUDE_CHARTS: Final[dict[str, ChartInfo]] = {
         "series_number": 3,
     },
     "sic_dialog_open": {"id": "mrdablao", "description": "viewed invite dialog", "series_number": 4},
+    "sic_post_signup_chat": {"id": "1wds3nom", "description": "submit SIC -> start chat funnel", "series_number": 1},
+    "sic_post_signup_pref": {"id": "1wds3nom", "description": "submit SIC -> pref funnel", "series_number": 2},
 }
 
 
@@ -179,10 +181,17 @@ async def post_data_from_charts(auth: str, start_date: datetime, end_date: datet
         for metric, chart_info in charts_items:
             try:
                 data = fetch_chart_data(chart_id=chart_info["id"], auth=auth, start_date=start_date, end_date=end_date)
-                series_data = data["data"]["series"][chart_info["series_number"]]
-                yesterdays_value = int(series_data[-2]["value"])
-                metrics[metric] = yesterdays_value
-                log_dict[chart_info["description"]] = yesterdays_value
+                logging.info(json_dumps(data.get("data", {})))
+                # Check if the data type is from a funnel graph
+                if isinstance(data.get("data"), list) and "cumulativeRaw" in data["data"][0]:
+                    series_data = data["data"][0]["cumulativeRaw"][chart_info["series_number"]]
+                    metrics[metric] = series_data
+                    log_dict[chart_info["description"]] = series_data
+                else:  # else assume that it is a time series.
+                    series_data = data["data"]["series"][chart_info["series_number"]]
+                    yesterdays_value = int(series_data[-2]["value"])
+                    metrics[metric] = yesterdays_value
+                    log_dict[chart_info["description"]] = yesterdays_value
             except (KeyError, IndexError, RequestException) as e:
                 logging.error(f"Failed to process data for {metric}: {e}")
                 metrics[metric] = 0
@@ -248,16 +257,16 @@ async def post_data_from_charts(auth: str, start_date: datetime, end_date: datet
         # h. Waitlist section
         message += (
             f"h. Waitlist: {metrics.get('waitlist_sign_up', 0)} new google sign-ins, "
-            f"{metrics.get('waitlist_sign_up_no_google', 0)} non-Google OAuth waitlist\n"
+            f"{metrics.get('waitlist_sign_up_no_google', 0)} joined waitlist without Google account\n"
         )
 
         # i. Invite section
         message += (
             f"i. SIC: {metrics.get('sic_submitted_valid', 0)} SICs accepted"
             f" out of {metrics.get('sic_submitted_total', 0)} submitted,"
-            f" {metrics.get('sic_dialog_open', 0)} users viewed their SIC\n"
+            f" {metrics.get('sic_post_signup_chat', 0)} / {metrics.get('sic_submitted_valid', 1)} sent prompt,"
+            f" {metrics.get('sic_post_signup_pref', 0)} / {metrics.get('sic_submitted_valid', 1)} did PREF\n"
         )
-
         logging.info(json_dumps(log_dict))
         analytics_webhook_url = os.environ.get("ANALYTICS_SLACK_WEBHOOK_URL")
         await post_to_slack(message, analytics_webhook_url)
