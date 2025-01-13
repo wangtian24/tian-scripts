@@ -147,9 +147,9 @@ amount_rules:
         - name: points_last_month
           operator: less_than
           value: *monthly_points_limit
-    min_value: 400
-    max_value: 800
-    mean_value: 600
+    min_value: 50
+    max_value: 250
+    mean_value: 150
     comments:
       - "Thank you. Your feedback makes this AI serve you better!"
 
