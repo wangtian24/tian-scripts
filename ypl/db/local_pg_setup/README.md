@@ -47,6 +47,31 @@ After the seeding is complete, you can view its content using DBeaver or any oth
 
 - Check with bhanu@yupp.ai.
 
+### pgvector issue
+During the data restoration time, you may encounter an error related to pgvector. This is because pgvector is not installed on the destination database (your local DB). You need this extension to use vector data types in your DB, which is needed in the `chat_messages` table. Technically `install_local_pg.sh` should have it covered, but if it doesn't work, here is how you can fix it on macOS:
+
+```sh
+# use other proper installers in other OS, check official docs
+brew install pgvector
+
+# Restart your local db (use the right version)
+brew services restart postgresql@16
+
+# Install the pgvector extension in DB, use the right user and DB name though
+psql -U postgres -d yuppdb -c "CREATE EXTENSION IF NOT EXISTS pgvector;"
+```
+
+The last step might fail and complain not being able to find the file `pgvector.control`. You can fix it this way, and try the last step again.
+
+```sh
+# go to the extension folder under the PostgreSQL installation folder
+cd /opt/homebrew/opt/postgresql@16/share/postgresql@16/extension/
+
+# make symlinks
+ln -s vector.control  pgvector.control
+ln -s vector--0.8.0.sql  pgvector--0.8.0.sql
+```
+
 ## Cleanup
 
 - To uninstall PostgreSQL and remove all related data and configurations, run the `uninstall_local_pg.sh` script.
