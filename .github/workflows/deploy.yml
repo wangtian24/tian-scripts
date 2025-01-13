@@ -282,7 +282,7 @@ jobs:
             --add-cloudsql-instances=${{ env.CLOUD_SQL_CONNECTION_NAME }} \
             --vpc-egress=private-ranges-only \
             --network=default \
-            --subnetwork=default \
+            --subnet=default \
             --command="/app/ypl/pytorch/serve/entrypoint.sh"
         else
           gcloud beta run deploy ${{ env.SERVICE_NAME }} \
@@ -296,7 +296,7 @@ jobs:
             --add-cloudsql-instances=${{ env.CLOUD_SQL_CONNECTION_NAME }} \
             --vpc-egress=private-ranges-only \
             --network=default \
-            --subnetwork=default \
+            --subnet=default \
             --command="/app/ypl/backend/entrypoint.sh"
         fi
 
