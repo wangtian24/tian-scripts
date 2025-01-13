@@ -280,6 +280,9 @@ jobs:
             --args=service \
             --no-cpu-throttling \
             --add-cloudsql-instances=${{ env.CLOUD_SQL_CONNECTION_NAME }} \
+            --vpc-egress=private-ranges-only \
+            --network=default \
+            --subnetwork=default \
             --command="/app/ypl/pytorch/serve/entrypoint.sh"
         else
           gcloud beta run deploy ${{ env.SERVICE_NAME }} \
@@ -291,6 +294,9 @@ jobs:
             --memory ${{ env.MEMORY }} \
             --args=service \
             --add-cloudsql-instances=${{ env.CLOUD_SQL_CONNECTION_NAME }} \
+            --vpc-egress=private-ranges-only \
+            --network=default \
+            --subnetwork=default \
             --command="/app/ypl/backend/entrypoint.sh"
         fi
 
