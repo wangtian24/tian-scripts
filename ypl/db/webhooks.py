@@ -115,4 +115,10 @@ class WebhookEvent(BaseModel, table=True):
         description="Current processing status of the webhook",
     )
 
+    partner_webhook_reference_id: str | None = Field(
+        default=None,
+        nullable=True,
+        description="The reference ID from the partner's system for this webhook event",
+    )
+
     webhook_partner: WebhookPartner = Relationship(back_populates="webhook_events")
