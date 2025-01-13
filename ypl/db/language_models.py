@@ -5,8 +5,9 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
-from sqlalchemy import BigInteger, Boolean, Column, Integer, Numeric, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, Column, Integer, Numeric, String, UniqueConstraint
 from sqlalchemy import Enum as sa_Enum
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlmodel import Field, Relationship
 
 from ypl.db.base import BaseModel
@@ -224,6 +225,12 @@ class LanguageModel(BaseModel, table=True):
         foreign_key="language_model_licenses.language_model_license_id", nullable=True, default=None
     )
     language_model_license: LanguageModelLicense = Relationship(back_populates="models")
+    supported_attachment_mime_types: list[str] | None = Field(
+        default=None, sa_column=Column(ARRAY(String), nullable=True)
+    )
+
+    def supports_images(self) -> bool:
+        return any(mime_type.startswith("image/") for mime_type in self.supported_attachment_mime_types or [])
 
 
 # Provider is a service that can be used to access a model, e.g. OpenAI, Anthropic, Together AI, etc.

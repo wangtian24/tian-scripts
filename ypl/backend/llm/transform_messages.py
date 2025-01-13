@@ -60,33 +60,6 @@ async def download_attachment(attachment: Attachment) -> bytes:
         raise
 
 
-# TODO: This needs to be in the database
-MODELS_WITH_IMAGE_SUPPORT = [
-    "gpt-4o",
-    "gpt-4o-mini",
-    "gpt-4o-2024-01-18",
-    "claude-3-opus-20240229",
-    "claude-3.5-sonnet",
-    "gemini-1.5-pro",
-    "gemini-1.5-pro-exp-0827",
-    "gemini-1.5-flash-8b",
-    "gemini-2.0-flash-exp",
-    "meta-llama/Llama-3.2-11B-Vision-Instruct-Turbo",
-    "meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo",
-    "qwen/qwen-2.5-72b-instruct",
-    "qwen1.5-110b-chat",
-    "qwen1.5-32b-chat",
-    "qwen1.5-14b-chat",
-    "gpt-4o-mini-2024-07-18",
-    "gpt-4o-2024-05-13",
-    "gpt-4o-mini",
-    "gpt-4o-2024-08-06",
-    "gpt-4o-2024-05-13",
-    "gpt-4o",
-    "chatgpt-4o-latest-20240903",
-]
-
-
 async def generic_image_transformer(attachment: Attachment) -> dict[str, Any]:
     image_bytes = await download_attachment(attachment)
     url = f"data:{attachment.content_type};base64," + base64.b64encode(image_bytes).decode("utf-8")
@@ -110,7 +83,7 @@ async def transform_user_mesages(messages: list[BaseMessage], model_name: str) -
     if not chat_has_attachments:
         return [m if not isinstance(m, HumanMessage) else HumanMessage(content=m.content) for m in messages]
 
-    supports_image = model.internal_name in MODELS_WITH_IMAGE_SUPPORT
+    supports_images = model.supports_images()
 
     """
     While dealing with models that don't support images,
@@ -119,7 +92,7 @@ async def transform_user_mesages(messages: list[BaseMessage], model_name: str) -
     Since we supply on image metadata to these models, we ensure that the content will be a string.
     Note - We might not need this if we decide to route requests with attachments always to ones with image support.
     """
-    if not supports_image:
+    if not supports_images:
         transform_user_mesages: list[BaseMessage] = []
         for message in messages:
             attachments = message.additional_kwargs.get("attachments", [])
