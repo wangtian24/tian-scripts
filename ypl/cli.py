@@ -35,9 +35,9 @@ from ypl.backend.llm.chat import (
     YuppChatIO,
     YuppChatMessageHistory,
     YuppMessageRow,
-    get_chat_model,
 )
 from ypl.backend.llm.constants import MODEL_HEURISTICS
+from ypl.backend.llm.db_helpers import get_chat_model
 from ypl.backend.llm.embedding import get_embedding_model
 from ypl.backend.llm.judge import (
     JudgeConfig,

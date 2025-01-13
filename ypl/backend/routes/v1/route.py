@@ -7,9 +7,9 @@ from ypl.backend.llm.chat import SelectModelsV2Request, SelectModelsV2Response, 
 from ypl.backend.llm.ranking import get_ranker
 from ypl.backend.llm.routing.route_data_type import RoutingPreference
 from ypl.backend.llm.routing.router import (
-    RouterState,
     get_simple_pro_router,
 )
+from ypl.backend.llm.routing.router_state import RouterState
 
 router = APIRouter()
 

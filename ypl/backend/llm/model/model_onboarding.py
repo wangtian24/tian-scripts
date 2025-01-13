@@ -30,8 +30,8 @@ from tenacity.asyncio import AsyncRetrying
 # Local imports
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine
-from ypl.backend.llm.chat import standardize_provider_name
 from ypl.backend.llm.constants import PROVIDER_KEY_MAPPING
+from ypl.backend.llm.db_helpers import standardize_provider_name
 from ypl.backend.llm.utils import post_to_slack, post_to_x
 from ypl.backend.utils.json import json_dumps
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider

@@ -6,7 +6,10 @@ import pytest
 from mabwiser.mab import LearningPolicy
 
 from ypl.backend.llm.mab_ranker import MultiArmedBanditRanker
-from ypl.backend.llm.routing.router import EloProposer, RouterModule, RouterState, TopK
+from ypl.backend.llm.routing.modules.base import RouterModule
+from ypl.backend.llm.routing.modules.filters import TopK
+from ypl.backend.llm.routing.modules.proposers import EloProposer
+from ypl.backend.llm.routing.router_state import RouterState
 from ypl.backend.tests.utils import get_battles
 
 random.seed(123)

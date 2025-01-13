@@ -6,13 +6,14 @@ import aiohttp
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 
-from ypl.backend.llm.chat import get_chat_model
 from ypl.backend.llm.constants import MODEL_DESCRIPTIONS, MODEL_HEURISTICS
+from ypl.backend.llm.db_helpers import get_chat_model
 from ypl.backend.llm.labeler import LLMLabeler
 from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.prompt_classifiers import RemotePromptCategorizer
+from ypl.backend.llm.routing.modules.proposers import ModelProposer
 from ypl.backend.llm.routing.policy import SelectionCriteria
-from ypl.backend.llm.routing.router import ModelProposer, RouterState
+from ypl.backend.llm.routing.router_state import RouterState
 from ypl.backend.prompts import PROMPTS_MODEL_QUALITY_PROMPT_TEMPLATE
 
 

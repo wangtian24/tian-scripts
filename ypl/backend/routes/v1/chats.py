@@ -23,9 +23,9 @@ from ypl.backend.llm.chat import (
     QuickTakeResponse,
     generate_quicktake,
     get_active_prompt_modifiers,
-    get_chat_model,
 )
 from ypl.backend.llm.constants import ChatProvider
+from ypl.backend.llm.db_helpers import get_chat_model
 from ypl.backend.llm.judge import DEFAULT_PROMPT_DIFFICULTY, YuppPromptDifficultyWithCommentLabeler
 from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.moderation import DEFAULT_MODERATION_RESULT, amoderate

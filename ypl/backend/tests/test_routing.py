@@ -8,22 +8,24 @@ from pytest import approx, mark
 
 from ypl.backend.config import settings
 from ypl.backend.llm.ranking import Battle, ChoixRanker, ChoixRankerConfIntervals, EloRanker
-from ypl.backend.llm.routing.policy import (
-    exponential_decay,
-)
-from ypl.backend.llm.routing.router import (
+from ypl.backend.llm.routing.modules.filters import TopK
+from ypl.backend.llm.routing.modules.proposers import (
     AlwaysGoodModelMetaRouter,
     ConfidenceIntervalWidthModelProposer,
     EloProposer,
     MinimumFractionModelProposer,
     ProportionalModelProposer,
     RandomModelProposer,
-    RouterState,
-    TopK,
     _fast_compute_all_conf_overlap_diffs,
     _fast_compute_all_num_intersections,
+)
+from ypl.backend.llm.routing.policy import (
+    exponential_decay,
+)
+from ypl.backend.llm.routing.router import (
     get_simple_pro_router,
 )
+from ypl.backend.llm.routing.router_state import RouterState
 from ypl.backend.llm.routing.rule_router import RoutingTable
 from ypl.backend.tests.utils import get_battles
 from ypl.db.language_models import RoutingAction, RoutingRule
@@ -266,11 +268,12 @@ def test_fast_compute_all_conf_overlap_diffs() -> None:
 @patch("ypl.backend.llm.routing.router.YuppMultilabelClassifier")
 @patch("ypl.backend.llm.routing.router.YuppOnlinePromptLabeler")
 @patch("ypl.backend.llm.routing.router.HighErrorRateFilter.select_models")
-@patch("ypl.backend.llm.routing.router.get_all_strong_models")
-@patch("ypl.backend.llm.routing.router.get_all_pro_models")
-@patch("ypl.backend.llm.routing.router.deduce_original_providers")
+@patch("ypl.backend.llm.routing.modules.proposers.get_all_strong_models")
+@patch("ypl.backend.llm.routing.modules.proposers.get_all_pro_models")
+@patch("ypl.backend.llm.routing.modules.proposers.deduce_original_providers")
+@patch("ypl.backend.llm.routing.modules.filters.deduce_original_providers")
 @patch("ypl.backend.llm.routing.rule_router.deduce_original_providers")
-@patch("ypl.backend.llm.routing.router.deduce_semantic_groups")
+@patch("ypl.backend.llm.routing.modules.filters.deduce_semantic_groups")
 @patch("ypl.backend.llm.routing.rule_router.get_routing_table")
 @pytest.mark.asyncio
 async def test_simple_pro_router(
@@ -278,6 +281,7 @@ async def test_simple_pro_router(
     mock_semantic_group_map: Mock,
     mock_deduce_providers1: Mock,
     mock_deduce_providers2: Mock,
+    mock_deduce_providers3: Mock,
     mock_get_all_pro_models: Mock,
     mock_get_all_strong_models: Mock,
     mock_error_filter: Mock,
@@ -314,6 +318,7 @@ async def test_simple_pro_router(
     # Just make a provider for each model named after the model.
     mock_deduce_providers1.return_value = {model: model for model in all_models}
     mock_deduce_providers2.return_value = {model: model for model in all_models}
+    mock_deduce_providers3.return_value = {model: model for model in all_models}
     mock_get_all_strong_models.return_value = {"pro1", "pro2", "pro3", "model1"}
     mock_error_filter.side_effect = lambda state: state
 
@@ -352,6 +357,7 @@ async def test_simple_pro_router(
     # Just make a provider for each model named after the model.
     mock_deduce_providers1.return_value = {model: model for model in all_models}
     mock_deduce_providers2.return_value = {model: model for model in all_models}
+    mock_deduce_providers3.return_value = {model: model for model in all_models}
     mock_get_all_strong_models.return_value = {"pro1", "pro2", "pro3", "model1"}
     mock_error_filter.side_effect = lambda state: state
     mock_semantic_group_map.return_value = {"model1": "group1", "model2": "group1"}

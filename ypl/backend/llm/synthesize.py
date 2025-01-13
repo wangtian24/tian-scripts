@@ -27,10 +27,10 @@ from ypl.backend.llm.chat import (
     YuppMessage,
     chat_message_cast_to,
     get_chat_history_model,
-    get_chat_model,
     get_db_message_type,
 )
 from ypl.backend.llm.constants import ALL_MODELS_BY_PROVIDER, FIRST_NAMES, LAST_NAMES
+from ypl.backend.llm.db_helpers import get_chat_model
 from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.prompts import SYNTHESIZER_FIRST_ASSISTANT_PROMPT, SYNTHESIZER_GENERATE_PERSONA_PROMPT
 from ypl.db.all_models import users
