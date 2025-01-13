@@ -40,6 +40,7 @@ from ypl.backend.llm.routing.route_data_type import PreferredModel, RoutingPrefe
 from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter, OpenAILangChainAdapter
 from ypl.backend.prompts import ALL_MODELS_IN_CHAT_HISTORY_PREAMBLE, RESPONSE_SEPARATOR
 from ypl.backend.utils.json import json_dumps
+from ypl.backend.utils.monitoring import metric_inc, metric_inc_by, metric_record
 from ypl.db.attachments import Attachment
 from ypl.db.chats import (
     AssistantSelectionSource,
@@ -560,6 +561,9 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
 
         return return_models, fallback_models, selected_models.applicable_modifiers
 
+    metric_inc(f"routing/intent_{request.intent}")
+    start_time = time.time()
+
     match request.intent:
         case SelectIntent.NEW_CHAT | SelectIntent.NEW_TURN:
             assert request.prompt is not None, "prompt is required for NEW_CHAT or NEW_TURN intent"
@@ -623,6 +627,16 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
                 asyncio.create_task(store_modifiers(request.turn_id, prompt_modifiers))
         except Exception as e:
             logging.error(f"Error selecting modifiers: {e}")
+
+    # increment counters
+    metric_inc_by("routing/count_models_served", len(models))
+    if len(models) > 0:
+        metric_inc(f"routing/count_first_{models[0]}")
+    if len(models) > 1:
+        metric_inc(f"routing/count_second_{models[1]}")
+    for model in models:
+        metric_inc(f"routing/count_chosen_{model}")
+    metric_record(f"routing/latency_{request.intent}_ms", int((time.time() - start_time) * 1000))
 
     return SelectModelsV2Response(
         models=[(model, prompt_modifiers.get(model, [])) for model in models],
@@ -1365,8 +1379,9 @@ async def generate_quicktake(
         raise e
 
     end_time = time.time()
+    metric_record("quicktake/latency_ms", int((end_time - start_time) * 1000))
     log_dict = {
-        "message": "Quicktake generated",
+        "message": f"Quicktake generated with {response_model} in {int((end_time - start_time) * 1000)}ms",
         "is_refusal": str(quicktake == QT_CANT_ANSWER),
         "chat_id": chat_id,
         "turn_id": turn_id,

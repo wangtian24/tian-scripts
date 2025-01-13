@@ -35,6 +35,7 @@ from ypl.backend.llm.routing.policy import SelectionCriteria, decayed_random_fra
 from ypl.backend.llm.routing.route_data_type import RoutingPreference
 from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter, OpenAILangChainAdapter
 from ypl.backend.utils.json import json_dumps
+from ypl.backend.utils.monitoring import metric_inc_by
 from ypl.db.language_models import LanguageModel, LanguageModelResponseStatus, LanguageModelResponseStatusEnum
 from ypl.utils import RNGMixin
 
@@ -1706,6 +1707,9 @@ async def get_simple_pro_router(
                 },
             )
         )
+
+    if user_selected_models is not None and len(user_selected_models) > 0:
+        metric_inc_by("routing/num_user_selected_models", len(user_selected_models))
 
     if not preference.turns:
         # --- First Turn Router ---

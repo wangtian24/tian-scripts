@@ -106,7 +106,8 @@ class Settings(BaseSettings):
     PYTORCH_SERVE_GCP_URL: str = ""
 
     # The cloud run project ID and region
-    GCP_PROJECT_ID: str = ""
+    GCP_PROJECT_NUMBER: str = ""  # a numeric name for the project (in string form)
+    GCP_PROJECT_ID: str = ""  # a string name, mutually exchangeable with GCP_PROJECT_NUMBER in identifying resources
     GCP_REGION: str = "us-east4"
     GCP_REGION_GEMINI_2: str = "us-central1"
 

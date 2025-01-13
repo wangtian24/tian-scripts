@@ -9,9 +9,10 @@ from fastapi.routing import APIRoute
 from starlette.middleware.cors import CORSMiddleware
 
 from ypl.backend.config import preload_gcp_secrets, settings
-from ypl.backend.jobs.app import init_celery, start_celery_workers, start_redis
+from ypl.backend.jobs.app import init_celery, is_not_worker, start_celery_workers, start_redis
 from ypl.backend.payment.crypto.crypto_payout import cleanup_crypto_processor, get_processor
 from ypl.backend.routes.main import api_router
+from ypl.backend.utils.monitoring import start_metrics_manager
 
 
 @asynccontextmanager
@@ -19,6 +20,11 @@ async def lifespan(app: FastAPI):  # type: ignore
     start_redis()
     init_celery()
     workers = start_celery_workers()
+
+    if is_not_worker():
+        # only start metrics manager in the main process
+        start_metrics_manager()
+
     # Initialize crypto processor at startup as it is a long running process
     await get_processor()
 

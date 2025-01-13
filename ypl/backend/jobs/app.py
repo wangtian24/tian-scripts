@@ -2,6 +2,7 @@ import logging
 import subprocess
 import time
 from multiprocessing import Process
+from typing import Any
 
 from celery import Celery
 
@@ -10,8 +11,17 @@ from ypl.backend.utils.json import json_dumps
 NUM_WORKERS = 2
 CELERY_BROKER_URL = "redis://localhost:6379/0"
 CELERY_RESULT_BACKEND = "redis://localhost:6379/0"
-
 _celery_app = None
+is_worker = False
+
+
+def init_worker(**kwargs: Any) -> None:
+    global is_worker
+    is_worker = True
+
+
+def is_not_worker() -> bool:
+    return not is_worker
 
 
 def init_celery() -> Celery:
@@ -33,6 +43,8 @@ def init_celery() -> Celery:
         worker_prefetch_multiplier=1,
         broker_connection_retry_on_startup=True,
     )
+
+    app.on_configure.connect(init_worker)
 
     _celery_app = app
     logging.info("Celery app initialized")
