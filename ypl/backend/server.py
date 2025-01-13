@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -7,7 +8,7 @@ from fastapi.responses import JSONResponse, ORJSONResponse
 from fastapi.routing import APIRoute
 from starlette.middleware.cors import CORSMiddleware
 
-from ypl.backend.config import settings
+from ypl.backend.config import preload_gcp_secrets, settings
 from ypl.backend.jobs.app import init_celery, start_celery_workers, start_redis
 from ypl.backend.payment.crypto.crypto_payout import cleanup_crypto_processor, get_processor
 from ypl.backend.routes.main import api_router
@@ -20,6 +21,9 @@ async def lifespan(app: FastAPI):  # type: ignore
     workers = start_celery_workers()
     # Initialize crypto processor at startup as it is a long running process
     await get_processor()
+
+    # Run preload_gcp_secrets in the background
+    asyncio.create_task(preload_gcp_secrets())
 
     yield  # Hand over to FastAPI.
 

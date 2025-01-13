@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import secrets
@@ -130,19 +131,24 @@ class Settings(BaseSettings):
     def _get_gcp_secret(self, secret_name: str) -> str:
         """Retrieve secret from Google Cloud Secret Manager."""
 
+        import logging
+
         from google.cloud import secretmanager
 
         try:
+            log_dict = {
+                "message": "Retrieving secret from Google Cloud Secret Manager",
+                "secret_name": secret_name,
+            }
+            logging.info(json_dumps(log_dict))
             if not self.GCP_PROJECT_ID:
                 return ""
 
             client = secretmanager.SecretManagerServiceClient()
             name = f"projects/{self.GCP_PROJECT_ID}/secrets/{secret_name}/versions/latest"
             response = client.access_secret_version(request={"name": name})
-            return response.payload.data.decode("UTF-8") or ""
+            return response.payload.data.decode("UTF-8")
         except Exception as e:
-            import logging
-
             logging.error(
                 json_dumps(
                     {
@@ -275,3 +281,11 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+async def preload_gcp_secrets() -> None:
+    """Preload secrets to avoid slow response times"""
+    await asyncio.gather(
+        asyncio.to_thread(lambda: settings.axis_upi_config),
+        asyncio.to_thread(lambda: settings.validate_destination_identifier_secret_key),
+    )
