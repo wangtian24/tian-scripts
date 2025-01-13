@@ -120,13 +120,18 @@ class CoinbaseFacilitator(BaseFacilitator):
         payment_transaction_id: uuid.UUID | None = None,
     ) -> PaymentResponse:
         start_time = time.time()
+        # coinbase requires a minimum of 1 USD
+        amount = await convert_credits_to_currency(credits_to_cashout, CurrencyEnum.USD)
+        if amount < 1:
+            log_dict = {
+                "message": "Minimum amount of 1 USD is required",
+                "user_id": user_id,
+                "amount_requested": str(amount),
+            }
+            logging.warning(json_dumps(log_dict))
+            raise ValueError("Minimum amount of 1 USD is required")
         try:
             try:
-                # coinbase requires a minimum of 1 USD
-                amount = await convert_credits_to_currency(credits_to_cashout, CurrencyEnum.USD)
-                if amount < 1:
-                    raise ValueError("Minimum amount of 1 USD is required")
-
                 credits_to_cashout += CASHOUT_TXN_COST
                 # Get the balance of the source instrument
                 source_instrument_balance = await self.get_balance(self.currency)
