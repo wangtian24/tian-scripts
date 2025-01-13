@@ -42,7 +42,7 @@ from ypl.db.chats import (
     MessageType,
     PromptModifierAssoc,
 )
-from ypl.db.language_models import LanguageModel
+from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum
 
 CITATION_EXTRACTION_TIMEOUT = 20.0
 
@@ -473,7 +473,10 @@ async def update_modifier_status(chat_request: ChatRequest) -> None:
                 ChatMessage.message_id != chat_request.message_id,  # type: ignore
                 ChatMessage.assistant_language_model_id
                 == select(LanguageModel.language_model_id)
-                .where(LanguageModel.internal_name == chat_request.model)
+                .where(
+                    LanguageModel.internal_name == chat_request.model,
+                    LanguageModel.status == LanguageModelStatusEnum.ACTIVE,
+                )
                 .scalar_subquery(),  # type: ignore
             )
             .values(modifier_status=MessageModifierStatus.HIDDEN)

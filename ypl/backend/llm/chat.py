@@ -1308,6 +1308,7 @@ async def generate_quicktake(
     response_model = ""
     timeout_secs = request.timeout_secs
     start_time = time.time()
+    responses_by_model: dict[str, str] = {}
 
     try:
         if not request.model:
@@ -1336,6 +1337,7 @@ async def generate_quicktake(
                 tiktoken_trim(request.prompt or "", int(max_context_length * 0.75), direction="right")
             )
             quicktake = QT_CANT_ANSWER
+            responses_by_model = {model: type(response).__name__ for model, response in quicktakes.items()}
             for model in labelers:
                 response = quicktakes.get(model)
                 if response and not isinstance(response, Exception):
@@ -1350,6 +1352,7 @@ async def generate_quicktake(
                 tiktoken_trim(request.prompt or "", int(max_context_length * 0.75), direction="right")
             )
             response_model = request.model
+            responses_by_model[request.model] = type(quicktake).__name__
         else:
             raise ValueError(f"Unsupported model: {request.model}; supported: {','.join(get_qt_llms().keys())}")
     except Exception as e:
@@ -1364,12 +1367,15 @@ async def generate_quicktake(
     end_time = time.time()
     log_dict = {
         "message": "Quicktake generated",
+        "is_refusal": str(quicktake == QT_CANT_ANSWER),
         "chat_id": chat_id,
         "turn_id": turn_id,
         "model": response_model,
         "duration_secs": str(end_time - start_time),
         "content_length": str(len(quicktake)),
     }
+    for model, response_type in responses_by_model.items():
+        log_dict[f"{model}_response_type"] = response_type
     logging.info(json_dumps(log_dict))
     # The client is not aware of these private models, so return its base name; keep the full name in the log above.
     if response_model == MODEL_FOR_PROMPT_ONLY_FULL_NAME:
