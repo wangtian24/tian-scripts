@@ -1,16 +1,15 @@
-from enum import Enum
-from typing import Any
+import enum
 from uuid import UUID, uuid4
 
 from sqlalchemy import Column
 from sqlalchemy import Enum as SQLAlchemyEnum
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlmodel import Field
+from sqlmodel import Field, Relationship
 
 from ypl.db.base import BaseModel
 
 
-class WebhookPartnerStatusEnum(str, Enum):
+class WebhookPartnerStatusEnum(enum.Enum):
     """Status of a webhook partner."""
 
     ACTIVE = "active"
@@ -18,17 +17,27 @@ class WebhookPartnerStatusEnum(str, Enum):
     SUSPENDED = "suspended"
 
 
+class WebhookDirectionEnum(enum.Enum):
+    """Enum for webhook direction."""
+
+    INCOMING = "incoming"
+    OUTGOING = "outgoing"
+
+
+class WebhookProcessingStatusEnum(enum.Enum):
+    """Enum for webhook processing status."""
+
+    INVALID = "invalid"
+    PROCESSED = "processed"
+    FAILED = "failed"
+
+
 class WebhookPartner(BaseModel, table=True):
     """Table for storing webhook partner information for incoming webhooks."""
 
     __tablename__ = "webhook_partners"
 
-    webhook_partner_id: UUID = Field(
-        default_factory=uuid4,
-        primary_key=True,
-        nullable=False,
-        description="Unique identifier for the webhook partner",
-    )
+    webhook_partner_id: UUID = Field(default_factory=uuid4, primary_key=True, nullable=False)
 
     name: str = Field(
         nullable=False,
@@ -41,7 +50,6 @@ class WebhookPartner(BaseModel, table=True):
         description="Description of the partner's webhook integration",
     )
 
-    # Webhook configuration
     webhook_token: str = Field(
         unique=True,
         index=True,
@@ -49,7 +57,6 @@ class WebhookPartner(BaseModel, table=True):
         description="URL-safe token used in webhook URL",
     )
 
-    # Status
     status: WebhookPartnerStatusEnum = Field(
         sa_column=Column(
             SQLAlchemyEnum(WebhookPartnerStatusEnum),
@@ -60,12 +67,52 @@ class WebhookPartner(BaseModel, table=True):
         description="Current status of the webhook integration",
     )
 
-    # Partner-specific validation rules
-    validation_config: dict[str, Any] = Field(
-        default_factory=dict,
-        sa_column=Column(JSONB),
+    validation_config: dict | None = Field(
+        default=None,
+        sa_column=Column(JSONB, nullable=True),
         description="Partner-specific validation rules (e.g., required fields, secret keys, etc.)",
     )
 
-    class Config:
-        arbitrary_types_allowed = True
+    webhook_events: list["WebhookEvent"] = Relationship(back_populates="webhook_partner")
+
+
+class WebhookEvent(BaseModel, table=True):
+    """Model for webhook events."""
+
+    __tablename__ = "webhook_events"
+
+    webhook_event_id: UUID = Field(default_factory=uuid4, primary_key=True, nullable=False)
+
+    webhook_partner_id: UUID = Field(
+        foreign_key="webhook_partners.webhook_partner_id",
+        nullable=False,
+        description="Reference to the webhook partner",
+    )
+
+    direction: WebhookDirectionEnum = Field(
+        sa_column=Column(
+            SQLAlchemyEnum(WebhookDirectionEnum),
+            nullable=False,
+            default=WebhookDirectionEnum.INCOMING,
+            server_default=WebhookDirectionEnum.INCOMING.name,
+        ),
+        description="Direction of the webhook (incoming/outgoing)",
+    )
+
+    raw_payload: dict | None = Field(
+        default=None,
+        sa_column=Column(JSONB, nullable=True),
+        description="Complete webhook payload",
+    )
+
+    processing_status: WebhookProcessingStatusEnum = Field(
+        sa_column=Column(
+            SQLAlchemyEnum(WebhookProcessingStatusEnum),
+            nullable=False,
+            default=WebhookProcessingStatusEnum.INVALID,
+            server_default=WebhookProcessingStatusEnum.INVALID.name,
+        ),
+        description="Current processing status of the webhook",
+    )
+
+    webhook_partner: WebhookPartner = Relationship(back_populates="webhook_events")
