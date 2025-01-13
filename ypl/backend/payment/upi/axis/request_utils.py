@@ -1,6 +1,7 @@
 import base64
 import json
 import logging
+import random
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -19,6 +20,7 @@ from ypl.backend.payment.upi.axis.cryptography_utils import (
     aes128_encrypt,
     calculate_request_body_checksum,
 )
+from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import PaymentInstrumentIdentifierTypeEnum, PaymentTransactionStatusEnum
 
 RequestType = Literal["get_balance", "verify_vpa", "make_payment", "get_payment_status", "get_account_statement"]
@@ -148,15 +150,55 @@ def _make_get_balance_request() -> Request:
     )
 
 
+def _mock_staging_get_balance_response() -> dict:
+    if settings.ENVIRONMENT == "production":
+        raise Exception("Cannot mock response in production")
+    return {
+        "status": "S",
+        "data": {
+            "Balance": "1000.00",
+        },
+    }
+
+
 async def get_balance() -> Decimal:
     request = _make_get_balance_request()
-    response = await _call(request)
-    decrypted_body = aes128_decrypt(
-        _get_config_value("aes_symmetric_key"),
-        response["GetAccountBalanceResponse"]["GetAccountBalanceResponseBodyEncrypted"],
-    )
-    json_body = json.loads(decrypted_body)
-    _log_response_body(request, json_body)
+    try:
+        response = await _call(request)
+        decrypted_body = aes128_decrypt(
+            _get_config_value("aes_symmetric_key"),
+            response["GetAccountBalanceResponse"]["GetAccountBalanceResponseBodyEncrypted"],
+        )
+        json_body = json.loads(decrypted_body)
+        _log_response_body(request, json_body)
+        # Mock staging response for failures.
+        if json_body["status"] != "S" and settings.ENVIRONMENT != "production":
+            json_body = _mock_staging_get_balance_response()
+            logging.info(
+                json_dumps(
+                    {
+                        "message": "Mocked staging get balance response",
+                        "request_id": request.request_id,
+                        "modified_response_body": json_body,
+                    }
+                )
+            )
+    except Exception as e:
+        logging.error(f"Error getting balance: {e}")
+        if settings.ENVIRONMENT != "production":
+            json_body = _mock_staging_get_balance_response()
+            logging.info(
+                json_dumps(
+                    {
+                        "message": "Mocked staging get balance response",
+                        "request_id": request.request_id,
+                        "modified_response_body": json_body,
+                    }
+                )
+            )
+        else:
+            raise
+
     if json_body["status"] != "S":
         raise PaymentProcessingError("Failed to get balance")
     return Decimal(json_body["data"]["Balance"])
@@ -304,6 +346,24 @@ def _map_transaction_status(transaction_status: str) -> PaymentTransactionStatus
     return None
 
 
+def _mock_staging_get_payment_status_response(partner_reference_id: str) -> dict:
+    if settings.ENVIRONMENT == "production":
+        raise Exception("Cannot mock response in production")
+    return {
+        "status": "S",
+        "data": {
+            "CUR_TXN_ENQ": [
+                {
+                    "crn": partner_reference_id,
+                    "transactionStatus": "PROCESSED",
+                    # Mock a random UTR for the transaction based on the partner reference ID.
+                    "utrNo": str(abs(hash(partner_reference_id)))[:10],
+                }
+            ],
+        },
+    }
+
+
 async def get_payment_status(payment_transaction_id: uuid.UUID, partner_reference_id: str) -> PaymentResponse:
     request = _make_get_payment_status_request(partner_reference_id)
     response = await _call(request)
@@ -313,6 +373,21 @@ async def get_payment_status(payment_transaction_id: uuid.UUID, partner_referenc
     )
     json_body = json.loads(decrypted_body)
     _log_response_body(request, json_body)
+
+    # Mock staging response for failures 25% of the time, so that the user doesn't see an immediate response,
+    # and it imitates the behavior of production.
+    if settings.ENVIRONMENT != "production" and random.random() > 0.75:
+        json_body = _mock_staging_get_payment_status_response(partner_reference_id)
+        logging.info(
+            json_dumps(
+                {
+                    "message": "Mocked staging get payment status response",
+                    "request_id": request.request_id,
+                    "modified_response_body": json_body,
+                }
+            )
+        )
+
     if json_body["status"] != "S":
         raise PaymentProcessingError("Failed to get payment status")
 
@@ -403,13 +478,13 @@ def _map_verify_vpa_error(error_code: str, destination_identifier_type: PaymentI
     is_phone_number = destination_identifier_type == PaymentInstrumentIdentifierTypeEnum.PHONE_NUMBER
     if error_code == "MM2":
         return (
-            "Could not find an associated UPI ID for the given phone number"
+            "Invalid phone number. There is no UPI ID associated with this phone number"
             if is_phone_number
             else "Please check the UPI ID and try again"
         )
     if error_code == "MM3":
         return (
-            "The associated UPI ID for this phone number is blocked"
+            "Invalid phone number. There is no UPI ID associated with this phone number"
             if is_phone_number
             else "This UPI ID is blocked, please try with a different UPI ID"
         )
@@ -419,20 +494,97 @@ def _map_verify_vpa_error(error_code: str, destination_identifier_type: PaymentI
             if is_phone_number
             else "This UPI ID is inactive, please try with a different UPI ID"
         )
-    return "Unknown error. Please try again later!"
+    if error_code == "ZH":
+        return "The UPI ID is not valid. Please try with a different UPI ID"
+    raise Exception("Unknown error")
+
+
+def _mock_staging_verify_vpa_response(
+    destination_identifier: str, destination_identifier_type: PaymentInstrumentIdentifierTypeEnum
+) -> dict:
+    if settings.ENVIRONMENT == "production":
+        raise Exception("Cannot mock response in production")
+    if destination_identifier == "1234567890":
+        return {
+            "result": "SUCCESS",
+            "vpa": "test@okaxis",
+            "customerName": "Test User",
+        }
+    if destination_identifier == "9876543210@okaxis":
+        return {
+            "result": "SUCCESS",
+            "customerName": "Test User",
+            "vpa": None,
+        }
+    if destination_identifier == "2345678901":
+        return {
+            "result": "MM2",
+            "code": "MM2",
+            "customerName": "",
+            "vpa": None,
+        }
+    if destination_identifier == "3456789012":
+        return {
+            "result": "MM3",
+            "code": "MM3",
+            "customerName": "",
+            "vpa": None,
+        }
+    if destination_identifier == "4567890123":
+        return {
+            "result": "MM4",
+            "code": "MM4",
+            "customerName": "",
+            "vpa": None,
+        }
+    return {
+        "result": "ZH",
+        "code": "ZH",
+        "customerName": "",
+        "vpa": None,
+    }
 
 
 async def verify_vpa(
     destination_identifier: str, destination_identifier_type: PaymentInstrumentIdentifierTypeEnum
 ) -> VerifyVpaResponse:
     request = _make_verify_vpa_request(destination_identifier)
-    response = await _call(request)
-    decrypted_body = aes128_decrypt(
-        _get_config_value("aes_symmetric_key"),
-        response["VerifyVPAResponse"]["VerifyVPAResponseBodyEncrypted"],
-    )
-    json_body = json.loads(decrypted_body)
-    _log_response_body(request, json_body)
+    try:
+        response = await _call(request)
+        decrypted_body = aes128_decrypt(
+            _get_config_value("aes_symmetric_key"),
+            response["VerifyVPAResponse"]["VerifyVPAResponseBodyEncrypted"],
+        )
+        json_body = json.loads(decrypted_body)
+        _log_response_body(request, json_body)
+
+        if json_body["result"] != "SUCCESS" and settings.ENVIRONMENT != "production":
+            json_body = _mock_staging_verify_vpa_response(destination_identifier, destination_identifier_type)
+            logging.info(
+                json_dumps(
+                    {
+                        "message": "Mocked staging verify VPA response",
+                        "request_id": request.request_id,
+                        "modified_response_body": json_body,
+                    }
+                )
+            )
+    except Exception as e:
+        logging.error(f"Error verifying VPA: {e}")
+        if settings.ENVIRONMENT != "production":
+            json_body = _mock_staging_verify_vpa_response(destination_identifier, destination_identifier_type)
+            logging.info(
+                json_dumps(
+                    {
+                        "message": "Mocked staging verify VPA response",
+                        "request_id": request.request_id,
+                        "modified_response_body": json_body,
+                    }
+                )
+            )
+        else:
+            raise
+
     if json_body["result"] != "SUCCESS":
         message = _map_verify_vpa_error(json_body["result"], destination_identifier_type)
         raise PaymentDestinationIdentifierValidationError(message)

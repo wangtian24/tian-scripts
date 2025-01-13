@@ -76,11 +76,6 @@ class ValidateDestinationIdentifierResponse:
     destination_metadata: UpiDestinationMetadata | None = None
 
 
-@dataclass
-class PaymentErrorMessage:
-    error_message: str
-
-
 class BaseFacilitator(ABC):
     def __init__(
         self,
@@ -138,6 +133,9 @@ class BaseFacilitator(ABC):
         destination_identifier: str,
         destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
         destination_additional_details: dict | None = None,
+        *,
+        # TODO: Make this a standard parameter.
+        payment_transaction_id: UUID | None = None,
     ) -> PaymentResponse:
         pass
 

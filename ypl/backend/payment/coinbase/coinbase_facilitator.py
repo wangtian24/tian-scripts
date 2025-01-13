@@ -115,6 +115,9 @@ class CoinbaseFacilitator(BaseFacilitator):
         destination_identifier: str,
         destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
         destination_additional_details: dict | None = None,
+        *,
+        # TODO: Make this a standard parameter.
+        payment_transaction_id: uuid.UUID | None = None,
     ) -> PaymentResponse:
         start_time = time.time()
         try:

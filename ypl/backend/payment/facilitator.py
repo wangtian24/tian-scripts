@@ -89,6 +89,9 @@ class OnChainFacilitator(BaseFacilitator):
         destination_identifier: str,
         destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
         destination_additional_details: dict | None = None,
+        *,
+        # TODO: Make this a standard parameter.
+        payment_transaction_id: uuid.UUID | None = None,
     ) -> PaymentResponse:
         # Flow of the function
         # 0. Get the balance of the source instrument

@@ -473,6 +473,7 @@ class AxisUpiFacilitator(BaseFacilitator):
                 destination_identifier=destination_identifier,
                 destination_identifier_type=destination_identifier_type,
                 destination_additional_details=destination_additional_details,
+                payment_transaction_id=payment_transaction_id,
             )
             payment_response_received = time.time()
             log_dict = {
@@ -544,12 +545,15 @@ class AxisUpiFacilitator(BaseFacilitator):
         destination_identifier: str,
         destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
         destination_additional_details: dict | None = None,
+        *,
+        payment_transaction_id: uuid.UUID | None = None,
     ) -> PaymentResponse:
         assert destination_additional_details is not None
+        assert payment_transaction_id is not None
 
         return await make_payment(
             AxisPaymentRequest(
-                internal_payment_transaction_id=uuid.uuid4(),
+                internal_payment_transaction_id=payment_transaction_id,
                 amount=amount,
                 destination_internal_id=destination_additional_details["destination_instrument_id"],
                 destination_upi_id=destination_identifier,
