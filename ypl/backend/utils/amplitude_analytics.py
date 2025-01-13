@@ -49,6 +49,19 @@ AMPLITUDE_CHARTS: Final[dict[str, ChartInfo]] = {
     "cashout_users": {"id": "m33ch3su", "description": "cashout users", "series_number": 0},
     "cashout_count": {"id": "q4615u1m", "description": "cashout count", "series_number": 0},
     "cashout_amount": {"id": "0igijx4l", "description": "cashout credits initiated", "series_number": 0},
+    "waitlist_sign_up": {"id": "mrdablao", "description": "waitlist sign up", "series_number": 0},
+    "waitlist_sign_up_no_google": {
+        "id": "mrdablao",
+        "description": "waitlist sign up (no Google account)",
+        "series_number": 1,
+    },
+    "sic_submitted_valid": {"id": "mrdablao", "description": "valid SIC submitted", "series_number": 2},
+    "sic_submitted_total": {
+        "id": "mrdablao",
+        "description": "SIC submitted (valid + invalid)",
+        "series_number": 3,
+    },
+    "sic_dialog_open": {"id": "mrdablao", "description": "viewed invite dialog", "series_number": 4},
 }
 
 
@@ -230,6 +243,19 @@ async def post_data_from_charts(auth: str, start_date: datetime, end_date: datet
             f"g. Cashout: {metrics.get('cashout_users', 0)} users, "
             f"{metrics.get('cashout_count', 0)} cashouts, "
             f"{metrics.get('cashout_amount', 0)} credits initiated\n"
+        )
+
+        # h. Waitlist section
+        message += (
+            f"h. Waitlist: {metrics.get('waitlist_sign_up', 0)} new google sign-ins, "
+            f"{metrics.get('waitlist_sign_up_no_google', 0)} non-Google OAuth waitlist\n"
+        )
+
+        # i. Invite section
+        message += (
+            f"i. SIC: {metrics.get('sic_submitted_valid', 0)} SICs accepted"
+            f" out of {metrics.get('sic_submitted_total', 0)} submitted,"
+            f" {metrics.get('sic_dialog_open', 0)} users viewed their SIC\n"
         )
 
         logging.info(json_dumps(log_dict))
