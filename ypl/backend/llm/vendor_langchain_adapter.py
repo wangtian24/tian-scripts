@@ -16,6 +16,7 @@ from langchain_core.outputs.chat_generation import ChatGeneration
 from openai import AsyncOpenAI, OpenAI
 
 from ypl.backend.llm.model_data_type import ModelInfo
+from ypl.backend.utils.json import json_dumps
 
 GOOGLE_ROLE_MAP = dict(human="user", assistant="model", ai="model")
 OPENAI_ROLE_MAP = dict(human="user", ai="assistant")
@@ -125,16 +126,30 @@ class GeminiLangChainAdapter(VendorLangChainAdapter):
             gapic_response = self.model._client.generate_content(request=self._prepare_request(messages))
 
             try:
-                return ChatResult(
-                    generations=[
-                        ChatGeneration(message=AIMessage(content=gapic_response.candidates[0].content.parts[0].text))
-                    ]
-                )
+                if gapic_response.candidates and gapic_response.candidates[0].content.parts:
+                    content = gapic_response.candidates[0].content.parts[0].text
+                else:
+                    info = {
+                        "message": "Empty response from Gemini",
+                        "response_details": str(gapic_response),
+                    }
+                    logging.warning(json_dumps(info))
+                    content = ""
+
+                return ChatResult(generations=[ChatGeneration(message=AIMessage(content=content))])
             except Exception as e:
-                logging.exception(f"Error parsing Gemini response {gapic_response}: {e}")
+                info = {
+                    "message": "Error parsing Gemini response",
+                    "error_details": str(e),
+                }
+                logging.exception(json_dumps(info))
                 return ChatResult(generations=[ChatGeneration(message=AIMessage(content=""))])
         except Exception as e:
-            logging.exception(f"Error generating content: {e}")
+            info = {
+                "message": "Error generating Gemini content",
+                "error_details": str(e),
+            }
+            logging.exception(json_dumps(info))
             raise e
 
 
