@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import re
@@ -81,18 +82,54 @@ class TruncatingStreamHandler(TruncatingMixin, logging.StreamHandler):
         super().emit(record)
 
 
-class ConsolidatedHandler(RedactingMixin, TruncatingMixin, CloudLoggingHandler):
-    def emit(self, record: logging.LogRecord) -> None:
-        self.redact_record(record)
-        self.truncate_record(record)
-        super().emit(record)
+class ConsolidatedMixin:
+    def _is_json_string(self, msg: str) -> dict | None:
+        """Parse a string as JSON and return the dict if successful, None otherwise."""
+        try:
+            parsed = json.loads(msg)
+            return parsed if isinstance(parsed, dict) else None
+        except (json.JSONDecodeError, TypeError):
+            return None
+
+    def _format_message(self, record: logging.LogRecord) -> str | dict:
+        """Format the log message with module information."""
+        if isinstance(record.msg, dict):
+            return {"module": record.module, **record.msg}
+
+        if isinstance(record.msg, str) and record.msg.strip().startswith("{"):
+            parsed_msg = self._is_json_string(record.msg)
+            if parsed_msg is not None:
+                return {"module": record.module, **parsed_msg}
+
+        return record.msg
 
 
-class ConsolidatedStreamHandler(RedactingMixin, TruncatingMixin, logging.StreamHandler):
+class ConsolidatedHandler(RedactingMixin, TruncatingMixin, CloudLoggingHandler, ConsolidatedMixin):
     def emit(self, record: logging.LogRecord) -> None:
-        self.redact_record(record)
-        self.truncate_record(record)
-        super().emit(record)
+        try:
+            formatted_msg = self._format_message(record)
+            record.msg = (
+                {"module": record.module, "message": formatted_msg} if isinstance(formatted_msg, str) else formatted_msg
+            )
+
+            self.redact_record(record)
+            self.truncate_record(record)
+            super().emit(record)
+        except Exception as e:
+            print(f"Error in ConsolidatedHandler: {e}")
+
+
+class ConsolidatedStreamHandler(RedactingMixin, TruncatingMixin, logging.StreamHandler, ConsolidatedMixin):
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            formatted_msg = self._format_message(record)
+            record.msg = f"[{record.module}] {formatted_msg}" if isinstance(formatted_msg, str) else formatted_msg
+
+            self.redact_record(record)
+            self.truncate_record(record)
+            super().emit(record)
+        except Exception as e:
+            print(f"Error in ConsolidatedStreamHandler: {e}")
 
 
 def setup_google_cloud_logging() -> None:
