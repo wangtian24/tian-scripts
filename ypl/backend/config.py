@@ -164,7 +164,12 @@ class Settings(BaseSettings):
     @computed_field  # type: ignore[misc]
     @cached_property
     def axis_upi_config(self) -> dict:
-        return json.loads(self._get_gcp_secret(f"axis-upi-config-{self.ENVIRONMENT}"))  # type: ignore[no-any-return]
+        secret = self._get_gcp_secret(f"axis-upi-config-{self.ENVIRONMENT}")
+        # Let it fail silently if the secret is not found or is empty. It's not in the critical path.
+        # Other checks will catch it if it's not found.
+        if not secret:
+            return {}
+        return json.loads(secret)  # type: ignore[no-any-return]
 
     @computed_field  # type: ignore[misc]
     @cached_property
