@@ -30,6 +30,7 @@ class WebhookProcessingStatusEnum(enum.Enum):
     INVALID = "invalid"
     PROCESSED = "processed"
     FAILED = "failed"
+    PENDING = "pending"
 
 
 class WebhookPartner(BaseModel, table=True):
