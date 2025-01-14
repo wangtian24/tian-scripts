@@ -289,6 +289,7 @@ class AxisUpiFacilitator(BaseFacilitator):
         user_id: str,
         start_time: float,
     ) -> None:
+        attempt_start_time = time.time()
         try:
             status = await get_payment_status(payment_transaction_id, partner_reference_id)
         except Exception as e:
@@ -300,6 +301,8 @@ class AxisUpiFacilitator(BaseFacilitator):
                 "error": str(e),
                 "facilitator": self.facilitator,
                 "elapsed_time": time.time() - start_time,
+                "attempt_start_time": attempt_start_time,
+                "attempt_time": time.time() - attempt_start_time,
             }
             logging.exception(json_dumps(log_dict))
             raise PaymentStatusFetchError("Failed to get payment status") from e
@@ -311,6 +314,8 @@ class AxisUpiFacilitator(BaseFacilitator):
                 "partner_reference_id": partner_reference_id,
                 "user_id": user_id,
                 "elapsed_time": time.time() - start_time,
+                "attempt_start_time": attempt_start_time,
+                "attempt_time": time.time() - attempt_start_time,
                 "facilitator": self.facilitator,
             }
             logging.info(json_dumps(log_dict))
@@ -324,12 +329,16 @@ class AxisUpiFacilitator(BaseFacilitator):
                 "partner_reference_id": partner_reference_id,
                 "user_id": user_id,
                 "elapsed_time": time.time() - start_time,
+                "attempt_start_time": attempt_start_time,
+                "attempt_time": time.time() - attempt_start_time,
                 "facilitator": self.facilitator,
+                "end_time": time.time(),
             }
             logging.error(json_dumps(log_dict))
             asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
             raise PaymentProcessingError("Payment failed. Finishing payment monitoring")
         elif status.transaction_status == PaymentTransactionStatusEnum.SUCCESS:
+            db_update_start_time = time.time()
             try:
                 async with get_async_session() as session:
                     async with session.begin():
@@ -350,6 +359,11 @@ class AxisUpiFacilitator(BaseFacilitator):
                     "user_id": user_id,
                     "error": str(e),
                     "facilitator": self.facilitator,
+                    "elapsed_time": time.time() - start_time,
+                    "attempt_start_time": attempt_start_time,
+                    "attempt_time": time.time() - attempt_start_time,
+                    "db_update_start_time": db_update_start_time,
+                    "db_update_time": time.time() - db_update_start_time,
                 }
                 logging.exception(json_dumps(log_dict))
                 raise PaymentStatusFetchError("Failed to update payment transaction status to SUCCESS") from e
@@ -359,7 +373,12 @@ class AxisUpiFacilitator(BaseFacilitator):
                 "partner_reference_id": partner_reference_id,
                 "user_id": user_id,
                 "elapsed_time": time.time() - start_time,
+                "attempt_start_time": attempt_start_time,
+                "attempt_time": time.time() - attempt_start_time,
+                "db_update_start_time": db_update_start_time,
+                "db_update_time": time.time() - db_update_start_time,
                 "facilitator": self.facilitator,
+                "end_time": time.time(),
             }
             logging.info(json_dumps(log_dict))
             asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
@@ -386,6 +405,7 @@ class AxisUpiFacilitator(BaseFacilitator):
             "user_id": user_id,
             "facilitator": self.facilitator,
             "retry_config": retry_config,
+            "start_time": start_time,
         }
         logging.info(json_dumps(log_dict))
 
