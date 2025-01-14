@@ -70,6 +70,138 @@ async def handle_coinbase_webhook(
     return {"status": "success"}
 
 
+@dataclass
+class WebhookResult:
+    """Result of webhook operations."""
+
+    webhook_event_id: UUID | None
+    status: WebhookProcessingStatusEnum
+
+
+async def get_webhook(x_coinbase_signature: str) -> WebhookResult | None:
+    """Check if a webhook event already exists.
+
+    Args:
+        x_coinbase_signature: The X-Coinbase-Signature header value
+
+    Returns:
+        WebhookResult | None: The existing webhook event if found, None otherwise
+    """
+    try:
+        async with get_async_session() as session:
+            coinbase_partner_stmt = select(WebhookPartner).where(
+                WebhookPartner.name == "COINBASE",
+                WebhookPartner.status == WebhookPartnerStatusEnum.ACTIVE,
+                WebhookPartner.deleted_at.is_(None),  # type: ignore
+            )
+            result = await session.execute(coinbase_partner_stmt)
+            coinbase_partner = result.scalar_one_or_none()
+
+            if not coinbase_partner:
+                log_dict = {
+                    "message": "Coinbase Webhook: No active Coinbase webhook partner found",
+                    "x_coinbase_signature": x_coinbase_signature,
+                }
+                logging.warning(json_dumps(log_dict))
+                return None
+
+            stmt = select(WebhookEvent).where(
+                WebhookEvent.webhook_partner_id == coinbase_partner.webhook_partner_id,
+                WebhookEvent.partner_webhook_reference_id == x_coinbase_signature,
+                WebhookEvent.deleted_at.is_(None),  # type: ignore
+            )
+            result = await session.execute(stmt)
+            existing_event = result.scalar_one_or_none()
+
+            if existing_event:
+                log_dict = {
+                    "message": "Duplicate Coinbase webhook received",
+                    "x_coinbase_signature": x_coinbase_signature,
+                    "webhook_event_id": str(existing_event.webhook_event_id),
+                    "processing_status": existing_event.processing_status.value,
+                }
+                logging.info(json_dumps(log_dict))
+                return WebhookResult(
+                    webhook_event_id=existing_event.webhook_event_id,
+                    status=existing_event.processing_status,
+                )
+
+            return None
+
+    except Exception as err:
+        error_dict = {
+            "message": "Coinbase Webhook: Error checking for existing webhook",
+            "error": str(err),
+            "x_coinbase_signature": x_coinbase_signature,
+        }
+        logging.exception(json_dumps(error_dict))
+        asyncio.create_task(post_to_slack(json_dumps(error_dict), SLACK_WEBHOOK_CASHOUT))
+        return None
+
+
+async def insert_webhook(x_coinbase_signature: str, event_data: dict[str, Any]) -> WebhookResult:
+    """Insert a new webhook event.
+
+    Args:
+        x_coinbase_signature: The X-Coinbase-Signature header value
+        event_data: The webhook event data
+
+    Returns:
+        WebhookResult: The newly created webhook event
+    """
+    try:
+        async with get_async_session() as session:
+            coinbase_partner_stmt = select(WebhookPartner).where(
+                WebhookPartner.name == "COINBASE",
+                WebhookPartner.status == WebhookPartnerStatusEnum.ACTIVE,
+                WebhookPartner.deleted_at.is_(None),  # type: ignore
+            )
+            result = await session.execute(coinbase_partner_stmt)
+            coinbase_partner = result.scalar_one_or_none()
+
+            if not coinbase_partner:
+                log_dict = {
+                    "message": "Coinbase Webhook: No active Coinbase webhook partner found",
+                    "x_coinbase_signature": x_coinbase_signature,
+                }
+                logging.warning(json_dumps(log_dict))
+                return WebhookResult(webhook_event_id=None, status=WebhookProcessingStatusEnum.FAILED)
+
+            new_event = WebhookEvent(
+                webhook_partner_id=coinbase_partner.webhook_partner_id,
+                direction=WebhookDirectionEnum.INCOMING,
+                raw_payload=event_data,
+                processing_status=WebhookProcessingStatusEnum.INVALID,
+                partner_webhook_reference_id=x_coinbase_signature,
+            )
+            session.add(new_event)
+            await session.commit()
+            await session.refresh(new_event)
+
+            log_dict = {
+                "message": "New Coinbase webhook event created",
+                "webhook_event_id": str(new_event.webhook_event_id),
+                "x_coinbase_signature": x_coinbase_signature,
+                "processing_status": new_event.processing_status.value,
+            }
+            logging.info(json_dumps(log_dict))
+            return WebhookResult(
+                webhook_event_id=new_event.webhook_event_id,
+                status=WebhookProcessingStatusEnum.INVALID,
+            )
+
+    except Exception as err:
+        error_dict = {
+            "message": "Coinbase Webhook: :x: Error creating webhook event :x:",
+            "error": str(err),
+            "x_coinbase_signature": x_coinbase_signature,
+            "event_data": event_data,
+        }
+        logging.exception(json_dumps(error_dict))
+        asyncio.create_task(post_to_slack(json_dumps(error_dict), SLACK_WEBHOOK_CASHOUT))
+        return WebhookResult(webhook_event_id=None, status=WebhookProcessingStatusEnum.FAILED)
+
+
 async def process_coinbase_webhook(token: str, payload: bytes, x_coinbase_signature: str | None) -> None:
     """Process the Coinbase webhook asynchronously.
 
@@ -105,130 +237,40 @@ async def process_coinbase_webhook(token: str, payload: bytes, x_coinbase_signat
         logging.warning(json_dumps(log_dict))
         return
 
-    upsert_result = await upsert_webhook(x_coinbase_signature, event_data)
-    if (
-        upsert_result.status == WebhookProcessingStatusEnum.FAILED
-        or upsert_result.status == WebhookProcessingStatusEnum.PROCESSED
-        or upsert_result.webhook_event_id is None
-    ):
-        return
-
+    # Validate the webhook
     is_valid_token = await validate_token(token)
-    is_valid_payload = validate_payload(payload, webhook_id, x_coinbase_signature)
+    is_valid_payload = await validate_payload(payload, webhook_id, x_coinbase_signature)
 
     if not is_valid_token or not is_valid_payload:
         log_dict = {
             "message": "Coinbase Webhook: Validation failed",
-            "webhook_event_id": str(upsert_result.webhook_event_id),
             "is_valid_token": str(is_valid_token),
             "is_valid_payload": str(is_valid_payload),
-        }
-        logging.warning(json_dumps(log_dict))
-        asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
-
-        await update_webhook_event_status(upsert_result.webhook_event_id, WebhookProcessingStatusEnum.FAILED)
-        return
-
-    log_dict = {
-        "message": "Coinbase Webhook: Validated",
-        "token": token,
-        "event_data": event_data,
-    }
-    logging.info(json_dumps(log_dict))
-
-    await potential_matching_pending_transactions(event_data)
-    await update_webhook_event_status(upsert_result.webhook_event_id, WebhookProcessingStatusEnum.PROCESSED)
-
-
-@dataclass
-class WebhookUpsertResult:
-    """Result of upserting a webhook event."""
-
-    webhook_event_id: UUID | None
-    status: WebhookProcessingStatusEnum
-
-
-async def upsert_webhook(x_coinbase_signature: str, event_data: dict[str, Any]) -> WebhookUpsertResult:
-    """Check for duplicate webhook and insert if it doesn't exist.
-
-    Args:
-        x_coinbase_signature: The X-Coinbase-Signature header value
-        event_data: The webhook event data
-
-    Returns:
-        WebhookUpsertResult: Contains webhook_event_id and processing status of the webhook
-    """
-    try:
-        async with get_async_session() as session:
-            coinbase_partner_stmt = select(WebhookPartner).where(
-                WebhookPartner.name == "COINBASE",
-                WebhookPartner.status == WebhookPartnerStatusEnum.ACTIVE,
-                WebhookPartner.deleted_at.is_(None),  # type: ignore
-            )
-            result = await session.execute(coinbase_partner_stmt)
-            coinbase_partner = result.scalar_one_or_none()
-
-            if not coinbase_partner:
-                log_dict = {
-                    "message": "Coinbase Webhook: No active Coinbase webhook partner found",
-                    "x_coinbase_signature": x_coinbase_signature,
-                }
-                logging.warning(json_dumps(log_dict))
-                return WebhookUpsertResult(webhook_event_id=None, status=WebhookProcessingStatusEnum.FAILED)
-
-            # Check for existing webhook event with same signature
-            stmt = select(WebhookEvent).where(
-                WebhookEvent.webhook_partner_id == coinbase_partner.webhook_partner_id,
-                WebhookEvent.partner_webhook_reference_id == x_coinbase_signature,
-                WebhookEvent.deleted_at.is_(None),  # type: ignore
-            )
-            result = await session.execute(stmt)
-            existing_event = result.scalar_one_or_none()
-
-            if existing_event:
-                log_dict = {
-                    "message": "Duplicate Coinbase webhook received",
-                    "x_coinbase_signature": x_coinbase_signature,
-                    "webhook_event_id": str(existing_event.webhook_event_id),
-                }
-                logging.info(json_dumps(log_dict))
-                return WebhookUpsertResult(
-                    webhook_event_id=existing_event.webhook_event_id,
-                    status=existing_event.processing_status,
-                )
-
-            # Create new webhook event
-            new_event = WebhookEvent(
-                webhook_partner_id=coinbase_partner.webhook_partner_id,
-                direction=WebhookDirectionEnum.INCOMING,
-                raw_payload=event_data,
-                processing_status=WebhookProcessingStatusEnum.INVALID,
-                partner_webhook_reference_id=x_coinbase_signature,
-            )
-            session.add(new_event)
-            await session.commit()
-            await session.refresh(new_event)
-
-            log_dict = {
-                "message": "New Coinbase webhook event created",
-                "webhook_event_id": str(new_event.webhook_event_id),
-                "x_coinbase_signature": x_coinbase_signature,
-            }
-            logging.info(json_dumps(log_dict))
-            return WebhookUpsertResult(
-                webhook_event_id=UUID(str(new_event.webhook_event_id)),
-                status=WebhookProcessingStatusEnum.INVALID,
-            )
-    except Exception as err:
-        error_dict = {
-            "message": "Coinbase Webhook: :x: Error upserting webhook event :x:",
-            "error": str(err),
+            "token": token,
             "x_coinbase_signature": x_coinbase_signature,
             "event_data": event_data,
         }
-        logging.exception(json_dumps(error_dict))
-        asyncio.create_task(post_to_slack(json_dumps(error_dict), SLACK_WEBHOOK_CASHOUT))
-        return WebhookUpsertResult(webhook_event_id=None, status=WebhookProcessingStatusEnum.FAILED)
+        logging.warning(json_dumps(log_dict))
+        asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+        return
+
+    webhook_result = await get_webhook(x_coinbase_signature)
+    if webhook_result and webhook_result.webhook_event_id is not None:
+        return
+
+    webhook_result = await insert_webhook(x_coinbase_signature, event_data)
+    if webhook_result.webhook_event_id is None:
+        log_dict = {
+            "message": "Coinbase Webhook: Error inserting webhook",
+            "x_coinbase_signature": x_coinbase_signature,
+            "event_data": event_data,
+        }
+        logging.error(json_dumps(log_dict))
+        asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+        return
+
+    await potential_matching_pending_transactions(event_data)
+    await update_webhook_event_status(webhook_result.webhook_event_id, WebhookProcessingStatusEnum.PROCESSED)
 
 
 async def validate_token(token: str) -> bool:
@@ -274,7 +316,7 @@ async def validate_token(token: str) -> bool:
         return False
 
 
-def validate_payload(payload: bytes, webhook_id: str, x_coinbase_signature: str) -> bool:
+async def validate_payload(payload: bytes, webhook_id: str, x_coinbase_signature: str) -> bool:
     """Validate the Coinbase webhook payload using HMAC-SHA256.
 
     Args:
@@ -340,6 +382,13 @@ async def update_webhook_event_status(webhook_event_id: UUID, status: WebhookPro
                 webhook_event.processing_status = status
                 webhook_event.modified_at = datetime.now()
                 await session.commit()
+
+                log_dict = {
+                    "message": "Coinbase Webhook: Webhook event status updated",
+                    "webhook_event_id": str(webhook_event.webhook_event_id),
+                    "status": status.value,
+                }
+                logging.info(json_dumps(log_dict))
 
     except Exception as err:
         log_dict = {
