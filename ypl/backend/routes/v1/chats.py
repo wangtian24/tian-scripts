@@ -53,7 +53,8 @@ async def generate_quicktake_chat_id(
     chat_id: str = Path(..., description="The ID of the chat"),
 ) -> QuickTakeResponse:
     try:
-        return await generate_quicktake(request, chat_id)
+        request.chat_id = chat_id if chat_id else request.chat_id
+        return await generate_quicktake(request)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -65,7 +66,9 @@ async def generate_quicktake_turn_id(
     turn_id: str = Path(..., description="The ID of the turn"),
 ) -> QuickTakeResponse:
     try:
-        return await generate_quicktake(request, chat_id, turn_id)
+        request.chat_id = chat_id if chat_id else request.chat_id
+        request.turn_id = turn_id if turn_id else request.turn_id
+        return await generate_quicktake(request)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

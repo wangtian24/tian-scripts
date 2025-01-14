@@ -873,6 +873,9 @@ class QuickTakeResponse(BaseModel):
 
 
 class QuickTakeRequest(BaseModel):
+    user_id: str | None = None
+    chat_id: str | None = None
+    turn_id: str | None = None
     prompt: str | None = None
     model: str | None = None  # one of the entries in QT_LLMS; if none, use MODELS_FOR_DEFAULT_QT
     timeout_secs: float = settings.DEFAULT_QT_TIMEOUT_SECS
@@ -899,8 +902,6 @@ def get_quicktake_generator(
 
 async def generate_quicktake(
     request: QuickTakeRequest,
-    chat_id: str | None = None,
-    turn_id: str | None = None,
     chat_history: list[dict[str, Any]] | None = None,
 ) -> QuickTakeResponse:
     """
@@ -912,14 +913,14 @@ async def generate_quicktake(
         turn_id: The turn ID to fetch history for.
         chat_history: The chat history to use.
     """
-    match chat_id, chat_history:
-        case None, None:
+    match request.chat_id, request.turn_id, chat_history:
+        case None, None, None:
             raise ValueError("Either chat_id or chat_history must be provided")
-        case None, _:
+        case None, None, _:
             pass
         case _, None:
-            assert chat_id is not None  # because mypy cannot infer this
-            chat_history = get_chat_history(chat_id, turn_id)
+            assert request.chat_id is not None  # because mypy cannot infer this
+            chat_history = get_chat_history(request.chat_id, request.turn_id)
 
     assert chat_history is not None, "chat_history is null"
 
@@ -987,8 +988,8 @@ async def generate_quicktake(
     log_dict = {
         "message": f"Quicktake generated with {response_model} in {int((end_time - start_time) * 1000)}ms",
         "is_refusal": str(quicktake == QT_CANT_ANSWER),
-        "chat_id": chat_id,
-        "turn_id": turn_id,
+        "chat_id": request.chat_id,
+        "turn_id": request.turn_id,
         "model": response_model,
         "duration_secs": str(end_time - start_time),
         "content_length": str(len(quicktake)),
