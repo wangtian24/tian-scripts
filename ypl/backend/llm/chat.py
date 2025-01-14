@@ -232,7 +232,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
     return SelectModelsV2Response(
         models=[(model, prompt_modifiers.get(model, [])) for model in selected_models],
         fallback_models=[(model, prompt_modifiers.get(model, [])) for model in fallback_models],
-        provider_map=deduce_original_providers(tuple(models)),
+        provider_map=deduce_original_providers(tuple(selected_models + fallback_models)),
         routing_debug_info=routing_debug_info if request.debug_level > 0 else None,
     )
 
