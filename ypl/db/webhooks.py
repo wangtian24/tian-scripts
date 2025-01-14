@@ -1,6 +1,7 @@
 import enum
 from uuid import UUID, uuid4
 
+import sqlalchemy as sa
 from sqlalchemy import Column
 from sqlalchemy import Enum as SQLAlchemyEnum
 from sqlalchemy.dialects.postgresql import JSONB
@@ -81,6 +82,16 @@ class WebhookEvent(BaseModel, table=True):
     """Model for webhook events."""
 
     __tablename__ = "webhook_events"
+    __table_args__ = (
+        # Unique constraint on combination of webhook_partner_id and partner_webhook_reference_id
+        sa.Index(
+            "ix_webhook_events_partner_webhook_unique",
+            "webhook_partner_id",
+            "partner_webhook_reference_id",
+            unique=True,
+            postgresql_where=sa.text("deleted_at IS NULL"),
+        ),
+    )
 
     webhook_event_id: UUID = Field(default_factory=uuid4, primary_key=True, nullable=False)
 
