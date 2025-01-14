@@ -13,7 +13,6 @@ from typing import Any
 from uuid import UUID
 
 import ypl.db.all_models  # noqa: F401
-from asyncpg.exceptions import UniqueViolationError
 from fastapi import APIRouter, Header, Request
 from sqlalchemy.orm import selectinload
 from sqlmodel import select
@@ -91,6 +90,7 @@ async def upsert_webhook(x_coinbase_signature: str, event_data: dict[str, Any]) 
     """
     try:
         async with get_async_session() as session:
+            # Get the Coinbase partner first
             coinbase_partner_stmt = select(WebhookPartner).where(
                 WebhookPartner.name == "COINBASE",
                 WebhookPartner.status == WebhookPartnerStatusEnum.ACTIVE,
@@ -107,6 +107,34 @@ async def upsert_webhook(x_coinbase_signature: str, event_data: dict[str, Any]) 
                 logging.warning(json_dumps(log_dict))
                 return None
 
+            # First try to get the existing event with FOR UPDATE to prevent race conditions
+            stmt = (
+                select(WebhookEvent)
+                .where(
+                    WebhookEvent.webhook_partner_id == coinbase_partner.webhook_partner_id,
+                    WebhookEvent.partner_webhook_reference_id == x_coinbase_signature,
+                    WebhookEvent.deleted_at.is_(None),  # type: ignore
+                )
+                .with_for_update()
+            )
+
+            result = await session.execute(stmt)
+            existing_event = result.scalar_one_or_none()
+
+            if existing_event:
+                log_dict = {
+                    "message": "Duplicate Coinbase webhook received",
+                    "x_coinbase_signature": x_coinbase_signature,
+                    "webhook_event_id": str(existing_event.webhook_event_id),
+                    "processing_status": existing_event.processing_status.value,
+                }
+                logging.info(json_dumps(log_dict))
+                return WebhookResult(
+                    webhook_event_id=existing_event.webhook_event_id,
+                    status=existing_event.processing_status,
+                )
+
+            # If no existing event, create a new one
             new_event = WebhookEvent(
                 webhook_partner_id=coinbase_partner.webhook_partner_id,
                 direction=WebhookDirectionEnum.INCOMING,
@@ -115,53 +143,19 @@ async def upsert_webhook(x_coinbase_signature: str, event_data: dict[str, Any]) 
                 partner_webhook_reference_id=x_coinbase_signature,
             )
             session.add(new_event)
-            try:
-                await session.commit()
+            await session.commit()
 
-                log_dict = {
-                    "message": "New Coinbase webhook event created",
-                    "webhook_event_id": str(new_event.webhook_event_id),
-                    "x_coinbase_signature": x_coinbase_signature,
-                    "processing_status": new_event.processing_status.value,
-                }
-                logging.info(json_dumps(log_dict))
-                return WebhookResult(
-                    webhook_event_id=new_event.webhook_event_id,
-                    status=WebhookProcessingStatusEnum.PENDING,
-                )
-
-            except UniqueViolationError:
-                await session.rollback()
-                # If duplicate, fetch the existing record
-                stmt = select(WebhookEvent).where(
-                    WebhookEvent.webhook_partner_id == coinbase_partner.webhook_partner_id,
-                    WebhookEvent.partner_webhook_reference_id == x_coinbase_signature,
-                    WebhookEvent.deleted_at.is_(None),  # type: ignore
-                )
-                result = await session.execute(stmt)
-                existing_event = result.scalar_one_or_none()
-
-                if existing_event:
-                    log_dict = {
-                        "message": "Duplicate Coinbase webhook received",
-                        "x_coinbase_signature": x_coinbase_signature,
-                        "webhook_event_id": str(existing_event.webhook_event_id),
-                        "processing_status": existing_event.processing_status.value,
-                    }
-                    logging.info(json_dumps(log_dict))
-                    return WebhookResult(
-                        webhook_event_id=existing_event.webhook_event_id,
-                        status=existing_event.processing_status,
-                    )
-
-                # If we got a unique violation but can't find the record then maybe a race condition
-                # so we'll just log and return None
-                log_dict = {
-                    "message": "Coinbase Webhook: Got unique violation but cannot find existing webhook",
-                    "x_coinbase_signature": x_coinbase_signature,
-                }
-                logging.warning(json_dumps(log_dict))
-                return None
+            log_dict = {
+                "message": "New Coinbase webhook event created",
+                "webhook_event_id": str(new_event.webhook_event_id),
+                "x_coinbase_signature": x_coinbase_signature,
+                "processing_status": new_event.processing_status.value,
+            }
+            logging.info(json_dumps(log_dict))
+            return WebhookResult(
+                webhook_event_id=new_event.webhook_event_id,
+                status=WebhookProcessingStatusEnum.PENDING,
+            )
 
     except Exception as err:
         error_dict = {
