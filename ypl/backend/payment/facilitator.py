@@ -77,7 +77,7 @@ class OnChainFacilitator(BaseFacilitator):
             instrument_metadata,
         )
 
-    async def get_balance(self, currency: CurrencyEnum) -> Decimal:
+    async def get_balance(self, currency: CurrencyEnum, payment_transaction_id: uuid.UUID | None = None) -> Decimal:
         crypto_balance = await get_crypto_balance(currency)
         return crypto_balance
 
@@ -108,7 +108,7 @@ class OnChainFacilitator(BaseFacilitator):
             try:
                 credits_to_cashout += CASHOUT_TXN_COST
                 # 0. Get the balance of the source instrument
-                source_instrument_balance = await self.get_balance(self.currency)
+                source_instrument_balance = await self.get_balance(self.currency, payment_transaction_id)
 
                 if source_instrument_balance < amount:
                     log_dict = {

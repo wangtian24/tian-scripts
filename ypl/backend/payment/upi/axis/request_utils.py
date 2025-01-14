@@ -2,6 +2,7 @@ import base64
 import json
 import logging
 import random
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -33,6 +34,7 @@ class Request:
     request_type: RequestType
     encrypted_request: dict
     plaintext_request: dict
+    internal_payment_transaction_id: uuid.UUID | None = None
 
 
 def _get_config_value(key: str, request_type: RequestType | None = None) -> str:
@@ -50,8 +52,10 @@ def _log_request(request: Request) -> None:
         "request_id": request.request_id,
         "encrypted_request": request.encrypted_request,
         "plaintext_request": request.plaintext_request,
+        "payment_transaction_id": str(request.internal_payment_transaction_id),
+        "timestamp": time.time(),
     }
-    logging.info(json.dumps(log_dict))
+    logging.info(json_dumps(log_dict))
 
 
 def _log_response_body(request: Request, response_body: dict) -> None:
@@ -59,8 +63,10 @@ def _log_response_body(request: Request, response_body: dict) -> None:
         "message": f"Decrypted response body from Axis {request.request_type} API",
         "request_id": request.request_id,
         "response_body": response_body,
+        "payment_transaction_id": str(request.internal_payment_transaction_id),
+        "timestamp": time.time(),
     }
-    logging.info(json.dumps(log_dict))
+    logging.info(json_dumps(log_dict))
 
 
 # Axis requires a unique ID that's below 30 characters in alphanumeric.
@@ -71,6 +77,7 @@ def _uuid_to_axis_unique_id(uuid: uuid.UUID) -> str:
 
 async def _call(request: Request) -> dict:
     _log_request(request)
+    start_time = time.time()
 
     async with httpx.AsyncClient() as client:
         response = await client.post(
@@ -86,12 +93,15 @@ async def _call(request: Request) -> dict:
         try:
             response_json = response.json()
             logging.info(
-                json.dumps(
+                json_dumps(
                     {
                         "message": f"Received response from Axis {request.request_type} API",
                         "status_code": response.status_code,
                         "response": response_json,
                         "request_id": request.request_id,
+                        "payment_transaction_id": str(request.internal_payment_transaction_id),
+                        "duration": time.time() - start_time,
+                        "timestamp": time.time(),
                     }
                 )
             )
@@ -99,20 +109,23 @@ async def _call(request: Request) -> dict:
             return response_json  # type: ignore[no-any-return]
         except httpx.HTTPStatusError as e:
             logging.error(
-                json.dumps(
+                json_dumps(
                     {
                         "message": f"HTTP error in Axis {request.request_type} API",
                         "status_code": response.status_code,
                         "response": response_json,
                         "error": str(e),
                         "request_id": request.request_id,
+                        "payment_transaction_id": str(request.internal_payment_transaction_id),
+                        "duration": time.time() - start_time,
+                        "timestamp": time.time(),
                     }
                 )
             )
             raise
 
 
-def _make_get_balance_request() -> Request:
+def _make_get_balance_request(internal_payment_transaction_id: uuid.UUID | None = None) -> Request:
     request_id = str(uuid.uuid4())
     request_body = {
         "corpCode": _get_config_value("corp_code", "get_balance"),
@@ -147,6 +160,7 @@ def _make_get_balance_request() -> Request:
         "get_balance",
         encrypted_request,
         plaintext_request,
+        internal_payment_transaction_id,
     )
 
 
@@ -161,8 +175,8 @@ def _mock_staging_get_balance_response() -> dict:
     }
 
 
-async def get_balance() -> Decimal:
-    request = _make_get_balance_request()
+async def get_balance(internal_payment_transaction_id: uuid.UUID | None = None) -> Decimal:
+    request = _make_get_balance_request(internal_payment_transaction_id)
     try:
         response = await _call(request)
         decrypted_body = aes128_decrypt(
@@ -180,6 +194,7 @@ async def get_balance() -> Decimal:
                         "message": "Mocked staging get balance response",
                         "request_id": request.request_id,
                         "modified_response_body": json_body,
+                        "payment_transaction_id": str(request.internal_payment_transaction_id),
                     }
                 )
             )
@@ -193,6 +208,7 @@ async def get_balance() -> Decimal:
                         "message": "Mocked staging get balance response",
                         "request_id": request.request_id,
                         "modified_response_body": json_body,
+                        "payment_transaction_id": str(request.internal_payment_transaction_id),
                     }
                 )
             )
@@ -295,7 +311,9 @@ async def make_payment(axis_payment_request: AxisPaymentRequest) -> PaymentRespo
     )
 
 
-def _make_get_payment_status_request(partner_reference_id: str) -> Request:
+def _make_get_payment_status_request(
+    partner_reference_id: str, internal_payment_transaction_id: uuid.UUID | None = None
+) -> Request:
     request_id = str(uuid.uuid4())
 
     request_body = {
@@ -334,6 +352,7 @@ def _make_get_payment_status_request(partner_reference_id: str) -> Request:
         "get_payment_status",
         encrypted_request,
         plaintext_request,
+        internal_payment_transaction_id,
     )
 
 
@@ -365,8 +384,8 @@ def _mock_staging_get_payment_status_response(partner_reference_id: str) -> dict
     }
 
 
-async def get_payment_status(payment_transaction_id: uuid.UUID, partner_reference_id: str) -> PaymentResponse:
-    request = _make_get_payment_status_request(partner_reference_id)
+async def get_payment_status(internal_payment_transaction_id: uuid.UUID, partner_reference_id: str) -> PaymentResponse:
+    request = _make_get_payment_status_request(partner_reference_id, internal_payment_transaction_id)
     response = await _call(request)
     decrypted_body = aes128_decrypt(
         _get_config_value("aes_symmetric_key"),
@@ -385,6 +404,7 @@ async def get_payment_status(payment_transaction_id: uuid.UUID, partner_referenc
                     "message": "Mocked staging get payment status response",
                     "request_id": request.request_id,
                     "modified_response_body": json_body,
+                    "payment_transaction_id": str(internal_payment_transaction_id),
                 }
             )
         )
@@ -402,12 +422,12 @@ async def get_payment_status(payment_transaction_id: uuid.UUID, partner_referenc
             if transaction_status is None:
                 transaction_status = PaymentTransactionStatusEnum.PENDING
                 logging.error(
-                    json.dumps(
+                    json_dumps(
                         {
                             "message": "Unknown transaction status from Axis UPI",
                             "partner_transaction_status": status_item["transactionStatus"],
                             "partner_reference_id": partner_reference_id,
-                            "payment_transaction_id": payment_transaction_id,
+                            "payment_transaction_id": str(internal_payment_transaction_id),
                         }
                     )
                 )
@@ -419,7 +439,7 @@ async def get_payment_status(payment_transaction_id: uuid.UUID, partner_referenc
     assert transaction_status is not None
 
     return PaymentResponse(
-        payment_transaction_id=payment_transaction_id,
+        payment_transaction_id=internal_payment_transaction_id,
         transaction_status=transaction_status,
         customer_reference_id=customer_reference_id,
     )
@@ -448,7 +468,7 @@ def _make_verify_vpa_request(vpa: str) -> Request:
         "VerifyVPARequest": {
             "SubHeader": sub_header,
             "VerifyVPARequestBodyEncrypted": aes128_encrypt(
-                _get_config_value("aes_symmetric_key"), json.dumps(request_body)
+                _get_config_value("aes_symmetric_key"), json_dumps(request_body)
             ),
         }
     }
@@ -571,7 +591,15 @@ async def verify_vpa(
                 )
             )
     except Exception as e:
-        logging.error(f"Error verifying VPA: {e}")
+        logging.error(
+            json_dumps(
+                {
+                    "message": "Error verifying VPA",
+                    "error": str(e),
+                    "request_id": request.request_id,
+                }
+            )
+        )
         if settings.ENVIRONMENT != "production":
             json_body = _mock_staging_verify_vpa_response(destination_identifier, destination_identifier_type)
             logging.info(

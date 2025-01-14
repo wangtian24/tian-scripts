@@ -87,8 +87,16 @@ class BaseFacilitator(ABC):
         self.destination_identifier_type = destination_identifier_type
         self.facilitator = facilitator
 
+    # TODO(arawind): Remove payment_transaction_id after adding contextual logging.
     @abstractmethod
-    async def get_balance(self, currency: CurrencyEnum) -> Decimal:
+    async def get_balance(self, currency: CurrencyEnum, payment_transaction_id: UUID | None = None) -> Decimal:
+        """Get the balance of the payment instrument.
+
+        Args:
+            currency: The currency if there are multiple currencies supported.
+            payment_transaction_id: The ID of the payment transaction, if this request is part of a payment transaction.
+                This is only used for logging purposes.
+        """
         pass
 
     @abstractmethod

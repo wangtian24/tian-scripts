@@ -61,8 +61,8 @@ class AxisUpiFacilitator(BaseFacilitator):
     # Only used as a placeholder. This ID will not be sent to the bank during the payment request.
     SOURCE_INSTRUMENT_UPI_ID = "AXIS"
 
-    async def get_balance(self, currency: CurrencyEnum) -> Decimal:
-        return await get_balance()
+    async def get_balance(self, currency: CurrencyEnum, payment_transaction_id: uuid.UUID | None = None) -> Decimal:
+        return await get_balance(payment_transaction_id)
 
     async def get_source_instrument_id(self) -> uuid.UUID:
         return await get_source_instrument_id(
@@ -118,7 +118,9 @@ class AxisUpiFacilitator(BaseFacilitator):
                                 f"Could not undo payment transaction. "
                                 f"Payment transaction already in the final {payment_transaction.status} state"
                             ),
-                            "payment_transaction_id": payment_transaction_id,
+                            "payment_transaction_id": str(payment_transaction_id),
+                            "facilitator": self.facilitator,
+                            "user_id": str(payment_transaction.destination_instrument.user_id),
                         }
                         logging.info(json_dumps(log_dict))
                         raise ValueError("Payment transaction already in the final state")
@@ -128,7 +130,7 @@ class AxisUpiFacilitator(BaseFacilitator):
 
                     log_dict = {
                         "message": "Failed to process payout reward. Reversing transaction.",
-                        "user_id": point_transaction.user_id,
+                        "user_id": str(point_transaction.user_id),
                         "payment_transaction_id": str(payment_transaction_id),
                         "points_transaction_id": str(point_transaction.transaction_id),
                         "credits_to_cashout": str(point_transaction.point_delta),
@@ -136,7 +138,8 @@ class AxisUpiFacilitator(BaseFacilitator):
                         "source_instrument_id": str(payment_transaction.source_instrument_id),
                         "destination_instrument_id": str(payment_transaction.destination_instrument_id),
                         "destination_identifier": payment_transaction.destination_instrument.identifier,
-                        "destination_identifier_type": payment_transaction.destination_instrument.identifier_type,
+                        "destination_identifier_type": str(payment_transaction.destination_instrument.identifier_type),
+                        "facilitator": self.facilitator,
                     }
                     logging.info(json_dumps(log_dict))
                     asyncio.create_task(
@@ -186,12 +189,13 @@ class AxisUpiFacilitator(BaseFacilitator):
                 "message": "Successfully reversed transaction",
                 "payment_transaction_id": str(payment_transaction_id),
                 "points_transaction_id": str(point_transaction.transaction_id),
-                "user_id": point_transaction.user_id,
+                "user_id": str(point_transaction.user_id),
                 "amount": str(payment_transaction.amount),
                 "source_instrument_id": str(payment_transaction.source_instrument_id),
                 "destination_instrument_id": str(payment_transaction.destination_instrument_id),
                 "destination_identifier": payment_transaction.destination_instrument.identifier,
-                "destination_identifier_type": payment_transaction.destination_instrument.identifier_type,
+                "destination_identifier_type": str(payment_transaction.destination_instrument.identifier_type),
+                "facilitator": self.facilitator,
             }
             logging.info(json_dumps(log_dict))
             asyncio.create_task(
@@ -201,14 +205,16 @@ class AxisUpiFacilitator(BaseFacilitator):
             )
         except Exception as e:
             log_dict = {
-                "message": "Failed to handle failed transaction cleanup",
+                "message": "Could not undo payment transaction",
                 "payment_transaction_id": str(payment_transaction_id),
                 "error": str(e),
+                "facilitator": self.facilitator,
             }
             logging.exception(json_dumps(log_dict))
             asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
 
-    async def _monitor_payment_status(
+    # TODO: Make this generic, and resilient
+    async def monitor_payment_status(
         self, payment_transaction_id: uuid.UUID, partner_reference_id: str, user_id: str
     ) -> None:
         start_time = time.time()
@@ -220,6 +226,7 @@ class AxisUpiFacilitator(BaseFacilitator):
             "user_id": user_id,
             "max_wait_time": max_wait_time,
             "poll_interval": poll_interval,
+            "facilitator": self.facilitator,
         }
         logging.info(json_dumps(log_dict))
 
@@ -233,12 +240,23 @@ class AxisUpiFacilitator(BaseFacilitator):
                     "partner_reference_id": partner_reference_id,
                     "user_id": user_id,
                     "error": str(e),
+                    "facilitator": self.facilitator,
+                    "elapsed_time": time.time() - start_time,
                 }
                 logging.exception(json_dumps(log_dict))
                 await asyncio.sleep(poll_interval)
                 continue
 
             if status.transaction_status == PaymentTransactionStatusEnum.PENDING:
+                log_dict = {
+                    "message": "Payment is still pending",
+                    "payment_transaction_id": str(payment_transaction_id),
+                    "partner_reference_id": partner_reference_id,
+                    "user_id": user_id,
+                    "elapsed_time": time.time() - start_time,
+                    "facilitator": self.facilitator,
+                }
+                logging.info(json_dumps(log_dict))
                 await asyncio.sleep(poll_interval)
             elif status.transaction_status == PaymentTransactionStatusEnum.FAILED:
                 # TODO: Store the customer reference ID in the payment transaction even if the transaction fails.
@@ -249,8 +267,10 @@ class AxisUpiFacilitator(BaseFacilitator):
                     "partner_reference_id": partner_reference_id,
                     "user_id": user_id,
                     "elapsed_time": time.time() - start_time,
+                    "facilitator": self.facilitator,
                 }
                 logging.error(json_dumps(log_dict))
+                asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
                 raise PaymentProcessingError("Payment failed")
             elif status.transaction_status == PaymentTransactionStatusEnum.SUCCESS:
                 try:
@@ -272,6 +292,7 @@ class AxisUpiFacilitator(BaseFacilitator):
                         "partner_reference_id": partner_reference_id,
                         "user_id": user_id,
                         "error": str(e),
+                        "facilitator": self.facilitator,
                     }
                     logging.exception(json_dumps(log_dict))
                     await asyncio.sleep(poll_interval)
@@ -282,18 +303,21 @@ class AxisUpiFacilitator(BaseFacilitator):
                     "partner_reference_id": partner_reference_id,
                     "user_id": user_id,
                     "elapsed_time": time.time() - start_time,
+                    "facilitator": self.facilitator,
                 }
                 logging.info(json_dumps(log_dict))
+                asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
                 return
 
         # If we get here, we've timed out
         # Do not reverse the transaction here as the txn might still complete
         log_dict = {
-            "message": f":red_circle: *Axis UPI payment monitoring timed out*\n"
-            f"payment_transaction_id: {payment_transaction_id}\n"
-            f"user_id: {user_id}\n"
-            f"partner_reference_id: {partner_reference_id}\n"
-            f"last_status: {status}\n",
+            "message": ":red_circle: *Axis UPI payment monitoring timed out*",
+            "payment_transaction_id": str(payment_transaction_id),
+            "user_id": user_id,
+            "partner_reference_id": partner_reference_id,
+            "last_status": status,
+            "facilitator": self.facilitator,
         }
         logging.error(json_dumps(log_dict))
 
@@ -342,8 +366,9 @@ class AxisUpiFacilitator(BaseFacilitator):
                     "credits_to_cashout": credits_to_cashout,
                     "amount": str(amount),
                     "currency": self.currency,
-                    "payment_transaction_id": payment_transaction_id,
+                    "payment_transaction_id": str(payment_transaction_id),
                     "facilitator": self.facilitator,
+                    "elapsed_time": time.time() - start_time,
                 }
                 logging.exception(json_dumps(log_dict))
                 if isinstance(e, InvalidToken):
@@ -371,9 +396,12 @@ class AxisUpiFacilitator(BaseFacilitator):
                     "currency": self.currency,
                     "source_instrument_balance": str(balance),
                     "facilitator": self.facilitator,
-                    "payment_transaction_id": payment_transaction_id,
+                    "payment_transaction_id": str(payment_transaction_id),
+                    "processing_time": time.time() - start_time,
+                    "elapsed_time": time.time() - start_time,
                 }
                 logging.error(json_dumps(log_dict))
+                asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
                 raise ValueError("Source instrument does not have enough balance")
         except Exception as e:
             log_dict = {
@@ -381,7 +409,9 @@ class AxisUpiFacilitator(BaseFacilitator):
                 "user_id": user_id,
                 "error": str(e),
                 "facilitator": self.facilitator,
-                "payment_transaction_id": payment_transaction_id,
+                "payment_transaction_id": str(payment_transaction_id),
+                "processing_time": time.time() - start_time,
+                "elapsed_time": time.time() - start_time,
             }
             logging.exception(json_dumps(log_dict))
             raise PaymentInstrumentError("Failed to get payment instruments") from e
@@ -389,8 +419,9 @@ class AxisUpiFacilitator(BaseFacilitator):
         log_dict = {
             "message": "Successfully got payment instruments and validated balance",
             "user_id": user_id,
-            "payment_transaction_id": payment_transaction_id,
-            "duration": balance_validation_done - start_time,
+            "payment_transaction_id": str(payment_transaction_id),
+            "processing_time": balance_validation_done - start_time,
+            "elapsed_time": time.time() - start_time,
         }
         logging.info(json_dumps(log_dict))
 
@@ -444,7 +475,8 @@ class AxisUpiFacilitator(BaseFacilitator):
                 "user_id": user_id,
                 "error": str(e),
                 "facilitator": self.facilitator,
-                "payment_transaction_id": payment_transaction_id,
+                "payment_transaction_id": str(payment_transaction_id),
+                "elapsed_time": time.time() - start_time,
             }
             logging.exception(json_dumps(log_dict))
             raise PaymentProcessingError("Failed to initiate db for payment") from e
@@ -453,8 +485,10 @@ class AxisUpiFacilitator(BaseFacilitator):
         log_dict = {
             "message": "Initial DB updates made",
             "user_id": user_id,
-            "duration": db_inits_done - balance_validation_done,
-            "payment_transaction_id": payment_transaction_id,
+            "processing_time": db_inits_done - balance_validation_done,
+            "payment_transaction_id": str(payment_transaction_id),
+            "facilitator": self.facilitator,
+            "elapsed_time": time.time() - start_time,
         }
         logging.info(json_dumps(log_dict))
 
@@ -482,24 +516,29 @@ class AxisUpiFacilitator(BaseFacilitator):
             log_dict = {
                 "message": "Successfully sent payment request to the partner",
                 "user_id": user_id,
-                "duration": payment_response_received - db_inits_done,
-                "payment_transaction_id": payment_transaction_id,
+                "processing_time": payment_response_received - db_inits_done,
+                "payment_transaction_id": str(payment_transaction_id),
                 "partner_reference_id": payment_response.partner_reference_id,
+                "facilitator": self.facilitator,
+                "elapsed_time": time.time() - start_time,
             }
+            asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
             logging.info(json_dumps(log_dict))
         except Exception as e:
             # TODO: Have granular exceptions for different types of errors.
             # We should only reverse the transaction if the error is known to be irrecoverable
-            # and that the parner isn't going to process it.
+            # and that the partner isn't going to process it.
             log_dict = {
                 "message": "Failed to send payment request to the partner",
                 "user_id": user_id,
                 "error": str(e),
                 "facilitator": self.facilitator,
-                "payment_transaction_id": payment_transaction_id,
+                "payment_transaction_id": str(payment_transaction_id),
+                "elapsed_time": time.time() - start_time,
             }
             logging.exception(json_dumps(log_dict))
             await self.undo_payment_transaction(payment_transaction_id)
+            asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
             raise PaymentProcessingError("Failed to send payment request to the partner") from e
 
         partner_reference_id = payment_response.partner_reference_id
@@ -518,23 +557,27 @@ class AxisUpiFacilitator(BaseFacilitator):
         log_dict = {
             "message": "Updated payment transaction status to PENDING",
             "user_id": user_id,
-            "duration": db_updates_done - payment_response_received,
-            "payment_transaction_id": payment_transaction_id,
+            "processing_time": db_updates_done - payment_response_received,
+            "payment_transaction_id": str(payment_transaction_id),
             "partner_reference_id": partner_reference_id,
+            "facilitator": self.facilitator,
+            "elapsed_time": time.time() - start_time,
         }
         logging.info(json_dumps(log_dict))
 
         # 5. Start monitoring the payment transaction and hand off to the async task.
         # TODO: Improve this.
         assert partner_reference_id is not None
-        asyncio.create_task(self._monitor_payment_status(payment_transaction_id, partner_reference_id, user_id))
+        asyncio.create_task(self.monitor_payment_status(payment_transaction_id, partner_reference_id, user_id))
 
         log_dict = {
             "message": "make_payment completed",
             "user_id": user_id,
-            "duration": time.time() - start_time,
-            "payment_transaction_id": payment_transaction_id,
+            "processing_time": time.time() - start_time,
+            "payment_transaction_id": str(payment_transaction_id),
             "partner_reference_id": partner_reference_id,
+            "facilitator": self.facilitator,
+            "elapsed_time": time.time() - start_time,
         }
         logging.info(json_dumps(log_dict))
 

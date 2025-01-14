@@ -92,12 +92,12 @@ class CoinbaseFacilitator(BaseFacilitator):
             instrument_metadata,
         )
 
-    async def get_balance(self, currency: CurrencyEnum) -> Decimal:
+    async def get_balance(self, currency: CurrencyEnum, payment_transaction_id: uuid.UUID | None = None) -> Decimal:
         """Get the balance for a specific currency.
 
         Args:
             currency: The currency to get balance for
-
+            payment_transaction_id: The ID of the payment transaction, if this request is part of a payment transaction.
         Returns:
             Decimal: The balance amount
         """
@@ -134,7 +134,7 @@ class CoinbaseFacilitator(BaseFacilitator):
             try:
                 credits_to_cashout += CASHOUT_TXN_COST
                 # Get the balance of the source instrument
-                source_instrument_balance = await self.get_balance(self.currency)
+                source_instrument_balance = await self.get_balance(self.currency, payment_transaction_id)
 
                 if source_instrument_balance < amount:
                     log_dict = {

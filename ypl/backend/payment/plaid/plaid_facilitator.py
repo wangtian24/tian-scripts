@@ -129,7 +129,7 @@ class PlaidFacilitator(BaseFacilitator):
                 return instrument.payment_instrument_id
             return instrument.payment_instrument_id
 
-    async def get_balance(self, currency: CurrencyEnum) -> Decimal:
+    async def get_balance(self, currency: CurrencyEnum, payment_transaction_id: uuid.UUID | None = None) -> Decimal:
         plaid_balance = await get_balance()
         return plaid_balance
 
@@ -159,7 +159,7 @@ class PlaidFacilitator(BaseFacilitator):
         try:
             try:
                 # 0. Get the balance of the source instrument
-                source_instrument_balance = await self.get_balance(self.currency)
+                source_instrument_balance = await self.get_balance(self.currency, payment_transaction_id)
 
                 if source_instrument_balance < amount:
                     if ENVIRONMENT != "production":
