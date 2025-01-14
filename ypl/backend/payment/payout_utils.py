@@ -7,6 +7,7 @@ from decimal import Decimal
 
 from sqlalchemy import func
 from sqlalchemy.exc import DatabaseError, OperationalError
+from sqlalchemy.orm import selectinload
 from sqlmodel import select
 from tenacity import (
     after_log,
@@ -69,17 +70,23 @@ async def validate_pending_cashouts_async() -> None:
     async for attempt in await async_retry_decorator():
         with attempt:
             async with get_async_session() as session:
-                query = select(PaymentTransaction).where(
-                    PaymentTransaction.status.not_in(  # type: ignore
-                        [
-                            PaymentTransactionStatusEnum.SUCCESS,
-                            PaymentTransactionStatusEnum.REVERSED,
-                            PaymentTransactionStatusEnum.FAILED,
-                        ]
-                    ),
-                    PaymentTransaction.created_at.is_not(None),  # type: ignore
-                    PaymentTransaction.created_at < datetime.now() - timedelta(hours=1),  # type: ignore
-                    PaymentTransaction.deleted_at.is_(None),  # type: ignore
+                query = (
+                    select(PaymentTransaction)
+                    .options(
+                        selectinload(PaymentTransaction.destination_instrument),  # type: ignore
+                    )
+                    .where(
+                        PaymentTransaction.status.not_in(  # type: ignore
+                            [
+                                PaymentTransactionStatusEnum.SUCCESS,
+                                PaymentTransactionStatusEnum.REVERSED,
+                                PaymentTransactionStatusEnum.FAILED,
+                            ]
+                        ),
+                        PaymentTransaction.created_at.is_not(None),  # type: ignore
+                        PaymentTransaction.created_at < datetime.now() - timedelta(hours=1),  # type: ignore
+                        PaymentTransaction.deleted_at.is_(None),  # type: ignore
+                    )
                 )
                 result = await session.execute(query)
                 pending_payments = result.scalars().all()
@@ -111,6 +118,8 @@ async def validate_pending_cashouts_async() -> None:
                         await process_pending_onchain_transaction(payment=payment)
                     elif facilitator == PaymentInstrumentFacilitatorEnum.COINBASE:
                         await process_pending_coinbase_transaction(payment=payment)
+                    elif facilitator == PaymentInstrumentFacilitatorEnum.UPI:
+                        await process_pending_upi_transaction(payment=payment)
                     else:
                         log_dict = {
                             "message": "Unknown facilitator",
@@ -362,6 +371,23 @@ async def process_pending_coinbase_transaction(payment: PaymentTransaction) -> N
         }
         logging.error(json_dumps(log_dict))
         asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+
+
+async def process_pending_upi_transaction(payment: PaymentTransaction) -> None:
+    from ypl.backend.payment.upi.axis.facilitator import AxisUpiFacilitator
+
+    # TODO: Use the base facilitator instead of the specific one
+    facilitator: AxisUpiFacilitator = await AxisUpiFacilitator.for_payment_transaction_id(
+        payment.payment_transaction_id
+    )  # type: ignore
+    await facilitator.monitor_payment_status(
+        payment_transaction_id=payment.payment_transaction_id,
+        partner_reference_id=payment.partner_reference_id,
+        user_id=payment.destination_instrument.user_id,
+        # Retry 6 times, starting with 1s delay, and doubling the delay exponentially up to 10s.
+        # Waiting up to ~30s excluding the API call time.
+        retry_config={"max_attempts": 6, "multiplier": 1, "min_wait": 1, "max_wait": 10},
+    )
 
 
 async def handle_failed_transaction(

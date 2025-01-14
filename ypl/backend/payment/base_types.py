@@ -36,6 +36,12 @@ class PaymentProcessingError(Exception):
     pass
 
 
+class PaymentStatusFetchError(Exception):
+    """Exception raised when a payment status fetch fails. It is a retryable error."""
+
+    pass
+
+
 class TransactionCreationError(PaymentProcessingError):
     """Error creating payment transaction"""
 

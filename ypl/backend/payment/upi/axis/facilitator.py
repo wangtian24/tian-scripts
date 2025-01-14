@@ -5,10 +5,18 @@ import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from typing import Any
 
 from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy.orm import selectinload
 from sqlmodel import select, update
+from tenacity import (
+    RetryCallState,
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
 from ypl.backend.llm.utils import post_to_slack, post_to_slack_with_user_name
@@ -16,6 +24,7 @@ from ypl.backend.payment.base_types import (
     PaymentInstrumentError,
     PaymentProcessingError,
     PaymentResponse,
+    PaymentStatusFetchError,
     UpiDestinationMetadata,
     ValidateDestinationIdentifierResponse,
 )
@@ -44,6 +53,7 @@ from ypl.db.point_transactions import PointsActionEnum, PointTransaction
 from ypl.db.users import User
 
 VALIDATE_DESTINATION_IDENTIFIER_TOKEN_TTL_SECONDS = 5 * 60
+MIN_BALANCE_FOR_ALERT = Decimal("10_000")  # 10,000 INR
 
 
 def _mask_name(name: str) -> str:
@@ -57,12 +67,54 @@ def _mask_name(name: str) -> str:
     return " ".join(masked_words)
 
 
+def log_payment_retry_attempt(retry_state: RetryCallState) -> None:
+    """Custom logger for payment retry attempts"""
+    payment_transaction_id = retry_state.kwargs.get("payment_transaction_id")
+    partner_reference_id = retry_state.kwargs.get("partner_reference_id")
+    user_id = retry_state.kwargs.get("user_id")
+    start_time = retry_state.kwargs.get("start_time")
+
+    logging.info(
+        json_dumps(
+            {
+                "message": f"Retrying payment check in attempt {retry_state.attempt_number}",
+                "attempt_number": retry_state.attempt_number,
+                "sleep_time": retry_state.next_action.sleep if retry_state.next_action else None,
+                "payment_transaction_id": str(payment_transaction_id),
+                "partner_reference_id": partner_reference_id,
+                "user_id": user_id,
+                "error": str(retry_state.outcome.exception()) if retry_state.outcome else None,
+                "start_time": start_time,
+                "elapsed_time": time.time() - start_time,
+                "facilitator": "UPI",
+            }
+        )
+    )
+
+
+def get_retry_decorator(max_attempts: int = 35, multiplier: float = 1, min_wait: float = 1, max_wait: float = 10):  # type: ignore[no-untyped-def]
+    return retry(
+        retry=retry_if_exception_type(PaymentStatusFetchError),
+        wait=wait_exponential(multiplier=multiplier, min=min_wait, max=max_wait),
+        stop=stop_after_attempt(max_attempts),
+        before_sleep=log_payment_retry_attempt,
+    )
+
+
 class AxisUpiFacilitator(BaseFacilitator):
     # Only used as a placeholder. This ID will not be sent to the bank during the payment request.
     SOURCE_INSTRUMENT_UPI_ID = "AXIS"
 
     async def get_balance(self, currency: CurrencyEnum, payment_transaction_id: uuid.UUID | None = None) -> Decimal:
-        return await get_balance(payment_transaction_id)
+        balance = await get_balance(payment_transaction_id)
+        if balance < MIN_BALANCE_FOR_ALERT and settings.ENVIRONMENT == "production":
+            message = (
+                f":red_circle: *Axis account balance low alert for UPI*\n"
+                f"Current balance: INR {balance}\n"
+                f"Minimum required: INR {MIN_BALANCE_FOR_ALERT}"
+            )
+            asyncio.create_task(post_to_slack(message))
+        return balance
 
     async def get_source_instrument_id(self) -> uuid.UUID:
         return await get_source_instrument_id(
@@ -213,117 +265,153 @@ class AxisUpiFacilitator(BaseFacilitator):
             logging.exception(json_dumps(log_dict))
             asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
 
-    # TODO: Make this generic, and resilient
-    async def monitor_payment_status(
-        self, payment_transaction_id: uuid.UUID, partner_reference_id: str, user_id: str
+    async def _check_payment_status_with_retry(
+        self,
+        payment_transaction_id: uuid.UUID,
+        partner_reference_id: str,
+        user_id: str,
+        start_time: float,
+        retry_config: dict,
     ) -> None:
-        start_time = time.time()
-        max_wait_time, poll_interval = self.get_polling_config()
-        log_dict = {
-            "message": "Payment monitoring started",
-            "payment_transaction_id": str(payment_transaction_id),
-            "partner_reference_id": partner_reference_id,
-            "user_id": user_id,
-            "max_wait_time": max_wait_time,
-            "poll_interval": poll_interval,
-            "facilitator": self.facilitator,
-        }
-        logging.info(json_dumps(log_dict))
+        retry_decorator = get_retry_decorator(**retry_config)
+        await retry_decorator(self._check_payment_status)(
+            payment_transaction_id=payment_transaction_id,
+            partner_reference_id=partner_reference_id,
+            user_id=user_id,
+            start_time=start_time,
+        )
 
-        while (time.time() - start_time) < max_wait_time:
+    async def _check_payment_status(
+        self,
+        *,  # Force keyword arguments
+        payment_transaction_id: uuid.UUID,
+        partner_reference_id: str,
+        user_id: str,
+        start_time: float,
+    ) -> None:
+        try:
+            status = await get_payment_status(payment_transaction_id, partner_reference_id)
+        except Exception as e:
+            log_dict = {
+                "message": "Failed to get payment status. Retrying after a delay.",
+                "payment_transaction_id": str(payment_transaction_id),
+                "partner_reference_id": partner_reference_id,
+                "user_id": user_id,
+                "error": str(e),
+                "facilitator": self.facilitator,
+                "elapsed_time": time.time() - start_time,
+            }
+            logging.exception(json_dumps(log_dict))
+            raise PaymentStatusFetchError("Failed to get payment status") from e
+
+        if status.transaction_status == PaymentTransactionStatusEnum.PENDING:
+            log_dict = {
+                "message": "Payment is still pending",
+                "payment_transaction_id": str(payment_transaction_id),
+                "partner_reference_id": partner_reference_id,
+                "user_id": user_id,
+                "elapsed_time": time.time() - start_time,
+                "facilitator": self.facilitator,
+            }
+            logging.info(json_dumps(log_dict))
+            raise PaymentStatusFetchError("Payment is still pending")
+        elif status.transaction_status == PaymentTransactionStatusEnum.FAILED:
+            # TODO: Store the customer reference ID in the payment transaction even if the transaction fails.
+            await self.undo_payment_transaction(payment_transaction_id)
+            log_dict = {
+                "message": "Payment failed",
+                "payment_transaction_id": str(payment_transaction_id),
+                "partner_reference_id": partner_reference_id,
+                "user_id": user_id,
+                "elapsed_time": time.time() - start_time,
+                "facilitator": self.facilitator,
+            }
+            logging.error(json_dumps(log_dict))
+            asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+            raise PaymentProcessingError("Payment failed. Finishing payment monitoring")
+        elif status.transaction_status == PaymentTransactionStatusEnum.SUCCESS:
             try:
-                status = await get_payment_status(payment_transaction_id, partner_reference_id)
+                async with get_async_session() as session:
+                    async with session.begin():
+                        await session.exec(
+                            update(PaymentTransaction)
+                            .values(
+                                status=PaymentTransactionStatusEnum.SUCCESS,
+                                last_status_change_at=datetime.now(),
+                                customer_reference_id=status.customer_reference_id,
+                            )
+                            .where(PaymentTransaction.payment_transaction_id == payment_transaction_id)  # type: ignore
+                        )
             except Exception as e:
                 log_dict = {
-                    "message": "Failed to get payment status. Retrying after a delay.",
+                    "message": "Failed to update payment transaction status to SUCCESS",
                     "payment_transaction_id": str(payment_transaction_id),
                     "partner_reference_id": partner_reference_id,
                     "user_id": user_id,
                     "error": str(e),
                     "facilitator": self.facilitator,
-                    "elapsed_time": time.time() - start_time,
                 }
                 logging.exception(json_dumps(log_dict))
-                await asyncio.sleep(poll_interval)
-                continue
+                raise PaymentStatusFetchError("Failed to update payment transaction status to SUCCESS") from e
+            log_dict = {
+                "message": "Payment successful",
+                "payment_transaction_id": str(payment_transaction_id),
+                "partner_reference_id": partner_reference_id,
+                "user_id": user_id,
+                "elapsed_time": time.time() - start_time,
+                "facilitator": self.facilitator,
+            }
+            logging.info(json_dumps(log_dict))
+            asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+            return
 
-            if status.transaction_status == PaymentTransactionStatusEnum.PENDING:
-                log_dict = {
-                    "message": "Payment is still pending",
-                    "payment_transaction_id": str(payment_transaction_id),
-                    "partner_reference_id": partner_reference_id,
-                    "user_id": user_id,
-                    "elapsed_time": time.time() - start_time,
-                    "facilitator": self.facilitator,
-                }
-                logging.info(json_dumps(log_dict))
-                await asyncio.sleep(poll_interval)
-            elif status.transaction_status == PaymentTransactionStatusEnum.FAILED:
-                # TODO: Store the customer reference ID in the payment transaction even if the transaction fails.
-                await self.undo_payment_transaction(payment_transaction_id)
-                log_dict = {
-                    "message": "Payment failed",
-                    "payment_transaction_id": str(payment_transaction_id),
-                    "partner_reference_id": partner_reference_id,
-                    "user_id": user_id,
-                    "elapsed_time": time.time() - start_time,
-                    "facilitator": self.facilitator,
-                }
-                logging.error(json_dumps(log_dict))
-                asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
-                raise PaymentProcessingError("Payment failed")
-            elif status.transaction_status == PaymentTransactionStatusEnum.SUCCESS:
-                try:
-                    async with get_async_session() as session:
-                        async with session.begin():
-                            await session.exec(
-                                update(PaymentTransaction)
-                                .values(
-                                    status=PaymentTransactionStatusEnum.SUCCESS,
-                                    last_status_change_at=datetime.now(),
-                                    customer_reference_id=status.customer_reference_id,
-                                )
-                                .where(PaymentTransaction.payment_transaction_id == payment_transaction_id)  # type: ignore
-                            )
-                except Exception as e:
-                    log_dict = {
-                        "message": "Failed to update payment transaction status to SUCCESS",
-                        "payment_transaction_id": str(payment_transaction_id),
-                        "partner_reference_id": partner_reference_id,
-                        "user_id": user_id,
-                        "error": str(e),
-                        "facilitator": self.facilitator,
-                    }
-                    logging.exception(json_dumps(log_dict))
-                    await asyncio.sleep(poll_interval)
-                    continue
-                log_dict = {
-                    "message": "Payment successful",
-                    "payment_transaction_id": str(payment_transaction_id),
-                    "partner_reference_id": partner_reference_id,
-                    "user_id": user_id,
-                    "elapsed_time": time.time() - start_time,
-                    "facilitator": self.facilitator,
-                }
-                logging.info(json_dumps(log_dict))
-                asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
-                return
+    # TODO: Make this generic, and resilient
+    async def monitor_payment_status(
+        self,
+        payment_transaction_id: uuid.UUID,
+        partner_reference_id: str,
+        user_id: str,
+        retry_config: dict | None = None,
+    ) -> None:
+        start_time = time.time()
 
-        # If we get here, we've timed out
-        # Do not reverse the transaction here as the txn might still complete
-        log_dict = {
-            "message": ":red_circle: *Axis UPI payment monitoring timed out*",
+        # Retry starting with 1s delay, and doubling the delay exponentially up to 10s.
+        # Waiting up to ~5m excluding the API call time.
+        retry_config = retry_config or {"max_attempts": 35, "multiplier": 1, "min_wait": 1, "max_wait": 10}
+
+        log_dict: dict[str, Any] = {
+            "message": "Payment monitoring started",
             "payment_transaction_id": str(payment_transaction_id),
-            "user_id": user_id,
             "partner_reference_id": partner_reference_id,
-            "last_status": status,
+            "user_id": user_id,
             "facilitator": self.facilitator,
+            "retry_config": retry_config,
         }
-        logging.error(json_dumps(log_dict))
+        logging.info(json_dumps(log_dict))
 
-        asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
-
-        raise PaymentProcessingError("Payment monitoring timed out")
+        try:
+            await self._check_payment_status_with_retry(
+                payment_transaction_id=payment_transaction_id,
+                partner_reference_id=partner_reference_id,
+                user_id=user_id,
+                start_time=start_time,
+                retry_config=retry_config,
+            )
+        except Exception as e:
+            # If we get here, we've timed out
+            # Do not reverse the transaction here as the txn might still complete
+            log_dict = {
+                "message": ":red_circle: *Axis UPI payment monitoring timed out*",
+                "payment_transaction_id": str(payment_transaction_id),
+                "user_id": user_id,
+                "partner_reference_id": partner_reference_id,
+                "error": str(e),
+                "facilitator": self.facilitator,
+                "elapsed_time": time.time() - start_time,
+            }
+            logging.exception(json_dumps(log_dict))
+            asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+            raise PaymentStatusFetchError("Failed to monitor payment status") from e
 
     def _get_validated_destination_details(self, validated_destination_details: str) -> dict:
         decryptor = Fernet(settings.validate_destination_identifier_secret_key)
@@ -666,5 +754,5 @@ class AxisUpiFacilitator(BaseFacilitator):
         """
         return (
             5 * 60,  # 5 minutes in seconds
-            10,  # 10 seconds
+            5,  # 5 seconds
         )
