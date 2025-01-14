@@ -154,7 +154,14 @@ async def upsert_webhook(x_coinbase_signature: str, event_data: dict[str, Any]) 
                         status=existing_event.processing_status,
                     )
 
-                raise
+                # If we got a unique violation but can't find the record then maybe a race condition
+                # so we'll just log and return None
+                log_dict = {
+                    "message": "Coinbase Webhook: Got unique violation but cannot find existing webhook",
+                    "x_coinbase_signature": x_coinbase_signature,
+                }
+                logging.warning(json_dumps(log_dict))
+                return None
 
     except Exception as err:
         error_dict = {
