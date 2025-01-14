@@ -90,6 +90,9 @@ class User(BaseModel, table=True):
     )
     special_invite_code_claim_log: "SpecialInviteCodeClaimLog" = Relationship(back_populates="user")
 
+    # User profile relationship
+    profile: "UserProfile" = Relationship(back_populates="user", cascade_delete=True)
+
     def is_new_user(self) -> bool:
         return len(self.chats) < NEW_USER_CHAT_THRESHOLD
 
@@ -173,6 +176,31 @@ class SyntheticUserAttributes(BaseModel, table=True):
     style: str = Field(nullable=False, sa_type=sa.Text, default="")
 
     user: "User" = Relationship(back_populates="synthetic_attributes")
+
+
+class UserProfile(BaseModel, table=True):
+    """Represents additional profile information for a user."""
+
+    __tablename__ = "user_profiles"
+
+    user_id: str = Field(foreign_key="users.user_id", primary_key=True, nullable=False)
+    educational_institution: str | None = Field(default=None, sa_type=sa.Text)
+    city: str | None = Field(default=None, sa_type=sa.Text)
+
+    # ISO 3166-1 alpha-2 format
+    country: str | None = Field(
+        sa_column=Column(
+            "country",
+            sa.Text,
+            sa.CheckConstraint("country ~ '^[A-Z]{2}$'", name="country_iso_alpha2_check"),
+            nullable=True,
+        ),
+        default=None,
+    )
+    discord_username: str | None = Field(default=None, sa_type=sa.Text)
+
+    # Relationship to User model
+    user: "User" = Relationship(back_populates="profile")
 
 
 class SyntheticBackfillAttributes(BaseModel, table=True):
