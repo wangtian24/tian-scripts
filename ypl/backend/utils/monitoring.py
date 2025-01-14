@@ -32,10 +32,10 @@ Metric counters. All counters are exported to GCP every EXPORT_INTERVAL_SECS sec
 All counters will be exported to GCP periodically every EXPORT_INTERVAL_SECS seconds.
 """
 GCM_CLIENT: monitoring_v3.MetricServiceClient | None = None
-GCP_EXPORT_INTERVAL_SECS = 20
+GCP_EXPORT_INTERVAL_SECS = 90
 GCP_EXPORT_BATCH_SIZE = 200
 # for every single value metric, we keep at most 5 data points per second on average.
-MAX_VALUES_TO_KEEP_BEFORE_FLUSHING = GCP_EXPORT_BATCH_SIZE * 5
+MAX_VALUES_TO_KEEP_BEFORE_FLUSHING = GCP_EXPORT_INTERVAL_SECS / 6
 
 
 class BaseMetric:
