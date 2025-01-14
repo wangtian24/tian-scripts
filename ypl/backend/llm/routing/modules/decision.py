@@ -62,6 +62,5 @@ class RoutingDecisionLogger(RouterModule):
                 "additional_metadata": self.metadata,
             }
             logging.info(json_dumps(log_dict))
-            print("---------------logging decision---------------")
 
         return state
