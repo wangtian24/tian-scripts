@@ -347,7 +347,7 @@ async def validate_payload(payload: bytes, webhook_id: str, x_coinbase_signature
             "x_coinbase_signature": x_coinbase_signature,
             "calculated_signature": calculated_signature,
         }
-
+        logging.info(json_dumps(log_dict))
         if not hmac.compare_digest(calculated_signature, x_coinbase_signature):
             log_dict = {
                 "message": "Coinbase Webhook: Invalid Coinbase webhook signature",
