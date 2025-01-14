@@ -211,7 +211,7 @@ class AxisPaymentRequest:
     # Will be passed as beneCode (beneficiary code), which can be any unique ID for the beneficiary.
     # We plan to use the base32 encoded UUID of the user's instrument ID.
     destination_internal_id: uuid.UUID
-    # VPA or the VPA mapped phone number.
+    # VPA of the beneficiary. Phone number will not work.
     destination_upi_id: str
     # Message to be displayed to the receiver.
     receiver_display_message: str
@@ -237,6 +237,7 @@ def _make_payment_request(axis_payment_request: AxisPaymentRequest) -> Request:
                 "beneName": beneficiary_name_or_code,
                 "beneCode": beneficiary_name_or_code,
                 # For UPI, the beneficiary account number is the VPA.
+                # It is never the phone number.
                 "beneAccNum": axis_payment_request.destination_upi_id,
                 "senderToReceiverInfo": axis_payment_request.receiver_display_message,
             }

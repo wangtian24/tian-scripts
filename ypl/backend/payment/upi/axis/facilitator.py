@@ -465,6 +465,9 @@ class AxisUpiFacilitator(BaseFacilitator):
             destination_additional_details = {}
         destination_additional_details["destination_instrument_id"] = destination_instrument_id
 
+        if instrument_metadata is not None and "validated_vpa" in instrument_metadata:
+            destination_additional_details["validated_vpa"] = instrument_metadata["validated_vpa"]
+
         try:
             payment_response = await self._send_payment_request(
                 user_id=user_id,
@@ -551,13 +554,18 @@ class AxisUpiFacilitator(BaseFacilitator):
         assert destination_additional_details is not None
         assert payment_transaction_id is not None
 
+        destination_upi_id = (
+            destination_additional_details["validated_vpa"]
+            if "validated_vpa" in destination_additional_details
+            else destination_identifier
+        )
+
         return await make_payment(
             AxisPaymentRequest(
                 internal_payment_transaction_id=payment_transaction_id,
                 amount=amount,
                 destination_internal_id=destination_additional_details["destination_instrument_id"],
-                destination_upi_id=destination_identifier,
-                # TODO: Get the final message from Mouli.
+                destination_upi_id=destination_upi_id,
                 # Ensure that the message is limited to 60 characters.
                 # Only alphanumeric characters are allowed.
                 receiver_display_message=f"{credits_to_cashout} YUPP credits redeemed"[:60],
