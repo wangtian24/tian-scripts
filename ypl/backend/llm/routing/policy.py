@@ -29,7 +29,10 @@ class SelectionCriteria(Enum):
     _ALWAYS_INCLUDE_TOP = "always_include_top"  # from the setting ROUTING_GOOD_MODELS_ALWAYS (router.py, config.py)
 
     # Select models based on the expected reward.
-    TOP = "top"
+    TOP_K = "top_k"
+
+    # Select models based on the expected reward.
+    TOP_ELO = "top_elo"
 
     # Select models with a probability proportional to their expected reward.
     PROPORTIONAL = "proportional"
@@ -77,3 +80,5 @@ class SelectionCriteria(Enum):
     INJECT = "inject"
 
     RANDOM = "random"
+    RANDOM_REPUTABLE = "random_reputable"
+    RANDOM_SHUFFLE = "random_shuffle"

@@ -34,7 +34,7 @@ from ypl.backend.llm.routing.modules.proposers import (
     RandomModelProposer,
     StrongModelProposer,
 )
-from ypl.backend.llm.routing.policy import decayed_random_fraction
+from ypl.backend.llm.routing.policy import SelectionCriteria, decayed_random_fraction
 from ypl.backend.llm.routing.route_data_type import RoutingPreference
 from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter, OpenAILangChainAdapter
 from ypl.backend.utils.monitoring import metric_inc_by
@@ -55,6 +55,7 @@ async def get_simple_pro_router(
     user_selected_models: list[str] | None = None,
     show_me_more_models: list[str] | None = None,
     provided_categories: list[str] | None = None,
+    extra_prefix: str | None = None,
 ) -> RouterModule:
     """
     The main routing function.
@@ -62,7 +63,11 @@ async def get_simple_pro_router(
     from ypl.backend.llm.routing.rule_router import RoutingRuleFilter, RoutingRuleProposer
 
     preference = routing_preference or RoutingPreference(turns=[], user_id=None)
-    reputable_proposer = RandomModelProposer(providers=reputable_providers or set(settings.ROUTING_REPUTABLE_PROVIDERS))
+
+    reputable_proposer = RandomModelProposer(
+        for_criteria=SelectionCriteria.RANDOM_REPUTABLE,
+        providers=reputable_providers or set(settings.ROUTING_REPUTABLE_PROVIDERS),
+    )
     online_labeler = _get_online_labeler()
     topic_labeler = _get_topic_labeler()
     modifier_labeler = _get_modifier_labeler()
@@ -93,7 +98,7 @@ async def get_simple_pro_router(
         """
         return (
             # -- filter stage --
-            Exclude(providers=show_me_more_providers, models=exclude_models)
+            Exclude(name="-exSMM", providers=show_me_more_providers, models=exclude_models)
             # inject user selected model, even if they are already used before.
             # Also they are always treated with priority in the following dedup filters.
             | Inject(user_selected_models or [], score=10000000)
@@ -106,7 +111,9 @@ async def get_simple_pro_router(
             # -- logging stage --
             | RoutingDecisionLogger(
                 enabled=settings.ROUTING_DO_LOGGING,
-                prefix=f"{prefix}-prompt-simple-pro-router",
+                prefix=f"{extra_prefix}{prefix}-prompt-simple-pro-router",
+                preference=preference,
+                required_models=user_selected_models,
                 metadata={
                     "user_id": preference.user_id,
                     "categories": categories,
@@ -157,9 +164,9 @@ async def get_simple_pro_router(
                 )
                 & (rule_proposer.with_flags(always_include=True) | error_filter | RandomJitter(jitter_range=1))
                 & (
-                    (ProModelProposer() | Exclude(models=all_bad_models) | error_filter | TopK(1)).with_flags(
-                        always_include=True, offset=10000
-                    )
+                    (
+                        ProModelProposer() | Exclude(name="-ex2", models=all_bad_models) | error_filter | TopK(1)
+                    ).with_flags(always_include=True, offset=10000)
                     ^ (
                         reputable_proposer
                         | StreamableModelFilter()
@@ -199,7 +206,9 @@ def get_prompt_conditional_router(
     key = settings.X_API_KEY
     preference = routing_preference or RoutingPreference(turns=[], user_id=None)
 
-    reputable_proposer = RandomModelProposer(providers=set(settings.ROUTING_REPUTABLE_PROVIDERS))
+    reputable_proposer = RandomModelProposer(
+        for_criteria=SelectionCriteria.RANDOM_REPUTABLE, providers=set(settings.ROUTING_REPUTABLE_PROVIDERS)
+    )
     categorizer_proposer = RemotePromptCategorizerProposer(
         prompt,
         endpoint,
@@ -229,6 +238,7 @@ def get_prompt_conditional_router(
             | RoutingDecisionLogger(
                 enabled=settings.ROUTING_DO_LOGGING,
                 prefix="first-prompt-conditional-router",
+                preference=preference,
                 metadata={"user_id": preference.user_id},
             )
         )
@@ -259,12 +269,12 @@ def get_prompt_conditional_router(
                 (RandomModelProposer(models=all_good_models).with_flags(offset=100000) | TopK(1)).with_flags(
                     always_include=True
                 )
-                & (ProModelProposer() | Exclude(models=all_bad_models) | TopK(1)).with_flags(
+                & (ProModelProposer() | Exclude(name="-ex3", models=all_bad_models) | TopK(1)).with_flags(
                     always_include=True, offset=10000
                 )
                 & (
                     categorizer_proposer
-                    | Exclude(models=all_bad_models)
+                    | Exclude(name="-ex4", models=all_bad_models)
                     | ProviderFilter(one_per_provider=True)
                     | MaxSpeedProposer()
                     | RandomJitter(jitter_range=30.0)  # +/- 30 tokens per second
@@ -278,6 +288,7 @@ def get_prompt_conditional_router(
             | RoutingDecisionLogger(
                 enabled=settings.ROUTING_DO_LOGGING,
                 prefix="nonfirst-prompt-conditional-router",
+                preference=preference,
                 metadata={
                     "user_id": preference.user_id,
                     "turns": [t.model_dump() for t in preference.turns],

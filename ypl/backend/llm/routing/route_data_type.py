@@ -156,3 +156,4 @@ class RoutingPreference(BaseModel):
         )
     )
     user_id: str | None = Field(description="The user ID of the user who is being routed.")
+    debug_level: int = 1

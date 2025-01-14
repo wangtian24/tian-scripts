@@ -35,6 +35,7 @@ from ypl.backend.llm.labeler import QT_CANT_ANSWER, MultiLLMLabeler, QuickTakeGe
 from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.prompt_selector import CategorizedPromptModifierSelector, get_modifiers_by_model, store_modifiers
 from ypl.backend.llm.provider.provider_clients import get_model_provider_tuple
+from ypl.backend.llm.routing.debug import RoutingDebugInfo, build_routing_debug_info
 from ypl.backend.llm.routing.route_data_type import PreferredModel, RoutingPreference
 from ypl.backend.llm.routing.router_state import RouterState
 from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter, OpenAILangChainAdapter
@@ -80,12 +81,14 @@ class SelectModelsV2Request(BaseModel):
     chat_id: str | None = None  # chat ID to use for routing
     turn_id: str | None = None  # turn ID to use for routing
     provided_categories: list[str] | None = None  # categories provided by the user
+    debug_level: int = 0  # 0: return no debug info, log only, 1: return debug
 
 
 class SelectModelsV2Response(BaseModel):
     models: list[tuple[str, list[tuple[str, str]]]]  # list of (model, list[(prompt modifier ID, prompt modifier)])
     provider_map: dict[str, str]  # map from model to provider
     fallback_models: list[tuple[str, list[tuple[str, str]]]]  # list of fallback models and modifiers
+    routing_debug_info: RoutingDebugInfo | None = None
 
 
 async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Response:
@@ -95,8 +98,10 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         required_models: list[str] | None = None,
         show_me_more_models: list[str] | None = None,
         provided_categories: list[str] | None = None,
-    ) -> tuple[list[str], list[str], list[str]]:
+    ) -> tuple[RouterState, RouterState]:
         num_models = request.num_models
+
+        # select N models
         router = await get_simple_pro_router(
             prompt,
             num_models,
@@ -104,18 +109,30 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
             user_selected_models=required_models,
             show_me_more_models=show_me_more_models,
             provided_categories=provided_categories,
+            extra_prefix="PRIMARY-",
         )
         all_models_state = RouterState.new_all_models_state()
-        selected_models = router.select_models(state=all_models_state)
-        return_models = selected_models.get_sorted_selected_models()
+        selected_models_rs = router.select_models(state=all_models_state)
 
+        # select N more models as fallback, not same as first N
+        router = await get_simple_pro_router(
+            prompt,
+            num_models,
+            preference,
+            # do not include user selected models already used
+            user_selected_models=[m for m in (required_models or []) if m not in selected_models_rs.selected_models],
+            show_me_more_models=show_me_more_models,
+            provided_categories=provided_categories,
+            extra_prefix="FALLBACK-",
+        )
         all_fallback_models = RouterState.new_all_models_state()
         all_fallback_models = all_fallback_models.emplaced(
-            all_models=all_fallback_models.all_models.difference(return_models)
+            # just keep the models not already in the return models (any remainders), select within them
+            all_models=all_fallback_models.all_models.difference(selected_models_rs.get_sorted_selected_models())
         )
-        fallback_models = router.select_models(state=all_fallback_models).get_sorted_selected_models()
+        fallback_models_rs = router.select_models(state=all_fallback_models)
 
-        return return_models, fallback_models, selected_models.applicable_modifiers
+        return selected_models_rs, fallback_models_rs
 
     metric_inc(f"routing/intent_{request.intent}")
     start_time = time.time()
@@ -140,6 +157,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         case _:
             preference = RoutingPreference(turns=[], user_id=request.user_id)
 
+    preference.debug_level = request.debug_level
     show_me_more_models = []
 
     if request.intent == SelectIntent.SHOW_ME_MORE:
@@ -156,14 +174,18 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
     else:
         models = request.required_models or []
 
-    models, fallback_models, applicable_modifiers = await select_models_(
+    selected_models_rs, fallback_models_rs = await select_models_(
         required_models=models,
         show_me_more_models=show_me_more_models,
         provided_categories=request.provided_categories,
     )
 
-    models = models[: request.num_models]
-    fallback_models = fallback_models[: request.num_models]
+    # TODO(tian) - redundant??
+    # models = models[: request.num_models]
+    # fallback_models = fallback_models[: request.num_models]
+
+    selected_models = selected_models_rs.get_sorted_selected_models()
+    fallback_models = fallback_models_rs.get_sorted_selected_models()
 
     prompt_modifiers: dict[str, list[tuple[str, str]]] = {}
     if request.intent != SelectIntent.NEW_CHAT:
@@ -176,7 +198,9 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
                 modifier_history = {}
 
             prompt_modifiers = selector.select_modifiers(
-                models + fallback_models, modifier_history, applicable_modifiers
+                selected_models + fallback_models,
+                modifier_history,
+                selected_models_rs.applicable_modifiers,
             )
 
             if request.turn_id:
@@ -194,10 +218,22 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         metric_inc(f"routing/count_chosen_{model}")
     metric_record(f"routing/latency_{request.intent}_ms", int((time.time() - start_time) * 1000))
 
+    routing_debug_info: RoutingDebugInfo = build_routing_debug_info(
+        selected_models_rs=selected_models_rs,
+        fallback_models_rs=fallback_models_rs,
+        required_models=request.required_models,
+    )
+
+    if logging.root.getEffectiveLevel() == logging.DEBUG:
+        for model, model_debug in routing_debug_info.model_debug.items():
+            is_selected = " S => " if model in selected_models else ""
+            logging.debug(f"> {model:<50}{is_selected:<8}{model_debug.score:-10.1f}{model_debug.journey}")
+
     return SelectModelsV2Response(
-        models=[(model, prompt_modifiers.get(model, [])) for model in models],
+        models=[(model, prompt_modifiers.get(model, [])) for model in selected_models],
         fallback_models=[(model, prompt_modifiers.get(model, [])) for model in fallback_models],
         provider_map=deduce_original_providers(tuple(models)),
+        routing_debug_info=routing_debug_info if request.debug_level > 0 else None,
     )
 
 

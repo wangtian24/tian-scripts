@@ -36,11 +36,20 @@ class ModelProposer(RouterModule):
         models_to_select = state.get_selectable_models()
         response = self._propose_models(models_to_select, state.deepcopy())
 
+        self._update_debug(response)
         return response
 
     async def _aselect_models(self, state: RouterState) -> RouterState:
         models_to_select = state.get_selectable_models()
         response = await self._apropose_models(models_to_select, state.deepcopy())
+        self._update_debug(response)
+
+        return response
+
+    def _update_debug(self, response: RouterState) -> RouterState:
+        for model in response.selected_models:
+            criteria_names = [f"{cr.name.lower()}^{w:.2f}" for cr, w in response.selected_models[model].items()]
+            response.model_journey[model] += f" +{','.join(criteria_names)}"
 
         return response
 
@@ -101,7 +110,14 @@ class StrongModelProposer(RNGMixin, ModelProposer):
 
 
 class RandomModelProposer(RNGMixin, ModelProposer):
-    def __init__(self, *, models: set[str] | None = None, providers: set[str] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        for_criteria: SelectionCriteria = SelectionCriteria.RANDOM,
+        models: set[str] | None = None,
+        providers: set[str] | None = None,
+    ) -> None:
+        self.for_criteria = for_criteria
         self.models = models or set()
         self.providers = providers or set()
 
@@ -112,7 +128,7 @@ class RandomModelProposer(RNGMixin, ModelProposer):
         selected_models = self.get_rng().choice(list(models_to_select), len(models_to_select), replace=False)
 
         return state.emplaced(
-            selected_models={model: {SelectionCriteria.RANDOM: self.get_rng().random()} for model in selected_models},
+            selected_models={model: {self.for_criteria: self.get_rng().random()} for model in selected_models},
             all_models=state.all_models,
             excluded_models=state.excluded_models | (state.all_models - set(selected_models)),
         )
@@ -172,6 +188,7 @@ class MinimumFractionModelProposer(RNGMixin, ModelProposer):
         )
 
 
+# TODO(tian) - this is not used anywhere
 class RandomShuffle(RNGMixin, ModelProposer):
     def __init__(self, shuffle_same_scores_only: bool = False) -> None:
         self.shuffle_same_scores_only = shuffle_same_scores_only
@@ -191,7 +208,7 @@ class RandomShuffle(RNGMixin, ModelProposer):
 
             for score, models in score_model_map.items():
                 for model in models:
-                    selected_models[model] = {SelectionCriteria.RANDOM: score}
+                    selected_models[model] = {SelectionCriteria.RANDOM_SHUFFLE: score}
 
             return state.emplaced(
                 selected_models=selected_models, excluded_models=state.excluded_models, all_models=set(models_to_select)
@@ -200,7 +217,7 @@ class RandomShuffle(RNGMixin, ModelProposer):
             selected_models = self.get_rng().choice(list(models_to_select), len(models_to_select), replace=False)  # type: ignore
 
             return state.emplaced(
-                selected_models={model: {SelectionCriteria.RANDOM: 1.0} for model in selected_models},
+                selected_models={model: {SelectionCriteria.RANDOM_SHUFFLE: 1.0} for model in selected_models},
                 excluded_models=state.excluded_models,
                 all_models=set(models_to_select),
             )
@@ -232,7 +249,7 @@ class EloProposer(RNGMixin, ModelProposer):
 
         return state.emplaced(
             selected_models={
-                model: {SelectionCriteria.TOP: elo_ratings.get(model, 1.0) / max_elo} for model in selected_models
+                model: {SelectionCriteria.TOP_ELO: elo_ratings.get(model, 1.0) / max_elo} for model in selected_models
             }
         )
 
@@ -264,7 +281,15 @@ class AlwaysGoodModelMetaRouter(ModelProposer):
         good_model_response.excluded_models = set()
         good_model_response += default_response
 
+        good_model_response.model_journey = {
+            model: f"+always_good({value})" for model, value in good_model_response.model_journey.items()
+        }
+
         return good_model_response
+
+    def _update_debug(self, response: RouterState) -> RouterState:
+        # override the parent one, we are doing some customized debug above already
+        return response
 
 
 class ProportionalModelProposer(RNGMixin, ModelProposer):

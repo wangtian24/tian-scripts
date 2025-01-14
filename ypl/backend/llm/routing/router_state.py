@@ -1,3 +1,4 @@
+from collections import defaultdict
 from itertools import chain
 from typing import Any
 
@@ -21,6 +22,10 @@ class RouterState(BaseModel):
     always_include: bool = False  # override exclusion while combining states
     always_include_models: set[str] = set()
     applicable_modifiers: list[str] = []  # Currently, modifiers are applicable to all selected models.
+
+    # debug information for various models
+    model_scores: dict[str, float] = defaultdict(float)
+    model_journey: dict[str, str] = defaultdict(str)
 
     def emplaced(self, **kwargs: Any) -> "RouterState":
         """
@@ -65,11 +70,25 @@ class RouterState(BaseModel):
                 else:
                     merged_selected_models[model][criteria] += score
 
+        # Merge model journey debug maps
+        merged_debug_map = defaultdict(str)
+        # Handle case where both maps have the same model
+        for model, debug in self.model_journey.items():
+            if model in other.model_journey:
+                merged_debug_map[model] = f"{debug} + ({other.model_journey[model]})"
+            else:
+                merged_debug_map[model] = f"({debug})"
+        # Handle models only in other's debug map
+        for model, debug in other.model_journey.items():
+            if model not in self.model_journey:
+                merged_debug_map[model] = f"({debug})"
+
         return RouterState(
             selected_models=merged_selected_models,
             excluded_models=excluded_models,
             all_models=self.all_models.union(other.all_models),
             always_include_models=always_included_models,
+            model_journey=merged_debug_map,
         )
 
     def __sub__(self, other: "RouterState") -> "RouterState":
@@ -81,6 +100,11 @@ class RouterState(BaseModel):
             if model not in other.selected_models
         }
         state.all_models = state.all_models.union(other.all_models)
+
+        # Update model journey debug by appending other's values with minus sign
+        for model in state.model_journey:
+            if model in other.model_journey:
+                state.model_journey[model] = f"{state.model_journey[model]} -({other.model_journey[model]})"
 
         return state
 
@@ -137,6 +161,15 @@ class RouterState(BaseModel):
         """
         return {model: sum(criteria_map.values()) for model, criteria_map in self.selected_models.items()}
 
+    def update_scores(self) -> None:
+        """
+        Update model_scores by summing the criteria map values for each model.
+        Note that this only updates model_score for models that have been selected,
+        all other scores will just be kept as is for their historic information.
+        """
+        for model, criteria_map in self.selected_models.items():
+            self.model_scores[model] = sum(criteria_map.values())
+
     @classmethod
     @cachetools.func.ttl_cache(maxsize=128, ttl=10 * 60)  # Cache for 10 minutes
     def new_all_models_state(cls) -> "RouterState":
@@ -155,8 +188,10 @@ class RouterState(BaseModel):
             model_rows = conn.execute(sql_query)
             models = set(row[0] for row in model_rows.fetchall())
 
-        return RouterState(
+        rs = RouterState(
             selected_models={},
             excluded_models=set(),
             all_models=models,
         )
+        rs.model_journey = {model: "" for model in rs.all_models}
+        return rs

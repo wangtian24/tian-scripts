@@ -22,33 +22,35 @@ class ModelFilter(RouterModule):
     to define the specific model filtering logic.
     """
 
-    def __init__(self, persist: bool = False, exempt_models: set[str] | None = None) -> None:
+    def __init__(self, name: str, persist: bool = False, exempt_models: set[str] | None = None) -> None:
         """
         Args:
+            name: The name of the filter, will be attached to the model_journey_debug for the affected models.
             persist: Whether to persist the models that are excluded from the selection, so that they are never
                 selected again in future routing modules.
             exempt_models: The models to exempt from the filter.
         """
+        self.name = name
         self.persist = persist
         self.exempt_models = exempt_models or set()
 
     def _select_models(self, state: RouterState) -> RouterState:
         state, excluded_models = self._filter(state)
-        excluded_models = excluded_models - self.exempt_models
-        state.excluded_models = state.excluded_models - self.exempt_models
-
-        if self.persist:
-            state.excluded_models = state.excluded_models.union(excluded_models)
-
-        return state
+        return self._process_response(state, excluded_models)
 
     async def _aselect_models(self, state: RouterState) -> RouterState:
         state, excluded_models = await self._afilter(state)
+        return self._process_response(state, excluded_models)
+
+    def _process_response(self, state: RouterState, excluded_models: set[str]) -> RouterState:
         excluded_models = excluded_models - self.exempt_models
         state.excluded_models = state.excluded_models - self.exempt_models
 
         if self.persist:
             state.excluded_models = state.excluded_models.union(excluded_models)
+
+        for model in excluded_models:
+            state.model_journey[model] += f" {self.name}"
 
         return state
 
@@ -77,11 +79,15 @@ class TopK(ModelFilter):
         Args:
             k: The number of top-k models to select.
         """
-        super().__init__(persist=persist)
+        super().__init__(name=f"-topK({k})", persist=persist)
         self.k = k
 
     def _filter(self, state: RouterState) -> tuple[RouterState, set[str]]:
-        selected_models = sorted(state.selected_models.items(), key=lambda x: sum(x[1].values()), reverse=True)
+        selected_models = sorted(
+            state.selected_models.items(),  # (str, dict[SelectionCriteria, float])
+            key=lambda x: sum(x[1].values()),  # sum of all scores from all criteria
+            reverse=True,
+        )
         excluded_models = {model for model, _ in selected_models[self.k :]}
 
         state.selected_models = {model: x for model, x in state.selected_models.items() if model not in excluded_models}
@@ -108,12 +114,12 @@ class RandomJitter(RNGMixin, ModelFilter):
             persist: Whether to persist the models that are excluded from the selection, so that they are never
                 selected again in future routing modules.
         """
-        super().__init__(persist=persist)
+        super().__init__(name="*jitter", persist=persist)
         self.jitter_range = jitter_range
         self.jitter_pct = jitter_pct
 
     def _filter(self, state: RouterState) -> tuple[RouterState, set[str]]:
-        for scores in state.selected_models.values():
+        for model, scores in state.selected_models.items():
             if self.jitter_range is not None:
                 jitter = self.get_rng().uniform(-self.jitter_range, self.jitter_range) / len(scores)
             elif self.jitter_pct is not None:
@@ -125,16 +131,28 @@ class RandomJitter(RNGMixin, ModelFilter):
             for criterion, score in scores.items():
                 scores[criterion] = max(0, score + jitter)
 
+            # update debug info
+            if model in state.model_journey:
+                state.model_journey[model] = f"{state.model_journey[model]} jitter({jitter:.2f})"
+            else:
+                state.model_journey[model] = f"jitter({jitter:.2f})"
+
         return state, set()
 
 
 class Inject(ModelFilter):
     def __init__(self, models: list[str], *, score: float = 1) -> None:
-        super().__init__(persist=True)
+        super().__init__(name="+inject", persist=True)
         self.models = models
         self.score = score
 
     def _filter(self, state: RouterState) -> tuple[RouterState, set[str]]:
+        for m in self.models:
+            if m in state.model_journey:
+                state.model_journey[m] = f"{state.model_journey[m]} +inject({self.score:.2f})"
+            else:
+                state.model_journey[m] = f"inject({self.score:.2f})"
+
         return state.emplaced(
             selected_models={
                 **state.selected_models,
@@ -148,8 +166,8 @@ class Exclude(ModelFilter):
     Represents a filter to remove certain models and models from certain providers.
     """
 
-    def __init__(self, *, models: set[str] | None = None, providers: set[str] | None = None):
-        super().__init__(persist=True)
+    def __init__(self, *, name: str | None = None, models: set[str] | None = None, providers: set[str] | None = None):
+        super().__init__(name=name or "-exclude", persist=True)
         self.models = models or set()
         self.providers = providers or set()
 
@@ -176,7 +194,7 @@ class StreamableModelFilter(Exclude):
 
     def __init__(self) -> None:
         non_streaming_models = {model for model, heuristics in MODEL_HEURISTICS.items() if not heuristics.can_stream}
-        super().__init__(models=non_streaming_models)
+        super().__init__(name="-nonStreamable", models=non_streaming_models)
 
 
 def group_models_by_key(model_to_key_map: dict[str, str], sorted_model_list: list[str]) -> dict[str | None, list[str]]:
@@ -219,7 +237,7 @@ class ProviderFilter(ModelFilter):
                 field of the router state.
             priority_models: A list of models we always want to keep.
         """
-        super().__init__(persist)
+        super().__init__(name="-provider", persist=persist)
 
         if isinstance(providers, str):
             providers = {providers}
@@ -268,7 +286,7 @@ class OnePerSemanticGroupFilter(ModelFilter):
     """
 
     def __init__(self, persist: bool = False, priority_models: list[str] | None = None) -> None:
-        super().__init__(persist=persist)
+        super().__init__(name="-semanticGroup", persist=persist)
         self.priority_models = priority_models or []
 
     def _filter(self, state: RouterState) -> tuple[RouterState, set[str]]:
@@ -311,7 +329,7 @@ class HighErrorRateFilter(RNGMixin, ModelFilter):
         soft_reject_prob: float = 0.5,
         min_count: int = 10,
     ):
-        super().__init__(persist=True)
+        super().__init__(name="-highErrorRate", persist=True)
         self.soft_threshold = settings.ROUTING_ERROR_FILTER_SOFT_THRESHOLD or soft_threshold
         self.hard_threshold = settings.ROUTING_ERROR_FILTER_HARD_THRESHOLD or hard_threshold
         self.soft_reject_prob = settings.ROUTING_ERROR_FILTER_SOFT_REJECT_PROB or soft_reject_prob
@@ -358,4 +376,4 @@ class HighErrorRateFilter(RNGMixin, ModelFilter):
             or error_rates.get(model, 0) > self.hard_threshold
         }
 
-        return Exclude(models=rejected_models)._filter(state)
+        return Exclude(name="-highErrorRate", models=rejected_models)._filter(state)

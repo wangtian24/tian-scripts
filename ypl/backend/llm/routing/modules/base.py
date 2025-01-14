@@ -55,32 +55,28 @@ class RouterModule(ABC):
     _offset: float | None = None
 
     def select_models(self, state: RouterState | None = None) -> RouterState:
-        response = self._select_models(state or RouterState())
-
-        if self._multiplier is not None:
-            response.multiply_scores(self._multiplier)
-
-        if self._offset is not None:
-            response.offset_scores(self._offset)
-
-        if self._always_include is not None:
-            response.always_include = self._always_include
-
-        return response
+        start_state = state or RouterState()
+        end_state = self._select_models(start_state)
+        return self._finish_merge(end_state)
 
     async def aselect_models(self, state: RouterState | None = None) -> RouterState:
-        response = await self._aselect_models(state or RouterState())
+        start_state = state or RouterState()
+        end_state = await self._aselect_models(start_state)
+        return self._finish_merge(end_state)
 
+    def _finish_merge(self, end_state: RouterState) -> RouterState:
         if self._multiplier is not None:
-            response.multiply_scores(self._multiplier)
+            end_state.multiply_scores(self._multiplier)
 
         if self._offset is not None:
-            response.offset_scores(self._offset)
+            end_state.offset_scores(self._offset)
 
         if self._always_include is not None:
-            response.always_include = self._always_include
+            end_state.always_include = self._always_include
 
-        return response
+        end_state.update_scores()
+
+        return end_state
 
     def with_flags(
         self,
@@ -168,7 +164,7 @@ class RouterParallelChain(RouterModule):
             responses.append(router_response)
 
         for response in responses:
-            state += response
+            state += response  # this triggers __add__() in RouterState
 
         return state
 
@@ -214,7 +210,7 @@ class RouterExclusiveChain(RNGMixin, RouterModule):
 
         return self
 
-    def _choose_module(self) -> RouterModule:
+    def _choose_module(self) -> tuple[RouterModule, float]:
         if len(self.random_probabilities) != len(self.router_modules):
             logging.warning(
                 "Random probabilities not set for RouterExclusiveChain; using default of 1/len(router_modules)"
@@ -223,14 +219,20 @@ class RouterExclusiveChain(RNGMixin, RouterModule):
         else:
             probs = np.array(self.random_probabilities)
 
-        return self.get_rng().choice(  # type: ignore[no-any-return]
-            np.array(self.router_modules, dtype=object), replace=False, p=probs
-        )
+        rm: RouterModule = self.get_rng().choice(np.array(self.router_modules, dtype=object), replace=False, p=probs)
+        rm_index = self.router_modules.index(rm)
+        return rm, probs[rm_index]
 
     def _select_models(self, state: RouterState) -> RouterState:
-        chosen_module = self._choose_module()
-        return chosen_module.select_models(state=state)
+        chosen_module, prob = self._choose_module()
+        rs = chosen_module.select_models(state=state)
+        return self._update_debug(rs, prob)
 
     async def _aselect_models(self, state: RouterState) -> RouterState:
-        chosen_module = self._choose_module()
-        return await chosen_module.aselect_models(state=state)
+        chosen_module, prob = self._choose_module()
+        rs = await chosen_module.aselect_models(state=state)
+        return self._update_debug(rs, prob)
+
+    def _update_debug(self, rs: RouterState, prob: float) -> RouterState:
+        rs.model_journey = {model: f"xor@{prob:.2f}({debug})" for model, debug in rs.model_journey.items()}
+        return rs
