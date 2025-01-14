@@ -492,13 +492,28 @@ def _get_assistant_messages(
             content = ALL_MODELS_IN_CHAT_HISTORY_PREAMBLE + RESPONSE_SEPARATOR.join(all_content)
             messages.append(AIMessage(content=content))
     else:
-        # Try to find message with SELECTED status
         selected_msg = next(
             (msg for msg in assistant_msgs if msg.ui_status == MessageUIStatus.SELECTED),
-            assistant_msgs[0],  # Fallback to first message if none selected
+            None,
         )
+        if not selected_msg:
+            selected_msg = next(
+                (msg for msg in assistant_msgs if msg.assistant_language_model.internal_name == model),
+                assistant_msgs[0],  # Fallback to first message if none selected
+            )
+        if selected_msg:
+            content = selected_msg.content
+        else:
+            content = None
+            log_info = {
+                "message": "No selected message in turn",
+                "model_for_selected_message_lookup": model,
+                "turn_id": assistant_msgs[0].turn_id,
+            }
+            logging.warning(json_dumps(log_info))
+
         # if content is null, a place holder is added as part of sanitize_messages.py/replace_empty_messages()
-        messages.append(AIMessage(content=selected_msg.content))
+        messages.append(AIMessage(content=content))
 
     return messages
 

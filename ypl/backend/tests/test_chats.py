@@ -3,6 +3,7 @@ from unittest.mock import Mock
 
 from sqlalchemy.orm.state import InstanceState
 
+import ypl.db.all_models  # noqa
 from ypl.backend.llm.chat import RESPONSE_SEPARATOR, _get_assistant_messages
 from ypl.backend.prompts import ALL_MODELS_IN_CHAT_HISTORY_PREAMBLE
 from ypl.db.chats import ChatMessage, MessageType, MessageUIStatus
@@ -55,6 +56,17 @@ def test_get_assistant_messages() -> None:
     messages = _get_assistant_messages(turn_messages, model, use_all_models_in_chat_history=False)
     assert len(messages) == 1
     assert messages[0].content == "Response from assistant 2 (selected)."
+
+    # When no response is selected, use the response from the model collecting the history.
+    turn_messages_without_selected = [t for t in turn_messages if t.ui_status != MessageUIStatus.SELECTED]
+    messages = _get_assistant_messages(turn_messages_without_selected, "model_3", use_all_models_in_chat_history=False)
+    assert len(messages) == 1
+    assert messages[0].content == "Response from assistant 3."
+
+    # When no response is selected, and no response from the current model exists, use the first response.
+    messages = _get_assistant_messages(turn_messages_without_selected, "model_X", use_all_models_in_chat_history=False)
+    assert len(messages) == 1
+    assert messages[0].content == "Response from assistant 1."
 
     messages = _get_assistant_messages(turn_messages, model, use_all_models_in_chat_history=True)
     assert len(messages) == 1
