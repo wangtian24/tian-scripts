@@ -184,20 +184,20 @@ class UserProfile(BaseModel, table=True):
     __tablename__ = "user_profiles"
 
     user_id: str = Field(foreign_key="users.user_id", primary_key=True, nullable=False)
-    educational_institution: str | None = Field(default=None, sa_type=sa.Text)
-    city: str | None = Field(default=None, sa_type=sa.Text)
+    educational_institution: str | None = Field(default=None, sa_type=sa.String)
+    city: str | None = Field(default=None, sa_type=sa.String)
 
     # ISO 3166-1 alpha-2 format
     country: str | None = Field(
         sa_column=Column(
             "country",
-            sa.Text,
-            sa.CheckConstraint("country ~ '^[A-Z]{2}$'", name="country_iso_alpha2_check"),
+            sa.String(2),
             nullable=True,
+            index=True,
         ),
         default=None,
     )
-    discord_username: str | None = Field(default=None, sa_type=sa.Text)
+    discord_username: str | None = Field(default=None, sa_type=sa.String)
 
     # Relationship to User model
     user: "User" = Relationship(back_populates="profile")
