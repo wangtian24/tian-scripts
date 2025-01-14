@@ -33,15 +33,17 @@ class AttachmentResponse(BaseModel):
     content_type: str
 
 
+MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024
+
+
 @router.post("/file/upload", response_model=AttachmentResponse)
 async def upload_file(file: UploadFile = File(...)) -> AttachmentResponse:  # noqa: B008
     start_time = datetime.now()
 
-    attachment_gcs_bucket_path = os.getenv("ATTACHMENT_BUCKET") or "gs://yupp-attachments/staging"
-    thumbnail_gcs_bucket_path = f"{attachment_gcs_bucket_path}/thumbnails"
+    file_content = await file.read(MAX_FILE_SIZE_BYTES + 1)
 
-    attachment_bucket, *attachment_path_parts = attachment_gcs_bucket_path.replace("gs://", "").split("/")
-    thumbnail_bucket, *thumbnail_path_parts = thumbnail_gcs_bucket_path.replace("gs://", "").split("/")
+    if len(file_content) > MAX_FILE_SIZE_BYTES:
+        raise HTTPException(status_code=400, detail="File size exceeds maximum limit")
 
     if not file.filename:
         log_dict = {"message": "Attachments: File name is required"}
@@ -59,9 +61,14 @@ async def upload_file(file: UploadFile = File(...)) -> AttachmentResponse:  # no
         }
         logging.error(json_dumps(log_dict))
         raise HTTPException(status_code=400, detail="Unsupported file type")
+
+    attachment_gcs_bucket_path = os.getenv("ATTACHMENT_BUCKET") or "gs://yupp-attachments/staging"
+    thumbnail_gcs_bucket_path = f"{attachment_gcs_bucket_path}/thumbnails"
+
+    attachment_bucket, *attachment_path_parts = attachment_gcs_bucket_path.replace("gs://", "").split("/")
+    thumbnail_bucket, *thumbnail_path_parts = thumbnail_gcs_bucket_path.replace("gs://", "").split("/")
+
     try:
-        # Read file content once
-        file_content = await file.read()
 
         async def upload_original(file_uuid: UUID) -> None:
             start = datetime.now()
