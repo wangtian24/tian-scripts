@@ -63,14 +63,6 @@ async def upload_file(file: UploadFile = File(...)) -> AttachmentResponse:  # no
         # Read file content once
         file_content = await file.read()
 
-        transient_file = TransientAttachment(
-            filename=file.filename,
-            content_type=file.content_type,
-            file=file_content,
-        )
-
-        image_description_task = asyncio.create_task(generate_image_description(transient_file))
-
         async def upload_original(file_uuid: UUID) -> None:
             start = datetime.now()
             try:
@@ -188,7 +180,6 @@ async def upload_file(file: UploadFile = File(...)) -> AttachmentResponse:  # no
                     }
                 )
             )
-            asyncio.create_task(update_metadata(attachment, image_description_task))
         except Exception as e:
             log_dict = {"message": f"Attachments: Error creating attachment: {str(e)}"}
             logging.exception(json_dumps(log_dict))

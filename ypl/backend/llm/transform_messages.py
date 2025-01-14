@@ -78,75 +78,52 @@ async def transform_user_mesages(messages: list[BaseMessage], model_name: str) -
 
     model = model_provider[0]
 
-    chat_has_attachments = any(message.additional_kwargs.get("attachments", []) for message in messages)
+    all_attachments = [
+        attachment for message in messages for attachment in message.additional_kwargs.get("attachments", [])
+    ]
+    chat_has_attachments = len(all_attachments) > 0
+
+    supports_images = model.supports_images()
 
     if not chat_has_attachments:
         return [m if not isinstance(m, HumanMessage) else HumanMessage(content=m.content) for m in messages]
 
-    supports_images = model.supports_images()
-
-    """
-    While dealing with models that don't support images,
-    we transform the messages to include the image metadata in the prompt.
-    Some models fail when the content is of the format { "type": "text", "text": "..." }
-    Since we supply on image metadata to these models, we ensure that the content will be a string.
-    Note - We might not need this if we decide to route requests with attachments always to ones with image support.
-    """
     if not supports_images:
-        transform_user_mesages: list[BaseMessage] = []
-        for message in messages:
-            attachments = message.additional_kwargs.get("attachments", [])
-            if isinstance(message, HumanMessage):
-                transform_user_mesages.append(
-                    HumanMessage(content=get_images_polyfill_prompt(attachments, str(message.content)))
-                )
-            else:
-                transform_user_mesages.append(message)
-        return transform_user_mesages
+        logging.warning(
+            "Attachments: Model does not support images. Skipping transformation."
+            + f"Model: {model.name} - Provider: {model_provider[1]}"
+        )
+        return [m if not isinstance(m, HumanMessage) else HumanMessage(content=m.content) for m in messages]
 
     transformed_messages: list[BaseMessage] = []
 
-    last_user_message_id_with_attachments = None
+    attachment_id_to_content_dict: dict[str, dict[str, Any]] = {}
+    attachment_tasks = [generic_image_transformer(attachment) for attachment in all_attachments]
+    results = await asyncio.gather(*attachment_tasks, return_exceptions=True)
+    for attachment, result in zip(all_attachments, results, strict=True):
+        if isinstance(result, BaseException):
+            continue
+        attachment_id_to_content_dict[attachment.attachment_id] = result
 
-    """
-    We need to find the last user message with attachments.
-    For rest of the HumanMessages, we add the image metadata to the prompt.
-    """
-    for message in reversed(messages):
-        if isinstance(message, HumanMessage):
-            attachments = message.additional_kwargs.get("attachments", [])
-            if len(attachments) > 0:
-                last_user_message_id_with_attachments = message.additional_kwargs.get("message_id", "")
-                break
-
-    """
-    When the code reaches here, we can assume that the content can be a
-    dictionary of type { "type": "text", "text": "..." } or { "type": "image_url", "image_url": { "url": "..." } }
-    """
     for message in messages:
         if not isinstance(message, HumanMessage):
             transformed_messages.append(message)
             continue
 
         attachments = message.additional_kwargs.get("attachments", [])
-        message_id = message.additional_kwargs.get("message_id", "")
-
         if len(attachments) == 0:
-            transformed_messages.append(message)
+            transformed_messages.append(HumanMessage(content=message.content))
             continue
 
-        content: list[str | dict[str, Any]] = []
+        content: list[dict[str, Any]] = []
 
-        if last_user_message_id_with_attachments == message_id:
-            attachment_tasks = []
-            for attachment in attachments:
-                attachment_tasks.append(generic_image_transformer(attachment))
-            content.extend(r for r in await asyncio.gather(*attachment_tasks) if r is not Exception)
-            content.append({"type": "text", "text": str(message.content)})
-        else:
-            content.append({"type": "text", "text": get_images_polyfill_prompt(attachments, str(message.content))})
+        for attachment in attachments:
+            image_content = attachment_id_to_content_dict.get(attachment.attachment_id)
+            if image_content:
+                content.append(image_content)
+        content.append({"type": "text", "text": str(message.content)})
 
-        transformed_messages.append(HumanMessage(content=content))
+        transformed_messages.append(HumanMessage(content=content))  # type: ignore
     return transformed_messages
 
 
