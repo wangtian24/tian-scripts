@@ -135,6 +135,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
             existing_message = await _get_message(chat_request)
 
         if existing_message:
+            chat_request.message_id = existing_message.message_id
             asyncio.create_task(update_modifier_status(chat_request))
             log_dict = {
                 "message": "Existing message found",
