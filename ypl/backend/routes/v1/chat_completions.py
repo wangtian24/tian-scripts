@@ -34,6 +34,7 @@ from ypl.backend.llm.transform_messages import transform_user_mesages
 from ypl.backend.llm.utils import post_to_slack
 from ypl.backend.prompts import get_system_prompt_with_modifiers
 from ypl.backend.utils.json import json_dumps
+from ypl.db.attachments import Attachment
 from ypl.db.chats import (
     AssistantSelectionSource,
     ChatMessage,
@@ -221,16 +222,28 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
             if last_message and isinstance(last_message, HumanMessage) and last_message.content == chat_request.prompt:
                 should_append_message = False
 
+        latest_attachments: list[Attachment] = []
+
+        if chat_request.attachment_ids:
+            latest_attachments = await get_attachments(chat_request.attachment_ids)
+
         if should_append_message:
-            attachments = await get_attachments(chat_request.attachment_ids or [])
             latest_message = HumanMessage(
                 content=chat_request.prompt,
                 additional_kwargs={
-                    "attachments": attachments,
+                    "attachments": latest_attachments,
                     "message_id": chat_request.message_id,
                 },
             )
             messages.append(latest_message)
+        else:
+            # Defensive check to handle race condition where user message is inserted by FE
+            # and loaded as part of history but the attachments are not inserted yet against the user message.
+            last_message = messages[-1] or None
+            if last_message and isinstance(last_message, HumanMessage):
+                last_message.additional_kwargs["attachments"] = latest_attachments
+                messages[-1] = last_message
+
         messages = await transform_user_mesages(messages, chat_request.model)
 
         first_token_timestamp: float = 0
@@ -367,6 +380,9 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                 modifier_status=MessageModifierStatus.SELECTED,
             )
             if chat_request.attachment_ids and chat_request.user_message_id:
+                # TODO(Arun)
+                # Check to see if we can schedule a task to link attachments at the begining
+                # and check status later.
                 await link_attachments(chat_request.user_message_id, chat_request.attachment_ids)
             # Send persistence success status
             yield StreamResponse(

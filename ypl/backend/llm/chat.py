@@ -528,10 +528,7 @@ def _get_enhanced_user_message(messages: list[ChatMessage]) -> HumanMessage:
     attachments = user_msg.attachments or []
     return HumanMessage(
         content=user_msg.content,
-        additional_kwargs={
-            "attachments": attachments,
-            "message_id": user_msg.message_id,
-        },
+        additional_kwargs={"attachments": attachments},
     )
 
 

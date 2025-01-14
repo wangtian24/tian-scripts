@@ -102,6 +102,7 @@ async def transform_user_mesages(messages: list[BaseMessage], model_name: str) -
     results = await asyncio.gather(*attachment_tasks, return_exceptions=True)
     for attachment, result in zip(all_attachments, results, strict=True):
         if isinstance(result, BaseException):
+            logging.exception(f"Attachments: skipping attachment: {attachment.attachment_id} - {str(result)}")
             continue
         attachment_id_to_content_dict[attachment.attachment_id] = result
 
