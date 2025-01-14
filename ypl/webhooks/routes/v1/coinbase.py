@@ -341,12 +341,16 @@ async def validate_payload(payload: bytes, webhook_id: str, x_coinbase_signature
         # Generate HMAC-SHA256 hash using webhook_id as key and payload as message
         calculated_signature = hmac.new(webhook_secret, message, sha256).hexdigest()
 
+        log_dict = {
+            "message": "Coinbase Webhook: Coinbase webhook signature comparison",
+            "webhook_id": webhook_id,
+            "x_coinbase_signature": x_coinbase_signature,
+            "calculated_signature": calculated_signature,
+        }
+
         if not hmac.compare_digest(calculated_signature, x_coinbase_signature):
             log_dict = {
                 "message": "Coinbase Webhook: Invalid Coinbase webhook signature",
-                "webhook_id": webhook_id,
-                "x_coinbase_signature": x_coinbase_signature,
-                "calculated_signature": calculated_signature,
             }
             logging.warning(json_dumps(log_dict))
             return False
