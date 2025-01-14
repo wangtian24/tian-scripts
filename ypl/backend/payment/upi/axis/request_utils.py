@@ -85,6 +85,7 @@ async def _call(request: Request) -> dict:
             headers={
                 "X-IBM-Client-Id": _get_config_value("client_id"),
                 "X-IBM-Client-Secret": _get_config_value("client_secret"),
+                "Referer": request.request_id,
             },
             json=request.encrypted_request,
         )
