@@ -56,6 +56,7 @@ async def generate_quicktake_chat_id(
         request.chat_id = chat_id if chat_id else request.chat_id
         return await generate_quicktake(request)
     except Exception as e:
+        logging.exception(f"Error generating quicktake for chat {str(request)}: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 

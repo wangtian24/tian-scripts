@@ -918,7 +918,7 @@ async def generate_quicktake(
             raise ValueError("Either chat_id or chat_history must be provided")
         case None, None, _:
             pass
-        case _, None:
+        case _, _, None:
             assert request.chat_id is not None  # because mypy cannot infer this
             chat_history = get_chat_history(request.chat_id, request.turn_id)
 
