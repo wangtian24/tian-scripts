@@ -193,7 +193,7 @@ class MetricManager:
                 metric_inc("general/metric_manager_export_success")
             except Exception as e:
                 # we will lost all ValueMetrics in the past time interval if this fails
-                logging.error(f"-- MetricManager error exporting counters to GCP: {e}")
+                logging.warning(f"MetricManager error exporting counters to GCP: {e}")
 
     async def _periodic_export(self) -> None:
         """Internal method to export metrics periodically."""
