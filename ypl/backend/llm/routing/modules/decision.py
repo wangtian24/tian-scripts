@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Sequence
 from typing import Any
 
 from ypl import __version__
@@ -16,7 +17,7 @@ class RoutingDecisionLogger(RouterModule):
         prefix: str = "router",
         preference: RoutingPreference | None = None,
         required_models: list[str] | None = None,
-        metadata: dict[str, Any] | None = None,
+        **metadata: Any,
     ) -> None:  # noqa: E501
         """
         Args:
@@ -51,14 +52,20 @@ class RoutingDecisionLogger(RouterModule):
                 required_models=self.required_models,
             )
 
+            # convert everything to a simple type so logger knows how to handle it
+
+            log_chosen_model_names: Sequence[str] = list(state.selected_models.keys())
+            log_selection_criteria: Sequence[tuple[str, float]] = criteria
+            log_applicable_prompt_modifiers: Sequence[str] = state.applicable_modifiers
+
             log_dict = {
                 "message": f"Model routing decision [{self.prefix}]: {', '.join(state.selected_models.keys())}",
                 "codebase_version": __version__,
                 "prefix": self.prefix,
-                "chosen_model_names": list(state.selected_models.keys()),
-                "selection_criteria": criteria,
-                "applicable_prompt_modifiers": state.applicable_modifiers,
-                "routing_debug_info": routing_debug_info,
+                "chosen_model_names": log_chosen_model_names,
+                "selection_criteria": log_selection_criteria,
+                "applicable_prompt_modifiers": log_applicable_prompt_modifiers,
+                "routing_debug_info": routing_debug_info.to_log_dict(),
                 "additional_metadata": self.metadata,
             }
             logging.info(json_dumps(log_dict))
