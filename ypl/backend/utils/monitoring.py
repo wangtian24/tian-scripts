@@ -224,6 +224,9 @@ METRICS_MANAGER = MetricManager()
 
 
 def start_metrics_manager() -> None:
+    if settings.DISABLE_WRITE_GOOGLE_CLOUD_METRICS:
+        return
+
     # only initialize everything now.
     global GCM_CLIENT
     GCM_CLIENT = monitoring_v3.MetricServiceClient()
@@ -236,7 +239,9 @@ def start_metrics_manager() -> None:
 # Convenience functions
 def metric_inc(name: str) -> None:
     """increment a named counter by 1"""
-    assert METRICS_MANAGER is not None
+    if settings.DISABLE_WRITE_GOOGLE_CLOUD_METRICS:
+        return
+
     m = METRICS_MANAGER.get_metric(name, CounterMetric)
     if isinstance(m, CounterMetric):
         m.inc()
@@ -246,7 +251,9 @@ def metric_inc(name: str) -> None:
 
 def metric_inc_by(name: str, amount: int) -> None:
     """increment a named counter by amount"""
-    assert METRICS_MANAGER is not None
+    if settings.DISABLE_WRITE_GOOGLE_CLOUD_METRICS:
+        return
+
     m = METRICS_MANAGER.get_metric(name, CounterMetric)
     if isinstance(m, CounterMetric):
         m.inc_by(amount)
@@ -256,7 +263,9 @@ def metric_inc_by(name: str, amount: int) -> None:
 
 def metric_record(name: str, value: int) -> None:
     """export a specific value for a counter"""
-    assert METRICS_MANAGER is not None
+    if settings.DISABLE_WRITE_GOOGLE_CLOUD_METRICS:
+        return
+
     m = METRICS_MANAGER.get_metric(name, ValueMetric)
     if isinstance(m, ValueMetric):
         m.record_value(value)
