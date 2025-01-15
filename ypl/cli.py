@@ -1364,5 +1364,25 @@ def reset_yuppster_points(init_value: int) -> None:
     reset_points(init_value=init_value)
 
 
+@cli.command()
+def calculate_coinbase_signature_for_test() -> None:
+    """Calculate the Coinbase webhook signature."""
+    from ypl.backend.utils.json import json_dumps
+    from ypl.webhooks.routes.v1.coinbase import calculate_coinbase_signature
+
+    async def run() -> None:
+        # create a test payload
+        msg = b"""{"blockHash":"0x5ad18a709e15238f0dc9f24dd1fdd50402104d047413caa071f5a447c464ac27","blockNumber":"25019532","blockTime":"1736828411","contractAddress":"","cumulativeGasUsed":"27409922","effectiveGasPrice":"8609108","eventType":"transaction","from":"0x0e88a5b4622552edb523f64f16f45a7333cb1c46","gas":"30000","gasPrice":"8609108","gasUsed":"21000","input":"0x","l1Fee":"10058601563","l1FeeScalar":"","l1GasPrice":"1948738794","l1GasUsed":"1600","logsBloom":"0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","maxFeePerGas":"8609108","maxPriorityFeePerGas":"1000000","network":"base-mainnet","nonce":"7","priorityFeePerGas":"995009","root":"","status":"1","to":"0x87a6e5b175125c9ed273fa3c03c2612da61b436c","transactionHash":"0x7e2566c8dbd26926b1a3d573e16297bcf8f6a11c0ac10af67a606d214e1fa467","transactionIndex":"161","transactionType":"2","type":"2","value":"126380509597800","valueString":"126380509597800","webhookId":"676ce841dd3e6d230439ca52"}"""  # noqa
+        calculated_signature = await calculate_coinbase_signature(msg)
+        log_dict = {
+            "message": "Coinbase Webhook: Calculated signature",
+            "calculated_signature": calculated_signature,
+            "expected_signature": "75a94d4b8f86672342a83608df7cad88e006477d2f51b23d0ddb7852552bc5d0",
+        }
+        logging.info(json_dumps(log_dict))
+
+    asyncio.run(run())
+
+
 if __name__ == "__main__":
     cli()

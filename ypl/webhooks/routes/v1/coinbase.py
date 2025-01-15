@@ -23,7 +23,12 @@ from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
 from ypl.backend.llm.utils import post_to_slack
 from ypl.backend.utils.json import json_dumps
-from ypl.db.payments import PaymentTransaction, PaymentTransactionStatusEnum
+from ypl.db.payments import (
+    PaymentInstrument,
+    PaymentInstrumentFacilitatorEnum,
+    PaymentTransaction,
+    PaymentTransactionStatusEnum,
+)
 from ypl.db.webhooks import (
     WebhookDirectionEnum,
     WebhookEvent,
@@ -214,28 +219,10 @@ async def process_coinbase_webhook(token: str, payload: bytes, x_coinbase_signat
         logging.warning(json_dumps(log_dict))
         return
 
-    try:
-        event_data = json.loads(payload)
-    except json.JSONDecodeError as err:
-        log_dict = {
-            "message": "Coinbase Webhook: Invalid JSON payload",
-            "error": str(err),
-        }
-        logging.warning(json_dumps(log_dict))
-        return
-
-    webhook_id = event_data.get("webhookId")
-    if not webhook_id:
-        log_dict = {
-            "message": "Coinbase Webhook: Missing webhookId",
-            "event_data": event_data,
-        }
-        logging.warning(json_dumps(log_dict))
-        return
-
-    # Validate the webhook
     is_valid_token = await validate_token(token)
-    is_valid_payload = await validate_payload(payload, webhook_id, x_coinbase_signature)
+    is_valid_payload = await validate_payload(payload, x_coinbase_signature)
+
+    event_data = json.loads(payload)
 
     if not is_valid_token or not is_valid_payload:
         log_dict = {
@@ -317,12 +304,49 @@ async def validate_token(token: str) -> bool:
         return False
 
 
-async def validate_payload(payload: bytes, webhook_id: str, x_coinbase_signature: str) -> bool:
+async def calculate_coinbase_signature(payload: bytes) -> str | None:
+    """Calculate the signature for the Coinbase webhook payload.
+
+    Args:
+        payload: The raw request body
+
+    Returns:
+        str: The calculated signature
+    """
+    try:
+        event_data = json.loads(payload)
+    except json.JSONDecodeError as err:
+        log_dict = {
+            "message": "Coinbase Webhook: Invalid JSON payload",
+            "error": str(err),
+        }
+        logging.warning(json_dumps(log_dict))
+        return None
+
+    webhook_id = event_data.get("webhookId")
+    if not webhook_id:
+        log_dict = {
+            "message": "Coinbase Webhook: Missing webhookId",
+            "event_data": event_data,
+        }
+        logging.warning(json_dumps(log_dict))
+        return None
+
+    log_dict = {
+        "message": "Coinbase Webhook: Calculating signature",
+        "webhook_id": webhook_id,
+        "payload": json.dumps(event_data),
+    }
+    logging.info(json_dumps(log_dict))
+    calculated_signature = hmac.new(webhook_id.encode(), payload, sha256).hexdigest()
+    return calculated_signature
+
+
+async def validate_payload(payload: bytes, x_coinbase_signature: str) -> bool:
     """Validate the Coinbase webhook payload using HMAC-SHA256.
 
     Args:
         payload: The raw request body
-        webhook_id: The webhook ID from the payload
         x_coinbase_signature: The X-Coinbase-Signature header value
 
     Returns:
@@ -332,18 +356,16 @@ async def validate_payload(payload: bytes, webhook_id: str, x_coinbase_signature
         return True
 
     try:
-        # Use webhook_id as the secret key
-        webhook_secret = webhook_id.encode()
-
-        # Use the raw payload as the message
-        message = payload
-
-        # Generate HMAC-SHA256 hash using webhook_id as key and payload as message
-        calculated_signature = hmac.new(webhook_secret, message, sha256).hexdigest()
+        calculated_signature = await calculate_coinbase_signature(payload)
+        if not calculated_signature:
+            log_dict = {
+                "message": "Coinbase Webhook: Error calculating signature",
+            }
+            logging.warning(json_dumps(log_dict))
+            return False
 
         log_dict = {
             "message": "Coinbase Webhook: Coinbase webhook signature comparison",
-            "webhook_id": webhook_id,
             "x_coinbase_signature": x_coinbase_signature,
             "calculated_signature": calculated_signature,
         }
@@ -361,7 +383,6 @@ async def validate_payload(payload: bytes, webhook_id: str, x_coinbase_signature
         log_dict = {
             "message": "Coinbase Webhook: Error validating Coinbase webhook payload",
             "error": str(err),
-            "webhook_id": webhook_id,
         }
         logging.warning(json_dumps(log_dict))
         return False
@@ -468,6 +489,29 @@ async def potential_matching_pending_transactions(event_data: dict[str, Any]) ->
     assert isinstance(value, str), "Value must be a string"
 
     async with get_async_session() as session:
+        # check if this is a payment to our source account from payment instruments
+        # if so, we can skip the rest of the logic
+        source_account_stmt = select(PaymentInstrument).where(
+            PaymentInstrument.identifier == destination_address,
+            PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.ON_CHAIN,
+            PaymentInstrument.user_id == "SYSTEM",
+            PaymentInstrument.deleted_at.is_(None),  # type: ignore
+        )
+        result = await session.execute(source_account_stmt)
+        source_account = result.scalar_one_or_none()
+
+        if source_account:
+            log_dict = {
+                "message": "Coinbase Webhook: Payment to our source account",
+                "event_type": event_type,
+                "webhook_transaction_hash": transaction_hash,
+                "payment_transaction_id": str(source_account.payment_instrument_id),
+                "payment_value": value,
+            }
+            logging.info(json_dumps(log_dict))
+            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+            return
+
         # First, look for exact transaction hash match in last 24 hours
         exact_match_query = select(PaymentTransaction).where(
             PaymentTransaction.partner_reference_id == transaction_hash,
