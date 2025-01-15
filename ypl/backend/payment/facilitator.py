@@ -260,6 +260,8 @@ class OnChainFacilitator(BaseFacilitator):
                     "currency": self.currency.value,
                     "tx_hash": str(tx_hash),
                     "transfer_id": transfer.transfer_id,
+                    "payment_transaction_id": str(payment_transaction_id),
+                    "points_transaction_id": str(point_transaction_id),
                 }
                 logging.info(json_dumps(log_dict))
                 asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
