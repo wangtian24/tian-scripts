@@ -2,6 +2,7 @@ import asyncio
 import logging
 import time
 import traceback
+import uuid
 from collections import defaultdict
 from collections.abc import Generator, Mapping
 from enum import Enum
@@ -82,6 +83,7 @@ class SelectModelsV2Request(BaseModel):
     turn_id: str | None = None  # turn ID to use for routing
     provided_categories: list[str] | None = None  # categories provided by the user
     debug_level: int = 0  # 0: return no debug info, log only, 1: return debug
+    prompt_modifier_id: uuid.UUID | None = None  # prompt modifier ID to apply to all models
 
 
 class SelectModelsV2Response(BaseModel):
@@ -188,25 +190,35 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
     fallback_models = fallback_models_rs.get_sorted_selected_models()
 
     prompt_modifiers: dict[str, list[tuple[str, str]]] = {}
-    if request.intent != SelectIntent.NEW_CHAT:
-        try:
-            selector = CategorizedPromptModifierSelector.make_default_from_db()
+    modifier_selector = CategorizedPromptModifierSelector.make_default_from_db()
 
+    if request.prompt_modifier_id:
+        modifier = modifier_selector.modifiers_by_id.get(str(request.prompt_modifier_id))
+        if modifier:
+            prompt_modifiers = {
+                m: [(str(request.prompt_modifier_id), modifier.text)] for m in (selected_models + fallback_models)
+            }
+        else:
+            logging.warning(f"Ignoring unknown modifier ID: {request.prompt_modifier_id}")
+
+    elif request.intent != SelectIntent.NEW_CHAT:
+        try:
             if request.chat_id:
                 modifier_history = get_modifiers_by_model(request.chat_id)
             else:
                 modifier_history = {}
 
-            prompt_modifiers = selector.select_modifiers(
+            prompt_modifiers = modifier_selector.select_modifiers(
                 selected_models + fallback_models,
                 modifier_history,
                 selected_models_rs.applicable_modifiers,
             )
 
-            if request.turn_id:
-                asyncio.create_task(store_modifiers(request.turn_id, prompt_modifiers))
         except Exception as e:
             logging.error(f"Error selecting modifiers: {e}")
+
+    if request.turn_id and prompt_modifiers:
+        asyncio.create_task(store_modifiers(request.turn_id, prompt_modifiers))
 
     # increment counters
     metric_inc_by("routing/count_models_served", len(models))
