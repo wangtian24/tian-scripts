@@ -35,7 +35,11 @@ SYSTEM_USER_ID = "SYSTEM"
 # The schema is based on the required authjs.dev prisma schema to minimize the custom logic required in
 # the next js app.
 # See https://authjs.dev/getting-started/database
-# We will add our own adapter to handle login some day.
+
+
+class UserStatus(enum.Enum):
+    ACTIVE = "ACTIVE"
+    DEACTIVATED = "DEACTIVATED"
 
 
 # Represents a user (both human and synthetic).
@@ -92,6 +96,11 @@ class User(BaseModel, table=True):
 
     # User profile relationship
     profile: "UserProfile" = Relationship(back_populates="user", cascade_delete=True)
+
+    status: UserStatus = Field(
+        default=UserStatus.ACTIVE,
+        sa_column=Column(sa.Enum(UserStatus), nullable=False, server_default=UserStatus.ACTIVE.value),
+    )
 
     def is_new_user(self) -> bool:
         return len(self.chats) < NEW_USER_CHAT_THRESHOLD
