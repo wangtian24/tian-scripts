@@ -274,6 +274,16 @@ async def process_coinbase_retail_payout(payout: CoinbaseRetailPayout) -> tuple[
 
     try:
         # Create the transaction
+        log_dict = {
+            "message": "Coinbase retail payout transaction creation called with parameters",
+            "user_id": payout.user_id,
+            "account_id": account_id,
+            "to_address": payout.to_address,
+            "amount": str(rounded_amount),
+            "currency": payout.currency.value,
+            "payment_transaction_id": payout.payment_transaction_id,
+        }
+        logging.info(json_dumps(log_dict))
         transaction = await create_transaction(
             account_id=account_id,
             to_address=payout.to_address,
