@@ -3,7 +3,7 @@ import logging
 import os
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Literal, TypedDict
+from typing import Any, Final, Literal, TypedDict
 
 import yaml
 from fastapi import HTTPException
@@ -23,7 +23,11 @@ CASHOUT_KILLSWITCH_KEY = "cashout:killswitch"
 # Facilitator specific killswitch, facilitator *SHOULD BE lowercase*
 CASHOUT_FACILITATOR_KILLSWITCH_KEY = "cashout:killswitch:facilitator:{facilitator}"
 
-# Constants for rate limiting
+CASHOUT_REQUEST_RATE_LIMIT_ENABLED = True
+CASHOUT_REQUEST_RATE_LIMIT: Final[int] = 1  # Only 1 request allowed
+CASHOUT_REQUEST_WINDOW_SECONDS: Final[int] = 10  # Within 10 seconds window
+
+
 MAX_DAILY_CASHOUT_COUNT = 1
 MAX_WEEKLY_CASHOUT_COUNT = 2
 MAX_MONTHLY_CASHOUT_COUNT = 10
@@ -96,6 +100,7 @@ class CashoutLimitType(Enum):
     TRANSACTION_COUNT = "transaction count"
     CREDIT_AMOUNT = "credit amount"
     FIRST_TIME = "first time credit"
+    RATE_LIMIT = "rate limit"
 
 
 class CashoutLimitError(HTTPException):
@@ -108,10 +113,13 @@ class CashoutLimitError(HTTPException):
         self.max_value = max_value
         self.user_id = user_id
 
-        detail = f"{period.capitalize()} cashout {limit_type.value} limit of {max_value} reached"
-        super().__init__(status_code=400, detail=detail)
+        if limit_type == CashoutLimitType.RATE_LIMIT:
+            detail = f"Please wait {max_value} seconds before submitting another cashout request"
+        else:
+            detail = f"{period.capitalize()} cashout {limit_type.value} limit of {max_value} reached"
 
-        # Log the error
+        super().__init__(status_code=429 if limit_type == CashoutLimitType.RATE_LIMIT else 400, detail=detail)
+
         log_dict = {
             "message": f"{period.capitalize()} cashout limit reached",
             "user_id": user_id,
@@ -119,6 +127,7 @@ class CashoutLimitError(HTTPException):
             "current_value": current_value,
             "max_value": max_value,
             "period": period,
+            "error_message": detail,
         }
         logging.warning(json_dumps(log_dict))
         asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
@@ -316,15 +325,44 @@ async def validate_period_limits(user_id: str, credits_to_cashout: int, period_s
             )
 
 
+async def check_request_rate_limit(user_id: str) -> None:
+    """Check if the user has exceeded the rate limit for cashout requests."""
+    if settings.ENVIRONMENT != "production":
+        return
+
+    redis = await get_upstash_redis_client()
+    bucket_key = f"cashout_request:{user_id}"
+
+    current_count_str = await redis.get(bucket_key)
+    if current_count_str is not None and int(current_count_str) >= CASHOUT_REQUEST_RATE_LIMIT:
+        ttl = await redis.ttl(bucket_key)
+        wait_seconds = ttl if ttl > 0 else CASHOUT_REQUEST_WINDOW_SECONDS
+        raise CashoutLimitError(
+            period="request",
+            limit_type=CashoutLimitType.RATE_LIMIT,
+            current_value=int(current_count_str),
+            max_value=wait_seconds,
+            user_id=user_id,
+        )
+
+    current_count = await redis.incr(bucket_key)
+    if current_count == 1:
+        await redis.expire(bucket_key, CASHOUT_REQUEST_WINDOW_SECONDS)
+
+
 async def validate_user_cashout_limits(user_id: str, credits_to_cashout: int) -> None:
     """
     Validate that the user hasn't exceeded their cashout limits.
     Checks both count of cashouts and total credits cashed out for daily, weekly and monthly periods.
+    Also checks the request rate limit.
     Raises HTTPException if any limit is exceeded.
     """
 
     if settings.ENVIRONMENT != "production":
         return
+
+    if CASHOUT_REQUEST_RATE_LIMIT_ENABLED:
+        await check_request_rate_limit(user_id)
 
     now = datetime.utcnow()
     time_windows = {
