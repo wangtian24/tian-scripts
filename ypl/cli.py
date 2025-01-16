@@ -83,7 +83,7 @@ from ypl.db.message_annotations import (
     update_message_annotations_in_chunks,
 )
 from ypl.db.oneoffs.reset_points import reset_points
-from ypl.db.rewards import RewardAmountRule, RewardProbabilityRule, RewardRule
+from ypl.db.rewards import RewardActionEnum, RewardAmountRule, RewardProbabilityRule, RewardRule
 
 logging.getLogger().setLevel(logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -1048,8 +1048,14 @@ def refresh_rewards_rules(rules_file: str, dry_run: bool) -> None:
     with open(rules_file) as f:
         rules = yaml.safe_load(f)
 
-    new_amount_rules = [RewardAmountRule(**rule) for rule in rules.get("amount_rules", [])]
-    new_probability_rules = [RewardProbabilityRule(**rule) for rule in rules.get("probability_rules", [])]
+    def parse_action_type(rule: dict[str, Any]) -> dict[str, Any]:
+        return {**rule, "action_type": RewardActionEnum(rule["action_type"].lower())}
+
+    amount_rules = [parse_action_type(rule) for rule in rules.get("amount_rules", [])]
+    probability_rules = [parse_action_type(rule) for rule in rules.get("probability_rules", [])]
+
+    new_amount_rules = [RewardAmountRule(**rule) for rule in amount_rules]
+    new_probability_rules = [RewardProbabilityRule(**rule) for rule in probability_rules]
 
     with Session(get_engine()) as session:
         existing_amount_rules = session.exec(select(RewardAmountRule)).all()
