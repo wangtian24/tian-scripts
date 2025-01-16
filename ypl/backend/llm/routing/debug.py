@@ -1,5 +1,4 @@
 from collections import OrderedDict
-from typing import Any
 
 from pydantic import BaseModel
 
@@ -20,20 +19,6 @@ class RoutingDebugInfo(BaseModel):
     """Stores the debug information for routing."""
 
     model_debug: OrderedDict[str, ModelDebugInfo]
-
-    def to_log_dict(self) -> dict[str, dict[str, Any]]:
-        return {
-            "model_debug": {
-                name: {
-                    "is_selected": debug.is_selected,
-                    "is_fallback": debug.is_fallback,
-                    "required_by_user": debug.required_by_user,
-                    "journey": debug.journey,
-                    "score": debug.score,
-                }
-                for name, debug in self.model_debug.items()
-            },
-        }
 
 
 def build_routing_debug_info(

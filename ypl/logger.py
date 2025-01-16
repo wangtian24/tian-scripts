@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+from typing import Any
 
 from google.cloud import logging as google_logging
 from google.cloud.logging.handlers import CloudLoggingHandler
@@ -28,16 +29,25 @@ def redact_sensitive_data(text: str) -> str:
 
 
 class RedactingMixin:
+    def _redact_value(self, value: Any) -> Any:
+        if isinstance(value, str):
+            return redact_sensitive_data(value)
+        elif isinstance(value, dict):
+            # recursive redact the value in dict, we don't process the key though.
+            return {k: self._redact_value(v) for k, v in value.items()}
+        elif isinstance(value, list | tuple):
+            # recursive redact the value in list or tuple
+            return type(value)(self._redact_value(item) for item in value)
+        else:
+            return value
+
     def redact_record(self, record: logging.LogRecord) -> None:
-        if isinstance(record.msg, str):
-            record.msg = redact_sensitive_data(record.msg)
-        elif isinstance(record.msg, dict):
-            record.msg = {k: redact_sensitive_data(str(v)) for k, v in record.msg.items()}
+        record.msg = self._redact_value(record.msg)
 
         # Handle extra parameters
         if hasattr(record, "extra"):
             for k, v in record.extra.items():
-                setattr(record, k, redact_sensitive_data(str(v)))
+                setattr(record, k, self._redact_value(v))
 
 
 class RedactingHandler(RedactingMixin, CloudLoggingHandler):
@@ -53,21 +63,26 @@ class RedactingStreamHandler(RedactingMixin, logging.StreamHandler):
 
 
 class TruncatingMixin:
-    def truncate_value(self, value: str) -> str:
-        if len(value) > MAX_LOGGED_FIELD_LENGTH_CHARS:
-            return value[:MAX_LOGGED_FIELD_LENGTH_CHARS] + "... (truncated)"
-        return value
+    def truncate_value(self, value: Any) -> Any:
+        if isinstance(value, str):
+            # if the log entry is a json, this limit applies to every leaf level string value.
+            if len(value) > MAX_LOGGED_FIELD_LENGTH_CHARS:
+                return value[:MAX_LOGGED_FIELD_LENGTH_CHARS] + "... (truncated)"
+            return value
+        elif isinstance(value, dict):
+            return {k: self.truncate_value(v) for k, v in value.items()}
+        elif isinstance(value, list | tuple):
+            return type(value)(self.truncate_value(item) for item in value)
+        else:
+            return value
 
     def truncate_record(self, record: logging.LogRecord) -> None:
-        if isinstance(record.msg, str):
-            record.msg = self.truncate_value(record.msg)
-        elif isinstance(record.msg, dict):
-            record.msg = {k: self.truncate_value(str(v)) for k, v in record.msg.items()}
+        record.msg = self.truncate_value(record.msg)
 
         # Handle extra parameters
         if hasattr(record, "extra"):
             for k, v in record.extra.items():
-                setattr(record, k, self.truncate_value(str(v)))
+                setattr(record, k, self.truncate_value(v))
 
 
 class TruncatingHandler(TruncatingMixin, CloudLoggingHandler):
@@ -111,7 +126,6 @@ class ConsolidatedHandler(RedactingMixin, TruncatingMixin, CloudLoggingHandler, 
             record.msg = (
                 {"module": record.module, "message": formatted_msg} if isinstance(formatted_msg, str) else formatted_msg
             )
-
             self.redact_record(record)
             self.truncate_record(record)
             super().emit(record)
