@@ -139,7 +139,17 @@ class AxisUpiFacilitator(BaseFacilitator):
         )
 
     # TODO: Move this to the base facilitator.
-    async def undo_payment_transaction(self, payment_transaction_id: uuid.UUID) -> None:
+    async def undo_payment_transaction(
+        self, payment_transaction_id: uuid.UUID, customer_reference_id: str | None = None
+    ) -> None:
+        """
+        Undo a payment transaction.
+
+        Args:
+            payment_transaction_id: The ID of the payment transaction to undo.
+            customer_reference_id: The customer reference ID returned by the partner.
+                If provided, it will be stored along with the failed payment transaction.
+        """
         try:
             async with get_async_session() as session:
                 async with session.begin():
@@ -171,12 +181,12 @@ class AxisUpiFacilitator(BaseFacilitator):
                                 f"Payment transaction already in the final {payment_transaction.status} state"
                             ),
                             "payment_transaction_id": str(payment_transaction_id),
+                            "customer_reference_id": customer_reference_id,
                             "facilitator": self.facilitator,
                             "user_id": str(payment_transaction.destination_instrument.user_id),
                         }
                         logging.info(json_dumps(log_dict))
                         raise ValueError("Payment transaction already in the final state")
-                        return
 
                     point_transaction = payment_transaction.credits_transaction
 
@@ -184,6 +194,7 @@ class AxisUpiFacilitator(BaseFacilitator):
                         "message": "Failed to process payout reward. Reversing transaction.",
                         "user_id": str(point_transaction.user_id),
                         "payment_transaction_id": str(payment_transaction_id),
+                        "customer_reference_id": customer_reference_id,
                         "points_transaction_id": str(point_transaction.transaction_id),
                         "credits_to_cashout": str(point_transaction.point_delta),
                         "amount": str(payment_transaction.amount),
@@ -222,6 +233,8 @@ class AxisUpiFacilitator(BaseFacilitator):
                     # 4. Update the payment transaction status to FAILED.
                     payment_transaction.status = PaymentTransactionStatusEnum.FAILED
                     payment_transaction.last_status_change_at = datetime.now()
+                    if customer_reference_id is not None:
+                        payment_transaction.customer_reference_id = customer_reference_id
 
                     session.add(payment_transaction)
 
@@ -240,6 +253,7 @@ class AxisUpiFacilitator(BaseFacilitator):
             log_dict = {
                 "message": "Successfully reversed transaction",
                 "payment_transaction_id": str(payment_transaction_id),
+                "customer_reference_id": customer_reference_id,
                 "points_transaction_id": str(point_transaction.transaction_id),
                 "user_id": str(point_transaction.user_id),
                 "amount": str(payment_transaction.amount),
@@ -259,6 +273,7 @@ class AxisUpiFacilitator(BaseFacilitator):
             log_dict = {
                 "message": "Could not undo payment transaction",
                 "payment_transaction_id": str(payment_transaction_id),
+                "customer_reference_id": customer_reference_id,
                 "error": str(e),
                 "facilitator": self.facilitator,
             }
@@ -270,6 +285,7 @@ class AxisUpiFacilitator(BaseFacilitator):
         payment_transaction_id: uuid.UUID,
         partner_reference_id: str,
         user_id: str,
+        current_status: PaymentTransactionStatusEnum,
         start_time: float,
         retry_config: dict,
     ) -> None:
@@ -278,15 +294,24 @@ class AxisUpiFacilitator(BaseFacilitator):
             payment_transaction_id=payment_transaction_id,
             partner_reference_id=partner_reference_id,
             user_id=user_id,
+            current_status=current_status,
             start_time=start_time,
         )
 
+    # Current status can be NOT_STARTED and PENDING.
+    # It will be in NOT_STARTED if we do not know the status of the make_payment call.
+    # In the case of NOT_STARTED, we update the status to PENDING if the payment is pending.
+    # In the case of PENDING, we check if the payment is still pending.
+    # This call is made in a loop until the payment is in the final state, so the current_status can be the same even if
+    # there is a change in the db state (e.g., the payment is moved to PENDING state from NOT_STARTED).
+    # TODO: Use a workflow / state machine to track the payment status instead of blind retries.
     async def _check_payment_status(
         self,
         *,  # Force keyword arguments
         payment_transaction_id: uuid.UUID,
         partner_reference_id: str,
         user_id: str,
+        current_status: PaymentTransactionStatusEnum,
         start_time: float,
     ) -> None:
         attempt_start_time = time.time()
@@ -298,6 +323,7 @@ class AxisUpiFacilitator(BaseFacilitator):
                 "payment_transaction_id": str(payment_transaction_id),
                 "partner_reference_id": partner_reference_id,
                 "user_id": user_id,
+                "current_status": current_status,
                 "error": str(e),
                 "facilitator": self.facilitator,
                 "elapsed_time": time.time() - start_time,
@@ -307,12 +333,47 @@ class AxisUpiFacilitator(BaseFacilitator):
             logging.exception(json_dumps(log_dict))
             raise PaymentStatusFetchError("Failed to get payment status") from e
 
-        if status.transaction_status == PaymentTransactionStatusEnum.PENDING:
+        if (
+            current_status == PaymentTransactionStatusEnum.NOT_STARTED
+            and status.transaction_status == PaymentTransactionStatusEnum.PENDING
+        ):
+            # TODO: Avoid updating this multiple times during the retry loop.
+            # Read the note above this method for more details.
+            async with get_async_session() as session:
+                async with session.begin():
+                    await session.exec(
+                        update(PaymentTransaction)
+                        .values(
+                            status=PaymentTransactionStatusEnum.PENDING,
+                            last_status_change_at=datetime.now(),
+                        )
+                        .where(
+                            PaymentTransaction.payment_transaction_id == payment_transaction_id,  # type: ignore
+                            # This check is needed to avoid updating the status to pending
+                            # if it is already in the final state.
+                            PaymentTransaction.status == PaymentTransactionStatusEnum.NOT_STARTED,  # type: ignore
+                        )
+                    )
+            log_dict = {
+                "message": "Payment moved to pending state",
+                "payment_transaction_id": str(payment_transaction_id),
+                "partner_reference_id": partner_reference_id,
+                "user_id": user_id,
+                "current_status": current_status,
+                "elapsed_time": time.time() - start_time,
+                "attempt_start_time": attempt_start_time,
+                "attempt_time": time.time() - attempt_start_time,
+                "facilitator": self.facilitator,
+            }
+            logging.info(json_dumps(log_dict))
+            raise PaymentStatusFetchError("Payment moved to pending state")
+        elif status.transaction_status == PaymentTransactionStatusEnum.PENDING:
             log_dict = {
                 "message": "Payment is still pending",
                 "payment_transaction_id": str(payment_transaction_id),
                 "partner_reference_id": partner_reference_id,
                 "user_id": user_id,
+                "current_status": current_status,
                 "elapsed_time": time.time() - start_time,
                 "attempt_start_time": attempt_start_time,
                 "attempt_time": time.time() - attempt_start_time,
@@ -321,8 +382,8 @@ class AxisUpiFacilitator(BaseFacilitator):
             logging.info(json_dumps(log_dict))
             raise PaymentStatusFetchError("Payment is still pending")
         elif status.transaction_status == PaymentTransactionStatusEnum.FAILED:
-            # TODO: Store the customer reference ID in the payment transaction even if the transaction fails.
-            await self.undo_payment_transaction(payment_transaction_id)
+            # Axis returns a customer reference ID for failed transactions as well, store it with the failed transaction
+            await self.undo_payment_transaction(payment_transaction_id, status.customer_reference_id)
             log_dict = {
                 "message": "Payment failed",
                 "payment_transaction_id": str(payment_transaction_id),
@@ -390,6 +451,7 @@ class AxisUpiFacilitator(BaseFacilitator):
         payment_transaction_id: uuid.UUID,
         partner_reference_id: str,
         user_id: str,
+        current_status: PaymentTransactionStatusEnum,
         retry_config: dict | None = None,
     ) -> None:
         start_time = time.time()
@@ -403,6 +465,7 @@ class AxisUpiFacilitator(BaseFacilitator):
             "payment_transaction_id": str(payment_transaction_id),
             "partner_reference_id": partner_reference_id,
             "user_id": user_id,
+            "current_status": current_status,
             "facilitator": self.facilitator,
             "retry_config": retry_config,
             "start_time": start_time,
@@ -414,6 +477,7 @@ class AxisUpiFacilitator(BaseFacilitator):
                 payment_transaction_id=payment_transaction_id,
                 partner_reference_id=partner_reference_id,
                 user_id=user_id,
+                current_status=current_status,
                 start_time=start_time,
                 retry_config=retry_config,
             )
@@ -636,6 +700,9 @@ class AxisUpiFacilitator(BaseFacilitator):
             # TODO: Have granular exceptions for different types of errors.
             # We should only reverse the transaction if the error is known to be irrecoverable
             # and that the partner isn't going to process it.
+
+            # To be on the safe side, the code talking to the partner may have returned
+            # NOT_STARTED as the status, if we do not know the status of the error.
             log_dict = {
                 "message": "Failed to send payment request to the partner",
                 "user_id": user_id,
@@ -652,18 +719,22 @@ class AxisUpiFacilitator(BaseFacilitator):
         partner_reference_id = payment_response.partner_reference_id
         async with get_async_session() as session:
             async with session.begin():
+                update_values = {
+                    "status": payment_response.transaction_status,
+                    "partner_reference_id": partner_reference_id,
+                }
+                if payment_response.customer_reference_id is not None:
+                    update_values["customer_reference_id"] = payment_response.customer_reference_id
+
                 await session.exec(
                     update(PaymentTransaction)
-                    .values(
-                        status=PaymentTransactionStatusEnum.PENDING,
-                        partner_reference_id=partner_reference_id,
-                        # Customer reference id is not yet known at this point.
-                    )
+                    .values(**update_values)
                     .where(PaymentTransaction.payment_transaction_id == payment_transaction_id)  # type: ignore
                 )
         db_updates_done = time.time()
         log_dict = {
-            "message": "Updated payment transaction status to PENDING",
+            "message": f"Updated payment transaction status to {payment_response.transaction_status}",
+            "transaction_status": payment_response.transaction_status,
             "user_id": user_id,
             "processing_time": db_updates_done - payment_response_received,
             "payment_transaction_id": str(payment_transaction_id),
@@ -676,7 +747,14 @@ class AxisUpiFacilitator(BaseFacilitator):
         # 5. Start monitoring the payment transaction and hand off to the async task.
         # TODO: Improve this.
         assert partner_reference_id is not None
-        asyncio.create_task(self.monitor_payment_status(payment_transaction_id, partner_reference_id, user_id))
+        asyncio.create_task(
+            self.monitor_payment_status(
+                payment_transaction_id,
+                partner_reference_id,
+                user_id,
+                current_status=payment_response.transaction_status,
+            )
+        )
 
         log_dict = {
             "message": "make_payment completed",

@@ -296,18 +296,38 @@ def _make_payment_request(axis_payment_request: AxisPaymentRequest) -> Request:
 
 async def make_payment(axis_payment_request: AxisPaymentRequest) -> PaymentResponse:
     request = _make_payment_request(axis_payment_request)
-    response = await _call(request)
-    decrypted_body = aes128_decrypt(
-        _get_config_value("aes_symmetric_key"),
-        response["TransferPaymentResponse"]["TransferPaymentResponseBodyEncrypted"],
-    )
-    json_body = json.loads(decrypted_body)
-    _log_response_body(request, json_body)
-    if json_body["status"] != "S":
-        raise PaymentProcessingError("Failed to make payment")
+    # The transaction status is not started until the bank acknowledges the request.
+    transaction_status = PaymentTransactionStatusEnum.NOT_STARTED
+    try:
+        response = await _call(request)
+        decrypted_body = aes128_decrypt(
+            _get_config_value("aes_symmetric_key"),
+            response["TransferPaymentResponse"]["TransferPaymentResponseBodyEncrypted"],
+        )
+        json_body = json.loads(decrypted_body)
+        _log_response_body(request, json_body)
+        if json_body["status"] != "S":
+            raise PaymentProcessingError("Partner rejected the payment request")
+        # The bank acknowledges the request, we can set the transaction status to pending.
+        transaction_status = PaymentTransactionStatusEnum.PENDING
+    except PaymentProcessingError:
+        # The partner rejected the payment request, let the caller handle it via the exception handler.
+        raise
+    except Exception as e:
+        # We don't know the status of the error, so we let the status be NOT_STARTED,
+        # and let the caller handle it via the retry loop that checks the status.
+        log_dict = {
+            "message": "Failed during the payment call to the partner",
+            "error": str(e),
+            "payment_transaction_id": str(axis_payment_request.internal_payment_transaction_id),
+            "request_id": request.request_id,
+            "transaction_status": transaction_status,  # will be NOT_STARTED
+        }
+        logging.exception(json_dumps(log_dict))
+
     return PaymentResponse(
         payment_transaction_id=axis_payment_request.internal_payment_transaction_id,
-        transaction_status=PaymentTransactionStatusEnum.SUCCESS,
+        transaction_status=transaction_status,
         partner_reference_id=_uuid_to_axis_unique_id(axis_payment_request.internal_payment_transaction_id),
     )
 
@@ -364,6 +384,9 @@ def _map_transaction_status(transaction_status: str) -> PaymentTransactionStatus
         return PaymentTransactionStatusEnum.SUCCESS
     if transaction_status == "REJECTED":
         return PaymentTransactionStatusEnum.FAILED
+    if transaction_status == "RETURNED":
+        # The beneficiary account rejected the payment. Mark this one as failed..
+        return PaymentTransactionStatusEnum.FAILED
     return None
 
 
@@ -414,7 +437,12 @@ async def get_payment_status(internal_payment_transaction_id: uuid.UUID, partner
         raise PaymentProcessingError("Failed to get payment status")
 
     status_items = json_body["data"]["CUR_TXN_ENQ"]
-    transaction_status: PaymentTransactionStatusEnum | None = PaymentTransactionStatusEnum.PENDING
+    # If there are no status items, the transaction may not have reached the partner (yet).
+    # We'll set the status to NOT_STARTED, and let the caller handle the status via the retry loop.
+    # If these cases happen, they may only be resolved via offline reconciliation.
+    transaction_status: PaymentTransactionStatusEnum | None = (
+        PaymentTransactionStatusEnum.PENDING if len(status_items) > 0 else PaymentTransactionStatusEnum.NOT_STARTED
+    )
     customer_reference_id = None
     # Iterate in reverse to get the status of the last attempt for this reference ID.
     for status_item in reversed(status_items):

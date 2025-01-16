@@ -384,6 +384,7 @@ async def process_pending_upi_transaction(payment: PaymentTransaction) -> None:
         payment_transaction_id=payment.payment_transaction_id,
         partner_reference_id=payment.partner_reference_id,
         user_id=payment.destination_instrument.user_id,
+        current_status=payment.status,
         # Retry 6 times, starting with 1s delay, and doubling the delay exponentially up to 10s.
         # Waiting up to ~30s excluding the API call time.
         retry_config={"max_attempts": 6, "multiplier": 1, "min_wait": 1, "max_wait": 10},
