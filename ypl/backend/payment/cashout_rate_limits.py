@@ -24,10 +24,13 @@ CASHOUT_KILLSWITCH_KEY = "cashout:killswitch"
 CASHOUT_FACILITATOR_KILLSWITCH_KEY = "cashout:killswitch:facilitator:{facilitator}"
 
 # Constants for rate limiting
-MAX_DAILY_CASHOUT_COUNT = 2
-MAX_WEEKLY_CASHOUT_COUNT = 5
+MAX_DAILY_CASHOUT_COUNT = 1
+MAX_WEEKLY_CASHOUT_COUNT = 2
 MAX_MONTHLY_CASHOUT_COUNT = 10
-MAX_FIRST_TIME_CASHOUT_CREDITS = 5000
+# TODO(arawind, ENG-1708): Fix this value after the UI knows whether the user is first time or not.
+# Keep this value in sync with the MAX_CREDITS_FOR_CASHOUT value in lib/credits.ts.
+# Keep this value in sync with daily_points_limit in data/reward_rules.yml.
+MAX_FIRST_TIME_CASHOUT_CREDITS = 25000
 
 # Global constants loaded from reward_rules.yml
 RULE_CONSTANTS: dict[str, Any] = {}
@@ -209,7 +212,7 @@ async def get_cashout_stats(
     stats = await session.execute(select(*select_columns).where(and_(*base_filters)))
     result = stats.first()
 
-    if not result:
+    if not result or result.total_count == 0:
         log_dict = {
             "message": "No previous cashouts found",
             "user_id": user_id,
