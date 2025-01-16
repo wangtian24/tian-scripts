@@ -2,7 +2,7 @@
 
 git add .
 if [ $# -eq 0 ]; then
-    git commit -m "WIP"
+    git commit -m "Work in progress"
 else
     git commit -m "$*"
 fi
