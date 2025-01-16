@@ -232,6 +232,14 @@ class CryptoRewardProcessor:
                     skip_batching=skip_batching,
                 )
             else:
+                log_dict = {
+                    "message": "Coinbase onchain transfer called with parameters",
+                    "amount": str(reward.amount),
+                    "asset_id": reward.asset_id,
+                    "destination": reward.wallet_address,
+                    "user_id": reward.user_id,
+                }
+                logging.info(json_dumps(log_dict))
                 transfer = self.wallet.transfer(
                     amount=reward.amount, asset_id=reward.asset_id, destination=reward.wallet_address
                 )
