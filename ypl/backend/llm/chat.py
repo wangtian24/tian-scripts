@@ -201,19 +201,24 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         else:
             logging.warning(f"Ignoring unknown modifier ID: {request.prompt_modifier_id}")
 
-    elif request.intent != SelectIntent.NEW_CHAT:
+    else:
         try:
-            if request.chat_id:
+            if SelectIntent.NEW_CHAT and request.chat_id:
                 modifier_history = get_modifiers_by_model(request.chat_id)
             else:
                 modifier_history = {}
 
-            prompt_modifiers = modifier_selector.select_modifiers(
-                selected_models + fallback_models,
+            base_prompt_modifiers = modifier_selector.select_modifiers(
+                selected_models,
                 modifier_history,
                 selected_models_rs.applicable_modifiers,
             )
-
+            fallback_prompt_modifiers = modifier_selector.select_modifiers(
+                fallback_models,
+                modifier_history,
+                selected_models_rs.applicable_modifiers,
+            )
+            prompt_modifiers = base_prompt_modifiers | fallback_prompt_modifiers
         except Exception as e:
             logging.error(f"Error selecting modifiers: {e}")
 
