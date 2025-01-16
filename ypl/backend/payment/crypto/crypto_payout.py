@@ -213,7 +213,11 @@ class CryptoRewardProcessor:
                 or reward.asset_id.lower() == CurrencyEnum.CBBTC.value.lower()
             ):
                 transfer = self.wallet.transfer(
-                    amount=reward.amount, asset_id=reward.asset_id, destination=reward.wallet_address, gasless=True
+                    amount=reward.amount,
+                    asset_id=reward.asset_id,
+                    destination=reward.wallet_address,
+                    gasless=True,
+                    skip_batching=True,
                 )
             else:
                 transfer = self.wallet.transfer(
