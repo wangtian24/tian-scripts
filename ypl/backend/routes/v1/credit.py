@@ -11,7 +11,11 @@ from ypl.backend.llm.credit import (
     get_user_credit_balance,
 )
 from ypl.backend.payment.base_types import BaseFacilitator, PaymentResponse
-from ypl.backend.payment.cashout_rate_limits import validate_user_cashout_limits
+from ypl.backend.payment.cashout_rate_limits import (
+    CashoutKillswitchError,
+    check_cashout_killswitch,
+    validate_user_cashout_limits,
+)
 from ypl.backend.payment.exchange_rates import get_exchange_rate
 from ypl.backend.payment.validation import validate_destination_identifier_for_currency
 from ypl.backend.utils.json import json_dumps
@@ -89,6 +93,11 @@ async def convert_credits_to_currency(credits: int, currency: CurrencyEnum) -> D
 async def validate_cashout_request(request: CashoutCreditsRequest) -> None:
     if request.credits_to_cashout <= 0:
         raise HTTPException(status_code=400, detail="You need to select at least a few credits to cash out.")
+
+    try:
+        await check_cashout_killswitch(request.facilitator, request.user_id)
+    except CashoutKillswitchError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
     if (
         (request.country_code is None or request.country_code == "IN")

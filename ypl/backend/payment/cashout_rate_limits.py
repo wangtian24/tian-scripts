@@ -15,7 +15,13 @@ from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
 from ypl.backend.llm.utils import post_to_slack_with_user_name
 from ypl.backend.utils.json import json_dumps
+from ypl.db.payments import PaymentInstrumentFacilitatorEnum
 from ypl.db.point_transactions import PointsActionEnum, PointTransaction
+from ypl.db.redis import get_upstash_redis_client
+
+CASHOUT_KILLSWITCH_KEY = "cashout:killswitch"
+# Facilitator specific killswitch, facilitator *SHOULD BE lowercase*
+CASHOUT_FACILITATOR_KILLSWITCH_KEY = "cashout:killswitch:facilitator:{facilitator}"
 
 # Constants for rate limiting
 MAX_DAILY_CASHOUT_COUNT = 2
@@ -333,3 +339,38 @@ async def validate_user_cashout_limits(user_id: str, credits_to_cashout: int) ->
 
         assert period_stats is not None
         await validate_period_limits(user_id, credits_to_cashout, period_stats)
+
+
+class CashoutKillswitchError(Exception):
+    """Raise this error when cashout killswitch is enabled."""
+
+    def __init__(self, message: str):
+        self.message = message
+        super().__init__(self.message)
+
+
+def _log_killswitch_error(message: str, facilitator: PaymentInstrumentFacilitatorEnum, user_id: str) -> None:
+    log_dict = {
+        "message": message,
+        "user_id": user_id,
+        "facilitator": facilitator.name,
+    }
+    logging.warning(json_dumps(log_dict))
+    asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+
+
+async def check_cashout_killswitch(facilitator: PaymentInstrumentFacilitatorEnum, user_id: str) -> None:
+    """Check if cashout is enabled, globally or for the given facilitator."""
+
+    if settings.ENVIRONMENT != "production":
+        return
+
+    redis_client = await get_upstash_redis_client()
+
+    if await redis_client.get(CASHOUT_KILLSWITCH_KEY):
+        _log_killswitch_error("Cashout is currently disabled", facilitator, user_id)
+        raise CashoutKillswitchError("Cashout is currently disabled")
+
+    if await redis_client.get(CASHOUT_FACILITATOR_KILLSWITCH_KEY.format(facilitator=facilitator.value)):
+        _log_killswitch_error(f"Cashout is currently disabled for {facilitator.name}", facilitator, user_id)
+        raise CashoutKillswitchError("Cashout is currently disabled for this payment method")
