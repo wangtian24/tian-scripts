@@ -58,6 +58,8 @@ class ModelFilter(RouterModule):
             state.excluded_models = state.excluded_models.union(excluded_models)
 
         for model in excluded_models:
+            if model not in state.model_journey:
+                state.model_journey[model] = ""
             state.model_journey[model] += f" {self.name}"
 
         return state

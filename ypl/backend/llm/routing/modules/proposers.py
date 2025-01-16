@@ -49,6 +49,8 @@ class ModelProposer(RouterModule):
     def _update_debug(self, response: RouterState) -> RouterState:
         for model in response.selected_models:
             criteria_names = [f"{cr.name.lower()}^{w:.2f}" for cr, w in response.selected_models[model].items()]
+            if model not in response.model_journey:
+                response.model_journey[model] = ""
             response.model_journey[model] += f" +{','.join(criteria_names)}"
 
         return response
