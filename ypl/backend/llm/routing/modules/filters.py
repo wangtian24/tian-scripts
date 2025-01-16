@@ -13,10 +13,13 @@ from ypl.backend.llm.db_helpers import (
     deduce_semantic_groups,
     get_active_models,
     get_image_attachment_models,
+    get_model_context_lengths,
 )
+from ypl.backend.llm.model_heuristics import ModelHeuristics
 from ypl.backend.llm.routing.modules.base import RouterModule
 from ypl.backend.llm.routing.policy import SelectionCriteria
 from ypl.backend.llm.routing.router_state import RouterState
+from ypl.backend.prompts import FALLBACK_SYSTEM_PROMPT
 from ypl.db.language_models import LanguageModel, LanguageModelResponseStatus, LanguageModelResponseStatusEnum
 from ypl.utils import RNGMixin
 
@@ -208,6 +211,28 @@ class SupportsImageAttachmentModelFilter(Exclude):
     def __init__(self) -> None:
         non_image_attachment_models = set(get_active_models()) - set(get_image_attachment_models())
         super().__init__(name="-noImageAttachment", models=non_image_attachment_models)
+
+
+class ContextLengthFilter(Exclude):
+    """Filter models based on their context length."""
+
+    def __init__(self, prompt: str, max_length_fraction: float = 0.8) -> None:
+        """
+        Filters models whose context length is insufficient for the prompt.
+        Args:
+            prompt: The prompt to filter models by.
+            max_length_fraction: The maximum fraction of the context length to allow.
+        """
+        # We don't know the specific system prompt because routing hasn't happened yet, so we use a default one.
+        prompt = FALLBACK_SYSTEM_PROMPT + " " + prompt
+        prompt_length = len(ModelHeuristics(tokenizer_type="tiktoken").encode_tokens(prompt))
+        context_lengths = get_model_context_lengths()
+        excluded_models = {
+            model
+            for model, context_length in context_lengths.items()
+            if context_length < prompt_length * max_length_fraction
+        }
+        super().__init__(name="-contextLength", models=excluded_models)
 
 
 def group_models_by_key(model_to_key_map: dict[str, str], sorted_model_list: list[str]) -> dict[str | None, list[str]]:

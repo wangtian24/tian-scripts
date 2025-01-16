@@ -230,6 +230,18 @@ def get_image_attachment_models() -> Sequence[str]:
         return image_attachment_models
 
 
+@ttl_cache(ttl=900)  # 15-min cache
+def get_model_context_lengths() -> dict[str, int]:
+    query = select(LanguageModel.internal_name, LanguageModel.context_window_tokens).where(
+        LanguageModel.deleted_at.is_(None),  # type: ignore
+        LanguageModel.status == LanguageModelStatusEnum.ACTIVE,
+    )
+
+    with Session(get_engine()) as session:
+        results = session.exec(query).all()
+        return {name: length for name, length in results if length is not None}
+
+
 def get_chat_history(
     chat_id: str,
     turn_id: str | None = None,

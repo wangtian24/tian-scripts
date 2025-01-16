@@ -15,6 +15,7 @@ from ypl.backend.llm.ranking import Ranker, get_ranker
 from ypl.backend.llm.routing.modules.base import RouterModule
 from ypl.backend.llm.routing.modules.decision import RoutingDecisionLogger
 from ypl.backend.llm.routing.modules.filters import (
+    ContextLengthFilter,
     Exclude,
     HighErrorRateFilter,
     Inject,
@@ -42,9 +43,9 @@ from ypl.backend.utils.monitoring import metric_inc_by
 
 # Begin pro router logic and routine
 ROUTING_LLM: BaseChatModel | None = None
-ONLINE_LABELER = None
-TOPIC_LABELER = None
-MODIFIER_LABELER = None
+ONLINE_LABELER: YuppOnlinePromptLabeler | None = None
+TOPIC_LABELER: YuppMultilabelClassifier | None = None
+MODIFIER_LABELER: PromptModifierLabeler | None = None
 USE_GEMINI_FOR_ROUTING = False
 
 IMAGE_CATEGORY = "image"
@@ -146,6 +147,7 @@ async def get_simple_pro_router(
                     | error_filter
                     | StreamableModelFilter()
                     | MaxSpeedProposer()
+                    | ContextLengthFilter(prompt)
                     | RandomJitter(jitter_range=30.0)  # +/- 30 tokens per second
                     | ProviderFilter(one_per_provider=True)
                 ).with_flags(always_include=True, offset=5000)

@@ -8,7 +8,7 @@ from pytest import approx, mark
 
 from ypl.backend.config import settings
 from ypl.backend.llm.ranking import Battle, ChoixRanker, ChoixRankerConfIntervals, EloRanker
-from ypl.backend.llm.routing.modules.filters import SupportsImageAttachmentModelFilter, TopK
+from ypl.backend.llm.routing.modules.filters import ContextLengthFilter, SupportsImageAttachmentModelFilter, TopK
 from ypl.backend.llm.routing.modules.proposers import (
     AlwaysGoodModelMetaRouter,
     ConfidenceIntervalWidthModelProposer,
@@ -275,8 +275,10 @@ def test_fast_compute_all_conf_overlap_diffs() -> None:
 @patch("ypl.backend.llm.routing.rule_router.get_routing_table")
 @patch("ypl.backend.llm.routing.modules.filters.get_image_attachment_models")
 @patch("ypl.backend.llm.routing.modules.filters.get_active_models")
+@patch("ypl.backend.llm.routing.modules.filters.get_model_context_lengths")
 @pytest.mark.asyncio
 async def test_simple_pro_router(
+    mock_model_context_lengths: Mock,
     mock_active_models: Mock,
     mock_image_attachment_models: Mock,
     mock_routing_table: Mock,
@@ -325,6 +327,8 @@ async def test_simple_pro_router(
     mock_deduce_providers3.return_value = {model: model for model in all_models}
     mock_get_all_strong_models.return_value = {"pro1", "pro2", "pro3", "model1"}
     mock_error_filter.side_effect = lambda state: state
+
+    mock_model_context_lengths.return_value = {model: 1000000 for model in all_models}
 
     all_selected_models = set()
     for _ in range(50):
@@ -473,3 +477,21 @@ def test_supports_image_attachment_filter(mock_active_models: Mock, mock_image_a
     assert state.excluded_models == {"m3", "m4"}
     assert rejected_models == {"m3", "m4"}
     assert state.selected_models == {"m1": c, "m2": c}
+
+
+@patch("ypl.backend.llm.routing.modules.filters.get_model_context_lengths")
+def test_context_length_filter(mock_context_lengths: Mock) -> None:
+    context_lengths = {"m1": 1000, "m2": 1000, "m3": 100}
+    all_models = set(context_lengths.keys())
+    mock_context_lengths.return_value = context_lengths
+    c = {SelectionCriteria.RANDOM: 1.0}
+
+    def check_excluded_models_by_prompt_len(prompt_len_tokens: int, expected_excluded_models: set[str]) -> None:
+        state = RouterState(all_models=all_models, selected_models={m: c for m in all_models})
+        filter = ContextLengthFilter(prompt="hi " * prompt_len_tokens, max_length_fraction=0.5)
+        state, rejected_models = filter._filter(state)
+        assert state.excluded_models == rejected_models == expected_excluded_models
+        assert state.selected_models == {m: c for m in all_models - expected_excluded_models}
+
+    check_excluded_models_by_prompt_len(600, {"m3"})
+    check_excluded_models_by_prompt_len(60, set())
