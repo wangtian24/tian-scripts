@@ -1,0 +1,8 @@
+#!/bin/bash
+
+git add .
+if [ $# -eq 0 ]; then
+    git commit -m "WIP"
+else
+    git commit -m "$*"
+fi
