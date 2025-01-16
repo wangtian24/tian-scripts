@@ -6,9 +6,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 
 from ypl.backend.config import settings
 from ypl.backend.llm.constants import ChatProvider
-from ypl.backend.llm.db_helpers import (
-    deduce_original_providers,
-)
+from ypl.backend.llm.db_helpers import deduce_original_providers
 from ypl.backend.llm.judge import PromptModifierLabeler, YuppMultilabelClassifier, YuppOnlinePromptLabeler
 from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.ranking import Ranker, get_ranker
@@ -102,13 +100,15 @@ async def get_simple_pro_router(
         """
         Common post-processing stages that's shared in first-turn and non-first-turn routers
         """
+        semantic_group_filter = OnePerSemanticGroupFilter(priority_models=user_selected_models)
         return (
             # -- filter stage --
             Exclude(name="-exSMM", providers=show_me_more_providers, models=exclude_models)
             # inject user selected model, even if they are already used before.
             # Also they are always treated with priority in the following dedup filters.
             | Inject(user_selected_models or [], score=10000000)
-            | OnePerSemanticGroupFilter(priority_models=user_selected_models)  # dedupe by semantic group
+            # Don't apply semantic group filter for image turns, since we don't have many supporting models.
+            | (semantic_group_filter if IMAGE_CATEGORY not in categories else Passthrough())
             | ProviderFilter(one_per_provider=True, priority_models=user_selected_models)  # dedupe by provider
             | (SupportsImageAttachmentModelFilter() if IMAGE_CATEGORY in categories else Passthrough())
             # -- ranking stage --
