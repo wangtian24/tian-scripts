@@ -1,3 +1,4 @@
+import logging
 import random
 import re
 from collections.abc import Sequence
@@ -24,6 +25,8 @@ from ypl.backend.llm.routing.route_data_type import PreferredModel, RoutingPrefe
 from ypl.db.chats import Chat, ChatMessage, MessageType
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
 from ypl.utils import async_timed_cache
+
+IMAGE_ATTACHMENT_MIME_TYPE = "image/*"
 
 
 def simple_deduce_original_provider(model: str) -> str:
@@ -198,6 +201,33 @@ def get_user_message(turn_id: str) -> str:
 
     with Session(get_engine()) as session:
         return session.exec(query).first() or ""
+
+
+@ttl_cache(ttl=900)  # 15-min cache
+def get_active_models() -> Sequence[str]:
+    query = select(LanguageModel.internal_name).where(
+        LanguageModel.deleted_at.is_(None),  # type: ignore
+        LanguageModel.status == LanguageModelStatusEnum.ACTIVE,
+    )
+
+    with Session(get_engine()) as session:
+        active_models = session.exec(query).all()
+        logging.info(f"Refreshed active models: {active_models}")
+        return active_models
+
+
+@ttl_cache(ttl=900)  # 15-min cache
+def get_image_attachment_models() -> Sequence[str]:
+    query = select(LanguageModel.internal_name).where(
+        LanguageModel.supported_attachment_mime_types.contains([IMAGE_ATTACHMENT_MIME_TYPE]),  # type: ignore
+        LanguageModel.deleted_at.is_(None),  # type: ignore
+        LanguageModel.status == LanguageModelStatusEnum.ACTIVE,
+    )
+
+    with Session(get_engine()) as session:
+        image_attachment_models = session.exec(query).all()
+        logging.info(f"Refreshed image attachment models: {image_attachment_models}")
+        return image_attachment_models
 
 
 def get_chat_history(

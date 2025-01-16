@@ -22,9 +22,10 @@ from ypl.backend.llm.routing.modules.filters import (
     ProviderFilter,
     RandomJitter,
     StreamableModelFilter,
+    SupportsImageAttachmentModelFilter,
     TopK,
 )
-from ypl.backend.llm.routing.modules.misc import ModifierAnnotator
+from ypl.backend.llm.routing.modules.misc import ModifierAnnotator, Passthrough
 from ypl.backend.llm.routing.modules.proposers import (
     AlwaysGoodModelMetaRouter,
     CostModelProposer,
@@ -45,6 +46,10 @@ ONLINE_LABELER = None
 TOPIC_LABELER = None
 MODIFIER_LABELER = None
 USE_GEMINI_FOR_ROUTING = False
+
+IMAGE_CATEGORY = "image"
+ONLINE_CATEGORY = "online"
+OFFLINE_CATEGORY = "offline"
 
 
 async def get_simple_pro_router(
@@ -77,7 +82,7 @@ async def get_simple_pro_router(
         modifier_labeler.alabel(prompt),
     )
 
-    online_category = "online" if online_label else "offline"
+    online_category = ONLINE_CATEGORY if online_label else OFFLINE_CATEGORY
     categories = [online_category] + topic_labels + (provided_categories or [])
     categories = list(dict.fromkeys(categories))
     applicable_modifiers = modifier_labels
@@ -104,6 +109,7 @@ async def get_simple_pro_router(
             | Inject(user_selected_models or [], score=10000000)
             | OnePerSemanticGroupFilter(priority_models=user_selected_models)  # dedupe by semantic group
             | ProviderFilter(one_per_provider=True, priority_models=user_selected_models)  # dedupe by provider
+            | (SupportsImageAttachmentModelFilter() if IMAGE_CATEGORY in categories else Passthrough())
             # -- ranking stage --
             | TopK(num_models)  # keeps only top k models
             # -- annotation stage --

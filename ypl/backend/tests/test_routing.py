@@ -8,7 +8,7 @@ from pytest import approx, mark
 
 from ypl.backend.config import settings
 from ypl.backend.llm.ranking import Battle, ChoixRanker, ChoixRankerConfIntervals, EloRanker
-from ypl.backend.llm.routing.modules.filters import TopK
+from ypl.backend.llm.routing.modules.filters import SupportsImageAttachmentModelFilter, TopK
 from ypl.backend.llm.routing.modules.proposers import (
     AlwaysGoodModelMetaRouter,
     ConfidenceIntervalWidthModelProposer,
@@ -19,9 +19,7 @@ from ypl.backend.llm.routing.modules.proposers import (
     _fast_compute_all_conf_overlap_diffs,
     _fast_compute_all_num_intersections,
 )
-from ypl.backend.llm.routing.policy import (
-    exponential_decay,
-)
+from ypl.backend.llm.routing.policy import SelectionCriteria, exponential_decay
 from ypl.backend.llm.routing.router import (
     get_simple_pro_router,
 )
@@ -275,8 +273,12 @@ def test_fast_compute_all_conf_overlap_diffs() -> None:
 @patch("ypl.backend.llm.routing.rule_router.deduce_original_providers")
 @patch("ypl.backend.llm.routing.modules.filters.deduce_semantic_groups")
 @patch("ypl.backend.llm.routing.rule_router.get_routing_table")
+@patch("ypl.backend.llm.routing.modules.filters.get_image_attachment_models")
+@patch("ypl.backend.llm.routing.modules.filters.get_active_models")
 @pytest.mark.asyncio
 async def test_simple_pro_router(
+    mock_active_models: Mock,
+    mock_image_attachment_models: Mock,
     mock_routing_table: Mock,
     mock_semantic_group_map: Mock,
     mock_deduce_providers1: Mock,
@@ -314,6 +316,8 @@ async def test_simple_pro_router(
     models = {"model1", "model2"}
     reputable_providers = {"pro1", "pro2", "pro3", "model1"}
     all_models = models | pro_models
+    mock_active_models.return_value = all_models
+    mock_image_attachment_models.return_value = all_models
     state = RouterState(all_models=all_models)
     # Just make a provider for each model named after the model.
     mock_deduce_providers1.return_value = {model: model for model in all_models}
@@ -452,3 +456,20 @@ def test_routing_table(mock_deduce_providers: Mock) -> None:
 
     # With 50% probability, model2 should be rejected.
     assert reject_count / 100 == approx(0.5, rel=0.1)
+
+
+@patch("ypl.backend.llm.routing.modules.filters.get_image_attachment_models")
+@patch("ypl.backend.llm.routing.modules.filters.get_active_models")
+def test_supports_image_attachment_filter(mock_active_models: Mock, mock_image_attachment_models: Mock) -> None:
+    all_models = {"m1", "m2", "m3", "m4"}
+    image_models = {"m1", "m2"}
+    mock_active_models.return_value = all_models
+    mock_image_attachment_models.return_value = image_models
+    c = {SelectionCriteria.RANDOM: 1.0}
+    state = RouterState(all_models=all_models, selected_models={m: c for m in all_models})
+    filter = SupportsImageAttachmentModelFilter()
+
+    state, rejected_models = filter._filter(state)
+    assert state.excluded_models == {"m3", "m4"}
+    assert rejected_models == {"m3", "m4"}
+    assert state.selected_models == {"m1": c, "m2": c}

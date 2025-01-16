@@ -8,7 +8,12 @@ from sqlmodel import Session, select
 from ypl.backend.config import settings
 from ypl.backend.db import get_engine
 from ypl.backend.llm.constants import MODEL_HEURISTICS
-from ypl.backend.llm.db_helpers import deduce_original_providers, deduce_semantic_groups
+from ypl.backend.llm.db_helpers import (
+    deduce_original_providers,
+    deduce_semantic_groups,
+    get_active_models,
+    get_image_attachment_models,
+)
 from ypl.backend.llm.routing.modules.base import RouterModule
 from ypl.backend.llm.routing.policy import SelectionCriteria
 from ypl.backend.llm.routing.router_state import RouterState
@@ -195,6 +200,14 @@ class StreamableModelFilter(Exclude):
     def __init__(self) -> None:
         non_streaming_models = {model for model, heuristics in MODEL_HEURISTICS.items() if not heuristics.can_stream}
         super().__init__(name="-nonStreamable", models=non_streaming_models)
+
+
+class SupportsImageAttachmentModelFilter(Exclude):
+    """Filter to models that support image attachments."""
+
+    def __init__(self) -> None:
+        non_image_attachment_models = set(get_active_models()) - set(get_image_attachment_models())
+        super().__init__(name="-noImageAttachment", models=non_image_attachment_models)
 
 
 def group_models_by_key(model_to_key_map: dict[str, str], sorted_model_list: list[str]) -> dict[str | None, list[str]]:
