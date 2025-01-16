@@ -1300,9 +1300,9 @@ def create_a_wallet() -> None:
 
 
 @cli.command()
-def get_a_wallet_balance() -> None:
+def post_onchain_details() -> None:
     """Get the balance of a wallet."""
-    get_wallet_balance()
+    asyncio.run(get_wallet_balance())
 
 
 @cli.command()
@@ -1388,6 +1388,28 @@ def calculate_coinbase_signature_for_test() -> None:
         logging.info(json_dumps(log_dict))
 
     asyncio.run(run())
+
+
+@cli.command()
+def post_offchain_details() -> None:
+    """Get and post the Coinbase retail wallet balance."""
+    from ypl.backend.llm.utils import post_to_slack
+    from ypl.backend.payment.coinbase.coinbase_payout import get_coinbase_retail_wallet_account_details
+    from ypl.backend.payment.crypto.crypto_wallet import SLACK_WEBHOOK_CASHOUT
+
+    async def format_and_post_balance() -> None:
+        accounts = await get_coinbase_retail_wallet_account_details()
+
+        message = "*Coinbase Retail Wallet Balance*\n" "```\n" "| Asset | Balance |\n" "|-------|----------|\n"
+
+        for currency, details in accounts.items():
+            balance = details.get("balance", 0)
+            message += f"| {currency:<5} | {balance:>9.8f} |\n"
+
+        message += "```"
+        await post_to_slack(message, SLACK_WEBHOOK_CASHOUT)
+
+    asyncio.run(format_and_post_balance())
 
 
 if __name__ == "__main__":

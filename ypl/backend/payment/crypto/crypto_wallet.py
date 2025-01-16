@@ -5,6 +5,7 @@ import os
 from cdp import Cdp, Wallet
 from dotenv import load_dotenv
 from ypl.backend.config import settings
+from ypl.backend.llm.utils import post_to_slack
 from ypl.backend.utils.files import download_gcs_to_local_temp, read_file, write_file
 from ypl.backend.utils.json import json_dumps
 
@@ -14,6 +15,7 @@ WALLET_FILE_NAME = "wallet.json"
 CRYPTO_WALLET_PATH = settings.CRYPTO_WALLET_PATH
 SEED_FILE_PATH = os.path.join(CRYPTO_WALLET_PATH, SEED_FILE_NAME)
 WALLET_FILE_PATH = os.path.join(CRYPTO_WALLET_PATH, WALLET_FILE_NAME)
+SLACK_WEBHOOK_CASHOUT = settings.SLACK_WEBHOOK_CASHOUT
 
 
 def init_cdp() -> None:
@@ -93,7 +95,7 @@ def import_existing_wallet() -> Wallet:
         raise ValueError("Failed to import wallet") from e
 
 
-def get_wallet_balance() -> None:
+async def get_wallet_balance() -> None:
     """
     Get the balance of a specific asset in the wallet.
 
@@ -122,6 +124,17 @@ def get_wallet_balance() -> None:
         }
         logging.info(json_dumps(log_dict))
 
+        message = (
+            "*Self Custodial Wallet Balance*\n"
+            "```\n"
+            "| Asset | Balance |\n"
+            "|-------|----------|\n"
+            f"| ETH   | {eth_balance:.8f} |\n"
+            f"| USDC  | {usdc_balance:.6f} |\n"
+            f"| CBBTC | {cbbtc_balance:.8f} |\n"
+            "```\n"
+        )
+        await post_to_slack(message, SLACK_WEBHOOK_CASHOUT)
     except Exception as e:
         log_dict = {"message": "Failed to get wallet balance", "error": str(e)}
         logging.error(json_dumps(log_dict))

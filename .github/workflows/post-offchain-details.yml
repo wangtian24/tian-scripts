@@ -1,0 +1,14 @@
+name: Post Offchain Details
+
+on:
+  schedule:
+    - cron: '2 8 * * *'  # 12:02 AM PST (8:02 UTC)
+  workflow_dispatch:
+
+jobs:
+  post_offchain_details_production:
+    uses: ./.github/workflows/cronjob.yml
+    with:
+      command: post-offchain-details
+      environment: production
+    secrets: inherit 
