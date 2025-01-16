@@ -20,6 +20,20 @@ from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provi
 
 load_dotenv()  # Load environment variables from .env file
 
+API_KEY_MAP = {
+    "OpenRouter": "OPENROUTER_API_KEY",
+    "Together AI": "TOGETHER_API_KEY",
+    "Perplexity": "PERPLEXITY_API_KEY",
+    "Alibaba": "ALIBABA_API_KEY",
+    "DeepSeek": "DEEPSEEK_API_KEY",
+    "Groq": "GROQ_API_KEY",
+    "Cerebras": "CEREBRAS_API_KEY",
+    "Anyscale": "ANYSCALE_API_KEY",
+}
+PROVIDER_KWARGS = {
+    "OpenRouter": {"extra_body": {"transforms": ["middle-out"]}},
+}
+
 
 # TODO(bhanu) - this should auto refresh every 10 minutes and at startup
 # TODO(bhanu) - test new model info is hot reloaded in under 10mins (refresh interval)
@@ -118,20 +132,11 @@ async def get_provider_client(model_name: str) -> BaseChatModel:
             "Cerebras",
             "Anyscale",
         ]:
-            api_key_map = {
-                "OpenRouter": "OPENROUTER_API_KEY",
-                "Together AI": "TOGETHER_API_KEY",
-                "Perplexity": "PERPLEXITY_API_KEY",
-                "Alibaba": "ALIBABA_API_KEY",
-                "DeepSeek": "DEEPSEEK_API_KEY",
-                "Groq": "GROQ_API_KEY",
-                "Cerebras": "CEREBRAS_API_KEY",
-                "Anyscale": "ANYSCALE_API_KEY",
-            }
             return ChatOpenAI(
                 model=model.internal_name,
-                api_key=SecretStr(os.getenv(api_key_map[provider_name], "")),
+                api_key=SecretStr(os.getenv(API_KEY_MAP[provider_name], "")),
                 base_url=provider.base_api_url,
+                **PROVIDER_KWARGS.get(provider_name, {}),  # type: ignore
             )
         # TODO(bhanu) - review inactive providers in DB - Azure, Nvidia, Fireworks
         case _:

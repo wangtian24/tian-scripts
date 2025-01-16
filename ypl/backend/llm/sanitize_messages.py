@@ -35,8 +35,8 @@ def truncate_message(
         The truncated messages
     """
 
-    # leave a 25% buffer for additional markup
-    available_tokens = max_tokens * 0.75 - len(model_heuristics.encode_tokens(system_prompt))
+    # leave a 10% buffer for additional markup
+    available_tokens = max_tokens * 0.9 - len(model_heuristics.encode_tokens(system_prompt))
     truncated_messages: list[BaseMessage] = []
 
     # Iterate through messages in reverse order
