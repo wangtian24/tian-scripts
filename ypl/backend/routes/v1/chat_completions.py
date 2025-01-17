@@ -458,9 +458,8 @@ async def _get_message(chat_request: ChatRequest) -> ChatMessage | None:
         .outerjoin(PromptModifierAssoc)
         .group_by(ChatMessage.message_id)  # type: ignore
         .having(
-            func.array_agg(PromptModifierAssoc.prompt_modifier_id) == chat_request.prompt_modifier_ids  # type: ignore
-            if chat_request.prompt_modifier_ids
-            else True,
+            func.array_agg(PromptModifierAssoc.prompt_modifier_id)  # type: ignore
+            == (chat_request.prompt_modifier_ids if chat_request.prompt_modifier_ids else [None])  # type: ignore
         )
     )
 
