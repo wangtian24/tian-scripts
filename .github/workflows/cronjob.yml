@@ -28,8 +28,7 @@ on:
           - judge-quick-response-quality
           - judge-refusals
           - post-amplitude-metrics
-          - post-offchain-details
-          - post-onchain-details
+          - post-source-account-balances
           - process-crypto-rewards
           - reset-yuppster-points
           - store-prompt-language

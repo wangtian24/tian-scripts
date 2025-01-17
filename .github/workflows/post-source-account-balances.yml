@@ -1,4 +1,4 @@
-name: Post Offchain Details
+name: Post Source Account Balances
 
 on:
   schedule:
@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  post_offchain_details_production:
+  post_source_account_balances_production:
     uses: ./.github/workflows/cronjob.yml
     with:
-      command: post-offchain-details
+      command: post-source-account-balances
       environment: production
     secrets: inherit 
