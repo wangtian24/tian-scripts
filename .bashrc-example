@@ -1,0 +1,58 @@
+# ~/.bashrc
+
+# Enable color support
+export CLICOLOR=1
+export LSCOLORS=GxFxCxDxBxegedabagaced
+
+# Custom PS1 prompt with Git integration
+function parse_git_branch() {
+  # Check if inside a Git repository
+  git rev-parse --is-inside-work-tree &>/dev/null
+  if [ $? -eq 0 ]; then
+    # Get the current branch name
+    branch=$(git symbolic-ref --short HEAD 2>/dev/null || git rev-parse --short HEAD 2>/dev/null)
+    # Show Git dirty status
+    if [[ -n $(git status --porcelain 2>/dev/null) ]]; then
+      echo " (git: $branch*)"
+    else
+      echo " (git: $branch)"
+    fi
+  fi
+}
+
+# PS1: Prompt with username, hostname, current directory, and Git info
+export PS1="\[\033[01;32m\]\u@\h \[\033[01;34m\]\w\[\033[31m\]\$(parse_git_branch)\[\033[00m\] \$ "
+
+# Alias for better Git experience
+alias gibm='git checkout main'
+alias gis='git status'
+alias gco='git checkout'
+alias glog='git log --oneline --graph --decorate'
+alias ga='git add'
+alias gc='git commit -m'
+alias gp='git push'
+alias pbblame='pbpaste | xargs git blame' # git blame the file with the path in the pasteboard
+alias gcom='git commit -m $1'
+alias gdiff='git diff'
+alias gdiffm='git diff main'
+alias diffn='git diff main --stat'
+
+# alias mact='mamba activate ys-dev'
+
+# Make 'ls' colorful and human-readable
+alias ls='ls --color=auto -h'
+alias ll='ls -lah'
+alias la='ls -A'
+
+# Add your custom PATH
+export PATH="$HOME/bin:$PATH:/Users/wangtian/workspace/tian-scripts"
+
+# Enable auto-completion (if applicable)
+if [ -f /usr/share/bash-completion/bash_completion ]; then
+  . /usr/share/bash-completion/bash_completion
+elif [ -f /etc/bash_completion ]; then
+  . /etc/bash_completion
+fi
+
+export GOOGLE_APPLICATION_CREDENTIALS=/Users/wangtian/.secrets/gcp_cred.json
+
