@@ -564,6 +564,7 @@ class AxisUpiFacilitator(BaseFacilitator):
                 log_dict = {
                     "message": "Source instrument does not have enough balance",
                     "user_id": user_id,
+                    "credits_to_cashout": credits_to_cashout,
                     "amount": str(amount),
                     "currency": self.currency,
                     "source_instrument_balance": str(balance),
@@ -582,6 +583,9 @@ class AxisUpiFacilitator(BaseFacilitator):
                 "error": str(e),
                 "facilitator": self.facilitator,
                 "payment_transaction_id": str(payment_transaction_id),
+                "credits_to_cashout": credits_to_cashout,
+                "amount": str(amount),
+                "currency": self.currency,
                 "processing_time": time.time() - start_time,
                 "elapsed_time": time.time() - start_time,
             }
@@ -594,6 +598,10 @@ class AxisUpiFacilitator(BaseFacilitator):
             "payment_transaction_id": str(payment_transaction_id),
             "processing_time": balance_validation_done - start_time,
             "elapsed_time": time.time() - start_time,
+            "credits_to_cashout": credits_to_cashout,
+            "amount": str(amount),
+            "currency": self.currency,
+            "facilitator": self.facilitator,
         }
         logging.info(json_dumps(log_dict))
 
@@ -648,6 +656,9 @@ class AxisUpiFacilitator(BaseFacilitator):
                 "error": str(e),
                 "facilitator": self.facilitator,
                 "payment_transaction_id": str(payment_transaction_id),
+                "credits_to_cashout": credits_to_cashout,
+                "amount": str(amount),
+                "currency": self.currency,
                 "elapsed_time": time.time() - start_time,
             }
             logging.exception(json_dumps(log_dict))
@@ -658,6 +669,9 @@ class AxisUpiFacilitator(BaseFacilitator):
             "message": "Initial DB updates made",
             "user_id": user_id,
             "processing_time": db_inits_done - balance_validation_done,
+            "credits_to_cashout": credits_to_cashout,
+            "amount": str(amount),
+            "currency": self.currency,
             "payment_transaction_id": str(payment_transaction_id),
             "facilitator": self.facilitator,
             "elapsed_time": time.time() - start_time,
@@ -693,6 +707,9 @@ class AxisUpiFacilitator(BaseFacilitator):
                 "partner_reference_id": payment_response.partner_reference_id,
                 "facilitator": self.facilitator,
                 "elapsed_time": time.time() - start_time,
+                "credits_to_cashout": credits_to_cashout,
+                "amount": str(amount),
+                "currency": self.currency,
             }
             asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
             logging.info(json_dumps(log_dict))
@@ -710,6 +727,9 @@ class AxisUpiFacilitator(BaseFacilitator):
                 "facilitator": self.facilitator,
                 "payment_transaction_id": str(payment_transaction_id),
                 "elapsed_time": time.time() - start_time,
+                "credits_to_cashout": credits_to_cashout,
+                "amount": str(amount),
+                "currency": self.currency,
             }
             logging.exception(json_dumps(log_dict))
             await self.undo_payment_transaction(payment_transaction_id)
@@ -741,6 +761,9 @@ class AxisUpiFacilitator(BaseFacilitator):
             "partner_reference_id": partner_reference_id,
             "facilitator": self.facilitator,
             "elapsed_time": time.time() - start_time,
+            "credits_to_cashout": credits_to_cashout,
+            "amount": str(amount),
+            "currency": self.currency,
         }
         logging.info(json_dumps(log_dict))
 
@@ -764,6 +787,9 @@ class AxisUpiFacilitator(BaseFacilitator):
             "partner_reference_id": partner_reference_id,
             "facilitator": self.facilitator,
             "elapsed_time": time.time() - start_time,
+            "credits_to_cashout": credits_to_cashout,
+            "amount": str(amount),
+            "currency": self.currency,
         }
         logging.info(json_dumps(log_dict))
 
