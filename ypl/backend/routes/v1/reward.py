@@ -4,6 +4,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Path, Query
 
+from ypl.backend.email.referrals import send_referral_bonus_emails
 from ypl.backend.llm.chat import get_turn_id_from_message_id
 from ypl.backend.llm.reward import (
     RewardAmountRule,
@@ -297,6 +298,7 @@ async def handle_referral_bonus_reward(reward_action_log: RewardActionLog) -> Re
             turn_id=reward_action_log.turn_id,
             referred_user_id=user_id,
         )
+
         updated_referrer_reward_action_log = await create_reward_action_log(referrer_reward_action_log)
 
         # Calculate reward for the referrer
@@ -318,6 +320,15 @@ async def handle_referral_bonus_reward(reward_action_log: RewardActionLog) -> Re
                 reward_amount_rule=referrer_reward_amount_rule,
                 reward_probability_rule=referrer_reward_probability_rule,
             )
+
+        asyncio.create_task(
+            send_referral_bonus_emails(
+                new_user=current_user_reward_action_log.user_id,
+                new_user_credit_delta=credit_delta,
+                referrer=referrer_user_id,
+                referrer_credit_delta=referrer_credit_delta if should_reward_referrer else 0,
+            )
+        )
 
     return current_user_reward_response or RewardCreationResponse(is_rewarded=False)
 

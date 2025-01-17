@@ -73,7 +73,7 @@ REFFERAL_BONUS_EMAIL_TITLE = "You just scored a referral bonus of {credits} YUPP
 REFFERAL_BONUS_EMAIL_TEMPLATE = """
 Hey {referrer_name},
 
-We’re happy to let you know that {referee_name}, whom you referred, has signed up successfully and has started using Yupp. This earned you a referral bonus of {credits} YUPP credits!
+We’re happy to let you know that {referee_name}, whom you referred, has signed up successfully and has started using Yupp. This granted you a referral bonus of {credits} YUPP credits!
 
 Cheers,
 Mouli
@@ -81,11 +81,11 @@ Mouli
 """  # noqa: E501
 
 
-REFFERED_USER_EMAIL_TITLE = "You just earned {credits} YUPP credits!"
+REFFERED_USER_EMAIL_TITLE = "You just scored {credits} YUPP credits!"
 REFFERED_USER_EMAIL_TEMPLATE = """
 Hey {name},
 
-Thank you for providing your first "I prefer this" feedback! We’re happy to let you know that since you joined Yupp with a special invite code, that earned yourself a bonus of {credits} YUPP credits!
+Thank you for providing your first "I prefer this" feedback! We’re happy to let you know that since you joined Yupp with a special invite code, that granted yourself a bonus of {credits} YUPP credits!
 
 Cheers,
 Mouli

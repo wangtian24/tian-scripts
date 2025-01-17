@@ -894,7 +894,9 @@ async def sign_up_reward(user_id: str) -> tuple[bool, int, str, RewardAmountRule
 async def get_referrer_user_id(user_id: str) -> str | None:
     async with AsyncSession(get_async_engine()) as session:
         result = await session.execute(
-            select(WaitlistedUser.referrer_id)
+            select(
+                WaitlistedUser.referrer_id,
+            )
             .join(User, User.email == WaitlistedUser.email)  # type: ignore
             .join(SpecialInviteCodeClaimLog, SpecialInviteCodeClaimLog.user_id == User.user_id)  # type: ignore
             .where(User.user_id == user_id)

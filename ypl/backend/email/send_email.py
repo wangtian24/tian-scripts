@@ -40,15 +40,17 @@ EMAIL_CAMPAIGNS = {
 REPLY_TO_ADDRESS = "gcmouli+yupp@yupp.ai"
 
 
-async def send_email_async(campaign: str, to_address: str, params: dict[str, Any]) -> Email | None:
+async def send_email_async(campaign: str, to_address: str, template_params: dict[str, Any]) -> Email | None:
     if campaign not in EMAIL_CAMPAIGNS:
         raise ValueError(f"Campaign '{campaign}' not found")
 
     campaign_data = EMAIL_CAMPAIGNS[campaign]
     try:
-        email_title = campaign_data["title"].format(**params)
-        email_body = campaign_data["template"].format(**params)
-        email_body_html = campaign_data["template_html"].format(**params) if "template_html" in campaign_data else None
+        email_title = campaign_data["title"].format(**template_params)
+        email_body = campaign_data["template"].format(**template_params)
+        email_body_html = (
+            campaign_data["template_html"].format(**template_params) if "template_html" in campaign_data else None
+        )
     except KeyError as e:
         raise ValueError(f"Missing required parameter: {e}") from e
 

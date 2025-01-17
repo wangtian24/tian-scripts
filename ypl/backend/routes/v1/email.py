@@ -22,7 +22,7 @@ async def send_email(request: SendEmailRequest) -> dict[str, Any]:
         email = await send_email_async(
             campaign=request.campaign,
             to_address=request.to_address,
-            params=request.params,
+            template_params=request.params,
         )
         return {"status": "success", "email": email}
     except ValueError as e:
