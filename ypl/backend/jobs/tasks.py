@@ -48,7 +48,7 @@ def store_language_code(chat_message_id: str, content: str) -> None:
             if message:
                 message.language_code = LanguageCode(lang_code)
                 session.commit()
-                logging.debug(f"Language code stored for message {chat_message_id}")
+                logging.info(f"Language code {lang_code} stored for message {chat_message_id}")
             else:
                 logging.error(f"Message not found for message_id {chat_message_id}")
     except Exception as e:
@@ -59,6 +59,10 @@ def store_language_code(chat_message_id: str, content: str) -> None:
             "error": str(e),
         }
         logging.error(json_dumps(log_dict))
+
+
+async def astore_language_code(chat_message_id: str, content: str) -> None:
+    await store_language_code(chat_message_id, content)
 
 
 @celery_app.task

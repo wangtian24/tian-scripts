@@ -39,6 +39,7 @@ from ypl.backend.llm.provider.provider_clients import get_model_provider_tuple
 from ypl.backend.llm.routing.debug import RoutingDebugInfo, build_routing_debug_info
 from ypl.backend.llm.routing.route_data_type import PreferredModel, RoutingPreference
 from ypl.backend.llm.routing.router_state import RouterState
+from ypl.backend.llm.turn_quality import label_turn_quality
 from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter, OpenAILangChainAdapter
 from ypl.backend.prompts import ALL_MODELS_IN_CHAT_HISTORY_PREAMBLE, RESPONSE_SEPARATOR
 from ypl.backend.utils.json import json_dumps
@@ -143,6 +144,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         case SelectIntent.NEW_CHAT | SelectIntent.NEW_TURN:
             assert request.prompt is not None, "prompt is required for NEW_CHAT or NEW_TURN intent"
             prompt = request.prompt
+            asyncio.create_task(label_turn_quality(UUID(request.turn_id), UUID(request.chat_id), prompt))
         case SelectIntent.SHOW_ME_MORE:
             assert request.turn_id is not None, "turn_id is required for SHOW_ME_MORE intent"
             prompt = get_user_message(request.turn_id)

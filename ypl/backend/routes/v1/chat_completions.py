@@ -18,6 +18,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine
+from ypl.backend.jobs.tasks import astore_language_code
 from ypl.backend.llm.attachment import get_attachments, link_attachments
 from ypl.backend.llm.chat import (
     Intent,
@@ -334,6 +335,8 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                         f" client {str(client)}"
                     )
                 )
+
+        asyncio.create_task(astore_language_code(str(chat_request.message_id), chat_request.prompt))
 
         # Send completion status
         end_time = datetime.now()

@@ -14,9 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine
-from ypl.backend.jobs.tasks import store_language_code
 from ypl.backend.llm.chat import (
     PromptModifierInfo,
     QuickTakeRequest,
@@ -24,27 +22,15 @@ from ypl.backend.llm.chat import (
     generate_quicktake,
     get_active_prompt_modifiers,
 )
-from ypl.backend.llm.constants import ChatProvider
-from ypl.backend.llm.db_helpers import get_chat_model
-from ypl.backend.llm.judge import DEFAULT_PROMPT_DIFFICULTY, YuppPromptDifficultyWithCommentLabeler
-from ypl.backend.llm.model_data_type import ModelInfo
-from ypl.backend.llm.moderation import DEFAULT_MODERATION_RESULT, amoderate
+from ypl.backend.llm.turn_quality import label_turn_quality
 from ypl.backend.rw_cache import TurnQualityCache
 from ypl.backend.utils.json import json_dumps
-from ypl.db.chats import Chat, ChatMessage, MessageType, Turn, TurnQuality
+from ypl.db.chats import Chat, ChatMessage, Turn, TurnQuality
 
 # Maximum number of pinned chats for a user.
 MAX_PINNED_CHATS = 10
 
 router = APIRouter()
-llm = get_chat_model(
-    ModelInfo(
-        provider=ChatProvider.OPENAI,
-        model="gpt-4o",
-        api_key=settings.OPENAI_API_KEY,
-    ),
-    temperature=0.0,
-)
 
 
 @router.post("/chats/{chat_id}/generate_quicktake", response_model=QuickTakeResponse)
@@ -76,92 +62,16 @@ async def generate_quicktake_turn_id(
 
 @router.post("/chats/{chat_id}/turns/{turn_id}:label_quality", response_model=TurnQuality)
 async def label_quality(chat_id: UUID, turn_id: UUID) -> TurnQuality:
-    cache = TurnQualityCache.get_instance()
-    tq = await cache.aread(turn_id, deep=True)
-
-    if not tq:
-        async with AsyncSession(get_async_engine()) as session:
-            tq = TurnQuality(
-                turn_id=turn_id,
-                chat_id=chat_id,
-            )
-
-            session.add(tq)
-            await session.commit()
-            await session.refresh(tq)
-            session.expunge(tq)
-    else:
-        # Only return if we have both moderation and difficulty results.
-        if tq.prompt_difficulty is not None and tq.prompt_is_safe is not None:
-            return tq
-
-    turn = tq.turn
-
-    if turn.chat_id != chat_id:
-        raise HTTPException(status_code=404, detail="Turn quality not found")
-
-    prompt = next((m.content for m in turn.chat_messages if m.message_type == MessageType.USER_MESSAGE), None)
-    responses = [m.content for m in turn.chat_messages if m.message_type == MessageType.ASSISTANT_MESSAGE]
-
-    if prompt is None:
-        raise HTTPException(status_code=400, detail="Not enough prompts or responses to label quality")
-
-    responses += ["", ""]  # ensure at least two responses
-
-    tasks: list[tuple[str, Any]] = []
-    if tq.prompt_difficulty is None:
-        labeler = YuppPromptDifficultyWithCommentLabeler(llm)
-        tasks.append(("difficulty", labeler.alabel_full((prompt,) + tuple(responses[:2]))))
-
-    if tq.prompt_is_safe is None:
-        tasks.append(("moderate", amoderate(prompt)))
-
-    if tasks:
-        results = await asyncio.gather(*(task[1] for task in tasks), return_exceptions=True)
-
-        for (task_type, _), result in zip(tasks, results, strict=True):
-            if isinstance(result, Exception):
-                log_dict = {
-                    "message": f"Error in {task_type} task; using default value",
-                    "turn_id": str(turn_id),
-                    "error": str(result),
-                }
-                logging.warning(json_dumps(log_dict))
-                if task_type == "difficulty":
-                    prompt_difficulty = DEFAULT_PROMPT_DIFFICULTY
-                elif task_type == "moderate":
-                    moderation_result = DEFAULT_MODERATION_RESULT
-                else:
-                    raise ValueError(f"Unknown task type: {task_type}")
-            else:
-                if task_type == "difficulty":
-                    prompt_difficulty, prompt_difficulty_details = result  # type: ignore
-                    tq.prompt_difficulty = prompt_difficulty
-                    tq.prompt_difficulty_details = prompt_difficulty_details
-                elif task_type == "moderate":
-                    moderation_result = result  # type: ignore
-                    tq.prompt_is_safe = moderation_result.safe
-                    tq.prompt_moderation_model_name = moderation_result.model_name
-                    if not moderation_result.safe:
-                        tq.prompt_unsafe_reasons = moderation_result.reasons
-                else:
-                    raise ValueError(f"Unknown task type: {task_type}")
-
     try:
-        cache.write(key=turn_id, value=tq)
-    except Exception as e:
-        log_dict = {
-            "message": "Error writing turn quality to cache",
-            "turn_id": str(turn_id),
-            "error": str(e),
-        }
-        logging.exception(json_dumps(log_dict))
-        raise HTTPException(status_code=500, detail=f"Error writing turn quality to cache: {e}") from e
-
-    for message in turn.chat_messages:
-        store_language_code.delay(message.message_id, message.content)
-
-    return tq
+        # TODO(gilad): Now that the backend handles streaming, it also initiates quality labeling directly, and the
+        # client no longer needs to call this endpoint.
+        # Until the call to this endpoint from the client is removed, add a short delay here (the client is not waiting
+        # for a response), so that the turn quality is more likely to be cached by the time the client makes the call.
+        # Once the client no longer calls this endpoint, remove this endpoint entirely.
+        await asyncio.sleep(5)
+        return await label_turn_quality(turn_id, chat_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.get("/chats/{chat_id}/turns/{turn_id}/quality", response_model=TurnQuality)

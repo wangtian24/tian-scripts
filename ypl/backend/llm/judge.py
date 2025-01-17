@@ -131,7 +131,7 @@ class YuppPromptDifficultyLabeler(LLMLabeler[tuple[str, str, str], int]):
     def _heuristic_label(self, input: tuple[str, str, str]) -> tuple[int | None, str]:
         """Labels based on heuristics if possible, otherwise None."""
         num_words = len(input[0].split())
-        if num_words <= self.max_words_low_quality:
+        if num_words < self.max_words_low_quality:
             details = {"heuristics": f"Short prompt ({num_words} <= {self.max_words_low_quality} words)"}
             return LOW_PROMPT_DIFFICULTY, json.dumps(details)
 
