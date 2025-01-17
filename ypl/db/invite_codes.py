@@ -3,6 +3,7 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 from sqlalchemy import UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship
 
 from ypl.db.base import BaseModel
@@ -50,3 +51,9 @@ class SpecialInviteCodeClaimLog(BaseModel, table=True):
 
     user_id: str = Field(foreign_key="users.user_id", nullable=False)
     user: "User" = Relationship(back_populates="special_invite_code_claim_log")
+
+    ip_address: str = Field(nullable=True)
+    user_agent: str = Field(nullable=True)
+
+    # Other additional information that may be useful for abuse detection.
+    client_device_info: dict[str, str] = Field(default_factory=dict, sa_type=JSONB, nullable=True)
