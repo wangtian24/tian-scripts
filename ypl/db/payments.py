@@ -38,6 +38,7 @@ class PaymentInstrumentFacilitatorEnum(enum.Enum):
     CRYPTO_COM = "crypto_com"
     UPI = "upi"
     PLAID = "plaid"
+    STRIPE = "stripe"
 
 
 class PaymentInstrumentIdentifierTypeEnum(enum.Enum):
