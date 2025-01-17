@@ -490,6 +490,7 @@ async def update_modifier_status(chat_request: ChatRequest) -> None:
             .where(
                 ChatMessage.turn_id == chat_request.turn_id,  # type: ignore
                 ChatMessage.message_id != chat_request.message_id,  # type: ignore
+                ChatMessage.message_type == MessageType.ASSISTANT_MESSAGE,  # type: ignore
                 ChatMessage.assistant_language_model_id
                 == select(LanguageModel.language_model_id)
                 .where(
@@ -505,7 +506,10 @@ async def update_modifier_status(chat_request: ChatRequest) -> None:
         # Show the current message
         show_query = (
             update(ChatMessage)
-            .where(ChatMessage.message_id == chat_request.message_id)  # type: ignore
+            .where(
+                ChatMessage.message_id == chat_request.message_id,  # type: ignore
+                ChatMessage.message_type == MessageType.ASSISTANT_MESSAGE,  # type: ignore
+            )
             .values(modifier_status=MessageModifierStatus.SELECTED)
         )
         await session.execute(show_query)

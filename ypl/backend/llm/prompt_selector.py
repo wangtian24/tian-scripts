@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlmodel import Session
 
 from ypl.backend.db import get_async_session, get_engine
-from ypl.db.chats import ChatMessage, ModifierCategory, PromptModifier, PromptModifierAssoc, Turn
+from ypl.db.chats import ChatMessage, MessageType, ModifierCategory, PromptModifier, PromptModifierAssoc, Turn
 from ypl.db.language_models import LanguageModel
 from ypl.utils import RNGMixin
 
@@ -62,7 +62,11 @@ async def store_modifiers(turn_id: str, modifiers: dict[str, list[tuple[str, str
         query = (
             select(ChatMessage.message_id, LanguageModel.internal_name)  # type: ignore
             .join(LanguageModel, ChatMessage.assistant_language_model_id == LanguageModel.language_model_id)
-            .where(ChatMessage.turn_id == turn_id)
+            .where(
+                ChatMessage.turn_id == turn_id,
+                ChatMessage.message_type == MessageType.ASSISTANT_MESSAGE,
+                ChatMessage.deleted_at.is_(None),  # type: ignore
+            )
         )
         results = await session.exec(query)
         message_models = {str(message_id): model_name for message_id, model_name in results}
