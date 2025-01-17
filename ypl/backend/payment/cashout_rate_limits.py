@@ -113,13 +113,16 @@ class CashoutLimitError(HTTPException):
         self.max_value = max_value
         self.user_id = user_id
 
+        # Client will show this message to the user.
+        # Keep it ambiguous to avoid leaking information about the limit.
         if limit_type == CashoutLimitType.RATE_LIMIT:
             detail = f"Please wait {max_value} seconds before submitting another cashout request"
         else:
-            detail = f"{period.capitalize()} cashout {limit_type.value} limit of {max_value} reached"
+            detail = f"You have reached the {period} cashout limit. Please try again later."
 
         super().__init__(status_code=429 if limit_type == CashoutLimitType.RATE_LIMIT else 400, detail=detail)
 
+        # Log the error
         log_dict = {
             "message": f"{period.capitalize()} cashout limit reached",
             "user_id": user_id,

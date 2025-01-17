@@ -59,9 +59,6 @@ class CashoutCreditsRequest:
     destination_additional_details: dict | None = None
     # Not all facilitators will need the validated destination details.
     validated_destination_details: str | None = None
-    # If True, return the response object instead of just the string.
-    # TODO: Remove after the next release (TODO added on 2025-01-08).
-    return_response_as_object: bool = True
 
 
 async def convert_credits_to_currency(credits: int, currency: CurrencyEnum) -> Decimal:
@@ -112,17 +109,17 @@ async def validate_cashout_request(request: CashoutCreditsRequest) -> None:
             "country_code": request.country_code,
         }
         logging.warning(log_dict)
-        raise HTTPException(status_code=400, detail="Crypto cashout is not supported in India")
+        raise HTTPException(status_code=400, detail="Cashout to crypto is not supported in India")
 
     if request.cashout_currency == CurrencyEnum.USD and request.facilitator == PaymentInstrumentFacilitatorEnum.PLAID:
         if request.destination_additional_details is None:
-            raise HTTPException(status_code=400, detail="Destination additional details are required for USD cashout")
+            raise HTTPException(status_code=400, detail="Please enter your bank account details!")
 
         required_fields = ["account_number", "routing_number", "account_type", "user_name"]
         missing_fields = [field for field in required_fields if field not in request.destination_additional_details]
         if missing_fields:
             raise HTTPException(
-                status_code=400, detail=f"Missing required fields for USD cashout: {', '.join(missing_fields)}"
+                status_code=400, detail=f"Please enter the following details! {', '.join(missing_fields)}"
             )
 
     user_credit_balance = await get_user_credit_balance(request.user_id)
@@ -134,7 +131,7 @@ async def validate_cashout_request(request: CashoutCreditsRequest) -> None:
             "user_credit_balance": user_credit_balance,
         }
         logging.info(log_dict)
-        raise HTTPException(status_code=400, detail="User does not have enough credits")
+        raise HTTPException(status_code=400, detail="You do not have enough credits to cash out")
 
     try:
         validate_destination_identifier_for_currency(request.cashout_currency, request.destination_identifier_type)
@@ -149,7 +146,7 @@ async def validate_cashout_request(request: CashoutCreditsRequest) -> None:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
     if request.validated_destination_details is None and request.facilitator == PaymentInstrumentFacilitatorEnum.UPI:
-        raise HTTPException(status_code=400, detail="Validated destination details are required for UPI cashout")
+        raise HTTPException(status_code=400, detail="Please re-enter your UPI details!")
 
 
 @router.post("/credits/cashout")
@@ -193,19 +190,33 @@ async def cashout_credits(request: CashoutCreditsRequest) -> str | None | Paymen
         request.facilitator,
         request.destination_additional_details,
     )
-    payment_response = await facilitator.make_payment(
-        request.user_id,
-        request.credits_to_cashout,
-        amount_in_currency,
-        request.destination_identifier,
-        request.destination_identifier_type,
-        request.destination_additional_details,
-        request.validated_destination_details,
-    )
+    try:
+        payment_response = await facilitator.make_payment(
+            request.user_id,
+            request.credits_to_cashout,
+            amount_in_currency,
+            request.destination_identifier,
+            request.destination_identifier_type,
+            request.destination_additional_details,
+            request.validated_destination_details,
+        )
+    except ValueError as e:
+        # Send all ValueError as 400 errors with the error message for the client to show.
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except HTTPException as e:
+        # Let the HTTPException pass through as is. Client will show the error message on the UI for 4xx errors.
+        raise e
+    except Exception as e:
+        # For all other exceptions, log the error and send a generic 500 error message to the client.
+        log_dict = {
+            "message": "Unexpected error during cashout",
+            "error": str(e),
+            "user_id": request.user_id,
+        }
+        logging.exception(json_dumps(log_dict))
+        raise HTTPException(status_code=500, detail="Oops! Something went wrong. Please try again later.") from e
 
-    # Hack to continue returning 'None' when the customer reference ID is not available,
-    # as the older client will expect it.
-    return payment_response if request.return_response_as_object else str(payment_response.customer_reference_id)
+    return payment_response
 
 
 @router.get("/credits/cashout/transaction/{payment_transaction_id}/status")

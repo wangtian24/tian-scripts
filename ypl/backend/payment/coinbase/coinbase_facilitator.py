@@ -127,9 +127,11 @@ class CoinbaseFacilitator(BaseFacilitator):
                 "message": "Minimum amount of 1 USD is required",
                 "user_id": user_id,
                 "amount_requested": str(amount_cashout_in_usd),
+                "credits_to_cashout": str(credits_to_cashout),
             }
             logging.warning(json_dumps(log_dict))
-            raise ValueError("Minimum amount of 1 USD is required")
+            # UI may not show this error message, as there's going to be a UI validation too before this.
+            raise ValueError("You need to cash out at least 1 USD worth of credits")
         try:
             try:
                 credits_to_cashout += CASHOUT_TXN_COST
@@ -144,7 +146,7 @@ class CoinbaseFacilitator(BaseFacilitator):
                         "source_instrument_balance": str(source_instrument_balance),
                     }
                     logging.error(json_dumps(log_dict))
-                    raise ValueError("Source instrument does not have enough balance")
+                    raise PaymentInstrumentError("Source instrument does not have enough balance")
 
                 source_instrument_id = await self.get_source_instrument_id()
                 destination_instrument_id = await self.get_destination_instrument_id(
