@@ -261,6 +261,7 @@ jobs:
         file: ${{ env.DOCKERFILE }}
 
     - name: Install gcloud beta
+      if: github.event.inputs.gpu == 'true'
       run: gcloud components install beta
 
     - name: Deploy to Cloud Run
@@ -283,7 +284,7 @@ jobs:
             --subnet=default \
             --command="/app/ypl/pytorch/serve/entrypoint.sh"
         else
-          gcloud beta run deploy ${{ env.SERVICE_NAME }} \
+          gcloud run deploy ${{ env.SERVICE_NAME }} \
             --image ${{ env.IMAGE_NAME }} \
             --platform managed \
             --region ${{ env.REGION }} \
