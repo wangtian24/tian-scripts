@@ -128,12 +128,21 @@ async def get_related_users(user_id: str = Path(..., description="User ID")) -> 
             related_users = []
             if parent:
                 related_users.append(parent)
+                related_users.extend(siblings)
             related_users.extend(children)
-            related_users.extend(siblings)
             log_dict = {
                 "message": "Related users found",
                 "user_id": user_id,
                 "related_users_count_including_siblings": len(related_users),
+                "parent_count": len(
+                    [user for user in related_users if user.relationship_type == RelationshipType.PARENT]
+                ),
+                "child_count": len(
+                    [user for user in related_users if user.relationship_type == RelationshipType.CHILD]
+                ),
+                "sibling_count": len(
+                    [user for user in related_users if user.relationship_type == RelationshipType.SIBLING]
+                ),
             }
             logging.info(json_dumps(log_dict))
 
