@@ -1,0 +1,135 @@
+name: "Create Cashout Override"
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to create override in'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+      user_email:
+        description: 'The email of the user to create the override for'
+        required: true
+        type: string
+      status:
+        description: 'The status of the override'
+        required: true
+        type: choice
+        options:
+          - ENABLED
+          - DISABLED
+      first_time_limit:
+        description: 'Override for first time cashout limit'
+        required: false
+        type: number
+      daily_count:
+        description: 'Override for daily cashout count limit'
+        required: false
+        type: number
+      weekly_count:
+        description: 'Override for weekly cashout count limit'
+        required: false
+        type: number
+      monthly_count:
+        description: 'Override for monthly cashout count limit'
+        required: false
+        type: number
+      daily_credits:
+        description: 'Override for daily cashout credits limit'
+        required: false
+        type: number
+      weekly_credits:
+        description: 'Override for weekly cashout credits limit'
+        required: false
+        type: number
+      monthly_credits:
+        description: 'Override for monthly cashout credits limit'
+        required: false
+        type: number
+
+jobs:
+  create-cashout-override:
+    name: Create Cashout Override
+    runs-on: ubuntu-latest
+
+    steps:
+    # Required: Need access to the CLI code and dependencies
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    # Required: CLI is written in Python
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    # Required: Project uses Poetry for dependency management
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+      with:
+          version: 1.8.2
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+    - name: Install dependencies
+      run: poetry install --no-interaction --no-root --sync
+
+    - name: Create .env file
+      run: |
+        export ENVIRONMENT="${{ github.event.inputs.environment }}"
+        echo "ENVIRONMENT=$ENVIRONMENT" > .env
+        if [[ "$ENVIRONMENT" == "production" ]]; then
+            echo "POSTGRES_USER=${{ secrets.POSTGRES_USER }}" >> .env
+            echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_PRODUCTION }}" >> .env
+            echo "POSTGRES_HOST=${{ secrets.POSTGRES_HOST_PRODUCTION }}" >> .env
+            echo "POSTGRES_DATABASE=${{ secrets.POSTGRES_DATABASE }}" >> .env
+            echo "POSTGRES_HOST_NON_POOLING=${{ secrets.POSTGRES_HOST_NON_POOLING_PRODUCTION }}" >> .env
+        elif [[ "$ENVIRONMENT" == "staging" ]]; then
+            echo "POSTGRES_USER=${{ secrets.POSTGRES_USER_STAGING }}" >> .env
+            echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_STAGING }}" >> .env
+            echo "POSTGRES_HOST=${{ secrets.POSTGRES_HOST_STAGING }}" >> .env
+            echo "POSTGRES_DATABASE=${{ secrets.POSTGRES_DATABASE_STAGING }}" >> .env
+            echo "POSTGRES_HOST_NON_POOLING=${{ secrets.POSTGRES_HOST_NON_POOLING_STAGING }}" >> .env
+        fi
+
+    - name: Create cashout override
+      run: |
+        CMD="poetry run python -m ypl.cli create-cashout-override"
+        CMD+=" --user-email '${{ github.event.inputs.user_email }}'"
+        CMD+=" --status '${{ github.event.inputs.status }}'"
+        CMD+=" --reason 'Override created via GitHub Actions'"
+        
+        if [ ! -z "${{ github.event.inputs.first_time_limit }}" ]; then
+          CMD+=" --first-time-limit ${{ github.event.inputs.first_time_limit }}"
+        fi
+        
+        if [ ! -z "${{ github.event.inputs.daily_count }}" ]; then
+          CMD+=" --daily-count ${{ github.event.inputs.daily_count }}"
+        fi
+        
+        if [ ! -z "${{ github.event.inputs.weekly_count }}" ]; then
+          CMD+=" --weekly-count ${{ github.event.inputs.weekly_count }}"
+        fi
+        
+        if [ ! -z "${{ github.event.inputs.monthly_count }}" ]; then
+          CMD+=" --monthly-count ${{ github.event.inputs.monthly_count }}"
+        fi
+        
+        if [ ! -z "${{ github.event.inputs.daily_credits }}" ]; then
+          CMD+=" --daily-credits ${{ github.event.inputs.daily_credits }}"
+        fi
+        
+        if [ ! -z "${{ github.event.inputs.weekly_credits }}" ]; then
+          CMD+=" --weekly-credits ${{ github.event.inputs.weekly_credits }}"
+        fi
+        
+        if [ ! -z "${{ github.event.inputs.monthly_credits }}" ]; then
+          CMD+=" --monthly-credits ${{ github.event.inputs.monthly_credits }}"
+        fi
+        
+        echo "Running command: $CMD"
+        eval "$CMD" 

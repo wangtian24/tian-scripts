@@ -13,6 +13,7 @@ from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
 from ypl.backend.llm.utils import post_to_slack_with_user_name
 from ypl.backend.utils.json import json_dumps
+from ypl.backend.utils.utils import CapabilityType, UserCapabilityStatus, get_capability_override_details
 from ypl.db.payments import PaymentInstrumentFacilitatorEnum
 from ypl.db.point_transactions import PointsActionEnum, PointTransaction
 from ypl.db.redis import get_upstash_redis_client
@@ -249,29 +250,79 @@ async def get_cashout_stats(
     return period_stats, False
 
 
-async def validate_first_time_cashout(user_id: str, credits_to_cashout: int) -> None:
+async def validate_first_time_cashout(
+    user_id: str, credits_to_cashout: int, override_config: dict | None = None
+) -> None:
     """Validate if this is user's first cashout and check against first-time limits."""
+    first_time_limit = (
+        override_config.get("first_time_limit", MAX_FIRST_TIME_CASHOUT_CREDITS)
+        if override_config
+        else MAX_FIRST_TIME_CASHOUT_CREDITS
+    )
 
     log_dict = {
         "message": "First-time cashout limit validation",
         "user_id": user_id,
         "credits_to_cashout": credits_to_cashout,
-        "first_time_limit": MAX_FIRST_TIME_CASHOUT_CREDITS,
+        "first_time_limit": first_time_limit,
+        "is_override": first_time_limit != MAX_FIRST_TIME_CASHOUT_CREDITS,
     }
     logging.info(json_dumps(log_dict))
 
-    if credits_to_cashout > MAX_FIRST_TIME_CASHOUT_CREDITS:
+    if credits_to_cashout > first_time_limit:
         raise CashoutLimitError(
             period="first time",
             limit_type=CashoutLimitType.FIRST_TIME,
             current_value=credits_to_cashout,
-            max_value=MAX_FIRST_TIME_CASHOUT_CREDITS,
+            max_value=first_time_limit,
             user_id=user_id,
         )
 
 
-async def validate_period_limits(user_id: str, credits_to_cashout: int, period_stats: list[PeriodStats]) -> None:
+async def validate_period_limits(
+    user_id: str, credits_to_cashout: int, period_stats: list[PeriodStats], override_config: dict | None = None
+) -> None:
     """Validate cashout limits for each time period."""
+    # Get override limits if available
+    daily_count = (
+        override_config.get("daily_count", MAX_DAILY_CASHOUT_COUNT) if override_config else MAX_DAILY_CASHOUT_COUNT
+    )
+    weekly_count = (
+        override_config.get("weekly_count", MAX_WEEKLY_CASHOUT_COUNT) if override_config else MAX_WEEKLY_CASHOUT_COUNT
+    )
+    monthly_count = (
+        override_config.get("monthly_count", MAX_MONTHLY_CASHOUT_COUNT)
+        if override_config
+        else MAX_MONTHLY_CASHOUT_COUNT
+    )
+
+    daily_credits = (
+        override_config.get("daily_credits", MAX_DAILY_CASHOUT_CREDITS)
+        if override_config
+        else MAX_DAILY_CASHOUT_CREDITS
+    )
+    weekly_credits = (
+        override_config.get("weekly_credits", MAX_WEEKLY_CASHOUT_CREDITS)
+        if override_config
+        else MAX_WEEKLY_CASHOUT_CREDITS
+    )
+    monthly_credits = (
+        override_config.get("monthly_credits", MAX_MONTHLY_CASHOUT_CREDITS)
+        if override_config
+        else MAX_MONTHLY_CASHOUT_CREDITS
+    )
+
+    # Update the period stats with override values
+    for limit in period_stats:
+        if limit["period"] == "daily":
+            limit["max_count"] = daily_count
+            limit["max_total"] = daily_credits
+        elif limit["period"] == "weekly":
+            limit["max_count"] = weekly_count
+            limit["max_total"] = weekly_credits
+        elif limit["period"] == "monthly":
+            limit["max_count"] = monthly_count
+            limit["max_total"] = monthly_credits
 
     # for each limit defined for the user, check if the current value has exceeded the max value
     for limit in period_stats:
@@ -341,14 +392,52 @@ async def validate_user_cashout_limits(user_id: str, credits_to_cashout: int) ->
     }
 
     async with get_async_session() as session:
+        capability_override_details = await get_capability_override_details(session, user_id, CapabilityType.CASHOUT)
+        log_dict = {
+            "message": "Cashout override details",
+            "user_id": user_id,
+            "override_status": capability_override_details["status"] if capability_override_details else "None",
+            "override_config": str(capability_override_details["override_config"])
+            if capability_override_details
+            else "None",
+        }
+        logging.info(json_dumps(log_dict))
+        if capability_override_details and capability_override_details["status"] == UserCapabilityStatus.DISABLED:
+            log_dict = {
+                "message": "Cashout is disabled for user",
+                "user_id": user_id,
+            }
+            logging.info(json_dumps(log_dict))
+
+            raise CashoutLimitError(
+                period="request",
+                limit_type=CashoutLimitType.RATE_LIMIT,
+                current_value=0,
+                max_value=0,
+                user_id=user_id,
+            )
+
         period_stats, is_first_time = await get_cashout_stats(session, user_id, time_windows)
 
+        override_config = (
+            capability_override_details["override_config"]
+            if capability_override_details and capability_override_details["status"] == UserCapabilityStatus.ENABLED
+            else None
+        )
+
+        log_dict = {
+            "message": "Cashout override details",
+            "user_id": user_id,
+            "override_config": str(override_config) if override_config else "None",
+        }
+        logging.info(json_dumps(log_dict))
+
         if is_first_time:
-            await validate_first_time_cashout(user_id, credits_to_cashout)
+            await validate_first_time_cashout(user_id, credits_to_cashout, override_config)
             return
 
         assert period_stats is not None
-        await validate_period_limits(user_id, credits_to_cashout, period_stats)
+        await validate_period_limits(user_id, credits_to_cashout, period_stats, override_config)
 
 
 class CashoutKillswitchError(Exception):

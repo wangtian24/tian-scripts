@@ -8,7 +8,7 @@ import re
 import sys
 from collections import Counter, defaultdict
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -26,7 +26,7 @@ from tqdm import tqdm
 from tqdm.asyncio import tqdm_asyncio
 
 from ypl.backend.config import settings
-from ypl.backend.db import get_engine
+from ypl.backend.db import get_async_session, get_engine
 from ypl.backend.llm.chat import (
     AIMessage,
     ChatProvider,
@@ -67,6 +67,8 @@ from ypl.backend.payment.payout_utils import validate_pending_cashouts_async
 from ypl.backend.payment.plaid.plaid_payout import PlaidPayout, process_plaid_payout
 from ypl.backend.utils.amplitude_analytics import post_amplitude_metrics_to_slack
 from ypl.backend.utils.generate_referral_codes import generate_invite_codes_for_yuppster_async
+from ypl.backend.utils.json import json_dumps
+from ypl.backend.utils.utils import CapabilityType
 from ypl.db.chats import (
     Chat,
     ChatMessage,
@@ -74,6 +76,7 @@ from ypl.db.chats import (
     MessageType,
     Turn,
     TurnQuality,
+    User,
 )
 from ypl.db.language_models import LanguageModel, Provider
 from ypl.db.message_annotations import (
@@ -84,6 +87,13 @@ from ypl.db.message_annotations import (
 )
 from ypl.db.oneoffs.reset_points import reset_points
 from ypl.db.rewards import RewardActionEnum, RewardAmountRule, RewardProbabilityRule, RewardRule
+from ypl.db.users import (
+    SYSTEM_USER_ID,
+    Capability,
+    CapabilityStatus,
+    UserCapabilityOverride,
+    UserCapabilityStatus,
+)
 
 logging.getLogger().setLevel(logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -1417,6 +1427,110 @@ def post_source_account_balances() -> None:
         await post_to_slack(message, SLACK_WEBHOOK_CASHOUT)
 
     asyncio.run(format_and_post_balances())
+
+
+@cli.command()
+@click.option("--user-id", required=True, help="The ID of the user to create the override for")
+@click.option(
+    "--status",
+    type=click.Choice(["ENABLED", "DISABLED"], case_sensitive=True),
+    required=True,
+    help="The status of the override",
+)
+@click.option("--reason", required=True, help="The reason for creating this override")
+@click.option("--first-time-limit", type=int, help="Override for first time cashout limit")
+@click.option("--daily-count", type=int, help="Override for daily cashout count limit")
+@click.option("--weekly-count", type=int, help="Override for weekly cashout count limit")
+@click.option("--monthly-count", type=int, help="Override for monthly cashout count limit")
+@click.option("--daily-credits", type=int, help="Override for daily cashout credits limit")
+@click.option("--weekly-credits", type=int, help="Override for weekly cashout credits limit")
+@click.option("--monthly-credits", type=int, help="Override for monthly cashout credits limit")
+@db_cmd
+def create_cashout_override(
+    user_email: str,
+    status: str,
+    reason: str,
+    first_time_limit: int | None = None,
+    daily_count: int | None = None,
+    weekly_count: int | None = None,
+    monthly_count: int | None = None,
+    daily_credits: int | None = None,
+    weekly_credits: int | None = None,
+    monthly_credits: int | None = None,
+) -> None:
+    """Create a cashout capability override for a user."""
+
+    async def _create_override() -> None:
+        async with get_async_session() as session:
+            capability_stmt = select(Capability).where(
+                Capability.capability_name == CapabilityType.CASHOUT.value,
+                Capability.deleted_at.is_(None),  # type: ignore
+                Capability.status == CapabilityStatus.ACTIVE,
+            )
+            capability = (await session.exec(capability_stmt)).first()
+
+            if not capability:
+                log_dict = {
+                    "message": "Error: Cashout capability not found for cashout override",
+                    "user_email": user_email,
+                }
+                logging.error(json_dumps(log_dict))
+                return
+
+            override_config = {}
+            if first_time_limit is not None:
+                override_config["first_time_limit"] = first_time_limit
+            if daily_count is not None:
+                override_config["daily_count"] = daily_count
+            if weekly_count is not None:
+                override_config["weekly_count"] = weekly_count
+            if monthly_count is not None:
+                override_config["monthly_count"] = monthly_count
+            if daily_credits is not None:
+                override_config["daily_credits"] = daily_credits
+            if weekly_credits is not None:
+                override_config["weekly_credits"] = weekly_credits
+            if monthly_credits is not None:
+                override_config["monthly_credits"] = monthly_credits
+
+            user = (await session.exec(select(User).where(User.email == user_email))).first()
+            if not user:
+                log_dict = {
+                    "message": "Error: User not found for cashout override",
+                    "user_email": user_email,
+                }
+                logging.error(json_dumps(log_dict))
+                return
+            user_id = user.user_id
+            override = UserCapabilityOverride(
+                user_id=user_id,
+                capability_id=capability.capability_id,
+                creator_user_id=SYSTEM_USER_ID,
+                status=UserCapabilityStatus[status],
+                reason=reason,
+                effective_start_date=datetime.now(UTC),
+                override_config=override_config if override_config else None,
+            )
+
+            session.add(override)
+            await session.commit()
+
+            log_dict = {
+                "message": "Successfully created cashout override for user",
+                "user_id": user_id,
+                "status": status,
+                "reason": reason,
+                "first_time_limit": str(first_time_limit) if first_time_limit is not None else "None",
+                "daily_count": str(daily_count) if daily_count is not None else "None",
+                "weekly_count": str(weekly_count) if weekly_count is not None else "None",
+                "monthly_count": str(monthly_count) if monthly_count is not None else "None",
+                "daily_credits": str(daily_credits) if daily_credits is not None else "None",
+                "weekly_credits": str(weekly_credits) if weekly_credits is not None else "None",
+                "monthly_credits": str(monthly_credits) if monthly_credits is not None else "None",
+            }
+            logging.info(json_dumps(log_dict))
+
+    asyncio.run(_create_override())
 
 
 if __name__ == "__main__":
