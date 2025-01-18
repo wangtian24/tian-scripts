@@ -102,6 +102,22 @@ class User(BaseModel, table=True):
         sa_column=Column(sa.Enum(UserStatus), nullable=False, server_default=UserStatus.ACTIVE.value),
     )
 
+    capability_overrides: list["UserCapabilityOverride"] = Relationship(
+        back_populates="user",
+        sa_relationship_kwargs={"foreign_keys": "[UserCapabilityOverride.user_id]"},
+        cascade_delete=True,
+    )
+
+    # Add back-references to User class for the new relationships
+    created_capabilities: list["Capability"] = Relationship(
+        back_populates="creator",
+        sa_relationship_kwargs={"foreign_keys": "[Capability.creator_user_id]"},
+    )
+    created_capability_overrides: list["UserCapabilityOverride"] = Relationship(
+        back_populates="creator",
+        sa_relationship_kwargs={"foreign_keys": "[UserCapabilityOverride.creator_user_id]"},
+    )
+
     def is_new_user(self) -> bool:
         return len(self.chats) < NEW_USER_CHAT_THRESHOLD
 
@@ -290,6 +306,121 @@ class WaitlistType(enum.Enum):
     # User does not have an account with one of the supported authentication providers
     # (currently Google is the only supported provider)
     SIGN_IN_METHOD_NOT_AVAILABLE = "SIGN_IN_METHOD_NOT_AVAILABLE"
+
+
+class CapabilityStatus(enum.Enum):
+    ACTIVE = "ACTIVE"
+    INACTIVE = "INACTIVE"
+    DEPRECATED = "DEPRECATED"
+
+
+class Capability(BaseModel, table=True):
+    """Represents system capabilities and their current status."""
+
+    __tablename__ = "capabilities"
+
+    capability_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
+    capability_name: str = Field(sa_column=Column("capability_name", sa.Text, nullable=False, unique=False))
+    version_number: int = Field(sa_column=Column(sa.Integer, nullable=False, server_default="1"))
+    effective_date: datetime | None = Field(  # type: ignore
+        nullable=False,
+        sa_type=sa.DateTime(timezone=True),
+        sa_column_kwargs={"server_default": sa.text("(now() AT TIME ZONE 'utc')")},
+    )
+    status: CapabilityStatus = Field(
+        default=CapabilityStatus.ACTIVE,
+        sa_column=Column(sa.Enum(CapabilityStatus), nullable=False, server_default=CapabilityStatus.ACTIVE.value),
+    )
+    description: str | None = Field(default=None, sa_type=sa.Text)
+    creator_user_id: str = Field(
+        foreign_key="users.user_id",
+        nullable=False,
+    )
+
+    # Relationships
+    creator: User = Relationship(
+        back_populates="created_capabilities",
+        sa_relationship_kwargs={"foreign_keys": "[Capability.creator_user_id]"},
+    )
+    user_overrides: list["UserCapabilityOverride"] = Relationship(back_populates="capability", cascade_delete=True)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "capability_name", "version_number", "effective_date", name="uq_capabilities_name_version_date"
+        ),
+        sa.Index(
+            "ix_capabilities_name_version_date", "capability_name", "version_number", "effective_date", unique=True
+        ),
+    )
+
+
+class UserCapabilityStatus(enum.Enum):
+    ENABLED = "ENABLED"
+    DISABLED = "DISABLED"
+
+
+class UserCapabilityOverride(BaseModel, table=True):
+    """Represents user-specific overrides for system capabilities."""
+
+    __tablename__ = "user_capability_overrides"
+
+    user_capability_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
+    user_id: str = Field(
+        sa_column=sa.Column(
+            sa.Text, sa.ForeignKey("users.user_id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False
+        )
+    )
+    capability_id: uuid.UUID = Field(
+        sa_column=sa.Column(
+            sa.UUID, sa.ForeignKey("capabilities.capability_id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False
+        )
+    )
+    creator_user_id: str = Field(
+        foreign_key="users.user_id",
+        nullable=False,
+    )
+    status: UserCapabilityStatus = Field(
+        default=UserCapabilityStatus.ENABLED,
+        sa_column=Column(
+            sa.Enum(UserCapabilityStatus), nullable=False, server_default=UserCapabilityStatus.ENABLED.value
+        ),
+    )
+    reason: str = Field(
+        sa_type=sa.Text,
+        nullable=False,
+        description="The reason why this capability override was created",
+    )
+    effective_start_date: datetime | None = Field(  # type: ignore
+        nullable=False,
+        sa_type=sa.DateTime(timezone=True),
+        sa_column_kwargs={"server_default": sa.text("(now() AT TIME ZONE 'utc')")},
+    )
+    effective_end_date: datetime | None = Field(  # type: ignore
+        default=None,
+        nullable=True,
+        sa_type=sa.DateTime(timezone=True),
+    )
+    override_config: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_type=JSONB,
+        nullable=True,
+    )
+
+    # Relationships
+    user: User = Relationship(
+        back_populates="capability_overrides",
+        sa_relationship_kwargs={"foreign_keys": "[UserCapabilityOverride.user_id]"},
+    )
+    capability: Capability = Relationship(back_populates="user_overrides")
+    creator: User = Relationship(
+        back_populates="created_capability_overrides",
+        sa_relationship_kwargs={"foreign_keys": "[UserCapabilityOverride.creator_user_id]"},
+    )
+
+    __table_args__ = (
+        sa.Index("ix_user_capability_overrides_user_capability", "user_id", "capability_id"),
+        sa.Index("ix_user_capability_overrides_dates", "effective_start_date", "effective_end_date"),
+    )
 
 
 class WaitlistedUser(BaseModel, table=True):
