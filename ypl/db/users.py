@@ -364,7 +364,7 @@ class UserCapabilityOverride(BaseModel, table=True):
 
     __tablename__ = "user_capability_overrides"
 
-    user_capability_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
+    user_capability_override_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
     user_id: str = Field(
         sa_column=sa.Column(
             sa.Text, sa.ForeignKey("users.user_id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False
