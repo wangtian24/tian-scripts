@@ -18,6 +18,7 @@ router = APIRouter()
 class RelationshipType(str, Enum):
     PARENT = "parent"
     CHILD = "child"
+    SIBLING = "sibling"
 
 
 class RelationshipBasis(str, Enum):
@@ -121,17 +122,18 @@ async def get_related_users(user_id: str = Path(..., description="User ID")) -> 
     try:
         async with get_async_session() as session:
             parent = await _get_parent_user(session, user_id)
+            siblings = await _get_sibling_users(session, user_id, parent.user_id if parent else None)
             children = await _get_children_users(session, user_id)
 
             related_users = []
             if parent:
                 related_users.append(parent)
             related_users.extend(children)
-
+            related_users.extend(siblings)
             log_dict = {
                 "message": "Related users found",
                 "user_id": user_id,
-                "related_users_count": len(related_users),
+                "related_users_count_including_siblings": len(related_users),
             }
             logging.info(json_dumps(log_dict))
 
@@ -148,7 +150,8 @@ async def get_related_users(user_id: str = Path(..., description="User ID")) -> 
 
 
 async def _get_parent_user(session: AsyncSession, user_id: str) -> RelatedUser | None:
-    """Get the user who referred this user (parent)."""
+    """Get the user who referred this user (parent) or created this user."""
+    # First try to find referral parent
     query = (
         select(User)
         .select_from(SpecialInviteCodeClaimLog)
@@ -162,6 +165,19 @@ async def _get_parent_user(session: AsyncSession, user_id: str) -> RelatedUser |
 
     result = await session.execute(query)
     parent = result.scalar_one_or_none()
+
+    if not parent:
+        # If no referral parent found, check for creator_user_id
+        # First get the user to find their creator_user_id
+        user_query = select(User).where(User.user_id == user_id)
+        result = await session.execute(user_query)
+        user = result.scalar_one_or_none()
+
+        if user and user.creator_user_id:
+            # Then get the creator user's details
+            creator_query = select(User).where(User.user_id == user.creator_user_id)
+            result = await session.execute(creator_query)
+            parent = result.scalar_one_or_none()
 
     if not parent:
         return None
@@ -198,4 +214,25 @@ async def _get_children_users(session: AsyncSession, user_id: str) -> list[Relat
             relationship_basis=RelationshipBasis.REFERRAL,
         )
         for child in children
+    ]
+
+
+async def _get_sibling_users(session: AsyncSession, user_id: str, parent_user_id: str | None) -> list[RelatedUser]:
+    """Get users who share the same parent (referrer or creator) as this user."""
+    if not parent_user_id:
+        return []
+
+    # Get all children of the parent (these are siblings)
+    siblings = await _get_children_users(session, parent_user_id)
+
+    # Filter out the original user and convert children to siblings
+    return [
+        RelatedUser(
+            user_id=sibling.user_id,
+            name=sibling.name,
+            relationship_type=RelationshipType.SIBLING,
+            relationship_basis=RelationshipBasis.REFERRAL,
+        )
+        for sibling in siblings
+        if sibling.user_id != user_id
     ]
