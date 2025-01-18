@@ -1,11 +1,9 @@
 import asyncio
 import logging
-import os
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Final, Literal, TypedDict
+from typing import Final, Literal, TypedDict
 
-import yaml
 from fastapi import HTTPException
 from sqlalchemy import Column, and_, case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,50 +27,18 @@ CASHOUT_REQUEST_WINDOW_SECONDS: Final[int] = 10  # Within 10 seconds window
 
 
 MAX_DAILY_CASHOUT_COUNT = 1
-MAX_WEEKLY_CASHOUT_COUNT = 2
-MAX_MONTHLY_CASHOUT_COUNT = 10
+MAX_WEEKLY_CASHOUT_COUNT = 1
+MAX_MONTHLY_CASHOUT_COUNT = 5
 # TODO(arawind, ENG-1708): Fix this value after the UI knows whether the user is first time or not.
 # Keep this value in sync with the MAX_CREDITS_FOR_CASHOUT value in lib/credits.ts.
 # Keep this value in sync with daily_points_limit in data/reward_rules.yml.
-MAX_FIRST_TIME_CASHOUT_CREDITS = 25000
+MAX_FIRST_TIME_CASHOUT_CREDITS = 15000
 
-# Global constants loaded from reward_rules.yml
-RULE_CONSTANTS: dict[str, Any] = {}
-RULES_PATH = "data/reward_rules.yml"
+MAX_DAILY_CASHOUT_CREDITS = 15000
+MAX_WEEKLY_CASHOUT_CREDITS = 15000
+MAX_MONTHLY_CASHOUT_CREDITS = 75000
 
 SLACK_WEBHOOK_CASHOUT = settings.SLACK_WEBHOOK_CASHOUT
-
-
-def _load_rules_constants() -> None:
-    """Load constants from reward_rules.yml file."""
-    global RULE_CONSTANTS
-    if not RULE_CONSTANTS:
-        if not os.path.exists(RULES_PATH):
-            log_dict = {
-                "message": "Rules file not found",
-                "rules_path": str(RULES_PATH),
-            }
-            logging.error(json_dumps(log_dict))
-            return
-
-        with open(RULES_PATH) as f:
-            rule_data = yaml.safe_load(f)
-            RULE_CONSTANTS = rule_data.get("constants", {})
-
-
-def get_cashout_credit_limits() -> tuple[int, int, int]:
-    """Get the daily, weekly, and monthly cashout credit limits."""
-    _load_rules_constants()
-    return (
-        # incase keys are missing, use the default values derived as a function of MAX_FIRST_TIME_CASHOUT_CREDITS
-        RULE_CONSTANTS.get("daily_points_limit", MAX_FIRST_TIME_CASHOUT_CREDITS * 5),
-        RULE_CONSTANTS.get("weekly_points_limit", MAX_FIRST_TIME_CASHOUT_CREDITS * 10),
-        RULE_CONSTANTS.get("monthly_points_limit", MAX_FIRST_TIME_CASHOUT_CREDITS * 20),
-    )
-
-
-# Load the credit limits
-MAX_DAILY_CASHOUT_CREDITS, MAX_WEEKLY_CASHOUT_CREDITS, MAX_MONTHLY_CASHOUT_CREDITS = get_cashout_credit_limits()
 
 
 class PeriodStats(TypedDict):
