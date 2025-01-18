@@ -74,7 +74,7 @@ async def convert_credits_to_currency(credits: int, currency: CurrencyEnum) -> D
         "currency": currency.value,
         "currency_is_crypto": currency.is_crypto(),
     }
-    logging.info(log_dict)
+    logging.info(json_dumps(log_dict))
 
     if currency == CurrencyEnum.INR:
         return credits_decimal * CREDITS_TO_INR_RATE
@@ -108,7 +108,7 @@ async def validate_cashout_request(request: CashoutCreditsRequest) -> None:
             "cashout_currency": request.cashout_currency,
             "country_code": request.country_code,
         }
-        logging.warning(log_dict)
+        logging.warning(json_dumps(log_dict))
         raise HTTPException(status_code=400, detail="Cashout to crypto is not supported in India")
 
     if request.cashout_currency == CurrencyEnum.USD and request.facilitator == PaymentInstrumentFacilitatorEnum.PLAID:
@@ -130,7 +130,7 @@ async def validate_cashout_request(request: CashoutCreditsRequest) -> None:
             "credits_to_cashout": request.credits_to_cashout,
             "user_credit_balance": user_credit_balance,
         }
-        logging.info(log_dict)
+        logging.info(json_dumps(log_dict))
         raise HTTPException(status_code=400, detail="You do not have enough credits to cash out")
 
     try:
@@ -142,7 +142,7 @@ async def validate_cashout_request(request: CashoutCreditsRequest) -> None:
             "currency": request.cashout_currency,
             "identifier_type": request.destination_identifier_type,
         }
-        logging.info(log_dict)
+        logging.info(json_dumps(log_dict))
         raise HTTPException(status_code=400, detail=str(e)) from e
 
     if request.validated_destination_details is None and request.facilitator == PaymentInstrumentFacilitatorEnum.UPI:
@@ -179,7 +179,7 @@ async def cashout_credits(request: CashoutCreditsRequest) -> str | None | Paymen
             "credits_to_cashout": request.credits_to_cashout,
             "cashout_currency": request.cashout_currency,
         }
-        logging.exception(log_dict)
+        logging.exception(json_dumps(log_dict))
         raise HTTPException(
             status_code=500, detail=f"Error converting credits to currency {request.cashout_currency}"
         ) from e

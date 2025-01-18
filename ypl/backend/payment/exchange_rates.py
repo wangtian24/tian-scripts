@@ -4,6 +4,7 @@ from typing import Final
 
 import httpx
 from ypl.backend.config import settings
+from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import CurrencyEnum
 
 CRYPTO_CURRENCY_IDS: Final[dict[CurrencyEnum, str]] = {
@@ -24,7 +25,7 @@ async def get_crypto_exchange_rate(
         "source_currency": source_currency.value,
         "destination_currency": destination_currency.value,
     }
-    logging.info(log_dict)
+    logging.info(json_dumps(log_dict))
 
     # Try primary API (Coinbase) first
     try:
@@ -42,7 +43,7 @@ async def get_crypto_exchange_rate(
         data = response.json()
         exchange_rate = Decimal(str(data["data"]["amount"]))
         log_dict["exchange_rate_coinbase"] = str(exchange_rate)
-        logging.info(log_dict)
+        logging.info(json_dumps(log_dict))
         return exchange_rate
 
     except Exception as e:
@@ -52,7 +53,7 @@ async def get_crypto_exchange_rate(
             "destination_currency": destination_currency.value,
             "error": str(e),
         }
-        logging.warning(log_dict)
+        logging.warning(json_dumps(log_dict))
         # Only if Coinbase fails, try secondary API (CoinGecko)
         source_currency_id = source_currency.value.lower()
         destination_currency_id = CRYPTO_CURRENCY_IDS[destination_currency].lower()
@@ -68,7 +69,7 @@ async def get_crypto_exchange_rate(
             # We need to reverse it to get the exchange rate from source currency to destination currency.
             exchange_rate = 1 / Decimal(str(data[destination_currency_id][source_currency_id]))
             log_dict["exchange_rate_coingecko"] = str(exchange_rate)
-            logging.info(log_dict)
+            logging.info(json_dumps(log_dict))
             return exchange_rate
 
         except Exception as e:
@@ -78,7 +79,7 @@ async def get_crypto_exchange_rate(
                 "source_currency": source_currency.value,
                 "destination_currency": destination_currency.value,
             }
-            logging.error(log_dict)
+            logging.error(json_dumps(log_dict))
             raise ValueError(f"Failed to get crypto exchange rate from both APIs: {e}") from e
 
 
@@ -127,7 +128,7 @@ async def get_exchange_rate(
         "destination_currency": destination_currency.value,
         "is_crypto": source_currency.is_crypto() or destination_currency.is_crypto(),
     }
-    logging.info(log_dict)
+    logging.info(json_dumps(log_dict))
 
     async with httpx.AsyncClient() as client:
         if source_currency.is_crypto() or destination_currency.is_crypto():

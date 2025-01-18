@@ -26,7 +26,7 @@ async def exchange_rate(source_currency: CurrencyEnum, destination_currency: Cur
         "destination_currency": destination_currency.value,
         "rate": rate,
     }
-    logging.info(log_dict)
+    logging.info(json_dumps(log_dict))
 
     return rate
 
