@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import uuid
-from copy import deepcopy
 from datetime import datetime, timedelta
 from decimal import Decimal
 
@@ -602,12 +601,14 @@ async def get_destination_instrument_id(
             PaymentInstrument.facilitator == facilitator,
             PaymentInstrument.identifier_type == destination_identifier_type,
             func.lower(PaymentInstrument.identifier) == destination_identifier.lower(),
-            PaymentInstrument.user_id == user_id,
             PaymentInstrument.deleted_at.is_(None),  # type: ignore
         )
         result = await session.exec(query)
-        instrument = result.first()
-        if not instrument:
+        existing_instruments = result.all()
+
+        instrument: PaymentInstrument
+
+        if not existing_instruments:
             log_dict = {
                 "message": "Destination payment instrument not found. Creating a new one.",
                 "identifier_type": destination_identifier_type,
@@ -625,26 +626,40 @@ async def get_destination_instrument_id(
                 instrument_metadata=instrument_metadata,
             )
             session.add(instrument)
-            await session.commit()
-            return instrument.payment_instrument_id
-        if instrument_metadata is not None:
-            log_dict = {
-                "message": "Updating instrument metadata",
-                "instrument_id": str(instrument.payment_instrument_id),
-                "old_metadata": instrument.instrument_metadata,
-                "new_metadata": instrument_metadata,
-                "user_id": user_id,
-                "identifier": destination_identifier,
-                "identifier_type": destination_identifier_type,
-                "facilitator": facilitator,
-            }
-            logging.info(json_dumps(log_dict))
-            if instrument.instrument_metadata is None:
-                instrument.instrument_metadata = instrument_metadata
+        else:
+            user_instrument = next((i for i in existing_instruments if i.user_id == user_id), None)
+
+            if not user_instrument:
+                log_dict = {
+                    "message": ":warning: - Payment instrument reused across multiple users",
+                    "user_id": user_id,
+                    "identifier": destination_identifier,
+                    "identifier_type": destination_identifier_type,
+                    "facilitator": facilitator,
+                    "count_of_users_already_using_instrument": len(existing_instruments),
+                }
+                logging.warning(json_dumps(log_dict))
+                asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+
+                log_dict = {
+                    "message": "Creating new payment instrument for user (instrument exists for other users)",
+                    "identifier_type": destination_identifier_type,
+                    "facilitator": facilitator,
+                    "user_id": user_id,
+                    "identifier": destination_identifier,
+                    "instrument_metadata": instrument_metadata,
+                }
+                logging.info(json_dumps(log_dict))
+                instrument = PaymentInstrument(
+                    facilitator=facilitator,
+                    identifier_type=destination_identifier_type,
+                    identifier=destination_identifier,
+                    user_id=user_id,
+                    instrument_metadata=instrument_metadata,
+                )
+                session.add(instrument)
             else:
-                new_metadata = deepcopy(instrument.instrument_metadata or {})
-                new_metadata.update(instrument_metadata)
-                instrument.instrument_metadata = new_metadata
-            session.add(instrument)
-            await session.commit()
+                instrument = user_instrument
+
+        await session.commit()
         return instrument.payment_instrument_id
