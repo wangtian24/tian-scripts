@@ -203,27 +203,52 @@ async def _get_children_users(session: AsyncSession, user_id: str) -> list[Relat
     """Get users that this user has referred (children)."""
     query = (
         select(User)
-        .select_from(SpecialInviteCode)
+        .select_from(SpecialInviteCodeClaimLog)
         .join(
-            SpecialInviteCodeClaimLog,
-            SpecialInviteCodeClaimLog.special_invite_code_id == SpecialInviteCode.special_invite_code_id,  # type: ignore
+            SpecialInviteCode,
+            SpecialInviteCode.special_invite_code_id == SpecialInviteCodeClaimLog.special_invite_code_id,  # type: ignore
         )
-        .join(User, User.user_id == SpecialInviteCodeClaimLog.user_id)  # type: ignore
+        .join(
+            User,
+            User.user_id == SpecialInviteCodeClaimLog.user_id,  # type: ignore
+        )
         .where(SpecialInviteCode.creator_user_id == user_id)
     )
 
     result = await session.execute(query)
     children = result.scalars().all()
 
-    return [
-        RelatedUser(
+    # Also get users directly created by this user
+    created_query = select(User).where(User.creator_user_id == user_id)
+    created_result = await session.execute(created_query)
+    created_children = created_result.scalars().all()
+
+    log_dict = {
+        "message": "Referred children found",
+        "user_id": user_id,
+        "referred_children_count": len(children),
+    }
+    logging.info(json_dumps(log_dict))
+
+    log_dict = {
+        "message": "Created children found",
+        "user_id": user_id,
+        "created_children_count": len(created_children),
+    }
+    logging.info(json_dumps(log_dict))
+
+    # Combine both lists and remove duplicates
+    all_children = {
+        child.user_id: RelatedUser(
             user_id=child.user_id,
             name=child.name,
             relationship_type=RelationshipType.CHILD,
             relationship_basis=RelationshipBasis.REFERRAL,
         )
-        for child in children
-    ]
+        for child in list(children) + list(created_children)
+    }
+
+    return list(all_children.values())
 
 
 async def _get_sibling_users(session: AsyncSession, user_id: str, parent_user_id: str | None) -> list[RelatedUser]:
@@ -231,17 +256,55 @@ async def _get_sibling_users(session: AsyncSession, user_id: str, parent_user_id
     if not parent_user_id:
         return []
 
-    # Get all children of the parent (these are siblings)
-    siblings = await _get_children_users(session, parent_user_id)
+    # Get all children of the parent through referrals (these are siblings)
+    query = (
+        select(User)
+        .select_from(SpecialInviteCodeClaimLog)
+        .join(
+            SpecialInviteCode,
+            SpecialInviteCode.special_invite_code_id == SpecialInviteCodeClaimLog.special_invite_code_id,  # type: ignore
+        )
+        .join(
+            User,
+            User.user_id == SpecialInviteCodeClaimLog.user_id,  # type: ignore
+        )
+        .where(SpecialInviteCode.creator_user_id == parent_user_id)
+    )
 
-    # Filter out the original user and convert children to siblings
-    return [
+    result = await session.execute(query)
+    referred_users = result.scalars().all()
+
+    referred_siblings = [
         RelatedUser(
-            user_id=sibling.user_id,
-            name=sibling.name,
+            user_id=user.user_id,
+            name=user.name,
             relationship_type=RelationshipType.SIBLING,
             relationship_basis=RelationshipBasis.REFERRAL,
         )
-        for sibling in siblings
-        if sibling.user_id != user_id
+        for user in referred_users
     ]
+
+    # Get all users created by the parent
+    query = select(User).where(User.creator_user_id == parent_user_id)
+    result = await session.execute(query)
+    created_users = result.scalars().all()
+
+    # Convert created users to RelatedUser format
+    created_siblings = [
+        RelatedUser(
+            user_id=user.user_id,
+            name=user.name,
+            relationship_type=RelationshipType.SIBLING,
+            relationship_basis=RelationshipBasis.REFERRAL,
+        )
+        for user in created_users
+    ]
+
+    # Combine both lists and remove duplicates based on user_id
+    all_siblings = {sibling.user_id: sibling for sibling in referred_siblings + created_siblings}
+
+    # Filter out the original user
+    if user_id in all_siblings:
+        del all_siblings[user_id]
+
+    return list(all_siblings.values())
