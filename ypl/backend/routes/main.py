@@ -17,6 +17,7 @@ from ypl.backend.routes.v1 import email as email_route
 from ypl.backend.routes.v1 import files as files_route
 from ypl.backend.routes.v1 import provider as provider_route
 from ypl.backend.routes.v1 import route as llm_route
+from ypl.backend.routes.v1 import user as user_route
 from ypl.backend.utils.json import json_dumps
 
 
@@ -61,5 +62,5 @@ api_router.include_router(chats_route.router, prefix="/v1", tags=["chats"])
 api_router.include_router(chat_completions.router, prefix="/v1", tags=["chat_completions"])
 api_router.include_router(files_route.router, prefix="/v1", tags=["files"])
 api_router.include_router(email_route.router, prefix="/v1", tags=["emails"])
-
+api_router.include_router(user_route.router, prefix="/v1", tags=["user"])
 app_init()
