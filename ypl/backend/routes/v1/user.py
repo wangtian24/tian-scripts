@@ -31,6 +31,7 @@ class RelatedUser:
     name: str | None
     relationship_type: RelationshipType
     relationship_basis: RelationshipBasis
+    points: int
 
 
 @dataclass
@@ -196,6 +197,7 @@ async def _get_parent_user(session: AsyncSession, user_id: str) -> RelatedUser |
         name=parent.name,
         relationship_type=RelationshipType.PARENT,
         relationship_basis=RelationshipBasis.REFERRAL,
+        points=parent.points,
     )
 
 
@@ -244,6 +246,7 @@ async def _get_children_users(session: AsyncSession, user_id: str) -> list[Relat
             name=child.name,
             relationship_type=RelationshipType.CHILD,
             relationship_basis=RelationshipBasis.REFERRAL,
+            points=child.points,
         )
         for child in list(children) + list(created_children)
     }
@@ -280,6 +283,7 @@ async def _get_sibling_users(session: AsyncSession, user_id: str, parent_user_id
             name=user.name,
             relationship_type=RelationshipType.SIBLING,
             relationship_basis=RelationshipBasis.REFERRAL,
+            points=user.points,
         )
         for user in referred_users
     ]
@@ -296,6 +300,7 @@ async def _get_sibling_users(session: AsyncSession, user_id: str, parent_user_id
             name=user.name,
             relationship_type=RelationshipType.SIBLING,
             relationship_basis=RelationshipBasis.REFERRAL,
+            points=user.points,
         )
         for user in created_users
     ]
