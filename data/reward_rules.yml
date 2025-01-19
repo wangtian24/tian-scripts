@@ -17,11 +17,10 @@ amount_rules:
       all:
         - name: turn_quality_score
           operator: greater_than_or_equal_to
-          value: 8
+          value: 9
     min_value: 80
     max_value: 99
-    mean_value: 85
-    high_min_value: 500
+    high_min_value: 300
     high_max_value: 10000
     comments:
       - "Nice prompt."
@@ -36,12 +35,11 @@ amount_rules:
       all:
         - name: turn_quality_score
           operator: greater_than_or_equal_to
-          value: 3
+          value: 4
     min_value: 50
-    max_value: 69
-    mean_value: 55
-    high_min_value: 300
-    high_max_value: 3000
+    max_value: 79
+    high_min_value: 200
+    high_max_value: 2000
     comments:
       - "Thanks for your input on model responses."
       - "Keep engaging for more rewards."
@@ -57,11 +55,9 @@ amount_rules:
           operator: greater_than_or_equal_to
           value: 0
     min_value: 20
-    max_value: 39
-    mean_value: 25
+    max_value: 45
     high_min_value: 100
     high_max_value: 500
-    high_mean_value: 0 #does this matter?
     comments:
       - "Thank you for participating."
 
@@ -76,7 +72,6 @@ amount_rules:
           value: *monthly_points_limit
     min_value: 0
     max_value: 20
-    mean_value: 0
     comments:
       - "Thank you for participating."
 
@@ -91,7 +86,6 @@ amount_rules:
           value: *weekly_points_limit
     min_value: 0
     max_value: 20
-    mean_value: 0
     comments:
       - "Thank you for participating."
 
@@ -106,7 +100,6 @@ amount_rules:
           value: *daily_points_limit
     min_value: 0
     max_value: 20
-    mean_value: 0
     comments:
       - "Thank you for participating."
 
@@ -128,7 +121,6 @@ amount_rules:
           value: *monthly_points_limit
     min_value: 100
     max_value: 500
-    mean_value: 300
     comments:
       - "Thank you for your feedback."
 
@@ -150,7 +142,6 @@ amount_rules:
           value: *monthly_points_limit
     min_value: 50
     max_value: 250
-    mean_value: 150
     comments:
       - "Thank you. Your feedback makes this AI serve you better!"
 
@@ -166,7 +157,6 @@ amount_rules:
           value: 0
     min_value: 1000
     max_value: 1200
-    mean_value: 1100
 
   - name: new_user_being_referred_bonus
     priority: 0
@@ -180,7 +170,6 @@ amount_rules:
           value: 0
     min_value: 1000
     max_value: 1000
-    mean_value: 1000
 
   - name: referring_a_friend_bonus_under_limit
     priority: 1
@@ -203,7 +192,6 @@ amount_rules:
           value: 0
     min_value: 10000
     max_value: 10000
-    mean_value: 10000
 
   - name: referring_a_friend_bonus_over_limit
     priority: 0
@@ -217,7 +205,6 @@ amount_rules:
           value: 0
     min_value: 0
     max_value: 0
-    mean_value: 0
 
 probability_rules:
   - name: under_point_limits_feedback_reward
