@@ -32,11 +32,14 @@ class RelatedUser:
     relationship_type: RelationshipType
     relationship_basis: RelationshipBasis
     points: int
+    created_at: datetime | None
 
 
 @dataclass
 class RelatedUsersResponse:
     related_users: list[RelatedUser]
+    num_children: int
+    num_siblings: int
 
 
 @dataclass
@@ -147,7 +150,11 @@ async def get_related_users(user_id: str = Path(..., description="User ID")) -> 
             }
             logging.info(json_dumps(log_dict))
 
-            return RelatedUsersResponse(related_users=related_users)
+            return RelatedUsersResponse(
+                related_users=related_users,
+                num_children=len(children),
+                num_siblings=len(siblings),
+            )
 
     except Exception as e:
         log_dict = {
@@ -198,6 +205,7 @@ async def _get_parent_user(session: AsyncSession, user_id: str) -> RelatedUser |
         relationship_type=RelationshipType.PARENT,
         relationship_basis=RelationshipBasis.REFERRAL,
         points=parent.points,
+        created_at=parent.created_at,
     )
 
 
@@ -247,6 +255,7 @@ async def _get_children_users(session: AsyncSession, user_id: str) -> list[Relat
             relationship_type=RelationshipType.CHILD,
             relationship_basis=RelationshipBasis.REFERRAL,
             points=child.points,
+            created_at=child.created_at,
         )
         for child in list(children) + list(created_children)
     }
@@ -284,6 +293,7 @@ async def _get_sibling_users(session: AsyncSession, user_id: str, parent_user_id
             relationship_type=RelationshipType.SIBLING,
             relationship_basis=RelationshipBasis.REFERRAL,
             points=user.points,
+            created_at=user.created_at,
         )
         for user in referred_users
     ]
@@ -301,6 +311,7 @@ async def _get_sibling_users(session: AsyncSession, user_id: str, parent_user_id
             relationship_type=RelationshipType.SIBLING,
             relationship_basis=RelationshipBasis.REFERRAL,
             points=user.points,
+            created_at=user.created_at,
         )
         for user in created_users
     ]
