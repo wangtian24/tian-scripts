@@ -19,6 +19,7 @@ from ypl.backend.routes.v1 import points as points_route
 from ypl.backend.routes.v1 import provider as provider_route
 from ypl.backend.routes.v1 import route as llm_route
 from ypl.backend.routes.v1 import user as user_route
+from ypl.backend.routes.v1 import user_capability as user_capability_route
 from ypl.backend.utils.json import json_dumps
 
 
@@ -65,4 +66,5 @@ api_router.include_router(files_route.router, prefix="/v1", tags=["files"])
 api_router.include_router(email_route.router, prefix="/v1", tags=["emails"])
 api_router.include_router(user_route.router, prefix="/v1", tags=["user"])
 api_router.include_router(points_route.router, prefix="/v1", tags=["points"])
+api_router.include_router(user_capability_route.router, prefix="/v1", tags=["admin"])
 app_init()
