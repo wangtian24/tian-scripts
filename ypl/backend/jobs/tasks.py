@@ -32,6 +32,10 @@ def maybe_init_langdetect() -> None:
 
 
 @celery_app.task(max_retries=3)
+def celery_store_language_code(chat_message_id: str, content: str) -> None:
+    store_language_code(chat_message_id, content)
+
+
 def store_language_code(chat_message_id: str, content: str) -> None:
     maybe_init_langdetect()
     from fast_langdetect import detect
@@ -62,7 +66,7 @@ def store_language_code(chat_message_id: str, content: str) -> None:
 
 
 async def astore_language_code(chat_message_id: str, content: str) -> None:
-    await store_language_code(chat_message_id, content)
+    await asyncio.to_thread(store_language_code, chat_message_id, content)
 
 
 @celery_app.task
