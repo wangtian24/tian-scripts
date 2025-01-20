@@ -24,6 +24,7 @@ class Event(BaseModel, table=True):
         foreign_key="users.user_id",
         nullable=False,
         default=SYSTEM_USER_ID,
+        index=True,
         description="The user who created this event",
     )
 
