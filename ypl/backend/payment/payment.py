@@ -54,7 +54,6 @@ async def create_payment_transaction(payment_transaction: PaymentTransactionRequ
     """
     async with get_async_session() as session:
         transaction_data = asdict(payment_transaction)
-        transaction_data["created_at"] = datetime.utcnow()
         transaction_data["last_status_change_at"] = datetime.utcnow()
         payment_transaction_db = PaymentTransaction(**transaction_data)
 
