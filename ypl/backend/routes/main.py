@@ -14,6 +14,7 @@ from ypl.backend.routes.api_auth import validate_api_key
 from ypl.backend.routes.v1 import chat_completions, chat_feed, credit, health, model, payment, rank, reward
 from ypl.backend.routes.v1 import chats as chats_route
 from ypl.backend.routes.v1 import email as email_route
+from ypl.backend.routes.v1 import event as event_route
 from ypl.backend.routes.v1 import files as files_route
 from ypl.backend.routes.v1 import points as points_route
 from ypl.backend.routes.v1 import provider as provider_route
@@ -65,6 +66,7 @@ api_router.include_router(chat_completions.router, prefix="/v1", tags=["chat_com
 api_router.include_router(files_route.router, prefix="/v1", tags=["files"])
 api_router.include_router(email_route.router, prefix="/v1", tags=["emails"])
 api_router.include_router(user_route.router, prefix="/v1", tags=["user"])
-api_router.include_router(points_route.router, prefix="/v1", tags=["points"])
+api_router.include_router(points_route.router, prefix="/v1", tags=["admin"])
 api_router.include_router(user_capability_route.router, prefix="/v1", tags=["admin"])
+api_router.include_router(event_route.router, prefix="/v1", tags=["admin"])
 app_init()
