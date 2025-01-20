@@ -1,20 +1,11 @@
-from random_slugs.generate import generate_slug, get_total_unique_slugs
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from ypl.backend.db import get_async_engine
 from ypl.db.invite_codes import SpecialInviteCode, SpecialInviteCodeState
 from ypl.db.users import User
+from ypl.random_word_slugs.generate import Options, generate_slug, get_total_unique_slugs
 
-SLUG_OPTIONS = {
-    "parts_of_speech": [
-        "adjectives",
-        "nouns",
-        "nouns",
-    ],
-    "categories": {
-        "adjectives": ["color", "quantity"],
-        "nouns": ["animal", "pokemon", "technology", "transport", "profession"],
-    },
+SLUG_OPTIONS: Options = {
     "format": "kebab",
 }
 
