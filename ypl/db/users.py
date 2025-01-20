@@ -15,6 +15,7 @@ from ypl.db.rewards import Reward, RewardActionEnum, RewardActionLog, RewardStat
 
 if TYPE_CHECKING:
     from ypl.db.chats import Chat, Eval, Turn
+    from ypl.db.events import Event
     from ypl.db.invite_codes import SpecialInviteCode, SpecialInviteCodeClaimLog
     from ypl.db.language_models import LanguageModel
     from ypl.db.payments import PaymentInstrument
@@ -117,6 +118,8 @@ class User(BaseModel, table=True):
         back_populates="creator",
         sa_relationship_kwargs={"foreign_keys": "[UserCapabilityOverride.creator_user_id]"},
     )
+
+    events: list["Event"] = Relationship(back_populates="user", cascade_delete=True)
 
     def is_new_user(self) -> bool:
         return len(self.chats) < NEW_USER_CHAT_THRESHOLD

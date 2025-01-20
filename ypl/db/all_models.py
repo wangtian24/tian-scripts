@@ -1,6 +1,7 @@
 from ypl.db import (
     attachments,
     chats,
+    events,
     invite_codes,
     language_models,
     payments,
@@ -14,6 +15,7 @@ from ypl.db import (
 all_models = [
     attachments,
     chats,
+    events,
     invite_codes,
     language_models,
     payments,
