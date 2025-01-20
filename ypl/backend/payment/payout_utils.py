@@ -1,9 +1,11 @@
 import asyncio
 import logging
 import uuid
+from copy import deepcopy
 from datetime import datetime, timedelta
 from decimal import Decimal
 
+from fastapi import HTTPException
 from sqlalchemy import func
 from sqlalchemy.exc import DatabaseError, OperationalError
 from sqlalchemy.orm import selectinload
@@ -641,25 +643,51 @@ async def get_destination_instrument_id(
                 logging.warning(json_dumps(log_dict))
                 asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
 
-                log_dict = {
-                    "message": "Creating new payment instrument for user (instrument exists for other users)",
-                    "identifier_type": destination_identifier_type,
-                    "facilitator": facilitator,
-                    "user_id": user_id,
-                    "identifier": destination_identifier,
-                    "instrument_metadata": instrument_metadata,
-                }
-                logging.info(json_dumps(log_dict))
-                instrument = PaymentInstrument(
-                    facilitator=facilitator,
-                    identifier_type=destination_identifier_type,
-                    identifier=destination_identifier,
-                    user_id=user_id,
-                    instrument_metadata=instrument_metadata,
+                # log_dict = {
+                #     "message": "Creating new payment instrument for user (instrument exists for other users)",
+                #     "identifier_type": destination_identifier_type,
+                #     "facilitator": facilitator,
+                #     "user_id": user_id,
+                #     "identifier": destination_identifier,
+                #     "instrument_metadata": instrument_metadata,
+                # }
+                # logging.info(json_dumps(log_dict))
+                # instrument = PaymentInstrument(
+                #     facilitator=facilitator,
+                #     identifier_type=destination_identifier_type,
+                #     identifier=destination_identifier,
+                #     user_id=user_id,
+                #     instrument_metadata=instrument_metadata,
+                # )
+                # session.add(instrument)
+
+                # leaving the above code commented as I've a gut feel that someone
+                # will ask us to remove this exception one day and allow reuse of the same
+                # payment instrument by multiple users.
+                raise HTTPException(
+                    status_code=429,
+                    detail="Payment instrument already in use by another user",
                 )
-                session.add(instrument)
             else:
                 instrument = user_instrument
+                if instrument_metadata is not None:
+                    log_dict = {
+                        "message": "Updating instrument metadata",
+                        "instrument_id": str(instrument.payment_instrument_id),
+                        "old_metadata": instrument.instrument_metadata,
+                        "new_metadata": instrument_metadata,
+                        "user_id": user_id,
+                        "identifier": destination_identifier,
+                        "identifier_type": destination_identifier_type,
+                        "facilitator": facilitator,
+                    }
+                    logging.info(json_dumps(log_dict))
+                    if instrument.instrument_metadata is None:
+                        instrument.instrument_metadata = instrument_metadata
+                    else:
+                        new_metadata = deepcopy(instrument.instrument_metadata or {})
+                        new_metadata.update(instrument_metadata)
+                        instrument.instrument_metadata = new_metadata
 
         await session.commit()
         return instrument.payment_instrument_id

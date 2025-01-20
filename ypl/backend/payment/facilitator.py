@@ -7,6 +7,7 @@ from decimal import Decimal
 
 from cdp.transaction import Transaction
 from cdp.transfer import Transfer
+from fastapi import HTTPException
 from tenacity import retry, stop_after_attempt, wait_exponential
 from ypl.backend.llm.utils import post_to_slack_with_user_name
 from ypl.backend.payment.base_types import (
@@ -124,6 +125,8 @@ class OnChainFacilitator(BaseFacilitator):
                 destination_instrument_id = await self.get_destination_instrument_id(
                     user_id, destination_identifier, destination_identifier_type
                 )
+            except HTTPException as e:
+                raise e
             except Exception as e:
                 log_dict = {
                     "message": "Failed to get payment instruments",
@@ -295,6 +298,8 @@ class OnChainFacilitator(BaseFacilitator):
                 )
                 raise PaymentProcessingError("Failed to process crypto reward") from e
 
+        except HTTPException as e:
+            raise e
         except Exception as e:
             log_dict = {
                 "message": "Unexpected error in payment processing",
