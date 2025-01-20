@@ -665,8 +665,11 @@ async def get_destination_instrument_id(
                 # will ask us to remove this exception one day and allow reuse of the same
                 # payment instrument by multiple users.
                 raise HTTPException(
-                    status_code=429,
-                    detail="Payment instrument already in use by another user",
+                    status_code=400,
+                    detail=(
+                        "This payment info is already linked to another user. "
+                        "We don't support sharing payment destinations"
+                    ),
                 )
             else:
                 instrument = user_instrument
