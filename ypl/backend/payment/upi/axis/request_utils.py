@@ -528,16 +528,17 @@ def _map_verify_vpa_error(error_code: str, destination_identifier_type: PaymentI
     is_phone_number = destination_identifier_type == PaymentInstrumentIdentifierTypeEnum.PHONE_NUMBER
     if error_code == "MM2":
         return (
-            "Invalid phone number. There is no UPI ID associated with this phone number"
+            "This phone number is not linked to a valid UPI ID. Please check the number and try again."
             if is_phone_number
             else "Please check the UPI ID and try again"
         )
     if error_code == "MM3":
         return (
-            "Invalid phone number. There is no UPI ID associated with this phone number"
+            "This phone number is not linked to a valid UPI ID. Please check the number and try again."
             if is_phone_number
             else "This UPI ID is blocked, please try with a different UPI ID"
         )
+
     if error_code == "MM4":
         return (
             "The associated UPI ID for this phone number is inactive"
@@ -545,7 +546,11 @@ def _map_verify_vpa_error(error_code: str, destination_identifier_type: PaymentI
             else "This UPI ID is inactive, please try with a different UPI ID"
         )
     if error_code == "ZH":
-        return "The UPI ID is not valid. Please try with a different UPI ID"
+        return (
+            "This phone number is not linked to a valid UPI ID. Please check the number and try again."
+            if is_phone_number
+            else "This UPI ID is not valid, please try with a different UPI ID"
+        )
     raise Exception("Unknown error")
 
 
