@@ -96,11 +96,21 @@ async def upload_file(file: UploadFile = File(...)) -> AttachmentResponse:  # no
             try:
                 if file.content_type and file.content_type.startswith("image/"):
                     async with Storage() as async_client:
+                        thumbnail_start = datetime.now()
                         image = Image.open(BytesIO(file_content))
-                        image.thumbnail((1024, 1024))
+                        image.thumbnail((512, 512))
                         image_bytes = BytesIO()
                         image.save(image_bytes, format="PNG")
                         image_bytes.seek(0)
+                        logging.info(
+                            json_dumps(
+                                {
+                                    "message": "Attachments: Thumbnail image resized",
+                                    "duration_ms": datetime.now() - thumbnail_start,
+                                    "file_name": file.filename,
+                                }
+                            )
+                        )
                         await async_client.upload(
                             bucket=thumbnail_bucket,
                             object_name=f"{'/'.join(thumbnail_path_parts)}/{thumbnail_uuid}",

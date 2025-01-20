@@ -2,7 +2,7 @@ import asyncio
 import base64
 import logging
 from datetime import datetime
-from typing import Any
+from typing import Any, TypedDict
 
 from gcloud.aio.storage import Storage
 from langchain_core.messages import BaseMessage, HumanMessage
@@ -13,10 +13,22 @@ from ypl.backend.utils.json import json_dumps
 from ypl.db.attachments import Attachment
 
 
-async def download_attachment(attachment: Attachment) -> bytes:
+class TransformOptions(TypedDict, total=False):
+    use_signed_url: bool
+    use_thumbnails: bool
+
+
+DEFAULT_OPTIONS: TransformOptions = {
+    "use_signed_url": False,
+    "use_thumbnails": False,
+}
+
+
+async def download_attachment(attachment: Attachment, use_thumbnails: bool = False) -> bytes:
     start_time = datetime.now()
     try:
-        gcs_path = attachment.url
+        gcs_path = attachment.url if not use_thumbnails else attachment.thumbnail_url
+
         if not gcs_path or not gcs_path.startswith("gs://"):
             raise ValueError(f"Invalid GCS path: {gcs_path}")
 
@@ -25,6 +37,7 @@ async def download_attachment(attachment: Attachment) -> bytes:
             raise ValueError(f"Invalid GCS path format: {gcs_path}")
 
         try:
+            logging.info(f"Attachments: Downloading attachment {attachment.attachment_id} from {gcs_path}")
             async with Storage() as async_client:
                 blob = await async_client.download(
                     bucket=bucket_name,
@@ -60,9 +73,14 @@ async def download_attachment(attachment: Attachment) -> bytes:
         raise
 
 
-async def generic_image_transformer(attachment: Attachment) -> dict[str, Any]:
-    image_bytes = await download_attachment(attachment)
-    url = f"data:{attachment.content_type};base64," + base64.b64encode(image_bytes).decode("utf-8")
+async def generate_image_part(
+    attachment: Attachment, use_signed_url: bool = False, use_thumbnails: bool = False
+) -> dict[str, Any]:
+    if use_signed_url:
+        url = await get_image_signed_url(attachment)
+    else:
+        image_bytes = await download_attachment(attachment, use_thumbnails)
+        url = f"data:{attachment.content_type};base64," + base64.b64encode(image_bytes).decode("utf-8")
     return {
         "type": "image_url",
         "image_url": {
@@ -71,7 +89,11 @@ async def generic_image_transformer(attachment: Attachment) -> dict[str, Any]:
     }
 
 
-async def transform_user_mesages(messages: list[BaseMessage], model_name: str) -> list[BaseMessage]:
+async def transform_user_messages(
+    messages: list[BaseMessage],
+    model_name: str,
+    options: TransformOptions = DEFAULT_OPTIONS,
+) -> list[BaseMessage]:
     model_provider = get_model_provider_tuple(model_name)
     if not model_provider:
         raise ValueError(f"No model-provider configuration found for: {model_name}")
@@ -97,8 +119,13 @@ async def transform_user_mesages(messages: list[BaseMessage], model_name: str) -
 
     transformed_messages: list[BaseMessage] = []
 
+    use_signed_url = options.get("use_signed_url", DEFAULT_OPTIONS["use_signed_url"])
+    use_thumbnails = options.get("use_thumbnails", DEFAULT_OPTIONS["use_thumbnails"])
+
     attachment_id_to_content_dict: dict[str, dict[str, Any]] = {}
-    attachment_tasks = [generic_image_transformer(attachment) for attachment in all_attachments]
+    attachment_tasks = [
+        generate_image_part(attachment, use_signed_url, use_thumbnails) for attachment in all_attachments
+    ]
     results = await asyncio.gather(*attachment_tasks, return_exceptions=True)
     for attachment, result in zip(all_attachments, results, strict=True):
         if isinstance(result, BaseException):
@@ -147,3 +174,49 @@ def get_images_polyfill_prompt(attachments: list[Attachment], question: str) -> 
     if not image_metadata_prompt:
         return question
     return IMAGE_POLYFILL_PROMPT.format(image_metadata_prompt=image_metadata_prompt, question=question)
+
+
+async def get_image_signed_url(attachment: Attachment) -> str:
+    start_time = datetime.now()
+    try:
+        gcs_path = attachment.url
+        if not gcs_path or not gcs_path.startswith("gs://"):
+            raise ValueError(f"Invalid GCS path: {gcs_path}")
+
+        bucket_name, *path_parts = gcs_path.replace("gs://", "").split("/")
+        if not bucket_name or not path_parts:
+            raise ValueError(f"Invalid GCS path format: {gcs_path}")
+
+        try:
+            async with Storage() as async_client:
+                bucket = async_client.get_bucket(bucket_name)
+                blob = await bucket.get_blob(f"{'/'.join(path_parts)}")
+                url = await blob.get_signed_url(expiration=604800)
+                return url
+
+        except Exception as e:
+            log_dict = {
+                "message": "GCS signed url failed",
+                "error": str(e),
+                "attachment_id": str(attachment.attachment_id),
+                "gcs_path": gcs_path,
+                "file_name": attachment.file_name,
+                "content_type": attachment.content_type,
+            }
+            logging.exception(json_dumps(log_dict))
+            raise RuntimeError(f"Failed to download file from GCS: {str(e)}") from e
+        finally:
+            end_time = datetime.now()
+            logging.info(f"Attachments: {attachment.attachment_id} - GCS download took {end_time - start_time} seconds")
+
+    except ValueError as e:
+        log_dict = {
+            "message": "Invalid GCS path",
+            "error": str(e),
+            "attachment_id": str(attachment.attachment_id),
+            "url": attachment.url,
+            "file_name": attachment.file_name,
+            "content_type": attachment.content_type,
+        }
+        logging.error(json_dumps(log_dict))
+        raise

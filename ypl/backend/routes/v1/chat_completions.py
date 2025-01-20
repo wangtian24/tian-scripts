@@ -31,7 +31,7 @@ from ypl.backend.llm.crawl import enhance_citations
 from ypl.backend.llm.model.model import ModelResponseTelemetry
 from ypl.backend.llm.provider.provider_clients import get_language_model, get_provider_client
 from ypl.backend.llm.sanitize_messages import DEFAULT_MAX_TOKENS, sanitize_messages
-from ypl.backend.llm.transform_messages import transform_user_mesages
+from ypl.backend.llm.transform_messages import transform_user_messages
 from ypl.backend.llm.utils import post_to_slack
 from ypl.backend.prompts import get_system_prompt_with_modifiers
 from ypl.backend.utils.json import json_dumps
@@ -245,7 +245,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                 last_message.additional_kwargs["attachments"] = latest_attachments
                 messages[-1] = last_message
 
-        messages = await transform_user_mesages(messages, chat_request.model)
+        messages = await transform_user_messages(messages, chat_request.model)
 
         first_token_timestamp: float = 0
         response_tokens_num = 0
@@ -327,6 +327,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
             yield StreamResponse(
                 {"error": f"Streaming error: {str(e)}", "code": "stream_error", "model": chat_request.model}, "error"
             ).encode()
+            log_attachments_in_conversation(messages, chat_request.message_id, chat_request.chat_id)
             # check if it's a potential billing error & async post to Slack
             if contains_billing_keywords(str(e)):
                 asyncio.create_task(
@@ -515,3 +516,24 @@ async def update_modifier_status(chat_request: ChatRequest) -> None:
         await session.execute(show_query)
 
         await session.commit()
+
+
+def log_attachments_in_conversation(messages: list[BaseMessage], message_id: uuid.UUID, chat_id: uuid.UUID) -> None:
+    total_attachments_in_conversation = 0
+    logs = []
+    for message in messages:
+        if not isinstance(message, HumanMessage):
+            continue
+        content = message.content
+        if not isinstance(content, list):
+            continue
+        for part in content:
+            if not isinstance(part, dict):
+                continue
+            image_url = part.get("image_url", {}).get("url", "")
+            if image_url:
+                logs.append(f"Attachments: Image in the conversation has size: {len(image_url)}")
+                total_attachments_in_conversation += 1
+    logs.append(f"Attachments: Total attachments in the conversation: {total_attachments_in_conversation}")
+    log_dict = {"attachments": logs, "message_id": str(message_id), "chat_id": str(chat_id)}
+    logging.info(json_dumps(log_dict))

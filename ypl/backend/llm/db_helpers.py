@@ -10,6 +10,7 @@ import pandas as pd
 from cachetools.func import ttl_cache
 from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_mistralai import ChatMistralAI
 from langchain_openai import ChatOpenAI
@@ -22,6 +23,7 @@ from ypl.backend.db import get_async_engine, get_engine
 from ypl.backend.llm.constants import ACTIVE_MODELS_BY_PROVIDER, PROVIDER_MODEL_PATTERNS, ChatProvider
 from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.routing.route_data_type import PreferredModel, RoutingPreference
+from ypl.db.attachments import Attachment
 from ypl.db.chats import Chat, ChatMessage, MessageType
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
 from ypl.utils import async_timed_cache
@@ -247,7 +249,7 @@ def get_chat_history(
     turn_id: str | None = None,
     merge_method: str = "single-thread-random",  # noqa: C901
     last_num_turns: int = 100,
-) -> list[dict[str, Any]]:
+) -> list[BaseMessage]:
     """
     Returns the chat history for the given chat ID.
 
@@ -266,10 +268,23 @@ def get_chat_history(
     if turn_id is None:
         sql_query = text(
             f"""
-            SELECT cm.message_type, cm.content, t.turn_id, me.score FROM turns t
+            SELECT
+                cm.message_type, cm.content, t.turn_id, me.score,
+                jsonb_agg(
+                    jsonb_build_object(
+                        'attachment_id', a.attachment_id,
+                        'file_name', a.file_name,
+                        'content_type', a.content_type,
+                        'url', a.url,
+                        'thumbnail_url', a.thumbnail_url
+                    )
+                ) FILTER (WHERE a.attachment_id IS NOT NULL) as attachments
+                FROM turns t
                 JOIN chat_messages cm ON cm.turn_id = t.turn_id
                 LEFT JOIN message_evals me ON me.message_id = cm.message_id
+                LEFT JOIN attachments a ON a.chat_message_id = cm.message_id
             WHERE t.chat_id = :chat_id
+            GROUP BY t.turn_id, cm.message_type, cm.content, me.score, cm.created_at
             ORDER BY cm.created_at DESC
             LIMIT {last_num_turns}
             """
@@ -280,12 +295,25 @@ def get_chat_history(
             WITH turn_seq_id AS (
                 SELECT sequence_id FROM turns WHERE turn_id = :turn_id
             )
-            SELECT cm.message_type, cm.content, t.turn_id, me.score FROM turns t
+            SELECT
+                cm.message_type, cm.content, t.turn_id, me.score,
+                jsonb_agg(
+                    jsonb_build_object(
+                        'attachment_id', a.attachment_id,
+                        'file_name', a.file_name,
+                        'content_type', a.content_type,
+                        'url', a.url,
+                        'thumbnail_url', a.thumbnail_url
+                    )
+                ) FILTER (WHERE a.attachment_id IS NOT NULL) as attachments
+                FROM turns t
                 JOIN chat_messages cm ON cm.turn_id = t.turn_id
                 LEFT JOIN message_evals me ON me.message_id = cm.message_id
+                LEFT JOIN attachments a ON a.chat_message_id = cm.message_id
             WHERE t.chat_id = :chat_id
                 AND t.sequence_id BETWEEN (SELECT sequence_id FROM turn_seq_id) - {last_num_turns}
                 AND (SELECT sequence_id FROM turn_seq_id)
+            GROUP BY t.turn_id, cm.message_type, cm.content, me.score
             ORDER BY cm.created_at DESC
             """
         )
@@ -297,23 +325,22 @@ def get_chat_history(
 
     last_turn_id = None
     last_turn_id_to_include = turn_id
-    history = []
-    asst_buffer: list[dict[str, Any]] = []
+    history: list[BaseMessage] = []
+    asst_buffer: list[AIMessage] = []
 
     for row in reversed(rows):
         if last_turn_id is not None and last_turn_id_to_include == last_turn_id:
             break
 
-        msg_type, content, turn_id, score = row
+        msg_type, content, turn_id, score, attachments = row
+
+        attachments = attachments or []
 
         if turn_id != last_turn_id:
             if asst_buffer:
                 random.shuffle(asst_buffer)
                 history.append(
-                    dict(
-                        content=max(asst_buffer, key=lambda x: x["score"])["content"],
-                        role="assistant",
-                    )
+                    AIMessage(content=max(asst_buffer, key=lambda x: x.additional_kwargs.get("score") or 0).content)
                 )
 
             asst_buffer.clear()
@@ -322,20 +349,30 @@ def get_chat_history(
 
         match msg_type:
             case "USER_MESSAGE":
-                history.append(dict(content=content, role="user"))
+                history.append(
+                    HumanMessage(
+                        content=content,
+                        additional_kwargs={
+                            "attachments": [Attachment(**attachment) for attachment in attachments]
+                            if attachments
+                            else []
+                        },
+                    )
+                )
             case "ASSISTANT_MESSAGE":
-                asst_buffer.append(dict(content=content, score=0 if score is None else score))
+                asst_buffer.append(
+                    AIMessage(content=content, additional_kwargs={"score": 0 if score is None else score})
+                )
             case "QUICK_RESPONSE_MESSAGE":
-                history.append(dict(content=content, role="quicktake"))
+                history.append(BaseMessage(content=content or "", type="quicktake"))
             case _:
                 continue
 
     if asst_buffer:
         random.shuffle(asst_buffer)
         history.append(
-            dict(
-                content=max(asst_buffer, key=lambda x: x["score"])["content"],
-                role="assistant",
+            AIMessage(
+                content=max(asst_buffer, key=lambda x: x.additional_kwargs.get("score") or 0).content,
             )
         )
 

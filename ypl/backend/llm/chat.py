@@ -23,6 +23,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine
+from ypl.backend.llm.attachment import get_attachments
 from ypl.backend.llm.constants import ACTIVE_MODELS_BY_PROVIDER, ChatProvider
 from ypl.backend.llm.db_helpers import (
     deduce_original_providers,
@@ -39,6 +40,7 @@ from ypl.backend.llm.provider.provider_clients import get_model_provider_tuple
 from ypl.backend.llm.routing.debug import RoutingDebugInfo, build_routing_debug_info
 from ypl.backend.llm.routing.route_data_type import PreferredModel, RoutingPreference
 from ypl.backend.llm.routing.router_state import RouterState
+from ypl.backend.llm.transform_messages import transform_user_messages
 from ypl.backend.llm.turn_quality import label_turn_quality
 from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter, OpenAILangChainAdapter
 from ypl.backend.prompts import ALL_MODELS_IN_CHAT_HISTORY_PREAMBLE, RESPONSE_SEPARATOR
@@ -896,6 +898,7 @@ class QuickTakeRequest(BaseModel):
     chat_id: str | None = None
     turn_id: str | None = None
     prompt: str | None = None
+    attachment_ids: list[UUID] | None = None
     model: str | None = None  # one of the entries in QT_LLMS; if none, use MODELS_FOR_DEFAULT_QT
     timeout_secs: float = settings.DEFAULT_QT_TIMEOUT_SECS
 
@@ -908,20 +911,20 @@ class PromptModifierInfo(BaseModel):
 
 def get_quicktake_generator(
     model: str,
-    chat_history: list[dict[str, Any]],
+    chat_history: list[BaseMessage],
     prompt_only: bool = False,
     timeout_secs: float = settings.DEFAULT_QT_TIMEOUT_SECS,
 ) -> QuickTakeGenerator:
     """Get a quicktake generator for a given model, or raise if the model is not supported."""
     if prompt_only:
         # Use only the prompts from the chat history.
-        chat_history = [m for m in chat_history if m["role"] == "user"]
+        chat_history = [m for m in chat_history if isinstance(m, HumanMessage)]
     return QuickTakeGenerator(get_qt_llms()[model], chat_history, timeout_secs=timeout_secs)
 
 
 async def generate_quicktake(
     request: QuickTakeRequest,
-    chat_history: list[dict[str, Any]] | None = None,
+    chat_history: list[BaseMessage] | None = None,
 ) -> QuickTakeResponse:
     """
     Generates a quicktake for a given chat_id or chat_history. If chat_history is provided, it will be used instead of
@@ -944,9 +947,27 @@ async def generate_quicktake(
     assert chat_history is not None, "chat_history is null"
 
     response_model = ""
-    timeout_secs = request.timeout_secs
     start_time = time.time()
     responses_by_model: dict[str, str] = {}
+
+    latest_message = HumanMessage(
+        content=request.prompt or "",
+        additional_kwargs={
+            "attachments": await get_attachments(request.attachment_ids) if request.attachment_ids else [],
+        },
+    )
+
+    chat_history.append(latest_message)
+
+    has_attachments = any(isinstance(m, HumanMessage) and m.additional_kwargs.get("attachments") for m in chat_history)
+
+    chat_history = await transform_user_messages(chat_history, "gpt-4o", options={"use_thumbnails": True})
+
+    timeout_secs = (
+        settings.ATTACHMENT_QUICKTAKE_TIMEOUT_SECS
+        if has_attachments
+        else request.timeout_secs or settings.DEFAULT_QT_TIMEOUT_SECS
+    )
 
     try:
         if not request.model:

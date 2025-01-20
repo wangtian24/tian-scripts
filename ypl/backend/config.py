@@ -126,6 +126,8 @@ class Settings(BaseSettings):
 
     DEFAULT_QT_TIMEOUT_SECS: float = 1.5
 
+    ATTACHMENT_QUICKTAKE_TIMEOUT_SECS: float = 4.0
+
     # The base URL of the yupp-head app, set to staging by default.
     # Example use case: when updating models on yupp-mind, we need to revalidate the model caches on yupp-head too.
     YUPP_HEAD_APP_BASE_URL: str = "https://chaos.yupp.ai"
