@@ -22,7 +22,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ypl.backend.config import settings
-from ypl.backend.db import get_async_engine
+from ypl.backend.db import get_async_engine, get_async_session
 from ypl.backend.llm.attachment import get_attachments
 from ypl.backend.llm.constants import ACTIVE_MODELS_BY_PROVIDER, ChatProvider
 from ypl.backend.llm.db_helpers import (
@@ -68,6 +68,8 @@ DEFAULT_HIGH_SIM_THRESHOLD = 0.825
 DEFAULT_UNIQUENESS_THRESHOLD = 0.75
 YuppMessage = HumanMessage | AIMessage | SystemMessage  # this is needed for proper Pydantic typecasting
 YuppMessageRow = list[YuppMessage]
+IMAGE_CATEGORY = "image"
+IMAGE_ATTACHMENT_MIME_TYPE_SQL_PATTERN = "image/%"
 
 
 class SelectIntent(str, Enum):
@@ -96,6 +98,23 @@ class SelectModelsV2Response(BaseModel):
     routing_debug_info: RoutingDebugInfo | None = None
 
 
+async def has_image_attachments(chat_id: str) -> bool:
+    async with get_async_session() as session:
+        result = await session.exec(
+            select(ChatMessage.message_id)
+            .join(Attachment)
+            .join(Turn)
+            .where(
+                Turn.chat_id == UUID(chat_id),
+                ChatMessage.message_type == MessageType.USER_MESSAGE,
+                ChatMessage.message_id == Attachment.chat_message_id,
+                Attachment.content_type.like(IMAGE_ATTACHMENT_MIME_TYPE_SQL_PATTERN),  # type: ignore
+            )
+            .limit(1)
+        )
+        return result.first() is not None
+
+
 async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Response:
     from ypl.backend.llm.routing.router import get_simple_pro_router
 
@@ -105,6 +124,12 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         provided_categories: list[str] | None = None,
     ) -> tuple[RouterState, RouterState]:
         num_models = request.num_models
+        provided_categories = provided_categories or []
+
+        if IMAGE_CATEGORY not in provided_categories and request.intent == SelectIntent.NEW_TURN and request.chat_id:
+            # Check if previous turns have image attachments; if so, mark image as a provided category.
+            if await has_image_attachments(request.chat_id):
+                provided_categories.append(IMAGE_CATEGORY)
 
         # select N models
         router = await get_simple_pro_router(

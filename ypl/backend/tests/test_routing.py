@@ -276,8 +276,10 @@ def test_fast_compute_all_conf_overlap_diffs() -> None:
 @patch("ypl.backend.llm.routing.modules.filters.get_image_attachment_models")
 @patch("ypl.backend.llm.routing.modules.filters.get_active_models")
 @patch("ypl.backend.llm.routing.modules.filters.get_model_context_lengths")
+@patch("ypl.backend.llm.chat.has_image_attachments")
 @pytest.mark.asyncio
 async def test_simple_pro_router(
+    mock_has_image_attachments: Mock,
     mock_model_context_lengths: Mock,
     mock_active_models: Mock,
     mock_image_attachment_models: Mock,
@@ -314,7 +316,7 @@ async def test_simple_pro_router(
     pro_models = {"pro1", "pro2", "pro3", "pro4"}
     mock_get_all_pro_models.return_value = pro_models
     mock_semantic_group_map.return_value = {}
-
+    mock_has_image_attachments.return_value = False
     models = {"model1", "model2"}
     reputable_providers = {"pro1", "pro2", "pro3", "model1"}
     all_models = models | pro_models
