@@ -11,7 +11,7 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.prompts import (
     ChatPromptTemplate,
 )
@@ -548,7 +548,7 @@ class QuickTakeGenerator(LLMLabeler[str, str]):
         self,
         llm: BaseChatModel,
         chat_history: list[BaseMessage],
-        keep_role: str | None = "assistant",
+        keep_role: str | None = "ai",
         **kwargs: Any,
     ) -> None:
         self.keep_role = keep_role
@@ -576,7 +576,7 @@ class QuickTakeGenerator(LLMLabeler[str, str]):
                 return HumanMessage(content=new_content)
 
     def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
-        keep_roles = {"user", self.keep_role} if self.keep_role else {"human", "ai", "quicktake"}
+        keep_roles = {"human", self.keep_role} if self.keep_role else {"human", "ai", "quicktake"}
         last_message = self.chat_history[-1]
 
         messages: list[BaseMessage] = [SystemMessage(content=SYSTEM_QUICKTAKE_PROMPT)]
@@ -586,6 +586,9 @@ class QuickTakeGenerator(LLMLabeler[str, str]):
             if i == message_length - 1:
                 continue
             if message.type not in keep_roles:
+                continue
+            if message.type == "quicktake":
+                messages.append(AIMessage(content=message.content))
                 continue
             messages.append(message)
 
