@@ -99,6 +99,7 @@ async def get_simple_pro_router(
 
     if IMAGE_CATEGORY in categories:
         pro_proposer = ImageProModelProposer()
+    image_proposer = ImageProModelProposer() if IMAGE_CATEGORY in categories else Passthrough()
 
     def get_postprocessing_stage(exclude_models: set[str] | None = None, prefix: str = "first") -> RouterModule:
         """
@@ -146,6 +147,7 @@ async def get_simple_pro_router(
                 (rule_proposer.with_flags(always_include=True) | RandomJitter(jitter_range=1))
                 & (pro_proposer | error_filter | TopK(num_pro)).with_flags(always_include=True, offset=100000)
                 & (StrongModelProposer() | error_filter | TopK(1)).with_flags(always_include=True, offset=50000)
+                & (image_proposer | error_filter | TopK(2)).with_flags(always_include=True, offset=50000)
                 & (
                     reputable_proposer
                     | error_filter
@@ -175,6 +177,7 @@ async def get_simple_pro_router(
                     offset=10000000,
                 )
                 & (rule_proposer.with_flags(always_include=True) | error_filter | RandomJitter(jitter_range=1))
+                & (image_proposer.with_flags(always_include=True) | error_filter | RandomJitter(jitter_range=1))
                 & (
                     (pro_proposer | Exclude(name="-ex2", models=all_bad_models) | error_filter | TopK(1)).with_flags(
                         always_include=True, offset=10000
@@ -198,116 +201,6 @@ async def get_simple_pro_router(
             | error_filter  # removes models with high error rate
             # -- post processing stage --
             | get_postprocessing_stage(exclude_models=all_bad_models, prefix="nonfirst")
-        )
-
-    return router
-
-
-# TODO(tian) - this is not used anywhere yet?
-def get_prompt_conditional_router(
-    prompt: str,
-    num_models: int,
-    routing_preference: RoutingPreference | None = None,
-) -> RouterModule:
-    """
-    Get router based on the prompt
-    """
-    from ypl.backend.llm.routing.prompt_router import RemotePromptCategorizerProposer
-
-    endpoint = settings.PYTORCH_SERVE_GCP_URL
-    key = settings.X_API_KEY
-    preference = routing_preference or RoutingPreference(turns=[], user_id=None)
-
-    reputable_proposer = RandomModelProposer(
-        for_criteria=SelectionCriteria.RANDOM_REPUTABLE, providers=set(settings.ROUTING_REPUTABLE_PROVIDERS)
-    )
-    categorizer_proposer = RemotePromptCategorizerProposer(
-        prompt,
-        endpoint,
-        key,
-        exclude_unknown_models=False,
-        skill_deficit_threshold=4,
-    )
-
-    if not preference.turns:
-        # Construct a first-turn router guaranteeing at least two reputable models, focusing on speed but
-        # also with random jitter.
-        router: RouterModule = (
-            (
-                (ProModelProposer() | TopK(1)).with_flags(always_include=True, offset=100000)
-                & (
-                    reputable_proposer
-                    | categorizer_proposer
-                    | StreamableModelFilter()
-                    | MaxSpeedProposer()
-                    | RandomJitter(jitter_range=30.0)  # +/- 30 tokens per second
-                    | ProviderFilter(one_per_provider=True)
-                ).with_flags(always_include=True, offset=5000)
-                & reputable_proposer.with_flags(offset=-1000, always_include=True)
-            )
-            | ProviderFilter(one_per_provider=True)
-            | TopK(num_models)
-            | RoutingDecisionLogger(
-                enabled=settings.ROUTING_DO_LOGGING,
-                prefix="first-prompt-conditional-router",
-                preference=preference,
-                metadata={"user_id": preference.user_id},
-            )
-        )
-    else:
-        # This is the router for all turns after the first; construct it based on the preference
-        # and the branding. If both are bad, we default to one branded and one random. If one branded one is
-        # good, we choose that and use a random model for the other.
-        all_good_models = set()
-        all_bad_models = set()
-
-        for turn in preference.turns:
-            if not turn.has_evaluation:
-                continue
-
-            for model in turn.models:
-                if turn.preferred is None:
-                    all_bad_models.add(model)
-                else:
-                    if model == turn.preferred:
-                        all_good_models.add(model)
-                    else:
-                        all_bad_models.add(model)
-
-        all_good_models = all_good_models - all_bad_models
-
-        router: RouterModule = (  # type: ignore[no-redef]
-            (
-                (RandomModelProposer(models=all_good_models).with_flags(offset=100000) | TopK(1)).with_flags(
-                    always_include=True
-                )
-                & (ProModelProposer() | Exclude(name="-ex3", models=all_bad_models) | TopK(1)).with_flags(
-                    always_include=True, offset=10000
-                )
-                & (
-                    categorizer_proposer
-                    | Exclude(name="-ex4", models=all_bad_models)
-                    | ProviderFilter(one_per_provider=True)
-                    | MaxSpeedProposer()
-                    | RandomJitter(jitter_range=30.0)  # +/- 30 tokens per second
-                    | TopK(1)
-                ).with_flags(always_include=True)
-                & RandomModelProposer().with_flags(offset=-1000, always_include=True)
-            )
-            | Exclude(models=all_bad_models)
-            | ProviderFilter(one_per_provider=True)
-            | TopK(num_models)
-            | RoutingDecisionLogger(
-                enabled=settings.ROUTING_DO_LOGGING,
-                prefix="nonfirst-prompt-conditional-router",
-                preference=preference,
-                metadata={
-                    "user_id": preference.user_id,
-                    "turns": [t.model_dump() for t in preference.turns],
-                    "all_good_models": list(all_good_models),
-                    "all_bad_models": list(all_bad_models),
-                },
-            )
         )
 
     return router
