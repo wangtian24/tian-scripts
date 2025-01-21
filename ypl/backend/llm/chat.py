@@ -118,6 +118,8 @@ async def has_image_attachments(chat_id: str) -> bool:
 async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Response:
     from ypl.backend.llm.routing.router import get_simple_pro_router
 
+    logging.debug(json_dumps({"message": "select_models_plus request"} | request.model_dump(mode="json")))
+
     async def select_models_(
         required_models: list[str] | None = None,
         show_me_more_models: list[str] | None = None,
@@ -275,12 +277,15 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
             is_selected = " S => " if model in selected_models else ""
             logging.debug(f"> {model:<50}{is_selected:<8}{model_debug.score:-10.1f}{model_debug.journey}")
 
-    return SelectModelsV2Response(
+    response = SelectModelsV2Response(
         models=[(model, prompt_modifiers.get(model, [])) for model in selected_models],
         fallback_models=[(model, prompt_modifiers.get(model, [])) for model in fallback_models],
         provider_map=deduce_original_providers(tuple(selected_models + fallback_models)),
         routing_debug_info=routing_debug_info if request.debug_level > 0 else None,
     )
+    logging.debug(json_dumps({"message": "select_models_plus response"} | response.model_dump(mode="json")))
+
+    return response
 
 
 def get_chat_history_model(

@@ -29,6 +29,7 @@ from ypl.backend.llm.routing.modules.proposers import (
     AlwaysGoodModelMetaRouter,
     CostModelProposer,
     EloProposer,
+    ImageProModelProposer,
     MaxSpeedProposer,
     ProModelProposer,
     RandomModelProposer,
@@ -95,6 +96,9 @@ async def get_simple_pro_router(
     show_me_more_providers = (
         set(deduce_original_providers(tuple(show_me_more_models)).values()) if show_me_more_models else set()
     )
+
+    if IMAGE_CATEGORY in categories:
+        pro_proposer = ImageProModelProposer()
 
     def get_postprocessing_stage(exclude_models: set[str] | None = None, prefix: str = "first") -> RouterModule:
         """
@@ -172,9 +176,9 @@ async def get_simple_pro_router(
                 )
                 & (rule_proposer.with_flags(always_include=True) | error_filter | RandomJitter(jitter_range=1))
                 & (
-                    (
-                        ProModelProposer() | Exclude(name="-ex2", models=all_bad_models) | error_filter | TopK(1)
-                    ).with_flags(always_include=True, offset=10000)
+                    (pro_proposer | Exclude(name="-ex2", models=all_bad_models) | error_filter | TopK(1)).with_flags(
+                        always_include=True, offset=10000
+                    )
                     ^ (
                         reputable_proposer
                         | StreamableModelFilter()

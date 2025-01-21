@@ -9,6 +9,7 @@ from ypl.backend.llm.db_helpers import (
     deduce_original_providers,
     get_all_pro_models,
     get_all_strong_models,
+    get_image_attachment_models,
 )
 from ypl.backend.llm.ranking import ConfidenceIntervalRankerMixin, Ranker
 from ypl.backend.llm.routing.modules.base import RouterModule
@@ -76,7 +77,7 @@ class ProModelProposer(RNGMixin, ModelProposer):
         if not models_to_select:
             return RouterState()
 
-        all_pro_models = set(get_all_pro_models())
+        all_pro_models = self._get_all_pro_models()
         models_to_select = models_to_select.intersection(all_pro_models)
         models_to_select_ = list(models_to_select)
         self.get_rng().shuffle(models_to_select_)
@@ -89,6 +90,14 @@ class ProModelProposer(RNGMixin, ModelProposer):
 
     async def _apropose_models(self, models_to_select: set[str], state: RouterState) -> RouterState:
         return self._propose_models(models_to_select, state)
+
+    def _get_all_pro_models(self) -> set[str]:
+        return set(get_all_pro_models())
+
+
+class ImageProModelProposer(ProModelProposer):
+    def _get_all_pro_models(self) -> set[str]:
+        return set(get_image_attachment_models())
 
 
 class StrongModelProposer(RNGMixin, ModelProposer):
