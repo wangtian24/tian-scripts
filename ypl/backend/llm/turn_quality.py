@@ -5,6 +5,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine
@@ -17,7 +18,7 @@ from ypl.backend.rw_cache import TurnQualityCache
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import MessageType, TurnQuality
 
-LLM = None
+LLM: GeminiLangChainAdapter | None = None
 
 
 def get_llm() -> GeminiLangChainAdapter:
@@ -40,7 +41,8 @@ def get_llm() -> GeminiLangChainAdapter:
     return LLM
 
 
-async def label_turn_quality(turn_id: UUID, chat_id: UUID, prompt: str | None = None) -> TurnQuality:
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=30), reraise=True)
+async def label_turn_quality_with_retry(turn_id: UUID, chat_id: UUID, prompt: str | None = None) -> TurnQuality:
     cache = TurnQualityCache.get_instance()
     tq = await cache.aread(turn_id, deep=True)
 
@@ -130,3 +132,11 @@ async def label_turn_quality(turn_id: UUID, chat_id: UUID, prompt: str | None = 
     logging.info(json_dumps(info))
 
     return tq
+
+
+async def label_turn_quality(turn_id: UUID, chat_id: UUID, prompt: str | None = None) -> TurnQuality:
+    try:
+        return await label_turn_quality_with_retry(turn_id, chat_id, prompt)
+    except Exception as e:
+        logging.error(f"Failed to label turn quality after retries: {str(e)}")
+        raise e
