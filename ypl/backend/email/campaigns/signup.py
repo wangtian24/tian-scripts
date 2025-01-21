@@ -2,7 +2,7 @@ SIC_AVAILABILITY_EMAIL_TITLE = "Thanks for using Yupp (Beta). New from us just f
 SIC_AVAILABILITY_EMAIL_TEMPLATE = """
 Hey {name},
 
-Thanks for being a valuable Trusted Tester of Yupp. Your feedback so far has given us invaluable insights and we continue to iterate on the product! We hope you are enjoying your experience and finding Yupp useful.
+Thanks for being a valuable Trusted Tester of Yupp. Your feedback so far has given us invaluable insights and we continue to iterate on the product! We hope you are enjoying your experience and finding Yupp useful, and ask for your strict confidentiality in this phase 🙏.
 
 We are thrilled to release our ‘referral’ feature. With this functionality, you would be able to invite your friends, using a special invite code created just for you. This feature would start rolling out to other users in the upcoming weeks, but we thought it would be great to let you in early.
 
@@ -23,7 +23,7 @@ Mouli
 SIC_AVAILABILITY_EMAIL_TEMPLATE_HTML = """
 <p>Hey {name},</p>
 
-<p>Thanks for being a valuable Trusted Tester of Yupp. Your feedback so far has given us invaluable insights and we continue to iterate on the product! We hope you are enjoying your experience and finding Yupp useful.</p>
+<p>Thanks for being a valuable Trusted Tester of Yupp. Your feedback so far has given us invaluable insights and we continue to iterate on the product! We hope you are enjoying your experience and finding Yupp useful, and ask for your strict confidentiality in this phase 🙏.</p>
 
 <p>We are thrilled to release our ‘referral’ feature. With this functionality, you would be able to invite your friends, using a special invite code created <strong>just for you</strong>. This feature would start rolling out to other users in the upcoming weeks, <strong>but we thought it would be great to let you in early</strong>.</p>
 
@@ -46,9 +46,9 @@ SIGN_UP_EMAIL_TITLE = "Thanks for joining Yupp (Beta) as an early Trusted Tester
 SIGN_UP_EMAIL_TEMPLATE = """
 Hey {name},
 
-Please keep it confidential, and remember to thank the person who referred you when you see them next.
-
 We’re thrilled to have you as an early Trusted Tester user! Your feedback will play a crucial role in refining the product, and we can’t wait to hear your thoughts.
+
+Thank you for being a part of this small, exclusive group with access to the product in its private, closed beta. We really appreciate your trust and feedback, and ask for your strict confidentiality in this phase 🙏.
 
 Before you dive in, here are a few important points to note:
 • Confidential Access: This early access is exclusive to you, so please refrain from sharing it with others. Your discretion is greatly appreciated. 🔐
@@ -78,6 +78,10 @@ We’re happy to let you know that {referee_name}, whom you referred, has signed
 Cheers,
 Mouli
 [from the Product team]
+
+----
+
+Thank you for being a part of this small, exclusive group with access to the product in its private, closed beta. We really appreciate your trust and feedback, and ask for your strict confidentiality in this phase 🙏.
 """  # noqa: E501
 
 
@@ -90,4 +94,7 @@ Thank you for providing your first "I prefer this" feedback! We’re happy to le
 Cheers,
 Mouli
 [from the Product team]
+----
+
+Thank you for being a part of this small, exclusive group with access to the product in its private, closed beta. We really appreciate your trust and feedback, and ask for your strict confidentiality in this phase 🙏.
 """  # noqa: E501
