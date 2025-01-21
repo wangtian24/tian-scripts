@@ -1,14 +1,15 @@
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Final, Literal, TypedDict
 
 from fastapi import HTTPException
-from sqlalchemy import Column, and_, case, func, select
+from sqlalchemy import Column, and_, case, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.expression import true
 from sqlalchemy.sql.functions import Function
+from sqlmodel import select
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
 from ypl.backend.llm.utils import post_to_slack_with_user_name
@@ -17,6 +18,7 @@ from ypl.backend.utils.utils import CapabilityType, UserCapabilityStatus, get_ca
 from ypl.db.payments import PaymentInstrumentFacilitatorEnum
 from ypl.db.point_transactions import PointsActionEnum, PointTransaction
 from ypl.db.redis import get_upstash_redis_client
+from ypl.db.users import User
 
 CASHOUT_KILLSWITCH_KEY = "cashout:killswitch"
 # Facilitator specific killswitch, facilitator *SHOULD BE lowercase*
@@ -26,7 +28,7 @@ CASHOUT_REQUEST_RATE_LIMIT_ENABLED = True
 CASHOUT_REQUEST_RATE_LIMIT: Final[int] = 1  # Only 1 request allowed
 CASHOUT_REQUEST_WINDOW_SECONDS: Final[int] = 10  # Within 10 seconds window
 
-
+NEW_USER_COOLOFF_PERIOD_DAYS = 7
 MAX_DAILY_CASHOUT_COUNT = 1
 MAX_WEEKLY_CASHOUT_COUNT = 1
 MAX_MONTHLY_CASHOUT_COUNT = 5
@@ -68,6 +70,7 @@ class CashoutLimitType(Enum):
     CREDIT_AMOUNT = "credit amount"
     FIRST_TIME = "first time credit"
     RATE_LIMIT = "rate limit"
+    NEW_USER_COOLOFF = "new user cooloff"
 
 
 class CashoutLimitError(HTTPException):
@@ -84,6 +87,8 @@ class CashoutLimitError(HTTPException):
         # Keep it ambiguous to avoid leaking information about the limit.
         if limit_type == CashoutLimitType.RATE_LIMIT:
             detail = f"Please wait {max_value} seconds before submitting another cashout request"
+        elif limit_type == CashoutLimitType.NEW_USER_COOLOFF:
+            detail = f"Please wait {current_value} days before submitting a cashout request"
         else:
             detail = f"You have reached the {period} cashout limit. Please try again later."
 
@@ -392,6 +397,7 @@ async def validate_user_cashout_limits(user_id: str, credits_to_cashout: int) ->
     }
 
     async with get_async_session() as session:
+        await check_new_user_cashout_eligibility(session, user_id)
         capability_override_details = await get_capability_override_details(session, user_id, CapabilityType.CASHOUT)
         log_dict = {
             "message": "Cashout override details",
@@ -473,3 +479,55 @@ async def check_cashout_killswitch(facilitator: PaymentInstrumentFacilitatorEnum
     if await redis_client.get(CASHOUT_FACILITATOR_KILLSWITCH_KEY.format(facilitator=facilitator.value)):
         _log_killswitch_error(f"Cashout is currently disabled for {facilitator.name}", facilitator, user_id)
         raise CashoutKillswitchError("Cashout is currently disabled for this payment method")
+
+
+async def check_new_user_cashout_eligibility(session: AsyncSession, user_id: str) -> None:
+    """
+    Check if a user is eligible for cashout based on their signup date.
+
+    Args:
+        session: The database session
+        user_id: The ID of the user to check
+
+
+    Raises:
+        CashoutLimitError: If there is any error checking eligibility or if user is in cooloff period
+    """
+    try:
+        result = await session.execute(select(User.created_at).where(User.user_id == user_id))
+        user_created_at = result.scalar_one_or_none()
+
+        if not user_created_at:
+            raise CashoutLimitError(
+                period="request",
+                limit_type=CashoutLimitType.NEW_USER_COOLOFF,
+                current_value=NEW_USER_COOLOFF_PERIOD_DAYS,
+                max_value=NEW_USER_COOLOFF_PERIOD_DAYS,
+                user_id=user_id,
+            )
+
+        # Check if user signed up before the cooloff period
+        cooloff_period_end = user_created_at + timedelta(days=NEW_USER_COOLOFF_PERIOD_DAYS)
+        now = datetime.now(UTC)
+
+        if now >= cooloff_period_end:
+            return
+
+        days_remaining = (cooloff_period_end - now).days + 1
+        raise CashoutLimitError(
+            period="request",
+            limit_type=CashoutLimitType.NEW_USER_COOLOFF,
+            current_value=days_remaining,
+            max_value=NEW_USER_COOLOFF_PERIOD_DAYS,
+            user_id=user_id,
+        )
+    except CashoutLimitError:
+        raise
+    except Exception as e:
+        log_dict = {
+            "message": "Error checking new user cashout eligibility",
+            "user_id": user_id,
+            "error": str(e),
+        }
+        logging.error(json_dumps(log_dict))
+        raise

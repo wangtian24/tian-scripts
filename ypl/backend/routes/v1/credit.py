@@ -13,6 +13,7 @@ from ypl.backend.llm.credit import (
 from ypl.backend.payment.base_types import BaseFacilitator, PaymentResponse
 from ypl.backend.payment.cashout_rate_limits import (
     CashoutKillswitchError,
+    CashoutLimitError,
     check_cashout_killswitch,
     validate_user_cashout_limits,
 )
@@ -167,7 +168,18 @@ async def cashout_credits(request: CashoutCreditsRequest) -> str | None | Paymen
     logging.info(json_dumps(log_dict))
 
     await validate_cashout_request(request)
-    await validate_user_cashout_limits(request.user_id, request.credits_to_cashout)
+    try:
+        await validate_user_cashout_limits(request.user_id, request.credits_to_cashout)
+    except CashoutLimitError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        log_dict = {
+            "message": "Error validating user cashout limits",
+            "error": str(e),
+            "user_id": request.user_id,
+        }
+        logging.exception(json_dumps(log_dict))
+        raise HTTPException(status_code=500, detail="Oops! Something went wrong. Please try again later.") from e
 
     try:
         amount_in_currency = await convert_credits_to_currency(request.credits_to_cashout, request.cashout_currency)
