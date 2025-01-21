@@ -2,7 +2,7 @@ import enum
 import uuid
 from typing import TYPE_CHECKING, Any, TypeVar
 
-from fast_langdetect.ft_detect.infer import get_model_loaded
+import yaml
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import ARRAY, JSON, Boolean, Column, Index, Text, UniqueConstraint, text
 from sqlalchemy import Enum as SQLAlchemyEnum
@@ -140,11 +140,14 @@ class LanguageCodeEnum(enum.Enum):
             return None
 
 
-language_codes = sorted([label.replace("__label__", "") for label in get_model_loaded(low_memory=True).get_labels()])
+def load_language_codes() -> list[str]:
+    with open("data/language_codes.yml") as f:
+        return sorted(yaml.safe_load(f))
+
 
 LanguageCode: type[LanguageCodeEnum] = enum.Enum(  # type: ignore
     "LanguageCode",
-    {code.upper(): code for code in language_codes},
+    {code.upper(): code for code in load_language_codes()},
     type=LanguageCodeEnum,
 )
 
