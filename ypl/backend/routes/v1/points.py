@@ -26,6 +26,7 @@ class PointTransactionResponse:
 @dataclass
 class PointTransactionsHistoryResponse:
     transactions: list[PointTransactionResponse]
+    has_more_rows: bool
 
 
 @router.get("/points/transactions")
@@ -42,7 +43,7 @@ async def get_points_transactions(
         offset: Number of transactions to skip for pagination (default: 0)
 
     Returns:
-        List of point transactions with their details
+        List of point transactions with their details and a flag indicating if more rows exist
     """
     try:
         async with get_async_session() as session:
@@ -51,11 +52,15 @@ async def get_points_transactions(
                 .where(PointTransaction.user_id == user_id)
                 .order_by(PointTransaction.created_at.desc())  # type: ignore
                 .offset(offset)
-                .limit(limit)
+                .limit(limit + 1)
             )
 
             result = await session.execute(stmt)
             transactions = result.scalars().all()
+
+            has_more_rows = len(transactions) > limit
+            if has_more_rows:
+                transactions = transactions[:-1]
 
             log_dict = {
                 "message": "Points transactions found",
@@ -63,6 +68,7 @@ async def get_points_transactions(
                 "transactions_count": len(transactions),
                 "limit": limit,
                 "offset": offset,
+                "has_more_rows": has_more_rows,
             }
             logging.info(json_dumps(log_dict))
 
@@ -78,7 +84,8 @@ async def get_points_transactions(
                         deleted_at=tx.deleted_at,
                     )
                     for tx in transactions
-                ]
+                ],
+                has_more_rows=has_more_rows,
             )
 
     except Exception as e:
