@@ -10,6 +10,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from ypl.backend.llm.utils import post_to_slack_with_user_name
 from ypl.backend.payment.coinbase.coinbase_payout import (
     CoinbaseRetailPayout,
+    CoinbaseRetailPayoutError,
     TransactionStatus,
     get_coinbase_retail_wallet_balance_for_currency,
     get_transaction_status,
@@ -303,6 +304,16 @@ class CoinbaseFacilitator(BaseFacilitator):
                     customer_reference_id=transaction_id,
                 )
 
+            except CoinbaseRetailPayoutError as e:
+                log_dict = {
+                    "message": "Failed to process Coinbase retail payout",
+                    "user_id": user_id,
+                    "amount": str(amount),
+                    "destination_identifier": destination_identifier,
+                    "error": str(e),
+                }
+                logging.exception(json_dumps(log_dict))
+                raise ValueError(str(e)) from e
             except Exception as e:
                 log_dict = {
                     "message": "Failed to process Coinbase retail payout. Reversing transaction.",

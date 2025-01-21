@@ -18,7 +18,12 @@ from ypl.backend.payment.base_types import (
     PointTransactionCreationError,
     TransactionCreationError,
 )
-from ypl.backend.payment.crypto.crypto_payout import CryptoReward, get_crypto_balance, process_single_crypto_reward
+from ypl.backend.payment.crypto.crypto_payout import (
+    CryptoPayoutError,
+    CryptoReward,
+    get_crypto_balance,
+    process_single_crypto_reward,
+)
 from ypl.backend.payment.payment import (
     CashoutPointTransactionRequest,
     PaymentTransactionRequest,
@@ -273,7 +278,16 @@ class OnChainFacilitator(BaseFacilitator):
                     transaction_status=PaymentTransactionStatusEnum.PENDING,
                     customer_reference_id=tx_hash,
                 )
-
+            except CryptoPayoutError as e:
+                log_dict = {
+                    "message": "Failed to process crypto reward",
+                    "user_id": user_id,
+                    "amount": str(amount),
+                    "destination_identifier": destination_identifier,
+                    "error": str(e),
+                }
+                logging.exception(json_dumps(log_dict))
+                raise ValueError(str(e)) from e
             except Exception as e:
                 log_dict = {
                     "message": "Failed to process crypto reward. Reversing transaction.",

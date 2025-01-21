@@ -47,12 +47,31 @@ CRYPTO_NETWORKS: Final[dict[str, str]] = {
     CurrencyEnum.USDC.value: "base",
 }
 
+GENERIC_ERROR_MESSAGE: Final[str] = "Internal error"
+
 
 class DecimalEncoder(json.JSONEncoder):
     def default(self, obj: Any) -> str | Any:
         if isinstance(obj, Decimal):
             return str(obj)
         return super().default(obj)
+
+
+class CoinbaseRetailPayoutError(Exception):
+    """Custom exception for Coinbase retail payout related errors."""
+
+    def __init__(self, message: str = GENERIC_ERROR_MESSAGE, details: dict[str, Any] | None = None):
+        """Initialize the error with a message and optional details.
+
+        Args:
+            message: Error description
+            details: Additional context about the error
+        """
+        super().__init__(message)
+        self.details = details or {}
+        # Log the error with details
+        log_dict = {"message": message, "details": self.details}
+        logging.error(json_dumps(log_dict))
 
 
 def get_network_for_currency(currency: str) -> str | None:
@@ -152,7 +171,9 @@ async def get_coinbase_retail_wallet_account_details() -> dict[str, dict[str, st
     key_secret = os.getenv("COINBASE_RETAIL_API_SECRET")
 
     if not key_name or not key_secret:
-        raise ValueError("Coinbase API credentials not found in environment variables")
+        raise CoinbaseRetailPayoutError(
+            "Internal error", details={"error": "Coinbase API credentials not found in environment variables"}
+        )
 
     request_path = f"/{API_VERSION}/accounts"
     jwt_token = build_jwt("GET", request_path, key_name, key_secret)
@@ -165,7 +186,8 @@ async def get_coinbase_retail_wallet_account_details() -> dict[str, dict[str, st
     async with httpx.AsyncClient() as client:
         response = await client.get(f"{BASE_URL}/accounts", headers=headers)
         if response.status_code != 200:
-            raise ValueError(f"Failed to get accounts: {response.text}")
+            details = {"status_code": str(response.status_code), "response": response.text}
+            raise CoinbaseRetailPayoutError(GENERIC_ERROR_MESSAGE, details)
 
         data = response.json()
 
@@ -222,26 +244,37 @@ async def process_coinbase_retail_payout(payout: CoinbaseRetailPayout) -> tuple[
     """
     log_dict = {
         "message": "Processing Coinbase retail payout",
-        "user_id": payout.user_id,
+        "user_id": str(payout.user_id),
         "amount": str(payout.amount),
-        "to_address": payout.to_address,
-        "currency": payout.currency.value,
-        "payment_transaction_id": payout.payment_transaction_id,
+        "to_address": str(payout.to_address),
+        "currency": str(payout.currency.value),
+        "payment_transaction_id": str(payout.payment_transaction_id),
     }
     logging.info(json_dumps(log_dict))
 
     # Validate input values
     if not all([payout.user_id, payout.amount, payout.to_address, payout.currency, payout.payment_transaction_id]):
-        log_dict = {"message": "Invalid input values for Coinbase payout"}
-        logging.error(json_dumps(log_dict))
-        raise ValueError("Invalid input values for Coinbase payout.")
+        validation_details: dict[str, Any] = {
+            "has_user_id": bool(payout.user_id),
+            "has_amount": bool(payout.amount),
+            "has_to_address": bool(payout.to_address),
+            "has_currency": bool(payout.currency),
+            "has_payment_transaction_id": bool(payout.payment_transaction_id),
+            "error": "Missing required fields",
+        }
+        raise CoinbaseRetailPayoutError(GENERIC_ERROR_MESSAGE, validation_details)
 
     account_info = await get_coinbase_retail_wallet_balance_for_currency(payout.currency)
     available_balance = account_info["balance"]
     account_id = str(account_info["account_id"])
 
     if not account_id:
-        raise ValueError(f"Account not found for currency {payout.currency.value}")
+        account_details: dict[str, Any] = {
+            "has_account": False,
+            "currency": str(payout.currency.value),
+            "error": "Account not found for currency",
+        }
+        raise CoinbaseRetailPayoutError(GENERIC_ERROR_MESSAGE, account_details)
 
     if isinstance(available_balance, str):
         available_balance = Decimal(available_balance)
@@ -259,15 +292,15 @@ async def process_coinbase_retail_payout(payout: CoinbaseRetailPayout) -> tuple[
         asyncio.create_task(post_to_slack(message))
 
     if available_balance < payout.amount:
-        log_dict = {
-            "message": "Insufficient balance to make payment",
-            "user_id": payout.user_id,
-            "currency": payout.currency.value,
+        balance_details: dict[str, Any] = {
+            "user_id": str(payout.user_id),
+            "has_sufficient_balance": False,
+            "currency": str(payout.currency.value),
             "available_balance": str(available_balance),
             "payout_amount": str(payout.amount),
+            "error": "Insufficient balance to make payment",
         }
-        logging.error(json_dumps(log_dict))
-        raise ValueError("Insufficient balance to make payment")
+        raise CoinbaseRetailPayoutError(GENERIC_ERROR_MESSAGE, balance_details)
 
     # Round the amount to 8 decimal places for cryptocurrency
     rounded_amount = payout.amount.quantize(Decimal("0.00000001"), rounding=ROUND_HALF_UP)
@@ -276,12 +309,12 @@ async def process_coinbase_retail_payout(payout: CoinbaseRetailPayout) -> tuple[
         # Create the transaction
         log_dict = {
             "message": "Coinbase retail payout transaction creation called with parameters",
-            "user_id": payout.user_id,
+            "user_id": str(payout.user_id),
             "account_id": account_id,
-            "to_address": payout.to_address,
+            "to_address": str(payout.to_address),
             "amount": str(rounded_amount),
-            "currency": payout.currency.value,
-            "payment_transaction_id": payout.payment_transaction_id,
+            "currency": str(payout.currency.value),
+            "payment_transaction_id": str(payout.payment_transaction_id),
         }
         logging.info(json_dumps(log_dict))
         transaction = await create_transaction(
@@ -297,7 +330,7 @@ async def process_coinbase_retail_payout(payout: CoinbaseRetailPayout) -> tuple[
 
         log_dict = {
             "message": "Coinbase retail payout created",
-            "user_id": payout.user_id,
+            "user_id": str(payout.user_id),
             "amount": str(payout.amount),
             "transaction_id": transaction_id,
             "transaction_status": transaction_status,
@@ -307,13 +340,11 @@ async def process_coinbase_retail_payout(payout: CoinbaseRetailPayout) -> tuple[
         return account_id, transaction_id, transaction_status
 
     except Exception as e:
-        log_dict = {
-            "message": "Failed to create Coinbase retail payout",
-            "user_id": payout.user_id,
+        details = {
+            "user_id": str(payout.user_id),
             "error": str(e),
         }
-        logging.error(json_dumps(log_dict))
-        raise
+        raise CoinbaseRetailPayoutError(str(e), details) from e
 
 
 async def create_transaction(
@@ -336,13 +367,15 @@ async def create_transaction(
         dict[str, str]: Transaction details containing 'id' and 'status' fields
 
     Raises:
-        ValueError: If required fields are missing from the response or if transaction creation fails
+        CoinbaseRetailPayoutError: If required fields are missing from the response or if transaction creation fails
     """
     key_name = os.getenv("COINBASE_RETAIL_API_KEY_NAME")
     key_secret = os.getenv("COINBASE_RETAIL_API_SECRET")
 
     if not key_name or not key_secret:
-        raise ValueError("Coinbase API credentials not found in environment variables")
+        raise CoinbaseRetailPayoutError(
+            GENERIC_ERROR_MESSAGE, {"error": "Coinbase API credentials not found in environment variables"}
+        )
 
     request_path = f"/{API_VERSION}/accounts/{account_id}/transactions"
     jwt_token = build_jwt("POST", request_path, key_name, key_secret)
@@ -350,7 +383,8 @@ async def create_transaction(
     # Get the network for the currency
     network = get_network_for_currency(currency)
     if not network:
-        raise ValueError(f"Unsupported currency: {currency}")
+        details = {"currency": currency}
+        raise CoinbaseRetailPayoutError("Unsupported currency", details)
 
     # Create transaction payload
     payload = {
@@ -374,28 +408,31 @@ async def create_transaction(
             )
 
             if response.status_code not in (200, 201):
-                raise ValueError(f"Failed to create transaction: {response.text}")
+                details = {"status_code": str(response.status_code), "response": response.text}
+                raise CoinbaseRetailPayoutError(response.text, details)
 
             data = response.json()
             transaction_data = data.get("data", {})
 
             # Ensure we have the required fields and they are strings
             if not isinstance(transaction_data.get("id"), str) or not isinstance(transaction_data.get("status"), str):
-                raise ValueError("Missing or invalid id/status in transaction response")
+                details = {
+                    "transaction_data": str(transaction_data),
+                    "error": "Missing or invalid id/status in transaction response",
+                }
+                raise CoinbaseRetailPayoutError(GENERIC_ERROR_MESSAGE, details)
 
             return {"id": transaction_data["id"], "status": transaction_data["status"]}
 
     except Exception as e:
-        log_dict = {
-            "message": "Error creating Coinbase retail payout",
-            "to_address": to_address,
-            "amount": amount,
-            "currency": currency,
-            "network": network,
+        details = {
+            "to_address": str(to_address),
+            "amount": str(amount),
+            "currency": str(currency),
+            "network": str(network),
             "error": str(e),
         }
-        logging.error(json_dumps(log_dict))
-        raise
+        raise CoinbaseRetailPayoutError(str(e), details) from e
 
 
 async def get_transaction_status(account_id: str, transaction_id: str) -> str:
@@ -412,7 +449,9 @@ async def get_transaction_status(account_id: str, transaction_id: str) -> str:
     key_secret = os.getenv("COINBASE_RETAIL_API_SECRET")
 
     if not key_name or not key_secret:
-        raise ValueError("Coinbase API credentials not found in environment variables")
+        raise CoinbaseRetailPayoutError(
+            GENERIC_ERROR_MESSAGE, {"error": "Coinbase API credentials not found in environment variables"}
+        )
 
     request_path = f"/{API_VERSION}/accounts/{account_id}/transactions/{transaction_id}"
     jwt_token = build_jwt("GET", request_path, key_name, key_secret)
@@ -428,7 +467,8 @@ async def get_transaction_status(account_id: str, transaction_id: str) -> str:
                 f"{BASE_URL}/accounts/{account_id}/transactions/{transaction_id}", headers=headers
             )
             if response.status_code != 200:
-                raise ValueError(f"Failed to get transaction status: {response.text}")
+                details = {"status_code": str(response.status_code), "response": response.text}
+                raise CoinbaseRetailPayoutError("Failed to get transaction status", details)
 
             data = response.json()
             raw_status = data.get("data", {}).get("status", "")
@@ -444,10 +484,5 @@ async def get_transaction_status(account_id: str, transaction_id: str) -> str:
                 return TransactionStatus.UNKNOWN.value
 
     except Exception as e:
-        log_dict = {
-            "message": "Error getting Coinbase retail payout status",
-            "transaction_id": transaction_id,
-            "error": str(e),
-        }
-        logging.error(json_dumps(log_dict))
-        raise
+        details = {"transaction_id": str(transaction_id), "error": str(e)}
+        raise CoinbaseRetailPayoutError("Error getting Coinbase retail payout status", details) from e
