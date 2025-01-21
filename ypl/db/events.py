@@ -17,6 +17,7 @@ class Event(BaseModel, table=True):
     """Model for tracking system events."""
 
     __tablename__ = "events"
+    __table_args__ = (sa.Index("ix_events_created_at", "created_at"),)
 
     event_id: UUID = Field(default_factory=uuid4, primary_key=True, nullable=False)
 
