@@ -1,4 +1,5 @@
 import datetime
+import json
 import logging
 import math
 import os
@@ -157,7 +158,18 @@ async def post_to_slack_with_user_name(
     Post a message to a Slack channel using a webhook URL.
     """
     user_name = await fetch_user_name(user_id)
-    message = f"{user_name}: {message}"
+
+    if message and (message.strip().startswith("{") or message.strip().startswith("[")):
+        try:
+            parsed = json.loads(message)
+            parsed["name"] = user_name
+            formatted_json = json.dumps(parsed, indent=2, ensure_ascii=False, sort_keys=True)
+            message = f"```json\n{formatted_json}\n```"
+        except json.JSONDecodeError:
+            message = f"{user_name}: {message}"
+    else:
+        message = f"{user_name}: {message}"
+
     await post_to_slack(message, webhook_url, blocks)
 
 
@@ -166,7 +178,7 @@ async def post_to_slack(message: str | None = None, webhook_url: str | None = No
     Post a message to a Slack channel using a webhook URL.
 
     Args:
-        message (str): The message to post to Slack.
+        message (str): The message to post to Slack. If JSON, it will be formatted with proper markdown.
         webhook_url (str | None): Optional webhook URL. If not provided, uses the URL from environment variables.
         blocks: Optional blocks to post to Slack.
     """
