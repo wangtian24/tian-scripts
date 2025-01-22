@@ -97,7 +97,7 @@ The backend server needs to load all necessary credentials from `.env` file in t
 - Download the `.env` file from 1Password, due to some 1Password CLI bug, we need to do some postprocessing to the output.
 
   ```sh
-  op item get "yupp-mind .env file" --vault="Founding Team Shared" --fields text |  sed '1s/^"//; $s/"$//' | sed 's/\"\"/\"/g' > .env
+  op item get "yupp-mind .env file" --vault="Shared_dev" --fields text |  sed '1s/^"//; $s/"$//' | sed 's/\"\"/\"/g' > .env
   ```
 
 ### 3. Build and Run
