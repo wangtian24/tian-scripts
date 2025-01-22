@@ -16,7 +16,7 @@ from sqlalchemy.orm import aliased
 from sqlmodel import Session, select
 from tenacity import after_log, retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
-from ypl.backend.db import get_engine
+from ypl.backend.db import get_async_session, get_engine
 from ypl.backend.llm.utils import (
     AnnotatedFloat,
     Battle,
@@ -206,7 +206,7 @@ class Ranker:
         after=after_log(logging.getLogger(), logging.WARNING),
         retry=retry_if_exception_type((OperationalError, DatabaseError)),
     )
-    def add_evals_from_db(
+    async def add_evals_from_db(
         self,
         category_names: list[str] | None = None,
         exclude_ties: bool = False,
@@ -231,8 +231,8 @@ class Ranker:
             The number of evals added.
         """
 
-        with Session(get_engine()) as session:
-            supported_llm_names = session.exec(select(LanguageModel.internal_name)).all()
+        async with get_async_session() as session:
+            supported_llm_names = (await session.exec(select(LanguageModel.internal_name))).all()
 
         Prompt = aliased(ChatMessage)
 
@@ -282,8 +282,8 @@ class Ranker:
 
         query = query.order_by(Eval.created_at)
 
-        with Session(get_engine()) as session:
-            results = session.exec(query).all()
+        async with get_async_session() as session:
+            results = (await session.exec(query)).all()
 
         # Group the results by eval_id.
         evals: dict[str, dict[str, Any]] = defaultdict(lambda: {"scores": defaultdict(float), "email": None})

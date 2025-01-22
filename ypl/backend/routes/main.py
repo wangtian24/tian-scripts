@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 
@@ -48,7 +49,7 @@ def app_init() -> None:
     # prefetches the prompt-modifiers & caches the data
     load_prompt_modifiers()
 
-    get_ranker().add_evals_from_db()
+    asyncio.create_task(get_ranker().add_evals_from_db())
 
 
 api_router = APIRouter(dependencies=[Depends(validate_api_key)])

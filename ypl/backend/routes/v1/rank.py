@@ -29,7 +29,7 @@ async def leaderboard(
 
         start_time = time.time()
         ranker = get_default_ranker()
-        ranker.add_evals_from_db(**params)
+        await ranker.add_evals_from_db(**params)
         end_time = time.time()
         latency = round(end_time - start_time, 3)
         log_dict = {

@@ -477,7 +477,7 @@ def _update_ranking(
 ) -> None:
     params = locals()
     ranker = get_default_ranker()
-    ranker.add_evals_from_db(**params)
+    asyncio.run(ranker.add_evals_from_db(**params))
     for ranked_model in ranker.leaderboard():
         logging.info(ranked_model)
     if category_names:
