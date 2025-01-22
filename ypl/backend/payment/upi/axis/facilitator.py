@@ -8,6 +8,7 @@ from decimal import Decimal
 from typing import Any
 
 from cryptography.fernet import Fernet, InvalidToken
+from fastapi import HTTPException
 from sqlalchemy.orm import selectinload
 from sqlmodel import select, update
 from tenacity import (
@@ -576,6 +577,9 @@ class AxisUpiFacilitator(BaseFacilitator):
                 logging.error(json_dumps(log_dict))
                 asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
                 raise ValueError("Source instrument does not have enough balance")
+        except (ValueError, HTTPException):
+            # Bubble up these exceptions as they are expected to be handled at the API level.
+            raise
         except Exception as e:
             log_dict = {
                 "message": "Failed to initiate make_payment",
