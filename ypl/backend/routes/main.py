@@ -18,6 +18,7 @@ from ypl.backend.routes.v1 import email as email_route
 from ypl.backend.routes.v1 import event as event_route
 from ypl.backend.routes.v1 import files as files_route
 from ypl.backend.routes.v1 import points as points_route
+from ypl.backend.routes.v1 import profile as profile_route
 from ypl.backend.routes.v1 import provider as provider_route
 from ypl.backend.routes.v1 import route as llm_route
 from ypl.backend.routes.v1 import user as user_route
@@ -70,4 +71,5 @@ api_router.include_router(user_route.router, prefix="/v1", tags=["user"])
 api_router.include_router(points_route.router, prefix="/v1", tags=["admin"])
 api_router.include_router(user_capability_route.router, prefix="/v1", tags=["admin"])
 api_router.include_router(event_route.router, prefix="/v1", tags=["admin"])
+api_router.include_router(profile_route.router, prefix="/v1", tags=["profile"])
 app_init()
