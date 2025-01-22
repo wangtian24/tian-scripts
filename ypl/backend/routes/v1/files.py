@@ -33,7 +33,7 @@ class AttachmentResponse(BaseModel):
     content_type: str
 
 
-MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024
+MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
 
 
 @router.post("/file/upload", response_model=AttachmentResponse)
@@ -53,7 +53,7 @@ async def upload_file(file: UploadFile = File(...)) -> AttachmentResponse:  # no
         log_dict = {"message": "Attachments: Content type is required", "file_name": file.filename}
         logging.error(json_dumps(log_dict))
         raise HTTPException(status_code=400, detail="Content type is required")
-    if not file.content_type.startswith("image/") and file.content_type != "application/pdf":
+    if not file.content_type.startswith("image/"):
         log_dict = {
             "message": "Attachments: Unsupported file type",
             "file_name": file.filename,
@@ -91,44 +91,46 @@ async def upload_file(file: UploadFile = File(...)) -> AttachmentResponse:  # no
                     )
                 )
 
-        async def upload_thumbnail(thumbnail_uuid: UUID) -> None:
+        async def upload_thumbnail(thumbnail_uuid: UUID) -> tuple[int, int]:
             start = datetime.now()
             try:
-                if file.content_type and file.content_type.startswith("image/"):
-                    async with Storage() as async_client:
-                        thumbnail_start = datetime.now()
-                        image = Image.open(BytesIO(file_content))
-                        image.thumbnail((512, 512))
-                        image_bytes = BytesIO()
-                        image.save(image_bytes, format="PNG")
-                        image_bytes.seek(0)
-                        logging.info(
-                            json_dumps(
-                                {
-                                    "message": "Attachments: Thumbnail image resized",
-                                    "duration_ms": datetime.now() - thumbnail_start,
-                                    "file_name": file.filename,
-                                }
-                            )
+                async with Storage() as async_client:
+                    thumbnail_start = datetime.now()
+                    image = Image.open(BytesIO(file_content))
+                    image.thumbnail((512, 512))
+                    image_bytes = BytesIO()
+                    image.save(image_bytes, format="PNG")
+                    image_bytes.seek(0)
+                    logging.info(
+                        json_dumps(
+                            {
+                                "message": "Attachments: Thumbnail image resized",
+                                "duration_ms": datetime.now() - thumbnail_start,
+                                "file_name": file.filename,
+                            }
                         )
-                        await async_client.upload(
-                            bucket=thumbnail_bucket,
-                            object_name=f"{'/'.join(thumbnail_path_parts)}/{thumbnail_uuid}",
-                            file_data=image_bytes,
-                            content_type="image/png",
-                        )
-            finally:
-                logging.info(
-                    json_dumps(
-                        {
-                            "message": "Attachments: Thumbnail upload completed",
-                            "duration_ms": datetime.now() - start,
-                            "file_name": file.filename,
-                        }
                     )
-                )
+                    await async_client.upload(
+                        bucket=thumbnail_bucket,
+                        object_name=f"{'/'.join(thumbnail_path_parts)}/{thumbnail_uuid}",
+                        file_data=image_bytes,
+                        content_type="image/png",
+                    )
+                    logging.info(
+                        json_dumps(
+                            {
+                                "message": "Attachments: Thumbnail upload completed",
+                                "duration_ms": datetime.now() - start,
+                                "file_name": file.filename,
+                            }
+                        )
+                    )
+                    return image.size
+            except Exception as e:
+                logging.exception(f"Error uploading thumbnail: {str(e)}")
+                raise e
 
-        async def create_attachment(file_uuid: UUID, thumbnail_uuid: UUID) -> Attachment:
+        async def create_attachment(file_uuid: UUID, thumbnail_uuid: UUID, metadata: dict[str, Any]) -> Attachment:
             async with get_async_session() as session:
                 thumbnail_url = (
                     f"gs://{thumbnail_bucket}/{'/'.join(thumbnail_path_parts)}/{thumbnail_uuid}"
@@ -142,6 +144,7 @@ async def upload_file(file: UploadFile = File(...)) -> AttachmentResponse:  # no
                     content_type=file.content_type,
                     url=url,
                     thumbnail_url=thumbnail_url,
+                    attachment_metadata=metadata,
                 )
                 session.add(attachment)
                 await session.commit()
@@ -151,12 +154,11 @@ async def upload_file(file: UploadFile = File(...)) -> AttachmentResponse:  # no
         gcs_file_uuid = uuid4()
         gcs_thumbnail_uuid = uuid4()
 
-        is_image = file.content_type and file.content_type.startswith("image/")
         # Execute uploads in parallel
         gather_start = datetime.now()
         results = await asyncio.gather(
             asyncio.create_task(upload_original(gcs_file_uuid)),
-            asyncio.create_task(upload_thumbnail(gcs_thumbnail_uuid)) if is_image else asyncio.sleep(0),
+            asyncio.create_task(upload_thumbnail(gcs_thumbnail_uuid)),
         )
         logging.info(
             json_dumps(
@@ -184,9 +186,11 @@ async def upload_file(file: UploadFile = File(...)) -> AttachmentResponse:  # no
                     continue
                 raise HTTPException(status_code=500, detail=str(result)) from result
 
+        metadata = {"dimensions": results[1], "size": file.size}
+
         try:
             create_start = datetime.now()
-            attachment = await create_attachment(gcs_file_uuid, gcs_thumbnail_uuid)
+            attachment = await create_attachment(gcs_file_uuid, gcs_thumbnail_uuid, metadata)
             logging.info(
                 json_dumps(
                     {
