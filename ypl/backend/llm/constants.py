@@ -727,11 +727,22 @@ PROVIDER_KEY_MAPPING = {
 
 PROVIDER_MODEL_PATTERNS = {
     re.compile(r"^(openai|chatgpt|gpt-[34]|o1).*$", re.IGNORECASE): "openai",
-    re.compile(r"^(google|gemma|palm|gemini).*$", re.IGNORECASE): "google",
-    re.compile(r"^(mistral|codestral|pixtral|mixtral).*$", re.IGNORECASE): "mistralai",
+    re.compile(r"^(google|gemma|palm|gemini|models/gemini).*$", re.IGNORECASE): "google",
+    re.compile(
+        r"^(mistral|codestral|pixtral|mixtral|ministral|open-mistral|open-mixtral).*$", re.IGNORECASE
+    ): "mistralai",
     re.compile(r"^(claude|opus).*$", re.IGNORECASE): "anthropic",
     re.compile(r"^(phi|microsoft).*$", re.IGNORECASE): "azure",
     re.compile(r"^(qwen|alibaba).*$", re.IGNORECASE): "alibaba",
-    re.compile(r"^(meta|codellama).*$", re.IGNORECASE): "meta",
+    re.compile(r"^(meta|codellama|llama).*$", re.IGNORECASE): "meta",
+    re.compile(r"^(nousresearch).*$", re.IGNORECASE): "nousresearch",
     re.compile(r"^(ai21|jamba).*$", re.IGNORECASE): "ai21",
+    re.compile(r"^(databricks).*$", re.IGNORECASE): "databricks",
+    re.compile(r"^(deepseek).*$", re.IGNORECASE): "deepseek",
+    re.compile(r"^(amazon/).*$", re.IGNORECASE): "amazon",
+    re.compile(r"^(cohere/).*$", re.IGNORECASE): "cohere",
+    re.compile(r"^(nvidia).*$", re.IGNORECASE): "nvidia",
+    re.compile(r"-sonar-.*$", re.IGNORECASE): "perplexity",
+    re.compile(r"^(x-ai).*$", re.IGNORECASE): "x-ai",
+    re.compile(r"^(gryphe).*$", re.IGNORECASE): "gryphe",
 }

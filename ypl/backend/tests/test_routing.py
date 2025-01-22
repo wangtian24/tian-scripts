@@ -1,3 +1,5 @@
+import random
+import uuid
 from collections import Counter
 from typing import Any
 from unittest.mock import Mock, patch
@@ -7,6 +9,8 @@ import pytest
 from pytest import approx, mark
 
 from ypl.backend.config import settings
+from ypl.backend.llm.chat import SelectIntent, SelectModelsV2Request, select_models_plus
+from ypl.backend.llm.prompt_selector import CategorizedPromptModifierSelector
 from ypl.backend.llm.ranking import Battle, ChoixRanker, ChoixRankerConfIntervals, EloRanker
 from ypl.backend.llm.routing.modules.filters import ContextLengthFilter, SupportsImageAttachmentModelFilter, TopK
 from ypl.backend.llm.routing.modules.proposers import (
@@ -20,6 +24,7 @@ from ypl.backend.llm.routing.modules.proposers import (
     _fast_compute_all_num_intersections,
 )
 from ypl.backend.llm.routing.policy import SelectionCriteria, exponential_decay
+from ypl.backend.llm.routing.route_data_type import RoutingPreference
 from ypl.backend.llm.routing.router import (
     get_simple_pro_router,
 )
@@ -29,6 +34,229 @@ from ypl.backend.tests.utils import get_battles
 from ypl.db.language_models import RoutingAction, RoutingRule
 
 settings.ROUTING_DO_LOGGING = False
+ACTIVE_MODELS = [
+    "Qwen/Qwen2-72B-Instruct",
+    "ai21/jamba-1-5-large",
+    "ai21/jamba-1-5-mini",
+    "amazon/nova-pro-v1",
+    "claude-3-5-haiku-20241022",
+    "claude-3-5-sonnet-20241022",
+    "claude-3-haiku-20240307",
+    "claude-3-opus-20240229",
+    "claude-3-sonnet-20240229",
+    "codestral-2405",
+    "cohere/command-r",
+    "cohere/command-r-08-2024",
+    "cohere/command-r-plus",
+    "cohere/command-r-plus-08-2024",
+    "databricks/dbrx-instruct",
+    "deepseek-coder",
+    "deepseek/deepseek-chat",
+    "deepseek/deepseek-r1",
+    "gemini-1.5-flash-002",
+    "gemini-1.5-flash-8b",
+    "gemini-1.5-pro-002",
+    "gemini-1.5-pro-002-online",
+    "gemini-2.0-flash-exp",
+    "gemini-2.0-flash-thinking-exp-1219",
+    "gemini-exp-1206",
+    "gemma2-9b-it",
+    "google/gemma-2-27b-it",
+    "google/gemma-2-9b-it",
+    "gpt-3.5-turbo-0125",
+    "gpt-4-turbo",
+    "gpt-4o",
+    "gpt-4o-2024-05-13",
+    "gpt-4o-2024-08-06",
+    "gpt-4o-mini",
+    "gpt-4o-mini-2024-07-18",
+    "gryphe/mythomax-l2-13b",
+    "llama-3.1-8b-instant",
+    "llama-3.1-sonar-huge-128k-online",
+    "llama-3.1-sonar-large-128k-chat",
+    "llama-3.1-sonar-large-128k-online",
+    "llama-3.1-sonar-small-128k-chat",
+    "llama-3.1-sonar-small-128k-online",
+    "llama-3.3-70b",
+    "llama-3.3-70b-versatile",
+    "llama3-70b-8192",
+    "llama3-8b-8192",
+    "llama3.1-70b",
+    "llama3.1-8b",
+    "meta-llama/Llama-3-70b-chat-hf",
+    "meta-llama/Llama-3-8b-chat-hf",
+    "meta-llama/Llama-3.2-11B-Vision-Instruct-Turbo",
+    "meta-llama/Llama-3.2-3B-Instruct-Turbo",
+    "meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo",
+    "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
+    "meta-llama/llama-3.1-405b-instruct",
+    "meta-llama/llama-3.1-70b-instruct",
+    "meta-llama/llama-3.1-8b-instruct",
+    "meta-llama/llama-3.2-1b-instruct",
+    "meta-llama/llama-3.3-70b-instruct",
+    "microsoft/phi-3-medium-128k-instruct",
+    "microsoft/phi-3.5-mini-128k-instruct",
+    "microsoft/phi-4",
+    "ministral-3b-2410",
+    "ministral-8b-2410",
+    "mistral-large-2402",
+    "mistral-medium",
+    "mixtral-8x7b-32768",
+    "models/gemini-1.5-pro-002",
+    "models/gemini-2.0-flash-exp",
+    "nousresearch/hermes-3-llama-3.1-70b",
+    "nvidia/llama-3.1-nemotron-70b-instruct",
+    "o1-mini-2024-09-12",
+    "o1-preview-2024-09-12",
+    "open-mistral-nemo-2407",
+    "open-mixtral-8x22b",
+    "open-mixtral-8x7b",
+    "openai/o1",
+    "pixtral-12b-2409",
+    "qwen-max",
+    "qwen-plus",
+    "qwen/qwen-2.5-72b-instruct",
+    "qwen/qwen-2.5-coder-32b-instruct",
+    "x-ai/grok-2-1212",
+    "x-ai/grok-beta",
+]
+IMAGE_ATTACHMENT_MODELS = [
+    "claude-3-5-haiku-20241022",
+    "claude-3-5-sonnet-20241022",
+    "claude-3-opus-20240229",
+    "gemini-1.5-flash-8b",
+    "gemini-1.5-pro-002",
+    "gemini-2.0-flash-exp",
+    "gpt-4o",
+    "gpt-4o-2024-05-13",
+    "gpt-4o-2024-08-06",
+    "gpt-4o-mini",
+    "gpt-4o-mini-2024-07-18",
+    "meta-llama/Llama-3.2-11B-Vision-Instruct-Turbo",
+    "meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo",
+    "pixtral-12b-2409",
+]
+PRO_MODELS = ["pro1", "pro2", "pro3", "pro4"]
+STRONG_MODELS = [
+    "cohere/command-r-plus",
+    "deepseek-coder",
+    "gemini-1.5-flash-002",
+    "gemini-2.0-flash-exp",
+    "gemma2-9b-it",
+    "llama-3.1-8b-instant",
+    "llama-3.3-70b",
+    "llama-3.3-70b-versatile",
+    "llama3-70b-8192",
+    "llama3-8b-8192",
+    "llama3.1-70b",
+    "llama3.1-8b",
+    "meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo",
+    "meta-llama/llama-3.1-405b-instruct",
+    "meta-llama/llama-3.1-70b-instruct",
+    "meta-llama/llama-3.3-70b-instruct",
+    "mixtral-8x7b-32768",
+    "o1-mini-2024-09-12",
+    "x-ai/grok-2-1212",
+    "x-ai/grok-beta",
+]
+PROVIDER_MAP = {
+    "Qwen/Qwen2-72B-Instruct": "alibaba",
+    "ai21/jamba-1-5-large": "ai21",
+    "ai21/jamba-1-5-mini": "ai21",
+    "amazon/nova-pro-v1": "amazon",
+    "claude-3-5-haiku-20241022": "anthropic",
+    "claude-3-5-sonnet-20241022": "anthropic",
+    "claude-3-haiku-20240307": "anthropic",
+    "claude-3-opus-20240229": "anthropic",
+    "claude-3-sonnet-20240229": "anthropic",
+    "codestral-2405": "mistralai",
+    "cohere/command-r": "cohere",
+    "cohere/command-r-08-2024": "cohere",
+    "cohere/command-r-plus": "cohere",
+    "cohere/command-r-plus-08-2024": "cohere",
+    "databricks/dbrx-instruct": "databricks",
+    "deepseek-coder": "deepseek",
+    "deepseek/deepseek-chat": "deepseek",
+    "deepseek/deepseek-r1": "deepseek",
+    "gemini-1.5-flash-002": "google",
+    "gemini-1.5-flash-8b": "google",
+    "gemini-1.5-pro-002": "google",
+    "gemini-1.5-pro-002-online": "google",
+    "gemini-2.0-flash-exp": "google",
+    "gemini-2.0-flash-thinking-exp-1219": "google",
+    "gemini-exp-1206": "google",
+    "gemma2-9b-it": "google",
+    "google/gemma-2-27b-it": "google",
+    "google/gemma-2-9b-it": "google",
+    "gpt-3.5-turbo-0125": "openai",
+    "gpt-4-turbo": "openai",
+    "gpt-4o-2024-05-13": "openai",
+    "gpt-4o-2024-08-06": "openai",
+    "gpt-4o": "openai",
+    "gpt-4o-mini": "openai",
+    "gpt-4o-mini-2024-07-18": "openai",
+    "gryphe/mythomax-l2-13b": "gryphe",
+    "llama-3.1-8b-instant": "meta",
+    "llama-3.1-sonar-huge-128k-online": "meta",
+    "llama-3.1-sonar-large-128k-chat": "meta",
+    "llama-3.1-sonar-large-128k-online": "meta",
+    "llama-3.1-sonar-small-128k-chat": "meta",
+    "llama-3.1-sonar-small-128k-online": "meta",
+    "llama-3.3-70b": "meta",
+    "llama-3.3-70b-versatile": "meta",
+    "llama3-70b-8192": "meta",
+    "llama3-8b-8192": "meta",
+    "llama3.1-70b": "meta",
+    "llama3.1-8b": "meta",
+    "meta-llama/Llama-3-70b-chat-hf": "meta",
+    "meta-llama/Llama-3-8b-chat-hf": "meta",
+    "meta-llama/Llama-3.2-11B-Vision-Instruct-Turbo": "meta",
+    "meta-llama/Llama-3.2-3B-Instruct-Turbo": "meta",
+    "meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo": "meta",
+    "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo": "meta",
+    "meta-llama/llama-3.1-405b-instruct": "meta",
+    "meta-llama/llama-3.1-70b-instruct": "meta",
+    "meta-llama/llama-3.1-8b-instruct": "meta",
+    "meta-llama/llama-3.2-1b-instruct": "meta",
+    "meta-llama/llama-3.3-70b-instruct": "meta",
+    "microsoft/phi-3-medium-128k-instruct": "azure",
+    "microsoft/phi-3.5-mini-128k-instruct": "azure",
+    "microsoft/phi-4": "azure",
+    "ministral-3b-2410": "mistralai",
+    "ministral-8b-2410": "mistralai",
+    "mistral-large-2402": "mistralai",
+    "mistral-medium": "mistralai",
+    "mixtral-8x7b-32768": "mistralai",
+    "models/gemini-1.5-pro-002": "google",
+    "models/gemini-2.0-flash-exp": "google",
+    "nousresearch/hermes-3-llama-3.1-70b": "nousresearch",
+    "nvidia/llama-3.1-nemotron-70b-instruct": "nvidia",
+    "o1-mini-2024-09-12": "openai",
+    "o1-preview-2024-09-12": "openai",
+    "open-mistral-nemo-2407": "mistralai",
+    "open-mixtral-8x22b": "mistralai",
+    "open-mixtral-8x7b": "mistralai",
+    "openai/o1": "openai",
+    "pixtral-12b-2409": "mistralai",
+    "qwen-max": "alibaba",
+    "qwen-plus": "alibaba",
+    "qwen/qwen-2.5-72b-instruct": "alibaba",
+    "qwen/qwen-2.5-coder-32b-instruct": "alibaba",
+    "x-ai/grok-2-1212": "x-ai",
+    "x-ai/grok-beta": "x-ai",
+}
+
+
+async def mock_online_yupp_fn(*args: Any, **kwargs: Any) -> str:
+    return "advice"
+
+
+async def mock_topic_categorizer_fn(*args: Any, **kwargs: Any) -> list[str]:
+    return []
+
+
+async def mock_modifier_labeler_fn(*args: Any, **kwargs: Any) -> list[str]:
+    return ["concise"]
 
 
 def _check_list_len_distribution(lst: list[Any], expected: dict[int, Any]) -> None:
@@ -295,15 +523,6 @@ async def test_simple_pro_router(
     MockTopicCategorizer: Mock,
     MockModifierLabeler: Mock,
 ) -> None:
-    async def mock_online_yupp_fn(*args: Any, **kwargs: Any) -> str:
-        return "advice"
-
-    async def mock_topic_categorizer_fn(*args: Any, **kwargs: Any) -> list[str]:
-        return []
-
-    async def mock_modifier_labeler_fn(*args: Any, **kwargs: Any) -> list[str]:
-        return ["concise"]
-
     MockOnlineYupp.return_value.alabel = mock_online_yupp_fn
     MockTopicCategorizer.return_value.alabel = mock_topic_categorizer_fn
     MockModifierLabeler.return_value.alabel = mock_modifier_labeler_fn
@@ -497,3 +716,87 @@ def test_context_length_filter(mock_context_lengths: Mock) -> None:
 
     check_excluded_models_by_prompt_len(600, {"m3"})
     check_excluded_models_by_prompt_len(60, set())
+
+
+@pytest.mark.asyncio
+@patch("ypl.backend.llm.routing.router.PromptModifierLabeler")
+@patch("ypl.backend.llm.routing.router.YuppMultilabelClassifier")
+@patch("ypl.backend.llm.routing.router.YuppOnlinePromptLabeler")
+@patch("ypl.backend.llm.chat.label_turn_quality", return_value=None)
+@patch("ypl.backend.llm.routing.modules.filters.get_active_models", return_value=ACTIVE_MODELS)
+@patch("ypl.backend.llm.routing.modules.filters.get_image_attachment_models", return_value=IMAGE_ATTACHMENT_MODELS)
+@patch("ypl.backend.llm.routing.modules.proposers.get_image_attachment_models", return_value=IMAGE_ATTACHMENT_MODELS)
+@patch("ypl.backend.llm.routing.modules.proposers.get_all_pro_models", return_value=PRO_MODELS)
+@patch("ypl.backend.llm.routing.modules.proposers.get_all_strong_models", return_value=STRONG_MODELS)
+@patch("ypl.backend.llm.chat.get_preferences")
+@patch("ypl.backend.llm.routing.rule_router.get_routing_table", return_value=RoutingTable([]))
+@patch(
+    "ypl.backend.llm.routing.modules.filters.get_model_context_lengths",
+    return_value={m: 1000000 for m in ACTIVE_MODELS},
+)
+@patch("ypl.backend.llm.chat.store_modifiers", return_value=None)
+@patch("ypl.backend.llm.chat.get_shown_models")
+@patch("ypl.backend.llm.routing.router_state.RouterState.get_all_models", return_value=set(ACTIVE_MODELS))
+@patch("ypl.backend.llm.routing.modules.filters.deduce_original_providers", return_value=PROVIDER_MAP)
+@patch("ypl.backend.llm.routing.modules.proposers.deduce_original_providers", return_value=PROVIDER_MAP)
+@patch("ypl.backend.llm.routing.rule_router.deduce_original_providers", return_value=PROVIDER_MAP)
+@patch("ypl.backend.llm.routing.modules.filters.HighErrorRateFilter._get_error_rates", return_value={})
+@patch("ypl.backend.llm.prompt_selector.CategorizedPromptModifierSelector.make_default_from_db")
+@patch("ypl.backend.llm.chat.get_user_message", return_value="hi")
+@patch("ypl.backend.llm.chat.get_modifiers_by_model", return_value={})
+async def test_select_models_plus(
+    mock_get_modifiers_by_model: Mock,
+    mock_get_user_message: Mock,
+    mock_make_default_from_db: Mock,
+    mock_high_error_rate_filter: Mock,
+    mock_deduce_original_providers1: Mock,
+    mock_deduce_original_providers2: Mock,
+    mock_deduce_original_providers3: Mock,
+    mock_get_all_models: Mock,
+    mock_get_shown_models: Mock,
+    mock_store_modifiers: Mock,
+    mock_get_model_context_lengths: Mock,
+    mock_get_routing_table: Mock,
+    mock_get_preferences: Mock,
+    mock_get_all_strong_models: Mock,
+    mock_get_all_pro_models: Mock,
+    mock_get_image_attachment_models1: Mock,
+    mock_get_image_attachment_models2: Mock,
+    mock_active_models: Mock,
+    mock_label_turn_quality: Mock,
+    MockOnlineYupp: Mock,
+    MockTopicCategorizer: Mock,
+    MockModifierLabeler: Mock,
+) -> None:
+    mock_get_preferences.side_effect = lambda *args, **kwargs: (RoutingPreference(turns=[], user_id="user"), [])
+    mock_make_default_from_db.return_value = CategorizedPromptModifierSelector.make_default()
+
+    def make_image_request(intent: SelectIntent) -> SelectModelsV2Request:
+        if intent == SelectIntent.SHOW_ME_MORE:
+            mock_get_shown_models.return_value = random.sample(IMAGE_ATTACHMENT_MODELS, 3)
+        else:
+            mock_get_shown_models.return_value = []
+        return SelectModelsV2Request(
+            prompt=None if intent == SelectIntent.SHOW_ME_MORE else "hi",
+            num_models=2,
+            intent=intent,
+            chat_id=str(uuid.uuid4()),
+            turn_id=str(uuid.uuid4()),
+            provided_categories=["image"],
+            debug_level=1,
+            prompt_modifier_id=None,
+            user_id="user",
+        )
+
+    MockOnlineYupp.return_value.alabel = mock_online_yupp_fn
+    MockTopicCategorizer.return_value.alabel = mock_topic_categorizer_fn
+    MockModifierLabeler.return_value.alabel = mock_modifier_labeler_fn
+
+    for _ in range(30):
+        for intent in (SelectIntent.NEW_TURN, SelectIntent.SHOW_ME_MORE, SelectIntent.NEW_CHAT):
+            request = make_image_request(intent)
+            response = await select_models_plus(request)
+            assert len(response.models) == 2
+            assert len(response.fallback_models) == 2
+            assert all(m[0] in IMAGE_ATTACHMENT_MODELS for m in response.models)
+            assert all(m[0] in IMAGE_ATTACHMENT_MODELS for m in response.fallback_models)

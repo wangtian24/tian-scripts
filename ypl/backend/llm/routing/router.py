@@ -100,6 +100,7 @@ async def get_simple_pro_router(
     if IMAGE_CATEGORY in categories:
         pro_proposer = ImageProModelProposer()
     image_proposer = ImageProModelProposer() if IMAGE_CATEGORY in categories else Passthrough()
+    image_filter = SupportsImageAttachmentModelFilter() if IMAGE_CATEGORY in categories else Passthrough()
 
     def get_postprocessing_stage(exclude_models: set[str] | None = None, prefix: str = "first") -> RouterModule:
         """
@@ -114,8 +115,8 @@ async def get_simple_pro_router(
             | Inject(user_selected_models or [], score=10000000)
             # Don't apply semantic group filter for image turns, since we don't have many supporting models.
             | (semantic_group_filter if IMAGE_CATEGORY not in categories else Passthrough())
+            | image_filter
             | ProviderFilter(one_per_provider=True, priority_models=user_selected_models)  # dedupe by provider
-            | (SupportsImageAttachmentModelFilter() if IMAGE_CATEGORY in categories else Passthrough())
             # -- ranking stage --
             | TopK(num_models)  # keeps only top k models
             # -- annotation stage --
@@ -147,7 +148,7 @@ async def get_simple_pro_router(
                 (rule_proposer.with_flags(always_include=True) | RandomJitter(jitter_range=1))
                 & (pro_proposer | error_filter | TopK(num_pro)).with_flags(always_include=True, offset=100000)
                 & (StrongModelProposer() | error_filter | TopK(1)).with_flags(always_include=True, offset=50000)
-                & (image_proposer | error_filter | TopK(2)).with_flags(always_include=True, offset=50000)
+                & (image_proposer | error_filter).with_flags(always_include=True, offset=200000)
                 & (
                     reputable_proposer
                     | error_filter
@@ -163,7 +164,7 @@ async def get_simple_pro_router(
             | get_postprocessing_stage(exclude_models=None, prefix="first")
         )
     else:
-        # --- Non-First Turn Router ---
+        # --- Non-First Turn Router (including Show Me More) ---
         all_good_models, all_bad_models = _get_good_and_bad_models(preference)
         rule_filter.exempt_models = all_good_models
 
@@ -177,7 +178,11 @@ async def get_simple_pro_router(
                     offset=10000000,
                 )
                 & (rule_proposer.with_flags(always_include=True) | error_filter | RandomJitter(jitter_range=1))
-                & (image_proposer.with_flags(always_include=True) | error_filter | RandomJitter(jitter_range=1))
+                & (
+                    image_proposer.with_flags(always_include=True, offset=20000000)
+                    | error_filter
+                    | RandomJitter(jitter_range=1)
+                )
                 & (
                     (pro_proposer | Exclude(name="-ex2", models=all_bad_models) | error_filter | TopK(1)).with_flags(
                         always_include=True, offset=10000
@@ -186,6 +191,7 @@ async def get_simple_pro_router(
                         reputable_proposer
                         | StreamableModelFilter()
                         | error_filter
+                        | image_filter
                         | MaxSpeedProposer()
                         | RandomJitter(jitter_range=30.0)  # +/- 30 tokens per second
                         | ProviderFilter(one_per_provider=True)

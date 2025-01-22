@@ -171,8 +171,18 @@ class RouterState(BaseModel):
             self.model_scores[model] = sum(criteria_map.values())
 
     @classmethod
-    @cachetools.func.ttl_cache(maxsize=128, ttl=10 * 60)  # Cache for 10 minutes
     def new_all_models_state(cls) -> "RouterState":
+        rs = RouterState(
+            selected_models={},
+            excluded_models=set(),
+            all_models=cls.get_all_models(),
+        )
+        rs.model_journey = {model: "" for model in rs.all_models}
+        return rs
+
+    @classmethod
+    @cachetools.func.ttl_cache(maxsize=128, ttl=10 * 60)  # Cache for 10 minutes
+    def get_all_models(cls) -> set[str]:
         sql_query = text(
             """
             SELECT internal_name FROM language_models
@@ -186,12 +196,4 @@ class RouterState(BaseModel):
 
         with get_engine().connect() as conn:
             model_rows = conn.execute(sql_query)
-            models = set(row[0] for row in model_rows.fetchall())
-
-        rs = RouterState(
-            selected_models={},
-            excluded_models=set(),
-            all_models=models,
-        )
-        rs.model_journey = {model: "" for model in rs.all_models}
-        return rs
+            return set(row[0] for row in model_rows.fetchall())
