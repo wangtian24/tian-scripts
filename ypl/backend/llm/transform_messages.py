@@ -80,7 +80,8 @@ async def generate_image_part(
         url = await get_image_signed_url(attachment)
     else:
         image_bytes = await download_attachment(attachment, use_thumbnails)
-        url = f"data:{attachment.content_type};base64," + base64.b64encode(image_bytes).decode("utf-8")
+        mime_type = "image/png" if use_thumbnails else attachment.content_type
+        url = f"data:{mime_type};base64," + base64.b64encode(image_bytes).decode("utf-8")
     return {
         "type": "image_url",
         "image_url": {
