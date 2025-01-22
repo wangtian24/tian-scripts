@@ -9,6 +9,7 @@ from typing import Any, Final
 
 import httpx
 from cdp import Cdp, Transfer, Wallet
+from cdp.address import Address
 from dotenv import load_dotenv
 from ypl.backend.config import settings
 from ypl.backend.llm.utils import post_to_slack
@@ -242,6 +243,21 @@ class CryptoRewardProcessor:
         """
         try:
             start_time = time.time()
+
+            # check for risky address
+            external_address = Address("base-mainnet", reward.wallet_address)
+            address_reputation = external_address.reputation()
+            if address_reputation.risky:
+                log_dict = {
+                    "message": "Coinbase Crypto Payout: Risky address detected",
+                    "address": reward.wallet_address,
+                    "risky": address_reputation.risky,
+                    "risk_score": address_reputation.score,
+                    "risk_type": address_reputation.metadata,
+                }
+                logging.warning(json_dumps(log_dict))
+                raise CryptoPayoutError(GENERIC_ERROR_MESSAGE, {"error": "Risky address"})
+
             if not self.wallet:
                 new_processor = await get_processor()
                 if new_processor.wallet:
