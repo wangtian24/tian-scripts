@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     API_PREFIX: str = "/api"
     SECRET_KEY: str = secrets.token_urlsafe(32)
     X_API_KEY: str = ""
+    X_ADMIN_API_KEY: str = ""
 
     AWS_REGION_NAME: str = ""
     AWS_ACCESS_KEY_ID: str = ""

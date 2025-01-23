@@ -11,7 +11,7 @@ from ypl.backend.config import settings
 from ypl.backend.llm.provider.provider_clients import load_active_models_with_providers
 from ypl.backend.llm.ranking import get_ranker
 from ypl.backend.prompts import load_prompt_modifiers
-from ypl.backend.routes.api_auth import validate_api_key
+from ypl.backend.routes.api_auth import validate_admin_api_key, validate_api_key
 from ypl.backend.routes.v1 import chat_completions, chat_feed, credit, health, model, payment, rank, reward
 from ypl.backend.routes.v1 import chats as chats_route
 from ypl.backend.routes.v1 import email as email_route
@@ -54,6 +54,8 @@ def app_init() -> None:
 
 
 api_router = APIRouter(dependencies=[Depends(validate_api_key)])
+admin_router = APIRouter(dependencies=[Depends(validate_admin_api_key)])
+
 api_router.include_router(credit.router, prefix="/v1", tags=["credit"])
 api_router.include_router(health.router, prefix="/v1", tags=["health"])
 api_router.include_router(llm_route.router, prefix="/v1", tags=["route"])
@@ -68,8 +70,12 @@ api_router.include_router(chat_completions.router, prefix="/v1", tags=["chat_com
 api_router.include_router(files_route.router, prefix="/v1", tags=["files"])
 api_router.include_router(email_route.router, prefix="/v1", tags=["emails"])
 api_router.include_router(user_route.router, prefix="/v1", tags=["user"])
-api_router.include_router(points_route.router, prefix="/v1", tags=["admin"])
-api_router.include_router(user_capability_route.router, prefix="/v1", tags=["admin"])
-api_router.include_router(event_route.router, prefix="/v1", tags=["admin"])
 api_router.include_router(profile_route.router, prefix="/v1", tags=["profile"])
+
+admin_router.include_router(points_route.router, prefix="/v1", tags=["admin"])
+admin_router.include_router(user_capability_route.router, prefix="/v1", tags=["admin"])
+admin_router.include_router(event_route.router, prefix="/v1", tags=["admin"])
+
+api_router.include_router(admin_router)
+
 app_init()
