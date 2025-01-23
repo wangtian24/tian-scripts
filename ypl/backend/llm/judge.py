@@ -13,9 +13,9 @@ from sqlmodel import Session, select
 from vertexai.preview.generative_models import GenerativeModel
 
 from ypl.backend.db import get_engine
-from ypl.backend.llm.chat import ModelInfo
 from ypl.backend.llm.constants import MODEL_HEURISTICS
 from ypl.backend.llm.labeler import InputType, LLMLabeler, OnErrorBehavior, OutputType
+from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.prompt_classifiers import CategorizerResponse, PromptCategorizer
 from ypl.backend.prompts import (
     FEEDBACK_QUALITY_PROMPT_TEMPLATE,
