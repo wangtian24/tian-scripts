@@ -31,7 +31,7 @@ from ypl.backend.llm.crawl import enhance_citations
 from ypl.backend.llm.model.model import ModelResponseTelemetry
 from ypl.backend.llm.provider.provider_clients import get_language_model, get_provider_client
 from ypl.backend.llm.sanitize_messages import DEFAULT_MAX_TOKENS, sanitize_messages
-from ypl.backend.llm.transform_messages import transform_user_messages
+from ypl.backend.llm.transform_messages import TransformOptions, transform_user_messages
 from ypl.backend.llm.utils import post_to_slack
 from ypl.backend.prompts import get_system_prompt_with_modifiers
 from ypl.backend.utils.json import json_dumps
@@ -245,7 +245,11 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                 last_message.additional_kwargs["attachments"] = latest_attachments
                 messages[-1] = last_message
 
-        messages = await transform_user_messages(messages, chat_request.model)
+        transform_options = TransformOptions(
+            use_thumbnails=True,
+            use_signed_url=False,
+        )
+        messages = await transform_user_messages(messages, chat_request.model, transform_options)
 
         first_token_timestamp: float = 0
         response_tokens_num = 0

@@ -97,7 +97,8 @@ async def upload_file(file: UploadFile = File(...)) -> AttachmentResponse:  # no
                 async with Storage() as async_client:
                     thumbnail_start = datetime.now()
                     image = Image.open(BytesIO(file_content))
-                    image.thumbnail((512, 512))
+                    original_dimensions = image.size
+                    image.thumbnail((1024, 1024))
                     image_bytes = BytesIO()
                     image.save(image_bytes, format="PNG")
                     image_bytes.seek(0)
@@ -125,7 +126,7 @@ async def upload_file(file: UploadFile = File(...)) -> AttachmentResponse:  # no
                             }
                         )
                     )
-                    return image.size
+                    return original_dimensions
             except Exception as e:
                 logging.exception(f"Error uploading thumbnail: {str(e)}")
                 raise e
@@ -219,9 +220,7 @@ async def upload_file(file: UploadFile = File(...)) -> AttachmentResponse:  # no
             )
         )
         return AttachmentResponse(
-            file_name=file.filename,
-            attachment_id=str(attachment.attachment_id),
-            content_type=file.content_type,
+            file_name=file.filename, attachment_id=str(attachment.attachment_id), content_type=file.content_type
         )
 
     except Exception as e:
