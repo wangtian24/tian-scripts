@@ -76,6 +76,8 @@ class Turn(BaseModel, table=True):
 
     rewards: list["Reward"] = Relationship(back_populates="turn")
 
+    suggested_followup_prompts: list["SuggestedTurnPrompt"] = Relationship(back_populates="turn")
+
     __table_args__ = (UniqueConstraint("chat_id", "sequence_id", name="uq_chat_sequence"),)
 
 
@@ -370,4 +372,25 @@ class TurnQuality(BaseModel, table=True):
         return sum(available_components) / len(available_components) if available_components else None
 
 
-# TODO(minqi): Add comparison result (fka yupptake).
+class SuggestedTurnPrompt(BaseModel, table=True):
+    """A follow-up prompt suggestion, associated with a completed turn."""
+
+    __tablename__ = "suggested_turn_prompts"
+
+    suggested_turn_prompt_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    turn_id: uuid.UUID = Field(foreign_key="turns.turn_id", nullable=False, index=True)
+    turn: Turn = Relationship(back_populates="suggested_followup_prompts")
+    prompt: str = Field(nullable=False)
+    summary: str = Field(nullable=False)
+
+
+class SuggestedUserPrompt(BaseModel, table=True):
+    """A prompt suggested to a user, not associated with a particular turn."""
+
+    __tablename__ = "suggested_user_prompts"
+
+    suggested_user_prompt_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    user_id: str = Field(foreign_key="users.user_id", nullable=False, index=True)
+    user: User = Relationship(back_populates="suggested_prompts")
+    prompt: str = Field(nullable=False)
+    summary: str = Field(nullable=False)

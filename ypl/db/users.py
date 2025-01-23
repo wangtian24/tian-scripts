@@ -14,7 +14,7 @@ from ypl.db.point_transactions import PointTransaction
 from ypl.db.rewards import Reward, RewardActionEnum, RewardActionLog, RewardStatusEnum
 
 if TYPE_CHECKING:
-    from ypl.db.chats import Chat, Eval, Turn
+    from ypl.db.chats import Chat, Eval, SuggestedUserPrompt, Turn
     from ypl.db.events import Event
     from ypl.db.invite_codes import SpecialInviteCode, SpecialInviteCodeClaimLog
     from ypl.db.language_models import LanguageModel
@@ -120,6 +120,8 @@ class User(BaseModel, table=True):
     )
 
     events: list["Event"] = Relationship(back_populates="user", cascade_delete=True)
+
+    suggested_prompts: list["SuggestedUserPrompt"] = Relationship(back_populates="user")
 
     def is_new_user(self) -> bool:
         return len(self.chats) < NEW_USER_CHAT_THRESHOLD
