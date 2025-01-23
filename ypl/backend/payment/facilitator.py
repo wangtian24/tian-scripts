@@ -57,6 +57,13 @@ RETRY_WAIT_MAX = 15
 SLACK_WEBHOOK_CASHOUT = os.getenv("SLACK_WEBHOOK_CASHOUT")
 
 
+def get_supported_facilitators(country_code: str) -> list[PaymentInstrumentFacilitatorEnum]:
+    if country_code == "IN":
+        return [PaymentInstrumentFacilitatorEnum.UPI]
+
+    return [PaymentInstrumentFacilitatorEnum.ON_CHAIN, PaymentInstrumentFacilitatorEnum.COINBASE]
+
+
 class OnChainFacilitator(BaseFacilitator):
     @retry(
         stop=stop_after_attempt(RETRY_ATTEMPTS),

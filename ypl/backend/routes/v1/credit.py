@@ -1,7 +1,9 @@
+import asyncio
 import logging
 import uuid
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy.exc import NoResultFound
@@ -14,10 +16,16 @@ from ypl.backend.payment.base_types import BaseFacilitator, PaymentResponse
 from ypl.backend.payment.cashout_rate_limits import (
     CashoutKillswitchError,
     CashoutLimitError,
+    CashoutUserInfo,
     check_cashout_killswitch,
-    validate_user_cashout_limits,
+    check_facilitator_cashout_killswitch,
+    check_global_cashout_killswitch,
+    check_request_rate_limit,
+    validate_and_return_cashout_user_limits,
 )
+from ypl.backend.payment.currency import get_supported_currencies
 from ypl.backend.payment.exchange_rates import get_exchange_rate
+from ypl.backend.payment.facilitator import get_supported_facilitators
 from ypl.backend.payment.validation import validate_destination_identifier_for_currency
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import (
@@ -169,9 +177,10 @@ async def cashout_credits(request: CashoutCreditsRequest) -> str | None | Paymen
 
     await validate_cashout_request(request)
     try:
-        await validate_user_cashout_limits(request.user_id, request.credits_to_cashout)
+        await check_request_rate_limit(request.user_id)
+        await validate_and_return_cashout_user_limits(request.user_id, request.credits_to_cashout)
     except CashoutLimitError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+        raise HTTPException(status_code=400, detail=e.detail) from e
     except Exception as e:
         log_dict = {
             "message": "Error validating user cashout limits",
@@ -235,3 +244,81 @@ async def cashout_credits(request: CashoutCreditsRequest) -> str | None | Paymen
 async def get_cashout_transaction_status(payment_transaction_id: uuid.UUID) -> PaymentResponse:
     facilitator = await BaseFacilitator.for_payment_transaction_id(payment_transaction_id)
     return await facilitator.get_payment_status(payment_transaction_id)
+
+
+@dataclass
+class CashoutOptionsRequest:
+    user_id: str
+    guessed_country_code: str
+
+
+@dataclass
+class CashoutOptionsResponse:
+    user_info: CashoutUserInfo
+
+    supported_currencies: list[CurrencyEnum]
+    supported_facilitators: list[PaymentInstrumentFacilitatorEnum]
+
+
+@dataclass
+class CashoutNotAvailableResponse:
+    unavailable_reason: str
+
+
+@router.post("/credits/cashout/options")
+async def fetch_cashout_options(request: CashoutOptionsRequest) -> CashoutOptionsResponse | CashoutNotAvailableResponse:
+    try:
+        await check_global_cashout_killswitch(request.user_id)
+    except CashoutKillswitchError as e:
+        return CashoutNotAvailableResponse(unavailable_reason=str(e))
+
+    facilitators = get_supported_facilitators(request.guessed_country_code)
+
+    facilitator_killswitch_errors = await asyncio.gather(
+        *[
+            check_facilitator_cashout_killswitch(facilitator, request.user_id)  # noqa: F821
+            for facilitator in facilitators
+        ],
+        return_exceptions=True,
+    )
+
+    filtered_facilitators = [
+        facilitator
+        for facilitator, error in zip(facilitators, facilitator_killswitch_errors, strict=True)
+        if error is None
+    ]
+
+    currencies = get_supported_currencies(request.guessed_country_code)
+
+    log_dict: dict[str, Any] = {}
+
+    if not currencies or not filtered_facilitators:
+        log_dict = {
+            "message": "Cashout is not available",
+            "user_id": request.user_id,
+            "guessed_country_code": request.guessed_country_code,
+            "currencies": [currency.value for currency in currencies],
+            "facilitators": [facilitator.value for facilitator in facilitators],
+            "facilitator_killswitch_errors": [str(error) for error in facilitator_killswitch_errors],
+        }
+        # Log this as an error because this is unexpected.
+        logging.warning(json_dumps(log_dict))
+        return CashoutNotAvailableResponse(unavailable_reason="Cashout is not available")
+
+    try:
+        user_info = await validate_and_return_cashout_user_limits(request.user_id)
+        log_dict = {
+            "message": "Cashout options returned",
+            "user_id": request.user_id,
+            "user_info": user_info,
+            "currencies": [currency.value for currency in currencies],
+            "facilitators": [facilitator.value for facilitator in facilitators],
+        }
+        logging.info(json_dumps(log_dict))
+    except CashoutLimitError as e:
+        return CashoutNotAvailableResponse(unavailable_reason=e.detail)
+    return CashoutOptionsResponse(
+        user_info=user_info,
+        supported_currencies=list(currencies),
+        supported_facilitators=list(facilitators),
+    )

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Final, Literal, TypedDict
@@ -18,7 +19,7 @@ from ypl.backend.utils.utils import CapabilityType, UserCapabilityStatus, get_ca
 from ypl.db.payments import PaymentInstrumentFacilitatorEnum
 from ypl.db.point_transactions import PointsActionEnum, PointTransaction
 from ypl.db.redis import get_upstash_redis_client
-from ypl.db.users import User
+from ypl.db.users import SIGNUP_CREDITS, User
 
 CASHOUT_KILLSWITCH_KEY = "cashout:killswitch"
 # Facilitator specific killswitch, facilitator *SHOULD BE lowercase*
@@ -258,10 +259,20 @@ async def get_cashout_stats(
     return period_stats, False
 
 
-async def validate_first_time_cashout(
+async def validate_and_return_first_time_cashout_limits(
     user_id: str, credits_to_cashout: int, override_config: dict | None = None
-) -> None:
-    """Validate if this is user's first cashout and check against first-time limits."""
+) -> int:
+    """
+    Validate if this is user's first cashout and check against first-time limits.
+
+    Args:
+        user_id: The ID of the user to check
+        credits_to_cashout: The number of credits to cash out. Set to 0 if the call is made in a pre-cashout validation.
+        override_config: The override config for the user, if any.
+
+    Returns:
+        int: The first time cashout limit for the user.
+    """
     first_time_limit = (
         override_config.get("first_time_limit", MAX_FIRST_TIME_CASHOUT_CREDITS)
         if override_config
@@ -286,11 +297,20 @@ async def validate_first_time_cashout(
             user_id=user_id,
         )
 
+    return int(first_time_limit)
 
-async def validate_period_limits(
+
+async def validate_period_limits_and_return_limiting_credits(
     user_id: str, credits_to_cashout: int, period_stats: list[PeriodStats], override_config: dict | None = None
-) -> None:
-    """Validate cashout limits for each time period."""
+) -> int:
+    """
+    Validate cashout limits for each time period.
+
+    Returns:
+        int: The maximum amount that the user can cashout, without exceeding any limits.
+            This method doesn't account for the credits that the user currently has,
+            it only checks against the limits.
+    """
     # Get override limits if available
     daily_count = (
         override_config.get("daily_count", MAX_DAILY_CASHOUT_COUNT) if override_config else MAX_DAILY_CASHOUT_COUNT
@@ -332,6 +352,8 @@ async def validate_period_limits(
             limit["max_count"] = monthly_count
             limit["max_total"] = monthly_credits
 
+    # List of credits that will limit the user's cashout for each period.
+    limiting_credits = []
     # for each limit defined for the user, check if the current value has exceeded the max value
     for limit in period_stats:
         if limit["count"] >= limit["max_count"]:
@@ -352,10 +374,14 @@ async def validate_period_limits(
                 user_id=user_id,
             )
 
+        limiting_credits.append(limit["max_total"] - limit["total"])
+
+    return min(limiting_credits)
+
 
 async def check_request_rate_limit(user_id: str) -> None:
     """Check if the user has exceeded the rate limit for cashout requests."""
-    if settings.ENVIRONMENT != "production":
+    if settings.ENVIRONMENT != "production" or not CASHOUT_REQUEST_RATE_LIMIT_ENABLED:
         return
 
     redis = await get_upstash_redis_client()
@@ -378,19 +404,38 @@ async def check_request_rate_limit(user_id: str) -> None:
         await redis.expire(bucket_key, CASHOUT_REQUEST_WINDOW_SECONDS)
 
 
-async def validate_user_cashout_limits(user_id: str, credits_to_cashout: int) -> None:
+async def _get_credits_balance(session: AsyncSession, user_id: str) -> int:
+    """
+    Get the user's current credits balance.
+    """
+    query = select(User.points).where(
+        User.user_id == user_id,
+        User.deleted_at.is_(None),  # type: ignore
+    )
+    result = await session.execute(query)
+    return result.scalar_one()
+
+
+@dataclass
+class CashoutUserInfo:
+    credits_balance: int
+    credits_available_for_cashout: int
+    minimum_credits_per_cashout: int = 1000
+
+
+async def validate_and_return_cashout_user_limits(user_id: str, credits_to_cashout: int = 0) -> CashoutUserInfo:
     """
     Validate that the user hasn't exceeded their cashout limits.
     Checks both count of cashouts and total credits cashed out for daily, weekly and monthly periods.
-    Also checks the request rate limit.
     Raises HTTPException if any limit is exceeded.
+
+    Args:
+        user_id: The ID of the user to check
+        credits_to_cashout: The number of credits to cash out. Set to 0 if the call is made in a pre-cashout validation.
+
+    Returns:
+        CashoutUserLimits: The limits for the user if they did not exceed any limits.
     """
-
-    if settings.ENVIRONMENT != "production":
-        return
-
-    if CASHOUT_REQUEST_RATE_LIMIT_ENABLED:
-        await check_request_rate_limit(user_id)
 
     now = datetime.utcnow()
     time_windows = {
@@ -400,7 +445,20 @@ async def validate_user_cashout_limits(user_id: str, credits_to_cashout: int) ->
     }
 
     async with get_async_session() as session:
+        credits_balance = await _get_credits_balance(session, user_id)
+        total_credits_available_for_cashout = (
+            credits_balance - SIGNUP_CREDITS if credits_balance > SIGNUP_CREDITS else 0
+        )
+        cashout_user_info = CashoutUserInfo(
+            credits_balance=credits_balance,
+            # This value will be updated later, based on the limits.
+            credits_available_for_cashout=total_credits_available_for_cashout,
+        )
+        if settings.ENVIRONMENT != "production":
+            return cashout_user_info
+
         await check_new_user_cashout_eligibility(session, user_id)
+
         capability_override_details = await get_capability_override_details(session, user_id, CapabilityType.CASHOUT)
         log_dict = {
             "message": "Cashout override details",
@@ -442,11 +500,18 @@ async def validate_user_cashout_limits(user_id: str, credits_to_cashout: int) ->
         logging.info(json_dumps(log_dict))
 
         if is_first_time:
-            await validate_first_time_cashout(user_id, credits_to_cashout, override_config)
-            return
+            first_time_limit = await validate_and_return_first_time_cashout_limits(
+                user_id, credits_to_cashout, override_config
+            )
+            cashout_user_info.credits_available_for_cashout = min(first_time_limit, total_credits_available_for_cashout)
+            return cashout_user_info
 
         assert period_stats is not None
-        await validate_period_limits(user_id, credits_to_cashout, period_stats, override_config)
+        limiting_credits = await validate_period_limits_and_return_limiting_credits(
+            user_id, credits_to_cashout, period_stats, override_config
+        )
+        cashout_user_info.credits_available_for_cashout = min(limiting_credits, total_credits_available_for_cashout)
+        return cashout_user_info
 
 
 class CashoutKillswitchError(Exception):
@@ -457,12 +522,15 @@ class CashoutKillswitchError(Exception):
         super().__init__(self.message)
 
 
-def _log_killswitch_error(message: str, facilitator: PaymentInstrumentFacilitatorEnum, user_id: str) -> None:
+def _log_killswitch_error(
+    message: str, user_id: str, facilitator: PaymentInstrumentFacilitatorEnum | None = None
+) -> None:
     log_dict = {
         "message": message,
         "user_id": user_id,
-        "facilitator": facilitator.name,
     }
+    if facilitator:
+        log_dict["facilitator"] = facilitator.name
     logging.warning(json_dumps(log_dict))
     asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
 
@@ -473,14 +541,23 @@ async def check_cashout_killswitch(facilitator: PaymentInstrumentFacilitatorEnum
     if settings.ENVIRONMENT != "production":
         return
 
-    redis_client = await get_upstash_redis_client()
+    await check_global_cashout_killswitch(user_id)
+    await check_facilitator_cashout_killswitch(facilitator, user_id)
 
+
+async def check_global_cashout_killswitch(user_id: str) -> None:
+    """Check if there's a global cashout killswitch."""
+    redis_client = await get_upstash_redis_client()
     if await redis_client.get(CASHOUT_KILLSWITCH_KEY):
-        _log_killswitch_error("Cashout is currently disabled", facilitator, user_id)
+        _log_killswitch_error("Cashout is currently disabled", user_id)
         raise CashoutKillswitchError("Cashout is currently disabled")
 
+
+async def check_facilitator_cashout_killswitch(facilitator: PaymentInstrumentFacilitatorEnum, user_id: str) -> None:
+    """Check if there's a cashout killswitch for the given facilitator."""
+    redis_client = await get_upstash_redis_client()
     if await redis_client.get(CASHOUT_FACILITATOR_KILLSWITCH_KEY.format(facilitator=facilitator.value)):
-        _log_killswitch_error(f"Cashout is currently disabled for {facilitator.name}", facilitator, user_id)
+        _log_killswitch_error(f"Cashout is currently disabled for {facilitator.name}", user_id, facilitator)
         raise CashoutKillswitchError("Cashout is currently disabled for this payment method")
 
 
