@@ -65,7 +65,7 @@ from ypl.backend.payment.crypto.crypto_payout import process_pending_crypto_rewa
 from ypl.backend.payment.crypto.crypto_wallet import create_wallet, get_wallet_balance
 from ypl.backend.payment.payout_utils import validate_pending_cashouts_async
 from ypl.backend.payment.plaid.plaid_payout import PlaidPayout, process_plaid_payout
-from ypl.backend.utils.amplitude_analytics import post_amplitude_metrics_to_slack
+from ypl.backend.utils.analytics import post_analytics_to_slack
 from ypl.backend.utils.generate_referral_codes import generate_invite_codes_for_yuppster_async
 from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.utils import CapabilityType
@@ -930,9 +930,9 @@ def validate_active_models() -> None:
 
 @cli.command()
 @db_cmd
-def post_amplitude_metrics() -> None:
+def post_analytics() -> None:
     """Fetch metrics from Amplitude and post to Slack."""
-    asyncio.run(post_amplitude_metrics_to_slack())
+    asyncio.run(post_analytics_to_slack())
 
 
 @cli.command()

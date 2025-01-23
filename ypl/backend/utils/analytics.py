@@ -274,7 +274,6 @@ async def post_data_from_charts(auth: str, start_date: datetime, end_date: datet
     except Exception as e:
         error_message = f"⚠️ Failed to process chart data: {e}"
         logging.error(error_message)
-        raise
 
 
 async def post_data_from_cohorts(auth: str, start_date: datetime, end_date: datetime) -> None:
@@ -312,10 +311,205 @@ async def post_data_from_cohorts(auth: str, start_date: datetime, end_date: date
     except Exception as e:
         error_message = f"⚠️ Failed to process cohort data: {e}"
         logging.error(error_message)
+
+
+async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
+    """Fetch and post credit metrics to Slack.
+
+    Posts daily metrics every day, and additional weekly/monthly/quarterly metrics on Sundays.
+    Daily metrics only pull last 2 days of data, while weekly metrics pull last 90 days.
+
+    Args:
+        start_date: Start date for the query
+        end_date: End date for the query
+    """
+    from sqlmodel import Session, text
+    from ypl.backend.db import get_engine
+
+    daily_query = """
+    WITH base_data AS (
+        SELECT
+            (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles')::date AS date,
+            SUM(credit_delta) AS total_credits
+        FROM
+            rewards
+        WHERE
+            status = 'CLAIMED'
+            AND created_at >= NOW() - INTERVAL '2 days'
+        GROUP BY
+            (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles')::date
+    ),
+    turn_data AS (
+        SELECT
+            (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles')::date AS date,
+            COUNT(turn_id) AS turn_count
+        FROM
+            turns t
+        WHERE
+            created_at >= NOW() - INTERVAL '2 days'
+            AND deleted_at IS NULL
+        GROUP BY
+            (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles')::date
+    ),
+    combined_data AS (
+        SELECT
+            b.date,
+            b.total_credits,
+            COALESCE(t.turn_count, 0) as turn_count
+        FROM base_data b
+        LEFT JOIN turn_data t ON b.date = t.date
+    )
+    SELECT
+        'daily' AS period,
+        date AS period_start,
+        SUM(total_credits) AS total_credits,
+        SUM(turn_count) AS turn_count,
+        CASE
+            WHEN SUM(turn_count) > 0 THEN ROUND(SUM(total_credits)::numeric / SUM(turn_count))::integer
+            ELSE 0
+        END AS credits_per_turn
+    FROM
+        combined_data
+    GROUP BY
+        date
+    ORDER BY
+        date DESC;
+    """
+
+    weekly_query = """
+    WITH base_data AS (
+        SELECT
+            (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles')::date AS date,
+            SUM(credit_delta) AS total_credits
+        FROM
+            rewards
+        WHERE
+            status = 'CLAIMED'
+            AND created_at >= NOW() - INTERVAL '90 days'
+        GROUP BY
+            (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles')::date
+    ),
+    turn_data AS (
+        SELECT
+            (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles')::date AS date,
+            COUNT(turn_id) AS turn_count
+        FROM
+            turns t
+        WHERE
+            created_at >= NOW() - INTERVAL '90 days'
+            AND deleted_at IS NULL
+        GROUP BY
+            (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles')::date
+    ),
+    combined_data AS (
+        SELECT
+            b.date,
+            b.total_credits,
+            COALESCE(t.turn_count, 0) as turn_count
+        FROM base_data b
+        LEFT JOIN turn_data t ON b.date = t.date
+    )
+    SELECT
+        'weekly' AS period,
+        date_trunc('week', date)::date AS period_start,
+        SUM(total_credits) AS total_credits,
+        SUM(turn_count) AS turn_count,
+        CASE
+            WHEN SUM(turn_count) > 0 THEN ROUND(SUM(total_credits)::numeric / SUM(turn_count))::integer
+            ELSE 0
+        END AS credits_per_turn
+    FROM
+        combined_data
+    GROUP BY
+        date_trunc('week', date)
+    UNION ALL
+    SELECT
+        'monthly' AS period,
+        date_trunc('month', date)::date AS period_start,
+        SUM(total_credits) AS total_credits,
+        SUM(turn_count) AS turn_count,
+        CASE
+            WHEN SUM(turn_count) > 0 THEN ROUND(SUM(total_credits)::numeric / SUM(turn_count))::integer
+            ELSE 0
+        END AS credits_per_turn
+    FROM
+        combined_data
+    GROUP BY
+        date_trunc('month', date)
+    UNION ALL
+    SELECT
+        'quarterly' AS period,
+        date_trunc('quarter', date)::date AS period_start,
+        SUM(total_credits) AS total_credits,
+        SUM(turn_count) AS turn_count,
+        CASE
+            WHEN SUM(turn_count) > 0 THEN ROUND(SUM(total_credits)::numeric / SUM(turn_count))::integer
+            ELSE 0
+        END AS credits_per_turn
+    FROM
+        combined_data
+    GROUP BY
+        date_trunc('quarter', date)
+    ORDER BY
+        period_start DESC;
+    """
+
+    try:
+        with Session(get_engine()) as session:
+            daily_results = session.execute(text(daily_query)).all()
+            daily_metrics = list(daily_results)
+
+            if len(daily_metrics) >= 2:
+                yesterday_metrics = daily_metrics[1]
+                message = f"*Credit Metrics for {yesterday_metrics.period_start}*\n"
+                message += (
+                    f"Credits Claimed Yesterday: {yesterday_metrics.total_credits:,.0f} "
+                    f"({yesterday_metrics.turn_count:,} turns, "
+                    f"{yesterday_metrics.credits_per_turn:,d} credits/turn)\n"
+                )
+
+                if start_date.weekday() == 6:
+                    weekly_results = session.execute(text(weekly_query)).all()
+                    weekly_metrics = next((r for r in weekly_results if r.period == "weekly"), None)
+                    monthly_metrics = next((r for r in weekly_results if r.period == "monthly"), None)
+                    quarterly_metrics = next((r for r in weekly_results if r.period == "quarterly"), None)
+
+                    if weekly_metrics:
+                        message += (
+                            f"\nWeekly Credits (Week of {weekly_metrics.period_start}): "
+                            f"{weekly_metrics.total_credits:,.0f} "
+                            f"({weekly_metrics.turn_count:,} turns, "
+                            f"{weekly_metrics.credits_per_turn:,d} credits/turn)"
+                        )
+                    if monthly_metrics:
+                        message += (
+                            f"\nMonthly Credits ({monthly_metrics.period_start.strftime('%B %Y')}): "
+                            f"{monthly_metrics.total_credits:,.0f} "
+                            f"({monthly_metrics.turn_count:,} turns, "
+                            f"{monthly_metrics.credits_per_turn:,d} credits/turn)"
+                        )
+                    if quarterly_metrics:
+                        quarter = (quarterly_metrics.period_start.month - 1) // 3 + 1
+                        message += (
+                            f"\nQuarterly Credits (Q{quarter} "
+                            f"{quarterly_metrics.period_start.year}): "
+                            f"{quarterly_metrics.total_credits:,.0f} "
+                            f"({quarterly_metrics.turn_count:,} turns, "
+                            f"{quarterly_metrics.credits_per_turn:,d} credits/turn)"
+                        )
+
+                analytics_webhook_url = os.environ.get("ANALYTICS_SLACK_WEBHOOK_URL")
+            else:
+                message = "⚠️ No credit metrics data available"
+            await post_to_slack(message, analytics_webhook_url)
+
+    except Exception as e:
+        error_message = f"⚠️ Failed to fetch credit metrics: {e}"
+        logging.error(error_message)
         raise
 
 
-async def post_amplitude_metrics_to_slack() -> None:
+async def post_analytics_to_slack() -> None:
     """Fetch metrics from multiple Amplitude charts and post them to Slack.
 
     Raises:
@@ -335,6 +529,7 @@ async def post_amplitude_metrics_to_slack() -> None:
     try:
         await post_data_from_charts(auth=auth, start_date=start_date, end_date=end_date)
         await post_data_from_cohorts(auth=auth, start_date=start_date, end_date=end_date)
+        await post_credit_metrics(start_date=start_date, end_date=end_date)
 
     except Exception as e:
         error_message = f"⚠️ Failed to fetch Amplitude metrics: {e}"

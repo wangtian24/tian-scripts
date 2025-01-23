@@ -1,4 +1,4 @@
-name: Post Amplitude Metrics
+name: Post Analytics
 
 on:
   schedule:
@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  post_amplitude_metrics_production:
+  post_analytics_production:
     uses: ./.github/workflows/cronjob.yml
     with:
-      command: post-amplitude-metrics
+      command: post-analytics
       environment: production
     secrets: inherit 

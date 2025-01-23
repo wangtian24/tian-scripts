@@ -27,7 +27,7 @@ on:
           - categorize-messages
           - judge-quick-response-quality
           - judge-refusals
-          - post-amplitude-metrics
+          - post-analytics
           - post-source-account-balances
           - process-crypto-rewards
           - reset-yuppster-points
