@@ -490,12 +490,15 @@ def test_fast_compute_all_conf_overlap_diffs() -> None:
     assert vals.tolist() == approx([0.0])
 
 
+# These patches must be in the resverse order of the argument list below,
+# and the path is where they are called rather than where they are defined.
 @patch("ypl.backend.llm.routing.router.PromptModifierLabeler")
 @patch("ypl.backend.llm.routing.router.YuppMultilabelClassifier")
 @patch("ypl.backend.llm.routing.router.YuppOnlinePromptLabeler")
 @patch("ypl.backend.llm.routing.router.HighErrorRateFilter.select_models")
 @patch("ypl.backend.llm.routing.modules.proposers.get_all_strong_models")
 @patch("ypl.backend.llm.routing.modules.proposers.get_all_pro_models")
+@patch("ypl.backend.llm.routing.modules.rankers.deduce_model_speed_scores")
 @patch("ypl.backend.llm.routing.modules.proposers.deduce_original_providers")
 @patch("ypl.backend.llm.routing.modules.filters.deduce_original_providers")
 @patch("ypl.backend.llm.routing.rule_router.deduce_original_providers")
@@ -516,6 +519,7 @@ async def test_simple_pro_router(
     mock_deduce_providers1: Mock,
     mock_deduce_providers2: Mock,
     mock_deduce_providers3: Mock,
+    mock_deduce_speed_scores: Mock,
     mock_get_all_pro_models: Mock,
     mock_get_all_strong_models: Mock,
     mock_error_filter: Mock,
@@ -546,6 +550,7 @@ async def test_simple_pro_router(
     mock_deduce_providers1.return_value = {model: model for model in all_models}
     mock_deduce_providers2.return_value = {model: model for model in all_models}
     mock_deduce_providers3.return_value = {model: model for model in all_models}
+    mock_deduce_speed_scores.return_value = {model: 1.0 for model in all_models}
     mock_get_all_strong_models.return_value = {"pro1", "pro2", "pro3", "model1"}
     mock_error_filter.side_effect = lambda state: state
 
@@ -587,6 +592,7 @@ async def test_simple_pro_router(
     mock_deduce_providers1.return_value = {model: model for model in all_models}
     mock_deduce_providers2.return_value = {model: model for model in all_models}
     mock_deduce_providers3.return_value = {model: model for model in all_models}
+    mock_deduce_speed_scores.return_value = {model: 1.0 for model in all_models}
     mock_get_all_strong_models.return_value = {"pro1", "pro2", "pro3", "model1"}
     mock_error_filter.side_effect = lambda state: state
     mock_semantic_group_map.return_value = {"model1": "group1", "model2": "group1"}
@@ -737,6 +743,7 @@ def test_context_length_filter(mock_context_lengths: Mock) -> None:
 @patch("ypl.backend.llm.chat.store_modifiers", return_value=None)
 @patch("ypl.backend.llm.chat.get_shown_models")
 @patch("ypl.backend.llm.routing.router_state.RouterState.get_all_models", return_value=set(ACTIVE_MODELS))
+@patch("ypl.backend.llm.routing.modules.rankers.deduce_model_speed_scores", return_value={})
 @patch("ypl.backend.llm.routing.modules.filters.deduce_original_providers", return_value=PROVIDER_MAP)
 @patch("ypl.backend.llm.routing.modules.proposers.deduce_original_providers", return_value=PROVIDER_MAP)
 @patch("ypl.backend.llm.routing.rule_router.deduce_original_providers", return_value=PROVIDER_MAP)
@@ -752,6 +759,7 @@ async def test_select_models_plus(
     mock_deduce_original_providers1: Mock,
     mock_deduce_original_providers2: Mock,
     mock_deduce_original_providers3: Mock,
+    mock_deduce_model_speed_scores: Mock,
     mock_get_all_models: Mock,
     mock_get_shown_models: Mock,
     mock_store_modifiers: Mock,

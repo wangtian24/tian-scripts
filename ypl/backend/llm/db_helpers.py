@@ -1,4 +1,5 @@
 import logging
+import math
 import random
 import re
 from collections.abc import Sequence
@@ -20,9 +21,14 @@ from sqlmodel import Session, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ypl.backend.db import get_async_engine, get_engine
-from ypl.backend.llm.constants import ACTIVE_MODELS_BY_PROVIDER, PROVIDER_MODEL_PATTERNS, ChatProvider
+from ypl.backend.llm.constants import (
+    ACTIVE_MODELS_BY_PROVIDER,
+    PROVIDER_MODEL_PATTERNS,
+    ChatProvider,
+)
 from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.routing.route_data_type import PreferredModel, RoutingPreference
+from ypl.backend.utils.json import json_dumps
 from ypl.db.attachments import Attachment
 from ypl.db.chats import Chat, ChatMessage, MessageType
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
@@ -340,7 +346,12 @@ def get_chat_history(
             if asst_buffer:
                 random.shuffle(asst_buffer)
                 history.append(
-                    AIMessage(content=max(asst_buffer, key=lambda x: x.additional_kwargs.get("score") or 0).content)
+                    AIMessage(
+                        content=max(
+                            asst_buffer,
+                            key=lambda x: x.additional_kwargs.get("score") or 0,
+                        ).content
+                    )
                 )
 
             asst_buffer.clear()
@@ -361,7 +372,10 @@ def get_chat_history(
                 )
             case "ASSISTANT_MESSAGE":
                 asst_buffer.append(
-                    AIMessage(content=content, additional_kwargs={"score": 0 if score is None else score})
+                    AIMessage(
+                        content=content,
+                        additional_kwargs={"score": 0 if score is None else score},
+                    )
                 )
             case "QUICK_RESPONSE_MESSAGE":
                 history.append(BaseMessage(content=content or "", type="quicktake"))
@@ -548,3 +562,117 @@ def get_chat_model(
         chat_kwargs["temperature"] = 1  # temperature must be 1 for o1 models
 
     return chat_llm_cls(api_key=SecretStr(api_key), model=full_model, **chat_kwargs)  # type: ignore
+
+
+def deduce_model_speed_scores(models: tuple[str, ...]) -> dict[str, float]:
+    return {model: deduce_single_model_speed_score(model) for model in models}
+
+
+@ttl_cache(ttl=7200)  # 2-hr cache, this doesn't change that fast
+def deduce_single_model_speed_score(model: str) -> float:
+    """
+    Deduces the speed of a single model, which is more cache friendly.
+    Returns an abstract speed score (0.0 - 1.0), which is computed based on model's
+    time-to-first-token and tokens-per-second stats from the past X days.
+    """
+    sql_query = text(
+        """
+            select
+                COUNT(1) as requests,
+                PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY ttft) AS ttft_p90,
+                PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ttft) AS ttft_p50,
+                PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY tps) AS tps_p90,
+                PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY tps) AS tps_p50,
+                AVG(tokenCount) AS avg_token_count
+            FROM (
+                SELECT
+                    message_type,
+                    assistant_language_model_id,
+                    created_at,
+                    firstToken,
+                    (firsttoken - requesttimestamp) AS ttft,
+                    CASE
+                        WHEN tokenCount IS NULL OR tokenCount = 0 THEN 0
+                        ELSE tokenCount / (lasttoken - requesttimestamp) * 1000
+                    END as tps,
+                    tokenCount
+                FROM (
+                    SELECT
+                        (streaming_metrics->>'requestTimestamp')::DECIMAL AS requestTimestamp,
+                        (streaming_metrics->>'firstTokenTimestamp')::DECIMAL AS firstToken,
+                        (streaming_metrics->>'lastTokenTimestamp')::DECIMAL AS lastToken,
+                        (streaming_metrics->>'completionTokens')::DECIMAL AS tokenCount,
+                        message_type,
+                        assistant_language_model_id,
+                        cm.created_at
+                    FROM chat_messages cm
+                        JOIN language_models lm ON cm.assistant_model_name = lm.internal_name
+                    WHERE message_type IN ('ASSISTANT_MESSAGE')
+                        AND streaming_metrics IS NOT NULL
+                        AND cm.created_at >= NOW() - INTERVAL '1 days'
+                        AND lm.internal_name = :model_name
+                    LIMIT 1000
+                ) AS subquery
+            ) AS metrics
+            WHERE ttft > 0 and tps > 0
+        """
+    )
+
+    # We estimate the 95% confidence interval for time-to-first-token p90 and tokens-per-sec p90, given the number of
+    # model requests in the past X days. then we use the upper bound (a conservative value) of TTFT_p90 and TPS_p90
+    # to compute the speed score.
+
+    with get_engine().connect() as conn:
+        c = conn.execute(sql_query, dict(model_name=model))
+        rows = c.fetchall()
+
+    DEFAULT_SPEED_SCORE = 0.1
+    if not rows:
+        return DEFAULT_SPEED_SCORE
+
+    row = rows[0]
+    if any(x is None for x in row):
+        return DEFAULT_SPEED_SCORE
+
+    num_reqs, ttft_p90, ttft_p50 = row[0], float(row[1]), float(row[2])
+    tps_p90, tps_p50, avg_token_count = float(row[3]), float(row[4]), float(row[5])
+
+    Z95 = 1.96  # z-score for 95% confidence interval
+
+    # estimate CI for TTFT, assume log-normal distribution as this is a latency
+    std = max(0.1, (math.log(ttft_p90) - math.log(ttft_p50))) / 1.28  # standard deviation
+    se = std / math.sqrt(num_reqs)  # standard error
+    log_ttft_p90_ub = math.log(ttft_p90) + Z95 * se  # upperbound of 95% confidence interval (z_0.025 = 1.96)
+    ttft_p90_ub = math.exp(log_ttft_p90_ub)  # upperbound of 95% confidence interval
+
+    # estimate CI for TPS, assume normal distribution, this is a speed
+    std = max(0.1, (tps_p90 - tps_p50)) / 1.28  # standard deviation
+    fp = 1.0 / (math.sqrt(2 * math.pi) * std)
+    se = math.sqrt(0.9 * (1 - 0.9) / (num_reqs * fp**2))  # standard error
+    tps_p90_lb = tps_p90 - Z95 * se  # lowerbound of 95% confidence interval
+
+    est_streaming_latency = avg_token_count / tps_p90_lb * 1000  # time to generate the whole sequence
+
+    # the overall latency estimate is a weighted sume of TFTT and TPS.
+    TTFT_WEIGHT = 0.6
+    STREAMING_WEIGHT = 0.4
+    latency_est = ttft_p90_ub * TTFT_WEIGHT + est_streaming_latency * STREAMING_WEIGHT
+    speed_score = 1000.0 / (1000.0 + latency_est)
+
+    logging.debug(
+        json_dumps(
+            {
+                "model": model,
+                "num_requests": num_reqs,
+                "ttft_p90_ms": round(ttft_p90, 2),
+                "ttft_p90_ub_ms": round(ttft_p90_ub, 2),
+                "tps_p90": round(tps_p90, 2),
+                "tps_p90_lb": round(tps_p90_lb, 2),
+                "avg_token_count": round(avg_token_count, 2),
+                "est_streaming_latency_ms": round(est_streaming_latency, 2),
+                "speed_score": round(speed_score, 3),
+            }
+        )
+    )
+
+    return speed_score
