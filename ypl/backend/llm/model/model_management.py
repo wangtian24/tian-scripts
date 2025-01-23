@@ -1,17 +1,12 @@
 # Standard library imports
 import logging
 import os
-from uuid import UUID
+from collections.abc import Sequence
 
-# Third-party imports
 from sqlalchemy.exc import DatabaseError, OperationalError
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import desc, select
-from tenacity import after_log, retry_if_exception_type, stop_after_attempt, wait_fixed
-from tenacity.asyncio import AsyncRetrying
-
-# Local imports
-from ypl.backend.db import get_async_engine
+from sqlmodel import desc, select, update
+from tenacity import after_log, retry, retry_if_exception_type, stop_after_attempt, wait_fixed
+from ypl.backend.db import get_async_session
 from ypl.backend.llm.model.model_onboarding import verify_inference_running
 from ypl.backend.llm.utils import post_to_slack
 from ypl.backend.utils.json import json_dumps
@@ -28,14 +23,31 @@ INFERENCE_STATUS_TYPES: list[LanguageModelResponseStatusEnum] = [
     LanguageModelResponseStatusEnum.INFERENCE_FAILED,
 ]
 
+DATABASE_ATTEMPTS = 3
+DATABASE_WAIT_TIME_SECONDS = 0.1
+DATABASE_RETRY_IF_EXCEPTION_TYPE = (OperationalError, DatabaseError)
 
-async def async_retry_decorator() -> AsyncRetrying:
-    return AsyncRetrying(
-        stop=stop_after_attempt(3),
-        wait=wait_fixed(0.1),
-        after=after_log(logging.getLogger(), logging.WARNING),
-        retry=retry_if_exception_type((OperationalError, DatabaseError)),
-    )
+
+@retry(
+    stop=stop_after_attempt(DATABASE_ATTEMPTS),
+    wait=wait_fixed(DATABASE_WAIT_TIME_SECONDS),
+    after=after_log(logging.getLogger(), logging.WARNING),
+    retry=retry_if_exception_type(DATABASE_RETRY_IF_EXCEPTION_TYPE),
+)
+async def _get_active_models() -> Sequence[tuple[LanguageModel, str, str]]:
+    async with get_async_session() as session:
+        query = (
+            select(LanguageModel, Provider.name.label("provider_name"), Provider.base_api_url.label("base_url"))  # type: ignore
+            .join(Provider, LanguageModel.provider_id == Provider.provider_id)  # type: ignore
+            .where(
+                LanguageModel.status == LanguageModelStatusEnum.ACTIVE,
+                LanguageModel.deleted_at.is_(None),  # type: ignore
+                Provider.is_active.is_(True),  # type: ignore
+                Provider.deleted_at.is_(None),  # type: ignore
+            )
+        )
+        result = await session.exec(query)
+        return result.all()
 
 
 async def validate_active_onboarded_models() -> None:
@@ -45,90 +57,68 @@ async def validate_active_onboarded_models() -> None:
     This function should be run periodically to check and update the status of active models.
     It queries for active models, verifies them, and logs an error if any validation fails.
     """
-    async for attempt in await async_retry_decorator():
-        with attempt:
-            async with AsyncSession(get_async_engine()) as session:
-                query = (
-                    select(LanguageModel, Provider.name.label("provider_name"), Provider.base_api_url.label("base_url"))  # type: ignore
-                    .join(Provider, LanguageModel.provider_id == Provider.provider_id)  # type: ignore
-                    .where(
-                        LanguageModel.status == LanguageModelStatusEnum.ACTIVE,
-                        LanguageModel.deleted_at.is_(None),  # type: ignore
-                        Provider.is_active.is_(True),  # type: ignore
-                        Provider.deleted_at.is_(None),  # type: ignore
-                    )
-                )
-                active_models = await session.execute(query)
-                result = await session.execute(query)
-                active_models = result.all()
-                active_models_count = len(active_models)
-
-                log_dict = {"message": f"Active models count: {active_models_count}"}
-                logging.info(json_dumps(log_dict))
-
-                for model, provider_name, base_url in active_models:
-                    await verify_and_update_model_status(session, model, provider_name, base_url)
-
-                await session.commit()
+    active_models = await _get_active_models()
+    for model, provider_name, base_url in active_models:
+        await verify_and_update_model_status(model, provider_name, base_url)
 
 
-async def validate_specific_active_model(model_id: UUID) -> None:
-    """
-    Validate a specific active model.
-
-    This function should be called to check and update the status of a specific active model.
-    It queries for the model, verifies it, and logs an error if validation fails.
-    """
-    async for attempt in await async_retry_decorator():
-        with attempt:
-            async with AsyncSession(get_async_engine()) as session:
-                query = (
-                    select(LanguageModel, Provider.name.label("provider_name"), Provider.base_api_url.label("base_url"))  # type: ignore
-                    .join(Provider, LanguageModel.provider_id == Provider.provider_id)  # type: ignore
-                    .where(
-                        LanguageModel.language_model_id == model_id,
-                        LanguageModel.status == LanguageModelStatusEnum.ACTIVE,
-                        LanguageModel.deleted_at.is_(None),  # type: ignore
-                        Provider.is_active.is_(True),  # type: ignore
-                        Provider.deleted_at.is_(None),  # type: ignore
-                    )
-                )
-                result = await session.execute(query)
-
-                if result:
-                    model, provider_name, base_url = result.first()
-                    await verify_and_update_model_status(session, model, provider_name, base_url)
-                    await session.commit()
-                else:
-                    log_dict = {"message": f"No active model found with ID: {model_id}"}
-                    logging.warning(json_dumps(log_dict))
+@retry(
+    stop=stop_after_attempt(DATABASE_ATTEMPTS),
+    wait=wait_fixed(DATABASE_WAIT_TIME_SECONDS),
+    after=after_log(logging.getLogger(), logging.WARNING),
+    retry=retry_if_exception_type(DATABASE_RETRY_IF_EXCEPTION_TYPE),
+)
+async def _update_model_status(model: LanguageModel, status: LanguageModelStatusEnum) -> None:
+    async with get_async_session() as session:
+        await session.exec(
+            update(LanguageModel)
+            .values(status=status)
+            .where(LanguageModel.language_model_id == model.language_model_id)  # type: ignore
+        )
+        await session.commit()
 
 
-async def verify_and_update_model_status(
-    session: AsyncSession, model: LanguageModel, provider_name: str, base_url: str
+@retry(
+    stop=stop_after_attempt(DATABASE_ATTEMPTS),
+    wait=wait_fixed(DATABASE_WAIT_TIME_SECONDS),
+    after=after_log(logging.getLogger(), logging.WARNING),
+    retry=retry_if_exception_type(DATABASE_RETRY_IF_EXCEPTION_TYPE),
+)
+async def _insert_language_model_response_status(
+    model: LanguageModel, status_type: LanguageModelResponseStatusEnum
 ) -> None:
+    async with get_async_session() as session:
+        new_language_model_response_record = LanguageModelResponseStatus(
+            language_model_id=model.language_model_id,
+            status_type=status_type,
+        )
+        session.add(new_language_model_response_record)
+        await session.commit()
+
+
+async def verify_and_update_model_status(model: LanguageModel, provider_name: str, base_url: str) -> None:
     """
     Verify and update the status of a single active model.
     If the model is not running on 2 consecutive runs, set the model to INACTIVE.
 
     Args:
-        session (Session): The database session.
         model (LanguageModel): The model to verify and update.
         provider_name (str): The name of the provider.
         base_url (str): The base URL for the provider's API.
     """
     try:
-        last_status_query = (
-            select(LanguageModelResponseStatus)
-            .where(
-                LanguageModelResponseStatus.language_model_id == model.language_model_id,
-                LanguageModelResponseStatus.status_type.in_(INFERENCE_STATUS_TYPES),  # type: ignore
+        async with get_async_session() as session:
+            last_status_query = (
+                select(LanguageModelResponseStatus)
+                .where(
+                    LanguageModelResponseStatus.language_model_id == model.language_model_id,
+                    LanguageModelResponseStatus.status_type.in_(INFERENCE_STATUS_TYPES),  # type: ignore
+                )
+                .order_by(desc(LanguageModelResponseStatus.created_at))
+                .limit(1)
             )
-            .order_by(desc(LanguageModelResponseStatus.created_at))
-            .limit(1)
-        )
-        last_status_result = await session.execute(last_status_query)
-        last_status = last_status_result.scalar_one_or_none()
+            last_status_result = await session.exec(last_status_query)
+            last_status = last_status_result.one_or_none()
 
         is_inference_running, has_billing_error = verify_inference_running(model, provider_name, base_url)
 
@@ -145,17 +135,11 @@ async def verify_and_update_model_status(
         )
 
         if should_create_language_model_response_record:
-            new_language_model_response_record = LanguageModelResponseStatus(
-                language_model_id=model.language_model_id,
-                status_type=current_status_type,
-            )
-            session.add(new_language_model_response_record)
+            await _insert_language_model_response_status(model, current_status_type)
 
         if not is_inference_running:
             if last_status and last_status.status_type == LanguageModelResponseStatusEnum.INFERENCE_FAILED:
-                model.status = LanguageModelStatusEnum.INACTIVE
-                await session.merge(model)
-
+                await _update_model_status(model, LanguageModelStatusEnum.INACTIVE)
                 log_dict = {
                     "message": "Model has been set to inactive due to consecutive inference failures",
                     "model_name": model.name,
@@ -204,10 +188,7 @@ async def verify_and_update_model_status(
         }
         logging.exception(json_dumps(log_dict))
 
-        error_status = LanguageModelResponseStatus(
-            language_model_id=model.language_model_id, status_type=LanguageModelResponseStatusEnum.INFERENCE_FAILED
-        )
-        session.add(error_status)
+        await _insert_language_model_response_status(model, LanguageModelResponseStatusEnum.INFERENCE_FAILED)
 
         slack_message = (
             f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} from "
