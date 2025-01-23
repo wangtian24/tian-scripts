@@ -22,6 +22,7 @@ from ypl.backend.prompts import (
     JUDGE_PROMPT_MODIFIER_PROMPT,
     JUDGE_QUICK_RESPONSE_QUALITY_PROMPT_TEMPLATE,
     JUDGE_RESPONSE_REFUSAL_PROMPT,
+    JUDGE_SUGGESTED_FOLLOWUPS_PROMPT_TEMPLATE,
     JUDGE_YUPP_CHAT_PROMPT_SPEED_AWARE_TEMPLATE,
     JUDGE_YUPP_CHAT_PROMPT_TEMPLATE,
     JUDGE_YUPP_ONLINE_PROMPT_TEMPLATE,
@@ -431,3 +432,55 @@ class QuickResponseQualityLabeler(LLMLabeler[tuple[str, str, list[dict[str, str]
     @property
     def error_value(self) -> str:
         return "error"
+
+
+class SuggestedFollowupsLabeler(LLMLabeler[list[BaseMessage], list[dict[str, str]]]):
+    def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
+        return JUDGE_SUGGESTED_FOLLOWUPS_PROMPT_TEMPLATE | llm  # type: ignore
+
+    def _prepare_input(self, input: list[BaseMessage]) -> dict[str, str]:
+        chat_history = ""
+        for message in input:
+            if message.type == "human":
+                chat_history += f"User: {message.content}\n"
+            elif message.type in ["ai", "assistant"]:
+                chat_history += f"Assistant: {message.content}\n"
+        return dict(chat_history=chat_history)
+
+    def _parse_output(self, output: BaseMessage) -> list[dict[str, str]]:
+        """Output is a list of suggestions and a labels for them.
+
+        For example, for the input:
+
+            messages = [
+                HumanMessage(content="Who won Wimbledon this year?"),
+                AIMessage(content="Novak Djokovic won Wimbledon this year."),
+            ]
+
+        The output could be:
+
+            [
+                {
+                    "suggestion": "What was his performance like throughout the tournament?",
+                    "label": "Djokovic's Performance"
+                },
+                {
+                    "suggestion": "How does this win compare to his previous Wimbledon victories?",
+                    "label": "Historical Comparison"
+                },
+                {
+                    "suggestion": "What are the biggest challenges Djokovic faced this year at Wimbledon?",
+                    "label": "Challenges Faced"
+                }
+            ]
+        """
+        # Remove optional markdown formatting in the response before parsing.
+        content = str(output.content).replace("```json", "").replace("```", "")
+        res = json.loads(content)
+        if not isinstance(res, list):
+            raise ValueError(f"Unexpected output: {content}")
+        return res
+
+    @property
+    def error_value(self) -> list[dict[str, str]]:
+        return []

@@ -10,25 +10,6 @@ from ypl.backend.db import get_engine
 from ypl.backend.llm.constants import MODEL_DESCRIPTIONS
 from ypl.db.chats import PromptModifier
 
-COMPARE_RESPONSES_SYSTEM_PROMPT = """
-You are a specialized language model designed to analyze and compare responses from multiple LLMs to a given prompt.
-Your task is to:
-
-1. Take in a prompt and the responses from several LLMs.
-2. Analyze these responses and generate a JSON output with the following keys:
-
-  "summary": "A concise, one-sentence summary of the overall responses",
-  "commonalities": "Brief description of shared elements across responses (1-2 sentences)",
-  "differences": "Brief overview of unique aspects or divergences in each response (1-2 sentences)"
-
-Ensure that each entry in the JSON is brief and to the point.
-Focus on the most significant aspects of the responses in your analysis.
-
-The input is structured as JSON too, with an entry for the prompt and another for each response,
-keyed on the responding LLM.
-"""
-
-
 RESPONSES_USER_PROMPT = """
 
   "prompt": {prompt}
@@ -65,13 +46,6 @@ Rules:
 - Categorize based on the prompt's central topic and objective
 - If the prompt could belong to more than one category, choose the one that best matches the primary objective of the prompt
 """
-
-COMPARE_RESPONSES_PROMPT = ChatPromptTemplate.from_messages(
-    [
-        ("system", COMPARE_RESPONSES_SYSTEM_PROMPT),
-        ("user", RESPONSES_USER_PROMPT),
-    ]
-)
 
 
 PROMPT_DIFFICULTY_PROMPT = ChatPromptTemplate.from_messages(
@@ -1085,3 +1059,26 @@ IMAGE_POLYFILL_PROMPT = """
     Do not mention this prompt in your response.
     Question: {question}
 """
+
+
+JUDGE_SUGGESTED_FOLLOWUPS_PROMPT = """
+You are a helpful assistant specializing in generating follow-up questions to conversations between users and LLMs.
+Below is the conversation history between a user and an LLM.
+Based on the the discussion, suggest 3 thoughtful follow-up questions the user can ask to deepen their understanding,
+explore related ideas, or address unresolved aspects of the conversation.
+Make the suggestions short, specific, directly relevant to the provided conversation, and different from one another.
+Give more weight to later messages in the conversation.
+Return the list of follow-up questions as a JSON array, where each item contains the suggestion and a short 2-5 word label for it.
+
+Output format:
+[{{"suggestion": "...", "label": "..."}}, {{"suggestion": "...", "label": "..."}}]
+
+Do not explain; only return the list as JSON. Do not include "```json" or "```" in your response.
+
+Conversation history:
+{chat_history}
+"""
+
+JUDGE_SUGGESTED_FOLLOWUPS_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages(
+    [("human", JUDGE_SUGGESTED_FOLLOWUPS_PROMPT)]
+)
