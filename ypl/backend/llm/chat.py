@@ -543,6 +543,7 @@ def _get_assistant_messages(
     turn_messages: list[ChatMessage],
     model: str,
     use_all_models_in_chat_history: bool,
+    max_message_length: int | None = None,
 ) -> list[BaseMessage]:
     """Get assistant messages for a turn.
 
@@ -552,7 +553,7 @@ def _get_assistant_messages(
     were selected.
     """
     messages: list[BaseMessage] = []
-    assistant_msgs = [msg for msg in turn_messages if msg.message_type == MessageType.ASSISTANT_MESSAGE]
+    assistant_msgs = [msg for msg in turn_messages if msg.message_type == MessageType.ASSISTANT_MESSAGE and msg.content]
     if not assistant_msgs:
         return messages
 
@@ -560,12 +561,12 @@ def _get_assistant_messages(
         all_content = []
         for msg in assistant_msgs:
             content = msg.content or ""
+            if max_message_length and len(content) > max_message_length:
+                content = content[:max_message_length] + "..."
             if msg.assistant_language_model.internal_name == model:
                 # A previous response from the current assistant.
                 if content:
                     content = "This was your response:\n\n" + content
-                else:
-                    content = "(Your response was empty)"
             else:
                 # A previous response from another assistant.
                 if content:
@@ -576,7 +577,10 @@ def _get_assistant_messages(
             if content:
                 all_content.append(content)
         if all_content:
-            content = ALL_MODELS_IN_CHAT_HISTORY_PREAMBLE + RESPONSE_SEPARATOR.join(all_content)
+            content = ""
+            if model:
+                content += ALL_MODELS_IN_CHAT_HISTORY_PREAMBLE
+            content += RESPONSE_SEPARATOR.join(all_content)
             messages.append(AIMessage(content=content))
     else:
         selected_msg = next(
@@ -605,7 +609,7 @@ def _get_assistant_messages(
     return messages
 
 
-def _get_enhanced_user_message(messages: list[ChatMessage]) -> HumanMessage:
+def _get_enhanced_user_message(messages: list[ChatMessage], max_message_length: int | None = None) -> HumanMessage:
     user_msgs = [msg for msg in messages if msg.message_type == MessageType.USER_MESSAGE]
     if not user_msgs:
         raise ValueError("No user messages found")
@@ -613,8 +617,13 @@ def _get_enhanced_user_message(messages: list[ChatMessage]) -> HumanMessage:
         raise ValueError("Multiple user messages found")
     user_msg = user_msgs[0]
     attachments = user_msg.attachments or []
+    content = (
+        user_msg.content[:max_message_length] + "..."
+        if max_message_length and len(user_msg.content) > max_message_length
+        else user_msg.content
+    )
     return HumanMessage(
-        content=user_msg.content,
+        content=content,
         additional_kwargs={"attachments": attachments},
     )
 
@@ -624,6 +633,9 @@ async def get_curated_chat_context(
     use_all_models_in_chat_history: bool,
     model: str,
     current_turn_id: UUID | None = None,
+    include_current_turn: bool = False,
+    max_messages: int = 1000,
+    max_message_length: int | None = None,
 ) -> list[BaseMessage]:
     """Fetch chat history and format it for OpenAI context.
 
@@ -632,6 +644,7 @@ async def get_curated_chat_context(
         use_all_models_in_chat_history: Whether to include all models in the chat history.
         model: The model to fetch history for.
         current_turn_id: The current turn ID.
+        include_current_turn: Whether to include the current turn in the chat history.
     """
     query = (
         select(ChatMessage)
@@ -647,18 +660,21 @@ async def get_curated_chat_context(
             ChatMessage.deleted_at.is_(None),  # type: ignore[union-attr]
             Turn.deleted_at.is_(None),  # type: ignore[union-attr]
             Chat.deleted_at.is_(None),  # type: ignore[union-attr]
-            Turn.turn_id != current_turn_id,
         )
         .order_by(
             Turn.sequence_id.asc(),  # type: ignore[attr-defined]
             ChatMessage.turn_sequence_number.asc(),  # type: ignore[union-attr]
         )
     )
+    if not include_current_turn:
+        query = query.where(Turn.turn_id != current_turn_id)
 
     formatted_messages: list[BaseMessage] = []
     async with AsyncSession(get_async_engine()) as session:
         result = await session.exec(query)
-        messages = result.unique().all()
+        # Limit to the most recent messages.
+        # Not done in the SQL query, since it orders by ascending turns, but we want to limit to recent messages.
+        messages = result.unique().all()[:max_messages]
 
         # Group messages by turn_id
         turns: defaultdict[UUID, list[ChatMessage]] = defaultdict(list)
@@ -667,9 +683,11 @@ async def get_curated_chat_context(
 
         for turn_messages in turns.values():
             # Get user messages
-            formatted_messages.append(_get_enhanced_user_message(turn_messages))
+            formatted_messages.append(_get_enhanced_user_message(turn_messages, max_message_length))
             # Get assistant messages
-            formatted_messages.extend(_get_assistant_messages(turn_messages, model, use_all_models_in_chat_history))
+            formatted_messages.extend(
+                _get_assistant_messages(turn_messages, model, use_all_models_in_chat_history, max_message_length)
+            )
 
     info = {
         "message": "chat_context",

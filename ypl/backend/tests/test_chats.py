@@ -88,10 +88,6 @@ def test_get_assistant_messages() -> None:
         A response from another assistant:
 
         Response from assistant 3.
-
-        ---
-
-        (Your response was empty)
         """
     ).strip().replace("\n\n---\n\n", RESPONSE_SEPARATOR)
 
