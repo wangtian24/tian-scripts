@@ -71,6 +71,7 @@ class CashoutLimitType(Enum):
     FIRST_TIME = "first time credit"
     RATE_LIMIT = "rate limit"
     NEW_USER_COOLOFF = "new user cooloff"
+    DISABLED = "disabled"
 
 
 class CashoutLimitError(HTTPException):
@@ -87,6 +88,8 @@ class CashoutLimitError(HTTPException):
         # Keep it ambiguous to avoid leaking information about the limit.
         if limit_type == CashoutLimitType.RATE_LIMIT:
             detail = f"Please wait {max_value} seconds before submitting another cashout request"
+        elif limit_type == CashoutLimitType.DISABLED:
+            detail = "Cashout is disabled for your account. Please contact support if you think this is an error."
         elif limit_type == CashoutLimitType.NEW_USER_COOLOFF:
             detail = f"Please wait {current_value} days before submitting a cashout request"
         else:
@@ -417,7 +420,7 @@ async def validate_user_cashout_limits(user_id: str, credits_to_cashout: int) ->
 
             raise CashoutLimitError(
                 period="request",
-                limit_type=CashoutLimitType.RATE_LIMIT,
+                limit_type=CashoutLimitType.DISABLED,
                 current_value=0,
                 max_value=0,
                 user_id=user_id,
