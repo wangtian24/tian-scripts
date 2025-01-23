@@ -100,7 +100,7 @@ class CashoutLimitError(HTTPException):
 
         # Log the error
         log_dict = {
-            "message": f"{period.capitalize()} cashout limit reached",
+            "message": f":x: Failure - {period.capitalize()} cashout limit reached",
             "user_id": user_id,
             "limit_type": limit_type.value,
             "current_value": current_value,
@@ -557,7 +557,9 @@ async def check_facilitator_cashout_killswitch(facilitator: PaymentInstrumentFac
     """Check if there's a cashout killswitch for the given facilitator."""
     redis_client = await get_upstash_redis_client()
     if await redis_client.get(CASHOUT_FACILITATOR_KILLSWITCH_KEY.format(facilitator=facilitator.value)):
-        _log_killswitch_error(f"Cashout is currently disabled for {facilitator.name}", user_id, facilitator)
+        _log_killswitch_error(
+            f":x: Failure - Cashout is currently disabled for {facilitator.name}", user_id, facilitator
+        )
         raise CashoutKillswitchError("Cashout is currently disabled for this payment method")
 
 

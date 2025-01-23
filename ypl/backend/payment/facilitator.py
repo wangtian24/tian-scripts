@@ -264,7 +264,7 @@ class OnChainFacilitator(BaseFacilitator):
                 # Log success
                 end_time = time.time()
                 log_dict = {
-                    "message": "Successfully submitted for crypto cashout",
+                    "message": ":white_check_mark: Success - Crypto cashout submitted",
                     "duration": str(end_time - start_time),
                     "user_id": user_id,
                     "amount": str(amount),
@@ -450,7 +450,7 @@ class OnChainFacilitator(BaseFacilitator):
                 # TODO: Send alert to Slack
                 # do not reverse the transaction here as the txn might still complete
                 log_dict = {
-                    "message": ":red_circle: *Crypto transfer monitoring timed out*",
+                    "message": ":x: Failure - Crypto transfer monitoring timed out",
                     "transaction_id": transfer.transaction_hash,
                     "payment_transaction_id": payment_transaction_id,
                     "points_transaction_id": points_transaction_id,

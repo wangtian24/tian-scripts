@@ -192,7 +192,7 @@ class AxisUpiFacilitator(BaseFacilitator):
                     point_transaction = payment_transaction.credits_transaction
 
                     log_dict = {
-                        "message": "Failed to process payout reward. Reversing transaction.",
+                        "message": ":x: Failure - Failed to process payout reward. Reversing transaction.",
                         "user_id": str(point_transaction.user_id),
                         "payment_transaction_id": str(payment_transaction_id),
                         "customer_reference_id": customer_reference_id,
@@ -252,7 +252,7 @@ class AxisUpiFacilitator(BaseFacilitator):
                         )
                     )
             log_dict = {
-                "message": "Successfully reversed transaction",
+                "message": ":white_check_mark: Success - Reversed transaction",
                 "payment_transaction_id": str(payment_transaction_id),
                 "customer_reference_id": customer_reference_id,
                 "points_transaction_id": str(point_transaction.transaction_id),
@@ -272,7 +272,7 @@ class AxisUpiFacilitator(BaseFacilitator):
             )
         except Exception as e:
             log_dict = {
-                "message": "Could not undo payment transaction",
+                "message": ":x: Failure - Could not undo payment transaction",
                 "payment_transaction_id": str(payment_transaction_id),
                 "customer_reference_id": customer_reference_id,
                 "error": str(e),
@@ -386,7 +386,7 @@ class AxisUpiFacilitator(BaseFacilitator):
             # Axis returns a customer reference ID for failed transactions as well, store it with the failed transaction
             await self.undo_payment_transaction(payment_transaction_id, status.customer_reference_id)
             log_dict = {
-                "message": "Payment failed",
+                "message": ":x: Failure - Payment failed",
                 "payment_transaction_id": str(payment_transaction_id),
                 "partner_reference_id": partner_reference_id,
                 "user_id": user_id,
@@ -415,7 +415,7 @@ class AxisUpiFacilitator(BaseFacilitator):
                         )
             except Exception as e:
                 log_dict = {
-                    "message": "Failed to update payment transaction status to SUCCESS",
+                    "message": ":x: Failure - Failed to update payment transaction status to SUCCESS",
                     "payment_transaction_id": str(payment_transaction_id),
                     "partner_reference_id": partner_reference_id,
                     "user_id": user_id,
@@ -430,7 +430,7 @@ class AxisUpiFacilitator(BaseFacilitator):
                 logging.exception(json_dumps(log_dict))
                 raise PaymentStatusFetchError("Failed to update payment transaction status to SUCCESS") from e
             log_dict = {
-                "message": "Payment successful",
+                "message": ":white_check_mark: Success - Payment successful",
                 "payment_transaction_id": str(payment_transaction_id),
                 "partner_reference_id": partner_reference_id,
                 "user_id": user_id,
@@ -486,7 +486,7 @@ class AxisUpiFacilitator(BaseFacilitator):
             # If we get here, we've timed out
             # Do not reverse the transaction here as the txn might still complete
             log_dict = {
-                "message": ":red_circle: *Axis UPI payment monitoring timed out*",
+                "message": ":x: Failure - Axis UPI payment monitoring timed out",
                 "payment_transaction_id": str(payment_transaction_id),
                 "user_id": user_id,
                 "partner_reference_id": partner_reference_id,
@@ -563,7 +563,7 @@ class AxisUpiFacilitator(BaseFacilitator):
             )
             if balance < amount:
                 log_dict = {
-                    "message": "Source instrument does not have enough balance",
+                    "message": ":x: Failure - Source instrument does not have enough balance",
                     "user_id": user_id,
                     "credits_to_cashout": credits_to_cashout,
                     "amount": str(amount),
@@ -582,7 +582,7 @@ class AxisUpiFacilitator(BaseFacilitator):
             raise
         except Exception as e:
             log_dict = {
-                "message": "Failed to initiate make_payment",
+                "message": ":x: Failure - Failed to initiate make_payment",
                 "user_id": user_id,
                 "error": str(e),
                 "facilitator": self.facilitator,
@@ -704,7 +704,7 @@ class AxisUpiFacilitator(BaseFacilitator):
             )
             payment_response_received = time.time()
             log_dict = {
-                "message": "Successfully sent payment request to the partner",
+                "message": ":white_check_mark: Success - Sent payment request to the partner",
                 "user_id": user_id,
                 "processing_time": payment_response_received - db_inits_done,
                 "payment_transaction_id": str(payment_transaction_id),
@@ -725,7 +725,7 @@ class AxisUpiFacilitator(BaseFacilitator):
             # To be on the safe side, the code talking to the partner may have returned
             # NOT_STARTED as the status, if we do not know the status of the error.
             log_dict = {
-                "message": "Failed to send payment request to the partner",
+                "message": ":x: Failure - Failed to send payment request to the partner",
                 "user_id": user_id,
                 "error": str(e),
                 "facilitator": self.facilitator,
@@ -757,7 +757,8 @@ class AxisUpiFacilitator(BaseFacilitator):
                 )
         db_updates_done = time.time()
         log_dict = {
-            "message": f"Updated payment transaction status to {payment_response.transaction_status}",
+            "message": f":white_check_mark: Success - Updated payment transaction "
+            f"status to {payment_response.transaction_status}",
             "transaction_status": payment_response.transaction_status,
             "user_id": user_id,
             "processing_time": db_updates_done - payment_response_received,
@@ -784,7 +785,7 @@ class AxisUpiFacilitator(BaseFacilitator):
         )
 
         log_dict = {
-            "message": "make_payment completed",
+            "message": ":white_check_mark: Success - make_payment completed",
             "user_id": user_id,
             "processing_time": time.time() - start_time,
             "payment_transaction_id": str(payment_transaction_id),

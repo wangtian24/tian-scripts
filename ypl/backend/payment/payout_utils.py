@@ -422,7 +422,7 @@ async def handle_failed_transaction(
     """
     try:
         log_dict = {
-            "message": "Failed to process payout reward. Reversing transaction.",
+            "message": ":x: Failure - Failed to process payout reward. Reversing transaction.",
             "user_id": user_id,
             "payment_transaction_id": str(payment_transaction_id),
             "points_transaction_id": str(points_transaction_id),
@@ -465,7 +465,7 @@ async def handle_failed_transaction(
                 )
             )
         log_dict = {
-            "message": "Successfully reversed transaction",
+            "message": ":white_check_mark: Success - Reversed transaction",
             "payment_transaction_id": str(payment_transaction_id),
             "points_transaction_id": str(points_transaction_id),
             "user_id": user_id,
@@ -480,7 +480,7 @@ async def handle_failed_transaction(
     except Exception as e:
         error_message = str(e)
         log_dict = {
-            "message": "Failed to handle failed transaction cleanup",
+            "message": ":x: Failure - Failed to handle failed transaction cleanup",
             "payment_transaction_id": str(payment_transaction_id),
             "points_transaction_id": str(points_transaction_id),
             "user_id": user_id,
