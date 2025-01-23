@@ -33,7 +33,7 @@ class AttachmentResponse(BaseModel):
     content_type: str
 
 
-MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
+MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024
 
 
 @router.post("/file/upload", response_model=AttachmentResponse)
@@ -98,7 +98,7 @@ async def upload_file(file: UploadFile = File(...)) -> AttachmentResponse:  # no
                     thumbnail_start = datetime.now()
                     image = Image.open(BytesIO(file_content))
                     original_dimensions = image.size
-                    image.thumbnail((1024, 1024))
+                    image.thumbnail((512, 512))
                     image_bytes = BytesIO()
                     image.save(image_bytes, format="PNG")
                     image_bytes.seek(0)
