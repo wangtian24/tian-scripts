@@ -11,6 +11,7 @@ import requests
 from requests.exceptions import RequestException
 from typing_extensions import TypedDict
 from ypl.backend.llm.utils import post_to_slack
+from ypl.backend.routes.v1.credit import CREDITS_TO_USD_RATE
 from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.utils import fetch_user_names
 
@@ -329,7 +330,7 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
     daily_query = """
     WITH base_data AS (
         SELECT
-            (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles')::date AS date,
+            date_trunc('day', created_at AT TIME ZONE 'America/Los_Angeles')::date AS date,
             SUM(credit_delta) AS total_credits
         FROM
             rewards
@@ -337,11 +338,11 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
             status = 'CLAIMED'
             AND created_at >= NOW() - INTERVAL '2 days'
         GROUP BY
-            (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles')::date
+            date_trunc('day', created_at AT TIME ZONE 'America/Los_Angeles')::date
     ),
     turn_data AS (
         SELECT
-            (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles')::date AS date,
+            date_trunc('day', created_at AT TIME ZONE 'America/Los_Angeles')::date AS date,
             COUNT(turn_id) AS turn_count
         FROM
             turns t
@@ -349,7 +350,7 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
             created_at >= NOW() - INTERVAL '2 days'
             AND deleted_at IS NULL
         GROUP BY
-            (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles')::date
+            date_trunc('day', created_at AT TIME ZONE 'America/Los_Angeles')::date
     ),
     combined_data AS (
         SELECT
@@ -379,7 +380,7 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
     weekly_query = """
     WITH base_data AS (
         SELECT
-            (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles')::date AS date,
+            date_trunc('day', created_at AT TIME ZONE 'America/Los_Angeles')::date AS date,
             SUM(credit_delta) AS total_credits
         FROM
             rewards
@@ -387,11 +388,11 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
             status = 'CLAIMED'
             AND created_at >= NOW() - INTERVAL '90 days'
         GROUP BY
-            (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles')::date
+            date_trunc('day', created_at AT TIME ZONE 'America/Los_Angeles')::date
     ),
     turn_data AS (
         SELECT
-            (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles')::date AS date,
+            date_trunc('day', created_at AT TIME ZONE 'America/Los_Angeles')::date AS date,
             COUNT(turn_id) AS turn_count
         FROM
             turns t
@@ -399,7 +400,7 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
             created_at >= NOW() - INTERVAL '90 days'
             AND deleted_at IS NULL
         GROUP BY
-            (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Los_Angeles')::date
+            date_trunc('day', created_at AT TIME ZONE 'America/Los_Angeles')::date
     ),
     combined_data AS (
         SELECT
@@ -466,6 +467,7 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
                     f"Credits Claimed Yesterday: {yesterday_metrics.total_credits:,.0f} "
                     f"({yesterday_metrics.turn_count:,} turns, "
                     f"{yesterday_metrics.credits_per_turn:,d} credits/turn)\n"
+                    f"Corresponding USD: {yesterday_metrics.total_credits * CREDITS_TO_USD_RATE:,.2f}\n"
                 )
 
                 if start_date.weekday() == 6:
@@ -480,6 +482,7 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
                             f"{weekly_metrics.total_credits:,.0f} "
                             f"({weekly_metrics.turn_count:,} turns, "
                             f"{weekly_metrics.credits_per_turn:,d} credits/turn)"
+                            f"Corresponding USD: {weekly_metrics.total_credits * CREDITS_TO_USD_RATE:,.2f}\n"
                         )
                     if monthly_metrics:
                         message += (
@@ -487,6 +490,7 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
                             f"{monthly_metrics.total_credits:,.0f} "
                             f"({monthly_metrics.turn_count:,} turns, "
                             f"{monthly_metrics.credits_per_turn:,d} credits/turn)"
+                            f"Corresponding USD: {monthly_metrics.total_credits * CREDITS_TO_USD_RATE:,.2f}\n"
                         )
                     if quarterly_metrics:
                         quarter = (quarterly_metrics.period_start.month - 1) // 3 + 1
@@ -496,6 +500,7 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
                             f"{quarterly_metrics.total_credits:,.0f} "
                             f"({quarterly_metrics.turn_count:,} turns, "
                             f"{quarterly_metrics.credits_per_turn:,d} credits/turn)"
+                            f"Corresponding USD: {quarterly_metrics.total_credits * CREDITS_TO_USD_RATE:,.2f}\n"
                         )
 
                 analytics_webhook_url = os.environ.get("ANALYTICS_SLACK_WEBHOOK_URL")
