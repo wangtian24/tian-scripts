@@ -164,6 +164,8 @@ async def post_to_slack_with_user_name(
             parsed = json.loads(message)
             parsed["name"] = user_name
             extracted_message = parsed.get("message", "")
+            if "message" in parsed:
+                del parsed["message"]
             formatted_json = json.dumps(parsed, indent=2, ensure_ascii=False, sort_keys=True)
             message = f"{user_name}:{' ' if extracted_message else ''}{extracted_message}\n```{formatted_json}\n```"
         except json.JSONDecodeError:
