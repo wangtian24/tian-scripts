@@ -742,6 +742,7 @@ def test_context_length_filter(mock_context_lengths: Mock) -> None:
 )
 @patch("ypl.backend.llm.chat.store_modifiers", return_value=None)
 @patch("ypl.backend.llm.chat.get_shown_models")
+@patch("ypl.backend.llm.routing.router._get_good_and_bad_models", return_value=(set(), set()))
 @patch("ypl.backend.llm.routing.router_state.RouterState.get_all_models", return_value=set(ACTIVE_MODELS))
 @patch("ypl.backend.llm.routing.modules.rankers.deduce_model_speed_scores", return_value={})
 @patch("ypl.backend.llm.routing.modules.filters.deduce_original_providers", return_value=PROVIDER_MAP)
@@ -761,6 +762,7 @@ async def test_select_models_plus(
     mock_deduce_original_providers3: Mock,
     mock_deduce_model_speed_scores: Mock,
     mock_get_all_models: Mock,
+    mock_get_good_and_bad_models: Mock,
     mock_get_shown_models: Mock,
     mock_store_modifiers: Mock,
     mock_get_model_context_lengths: Mock,

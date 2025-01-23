@@ -84,12 +84,12 @@ class TopK(ModelFilter):
     scores of the models.
     """
 
-    def __init__(self, k: int, persist: bool = True) -> None:
+    def __init__(self, k: int, name: str | None = None, persist: bool = True) -> None:
         """
         Args:
             k: The number of top-k models to select.
         """
-        super().__init__(name=f"-topK({k})", persist=persist)
+        super().__init__(name=f"-topK-{name}({k})" if name else f"-topK{k}", persist=persist)
         self.k = k
 
     def _filter(self, state: RouterState) -> tuple[RouterState, set[str]]:

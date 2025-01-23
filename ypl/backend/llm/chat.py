@@ -202,20 +202,12 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         show_me_more_models = shown_models[-request.num_models :]
         preference.turns.append(PreferredModel(models=list(dict.fromkeys(shown_models)), preferred=None))
 
-    if request.intent == SelectIntent.NEW_TURN and preference.turns and not preference.turns[-1].has_evaluation:
-        models = list(dict.fromkeys(preference.turns[-1].models + (request.required_models or [])))
-    else:
-        models = request.required_models or []
-
+    # Actually do the model selection (routing)
     selected_models_rs, fallback_models_rs = await select_models_(
-        required_models=models,
+        required_models=request.required_models,  # the only required models must be from the request (user)
         show_me_more_models=show_me_more_models,
         provided_categories=request.provided_categories,
     )
-
-    # TODO(tian) - redundant??
-    # models = models[: request.num_models]
-    # fallback_models = fallback_models[: request.num_models]
 
     selected_models = selected_models_rs.get_sorted_selected_models()
     fallback_models = fallback_models_rs.get_sorted_selected_models()
@@ -257,12 +249,12 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         asyncio.create_task(store_modifiers(request.turn_id, prompt_modifiers))
 
     # increment counters
-    metric_inc_by("routing/count_models_served", len(models))
-    if len(models) > 0:
-        metric_inc(f"routing/count_first_{models[0]}")
-    if len(models) > 1:
-        metric_inc(f"routing/count_second_{models[1]}")
-    for model in models:
+    metric_inc_by("routing/count_models_served", len(selected_models))
+    if len(selected_models) > 0:
+        metric_inc(f"routing/count_first_{selected_models[0]}")
+    if len(selected_models) > 1:
+        metric_inc(f"routing/count_second_{selected_models[1]}")
+    for model in selected_models:
         metric_inc(f"routing/count_chosen_{model}")
     metric_record(f"routing/latency_{request.intent}_ms", int((time.time() - start_time) * 1000))
 
