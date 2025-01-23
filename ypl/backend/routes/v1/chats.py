@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from ypl.backend.db import get_async_engine
+from ypl.backend.db import get_async_engine, get_async_session
 from ypl.backend.llm.chat import (
     PromptModifierInfo,
     QuickTakeRequest,
@@ -25,7 +25,7 @@ from ypl.backend.llm.chat import (
 from ypl.backend.llm.turn_quality import label_turn_quality
 from ypl.backend.rw_cache import TurnQualityCache
 from ypl.backend.utils.json import json_dumps
-from ypl.db.chats import Chat, ChatMessage, Turn, TurnQuality
+from ypl.db.chats import Chat, ChatMessage, SuggestedTurnPrompt, Turn, TurnQuality
 
 # Maximum number of pinned chats for a user.
 MAX_PINNED_CHATS = 10
@@ -384,7 +384,7 @@ async def get_turn_annotations(
 ) -> TurnAnnotationsResponse:
     response = TurnAnnotationsResponse()
     try:
-        async with AsyncSession(get_async_engine()) as session:
+        async with get_async_session() as session:
             stmt = select(TurnQuality.prompt_difficulty_details).where(TurnQuality.turn_id == turn_id)  # type: ignore
             result = await session.execute(stmt)
             details = result.scalar_one_or_none()
@@ -400,3 +400,31 @@ async def get_turn_annotations(
         logging.exception(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
     return response
+
+
+class SuggestedFollowup(BaseModel):
+    prompt: str
+    summary: str
+
+
+class SuggestedFollowupResponse(BaseModel):
+    followups: list[SuggestedFollowup]
+
+
+@router.get("/turns/{turn_id}/suggested_followups", response_model=SuggestedFollowupResponse)
+async def get_suggested_followups(turn_id: UUID) -> SuggestedFollowupResponse:
+    try:
+        async with get_async_session() as session:
+            stmt = select(SuggestedTurnPrompt).where(
+                SuggestedTurnPrompt.turn_id == turn_id,  # type: ignore
+                SuggestedTurnPrompt.deleted_at.is_(None),  # type: ignore
+            )
+            result = await session.execute(stmt)
+            suggested_followups = result.scalars().all()
+            return SuggestedFollowupResponse(
+                followups=[SuggestedFollowup(prompt=sf.prompt, summary=sf.summary) for sf in suggested_followups]
+            )
+    except Exception as e:
+        log_dict = {"message": f"Error getting suggested followups for turn {turn_id}: {str(e)}"}
+        logging.exception(json_dumps(log_dict))
+        raise HTTPException(status_code=500, detail=str(e)) from e
