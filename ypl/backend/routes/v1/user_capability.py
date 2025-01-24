@@ -51,6 +51,17 @@ async def create_cashout_override(request: CashoutOverrideRequest) -> str:
     Returns:
         The ID of the created capability override
     """
+    log_dict = {
+        "message": "Creating cashout override",
+        "user_id": request.user_id,
+        "creator_user_id": request.creator_user_id,
+        "status": str(request.status),
+        "reason": request.reason,
+        "override_config": str(request.override_config or ""),
+    }
+    logging.info(json_dumps(log_dict))
+    if request.creator_user_id == "request.user_id":
+        raise HTTPException(status_code=400, detail="Internal Error")
     try:
         async with get_async_session() as session:
             capability_stmt = select(Capability).where(
@@ -91,6 +102,7 @@ async def create_cashout_override(request: CashoutOverrideRequest) -> str:
             log_dict = {
                 "message": "Successfully created cashout override",
                 "user_id": request.user_id,
+                "creator_user_id": request.creator_user_id,
                 "status": str(request.status),
                 "reason": request.reason,
                 "override_config": str(override_config or ""),
