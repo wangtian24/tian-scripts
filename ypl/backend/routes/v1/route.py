@@ -21,7 +21,11 @@ async def select_models(
     budget: float = Query(default=float("inf"), description="Budget"),
     preference: None | RoutingPreference = Body(default=None, description="List of past outcomes"),  # noqa: B008
 ) -> list[str]:
-    router = await get_simple_pro_router(prompt, num_models, preference)
+    router = await get_simple_pro_router(
+        prompt,
+        num_models,
+        preference or RoutingPreference(turns=[], user_id=None, user_selected_models=[], same_turn_shown_models=[]),
+    )
     all_models_state = RouterState.new_all_models_state()
     selected_models = router.select_models(state=all_models_state)
     return_models = selected_models.get_sorted_selected_models()

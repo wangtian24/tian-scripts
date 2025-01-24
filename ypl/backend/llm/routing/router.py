@@ -56,7 +56,7 @@ OFFLINE_CATEGORY = "offline"
 async def get_simple_pro_router(
     prompt: str,
     num_models: int,
-    routing_preference: RoutingPreference | None = None,
+    preference: RoutingPreference,
     reputable_providers: set[str] | None = None,
     user_selected_models: list[str] | None = None,
     show_me_more_models: list[str] | None = None,
@@ -67,8 +67,6 @@ async def get_simple_pro_router(
     The main routing function.
     """
     from ypl.backend.llm.routing.rule_router import RoutingRuleFilter, RoutingRuleProposer
-
-    preference = routing_preference or RoutingPreference(turns=[], user_id=None)
 
     reputable_proposer = RandomModelProposer(
         for_criteria=SelectionCriteria.RANDOM_REPUTABLE,

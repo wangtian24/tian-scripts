@@ -247,10 +247,10 @@ def get_model_context_lengths() -> dict[str, int]:
         return {name: length for name, length in results if length is not None}
 
 
-def get_preferences(user_id: str | None, chat_id: str) -> tuple[RoutingPreference, list[str]]:
+def get_preferences(user_id: str | None, chat_id: str, turn_id: str) -> RoutingPreference:
     """Returns the preferences and user-selected models for the given chat ID."""
-    # Note that right now we don't use user_id in SQL query or forcing it to match the chat_id,
-    # but we can do it after the frontend is updated for more security.
+
+    # Use chat id to get all turns happened previously in this chat, oldest first.
     sql_query = text(
         """
         SELECT cm.assistant_model_name, t.turn_id, t.creator_user_id,
@@ -260,7 +260,7 @@ def get_preferences(user_id: str | None, chat_id: str) -> tuple[RoutingPreferenc
             LEFT JOIN message_evals me ON me.message_id = cm.message_id
             LEFT JOIN evals e ON e.eval_id = me.eval_id
         WHERE t.chat_id = :chat_id AND cm.message_type = 'ASSISTANT_MESSAGE'
-        ORDER BY cm.created_at DESC
+        ORDER BY cm.created_at ASC
         LIMIT 100
         """
     )
@@ -271,13 +271,13 @@ def get_preferences(user_id: str | None, chat_id: str) -> tuple[RoutingPreferenc
 
     df_rows = []
 
-    for row in reversed(rows):  # reverse to get the oldest turn first
-        model_name, turn_id, creator_user_id, eval_type, score, selection_src = row
+    for row in rows:
+        model_name, db_turn_id, creator_user_id, eval_type, score, selection_src = row
         df_rows.append(
             dict(
                 model_name=model_name,
-                turn_id=turn_id,
-                creator_user_id=creator_user_id,
+                turn_id=str(db_turn_id),
+                creator_user_id=str(creator_user_id),
                 eval_type=eval_type,
                 score=score,
                 selection_src=selection_src,
@@ -285,43 +285,42 @@ def get_preferences(user_id: str | None, chat_id: str) -> tuple[RoutingPreferenc
         )
 
     if not df_rows:
-        return RoutingPreference(turns=[], user_id=user_id), []
+        return RoutingPreference(turns=[], user_selected_models=[], user_id=user_id, same_turn_shown_models=[])
 
     df = pd.DataFrame(df_rows)
-    preferred_models_list = []
+    turns_list = []
+    same_turn_shown_models = []
 
+    # go through turns from oldest to newest and extract their preferred models if any.
     for _, gdf in df.groupby("turn_id", sort=False):
-        gdf = gdf[gdf["selection_src"] == "ROUTER_SELECTED"]
-        evaluated_models = gdf[gdf["eval_type"].isin(["SELECTION", "ALL_BAD"])]["model_name"].tolist()
-
-        if not evaluated_models:
-            preferred_models_list.append(
-                PreferredModel(models=gdf["model_name"].tolist(), preferred=None, has_evaluation=False)
-            )
-            continue
-
+        cur_turn_id = str(gdf["turn_id"].tolist()[0])
         all_models = gdf["model_name"].tolist()
+
+        evaluated_models = gdf[gdf["eval_type"].isin(["SELECTION", "DOWNVOTE", "ALL_BAD"])]["model_name"].tolist()
+        has_eval = len(evaluated_models) > 0
+
         preferred_models = gdf[(gdf["eval_type"] == "SELECTION") & (gdf["score"] == 100.0)]["model_name"].tolist()
         preferred_model = preferred_models[0] if preferred_models else None
-        preferred_models_list.append(PreferredModel(models=all_models, preferred=preferred_model))
 
+        # store information for this turn
+        turns_list.append(PreferredModel(models=all_models, preferred=preferred_model, has_evaluation=has_eval))
+
+        # check if we are in "Show Me More" mode, where the turn_id will be the same.
+        if turn_id == cur_turn_id:
+            same_turn_shown_models = list(all_models)
+
+    # Collect user-selected models from all turns. this way to infer the user-selected models is not ideal, as
+    # not all user-selected models are necessarily shown before (if we allow more user selected models than we display).
     user_selected_models = list(dict.fromkeys(df[df["selection_src"] == "USER_SELECTED"]["model_name"].tolist()))
 
     user_id = df["creator_user_id"].tolist()[0]
 
-    return RoutingPreference(turns=preferred_models_list, user_id=user_id), user_selected_models
-
-
-def get_shown_models(turn_id: str) -> list[str]:
-    """Returns the models shown to the user for the given turn ID."""
-    query = (
-        select(ChatMessage.assistant_model_name)
-        .where(ChatMessage.turn_id == UUID(turn_id), ChatMessage.message_type == MessageType.ASSISTANT_MESSAGE)
-        .order_by(ChatMessage.created_at)  # type: ignore[arg-type]
+    return RoutingPreference(
+        turns=turns_list,
+        user_id=user_id,
+        user_selected_models=user_selected_models,
+        same_turn_shown_models=same_turn_shown_models,
     )
-
-    with Session(get_engine()) as session:
-        return session.exec(query).all()  # type: ignore[return-value]
 
 
 def get_chat(chat_id: str) -> Chat:

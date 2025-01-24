@@ -558,7 +558,12 @@ async def test_simple_pro_router(
 
     all_selected_models = set()
     for _ in range(50):
-        router = await get_simple_pro_router(prompt="", num_models=2, reputable_providers=reputable_providers)
+        router = await get_simple_pro_router(
+            prompt="",
+            num_models=2,
+            reputable_providers=reputable_providers,
+            preference=RoutingPreference(turns=[], user_id="123", user_selected_models=[], same_turn_shown_models=[]),
+        )
         selected_models = router.select_models(state=state).get_sorted_selected_models()
         assert len(selected_models) == 2
         assert (selected_models[0] in reputable_providers) or (selected_models[1] in reputable_providers)
@@ -571,14 +576,26 @@ async def test_simple_pro_router(
     # Test that we get the same models if we specify them.
     for _ in range(10):
         router = await get_simple_pro_router(
-            prompt="", num_models=2, reputable_providers=reputable_providers, user_selected_models=["model1", "model2"]
+            prompt="",
+            num_models=2,
+            reputable_providers=reputable_providers,
+            preference=RoutingPreference(
+                turns=[], user_id="123", user_selected_models=["model1", "model2"], same_turn_shown_models=[]
+            ),
+            user_selected_models=["model1", "model2"],
         )
         selected_models = router.select_models(state=state).get_sorted_selected_models()
         assert selected_models == ["model1", "model2"]
 
     for _ in range(10):
         router = await get_simple_pro_router(
-            prompt="", num_models=1, reputable_providers=reputable_providers, user_selected_models=["model1"]
+            prompt="",
+            num_models=1,
+            reputable_providers=reputable_providers,
+            preference=RoutingPreference(
+                turns=[], user_id="123", user_selected_models=["model1"], same_turn_shown_models=[]
+            ),
+            user_selected_models=["model1"],
         )
         selected_models = router.select_models(state=state).get_sorted_selected_models()
         assert "model1" in selected_models
@@ -598,7 +615,13 @@ async def test_simple_pro_router(
     mock_semantic_group_map.return_value = {"model1": "group1", "model2": "group1"}
 
     router = await get_simple_pro_router(
-        prompt="", num_models=1, reputable_providers=reputable_providers, user_selected_models=["model2"]
+        prompt="",
+        num_models=1,
+        reputable_providers=reputable_providers,
+        preference=RoutingPreference(
+            turns=[], user_id="123", user_selected_models=["model2"], same_turn_shown_models=[]
+        ),
+        user_selected_models=["model2"],
     )
 
     for _ in range(15):
@@ -607,7 +630,13 @@ async def test_simple_pro_router(
         assert "model2" in selected_models and "model1" not in selected_models
 
     router_two_selected_models = await get_simple_pro_router(
-        prompt="", num_models=2, reputable_providers=reputable_providers, user_selected_models=["model2", "model1"]
+        prompt="",
+        num_models=2,
+        reputable_providers=reputable_providers,
+        preference=RoutingPreference(
+            turns=[], user_id="123", user_selected_models=["model2", "model1"], same_turn_shown_models=[]
+        ),
+        user_selected_models=["model2", "model1"],
     )
     for _ in range(5):
         state = RouterState(all_models=models)
@@ -741,7 +770,6 @@ def test_context_length_filter(mock_context_lengths: Mock) -> None:
     return_value={m: 1000000 for m in ACTIVE_MODELS},
 )
 @patch("ypl.backend.llm.chat.store_modifiers", return_value=None)
-@patch("ypl.backend.llm.chat.get_shown_models")
 @patch("ypl.backend.llm.routing.router._get_good_and_bad_models", return_value=(set(), set()))
 @patch("ypl.backend.llm.routing.router_state.RouterState.get_all_models", return_value=set(ACTIVE_MODELS))
 @patch("ypl.backend.llm.routing.modules.rankers.deduce_model_speed_scores", return_value={})
@@ -763,7 +791,6 @@ async def test_select_models_plus(
     mock_deduce_model_speed_scores: Mock,
     mock_get_all_models: Mock,
     mock_get_good_and_bad_models: Mock,
-    mock_get_shown_models: Mock,
     mock_store_modifiers: Mock,
     mock_get_model_context_lengths: Mock,
     mock_get_routing_table: Mock,
@@ -778,14 +805,25 @@ async def test_select_models_plus(
     MockTopicCategorizer: Mock,
     MockModifierLabeler: Mock,
 ) -> None:
-    mock_get_preferences.side_effect = lambda *args, **kwargs: (RoutingPreference(turns=[], user_id="user"), [])
+    mock_get_preferences.side_effect = lambda *args, **kwargs: RoutingPreference(
+        turns=[], user_id="user", user_selected_models=[], same_turn_shown_models=[]
+    )
     mock_make_default_from_db.return_value = CategorizedPromptModifierSelector.make_default()
+    show_me_more_models = random.sample(IMAGE_ATTACHMENT_MODELS, 3)
 
     def make_image_request(intent: SelectIntent) -> SelectModelsV2Request:
         if intent == SelectIntent.SHOW_ME_MORE:
-            mock_get_shown_models.return_value = random.sample(IMAGE_ATTACHMENT_MODELS, 3)
+            mock_get_preferences.side_effect = lambda *args, **kwargs: RoutingPreference(
+                turns=[],
+                user_id="user",
+                user_selected_models=[],
+                same_turn_shown_models=show_me_more_models,
+            )
         else:
-            mock_get_shown_models.return_value = []
+            mock_get_preferences.side_effect = lambda *args, **kwargs: RoutingPreference(
+                turns=[], user_id="user", user_selected_models=[], same_turn_shown_models=[]
+            )
+
         return SelectModelsV2Request(
             prompt=None if intent == SelectIntent.SHOW_ME_MORE else "hi",
             num_models=2,

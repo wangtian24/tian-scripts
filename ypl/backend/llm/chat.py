@@ -30,7 +30,6 @@ from ypl.backend.llm.db_helpers import (
     get_chat_model,
     get_model_context_lengths,
     get_preferences,
-    get_shown_models,
     get_user_message,
 )
 from ypl.backend.llm.labeler import QT_CANT_ANSWER, MultiLLMLabeler, QuickTakeGenerator
@@ -39,7 +38,7 @@ from ypl.backend.llm.model_heuristics import ModelHeuristics
 from ypl.backend.llm.prompt_selector import CategorizedPromptModifierSelector, get_modifiers_by_model, store_modifiers
 from ypl.backend.llm.provider.provider_clients import get_model_provider_tuple
 from ypl.backend.llm.routing.debug import RoutingDebugInfo, build_routing_debug_info
-from ypl.backend.llm.routing.route_data_type import PreferredModel, RoutingPreference
+from ypl.backend.llm.routing.route_data_type import RoutingPreference
 from ypl.backend.llm.routing.router_state import RouterState
 from ypl.backend.llm.transform_messages import transform_user_messages
 from ypl.backend.llm.turn_quality import label_turn_quality
@@ -177,11 +176,14 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
     logging.debug(json_dumps({"message": "select_models_plus request"} | request.model_dump(mode="json")))
 
     async def select_models_(
-        required_models: list[str] | None = None,
-        show_me_more_models: list[str] | None = None,
+        preference: RoutingPreference,
         provided_categories: list[str] | None = None,
     ) -> tuple[RouterState, RouterState]:
         num_models = request.num_models
+        # remove all same-turn already-shown user-selected models (when it's SMM) so we don't inject them again
+        user_selected_models = [
+            m for m in (preference.user_selected_models or []) if m not in (preference.same_turn_shown_models or [])
+        ]
         provided_categories = provided_categories or []
 
         if IMAGE_CATEGORY not in provided_categories and request.intent == SelectIntent.NEW_TURN and request.chat_id:
@@ -194,8 +196,8 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
             prompt,
             num_models,
             preference,
-            user_selected_models=required_models,
-            show_me_more_models=show_me_more_models,
+            user_selected_models=user_selected_models,
+            show_me_more_models=preference.same_turn_shown_models or [],
             provided_categories=provided_categories,
             extra_prefix="PRIMARY-",
         )
@@ -203,13 +205,16 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         selected_models_rs = router.select_models(state=all_models_state)
 
         # select N more models as fallback, not same as first N
+        # we need to exclude user-selected models already used in the primary selection.
+        updated_user_selected_models = [m for m in user_selected_models if m not in selected_models_rs.selected_models]
+        preference.user_selected_models = updated_user_selected_models
         router = await get_simple_pro_router(
             prompt,
             num_models,
             preference,
-            # do not include user selected models already used
-            user_selected_models=[m for m in (required_models or []) if m not in selected_models_rs.selected_models],
-            show_me_more_models=show_me_more_models,
+            # exclude the user selected models already used in the primary selection
+            user_selected_models=updated_user_selected_models,
+            show_me_more_models=preference.same_turn_shown_models or [],
             provided_categories=provided_categories,
             extra_prefix="FALLBACK-",
         )
@@ -234,34 +239,27 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
             assert request.turn_id is not None, "turn_id is required for SHOW_ME_MORE intent"
             prompt = get_user_message(request.turn_id)
 
+    # get information about previous turns (models shown, preferred, user-selected, etc)
     match request.intent:
-        case SelectIntent.NEW_TURN:
-            preference, user_selected_models = get_preferences(request.user_id, request.chat_id)  # type: ignore[arg-type]
-            request.required_models = list(dict.fromkeys(user_selected_models + (request.required_models or [])))
-        case SelectIntent.SHOW_ME_MORE:
-            preference, user_selected_models = get_preferences(request.user_id, request.chat_id)  # type: ignore[arg-type]
-            preference.turns = preference.turns or []
-            preference.turns.append(PreferredModel(models=user_selected_models, preferred=None))
-            request.required_models = []
+        case SelectIntent.SHOW_ME_MORE | SelectIntent.NEW_TURN:
+            assert (
+                request.chat_id is not None and request.turn_id is not None
+            ), "chat_id is required for SHOW_ME_MORE and NEW_TURN intent"
+            preference = get_preferences(request.user_id, request.chat_id, request.turn_id)
         case _:
-            preference = RoutingPreference(turns=[], user_id=request.user_id)
+            # NEW_CHAT or any other situation, no previous turn information needed.
+            preference = RoutingPreference(
+                turns=[],
+                user_selected_models=request.required_models or [],  # get from the request
+                same_turn_shown_models=[],
+                user_id=request.user_id,
+            )
 
     preference.debug_level = request.debug_level
-    show_me_more_models = []
-
-    if request.intent == SelectIntent.SHOW_ME_MORE:
-        shown_models = get_shown_models(request.turn_id)  # type: ignore[arg-type]
-
-        if preference.turns is None:
-            preference.turns = []
-
-        show_me_more_models = shown_models[-request.num_models :]
-        preference.turns.append(PreferredModel(models=list(dict.fromkeys(shown_models)), preferred=None))
 
     # Actually do the model selection (routing)
     selected_models_rs, fallback_models_rs = await select_models_(
-        required_models=request.required_models,  # the only required models must be from the request (user)
-        show_me_more_models=show_me_more_models,
+        preference=preference,
         provided_categories=request.provided_categories,
     )
     selected_models = selected_models_rs.get_sorted_selected_models()
