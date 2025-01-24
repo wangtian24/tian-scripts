@@ -10,6 +10,7 @@ from sqlmodel import col, or_, select
 from ypl.backend.db import get_async_session
 from ypl.backend.utils.json import json_dumps
 from ypl.db.invite_codes import SpecialInviteCode, SpecialInviteCodeClaimLog
+from ypl.db.payments import PaymentInstrument
 from ypl.db.users import User, UserStatus
 
 router = APIRouter()
@@ -68,6 +69,11 @@ async def get_users(query: str) -> UserSearchResponse:
     Returns:
         List of matching users with their ID, name, email, created_at, deleted_at, points and status
     """
+    log_dict = {
+        "message": "Searching for users",
+        "query": query,
+    }
+    logging.info(json_dumps(log_dict))
     try:
         async with get_async_session() as session:
             search = f"%{query}%"
@@ -75,6 +81,7 @@ async def get_users(query: str) -> UserSearchResponse:
                 or_(
                     col(User.name).ilike(search),
                     col(User.user_id).ilike(search),
+                    col(User.email).ilike(search),
                 )
             )
 
@@ -82,9 +89,38 @@ async def get_users(query: str) -> UserSearchResponse:
             users = result.scalars().all()
 
             log_dict = {
-                "message": "Users found for search query",
+                "message": "Users found for search query in users table",
                 "query": query,
-                "users_count": len(users),
+                "users_count": str(len(users)),
+            }
+            logging.info(json_dumps(log_dict))
+
+            if len(users) > 0:
+                return UserSearchResponse(
+                    users=[
+                        UserSearchResult(
+                            user_id=user.user_id,
+                            name=user.name,
+                            email=user.email,
+                            created_at=user.created_at,
+                            deleted_at=user.deleted_at,
+                            points=user.points,
+                            status=user.status,
+                        )
+                        for user in users
+                    ]
+                )
+
+            # if this is not a user related data point, look for payment instrument
+            stmt = select(User).join(PaymentInstrument).where(col(PaymentInstrument.identifier).ilike(search))
+
+            result = await session.execute(stmt)
+            users = result.scalars().all()
+
+            log_dict = {
+                "message": "Users found for search query in payment instruments",
+                "query": query,
+                "users_count": str(len(users)),
             }
             logging.info(json_dumps(log_dict))
 
@@ -123,6 +159,11 @@ async def get_related_users(user_id: str = Path(..., description="User ID")) -> 
     - relationship_type: Type of relationship (parent/child)
     - relationship_basis: Basis of relationship
     """
+    log_dict = {
+        "message": "Getting related users",
+        "user_id": user_id,
+    }
+    logging.info(json_dumps(log_dict))
     try:
         async with get_async_session() as session:
             parent = await _get_parent_user(session, user_id)
@@ -137,15 +178,15 @@ async def get_related_users(user_id: str = Path(..., description="User ID")) -> 
             log_dict = {
                 "message": "Related users found",
                 "user_id": user_id,
-                "related_users_count_including_siblings": len(related_users),
-                "parent_count": len(
-                    [user for user in related_users if user.relationship_type == RelationshipType.PARENT]
+                "related_users_count_including_siblings": str(len(related_users)),
+                "parent_count": str(
+                    len([user for user in related_users if user.relationship_type == RelationshipType.PARENT])
                 ),
-                "child_count": len(
-                    [user for user in related_users if user.relationship_type == RelationshipType.CHILD]
+                "child_count": str(
+                    len([user for user in related_users if user.relationship_type == RelationshipType.CHILD])
                 ),
-                "sibling_count": len(
-                    [user for user in related_users if user.relationship_type == RelationshipType.SIBLING]
+                "sibling_count": str(
+                    len([user for user in related_users if user.relationship_type == RelationshipType.SIBLING])
                 ),
             }
             logging.info(json_dumps(log_dict))

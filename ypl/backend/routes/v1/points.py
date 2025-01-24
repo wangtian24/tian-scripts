@@ -45,6 +45,13 @@ async def get_points_transactions(
     Returns:
         List of point transactions with their details and a flag indicating if more rows exist
     """
+    log_dict = {
+        "message": "Getting points transactions",
+        "user_id": user_id,
+        "limit": limit,
+        "offset": offset,
+    }
+    logging.info(json_dumps(log_dict))
     try:
         async with get_async_session() as session:
             stmt = (

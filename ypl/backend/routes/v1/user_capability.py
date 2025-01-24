@@ -116,7 +116,6 @@ async def create_cashout_override(request: CashoutOverrideRequest) -> str:
             existing_overrides = (await session.exec(existing_overrides_stmt)).all()
             for existing_override in existing_overrides:
                 existing_override.deleted_at = datetime.now(UTC)
-                existing_override.creator_user_id = user.user_id
 
             override_config = None
             if request.override_config:

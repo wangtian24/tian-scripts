@@ -123,6 +123,11 @@ async def get_user_events(
 
 async def create_new_event(request: CreateEventRequest) -> EventResponse | None:
     """Create a new event."""
+    log_dict = {
+        "message": "Creating event",
+        "request": request,
+    }
+    logging.info(json_dumps(log_dict))
     try:
         async with get_async_session() as session:
             event = Event(

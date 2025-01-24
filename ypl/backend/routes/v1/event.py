@@ -11,7 +11,7 @@ from ypl.backend.event.event import (
     get_user_events,
 )
 
-router = APIRouter(prefix="/admin", tags=["admin"])
+router = APIRouter(prefix="/admin")
 
 
 @router.get("/events")
