@@ -1,6 +1,5 @@
 import logging
 import math
-import random
 import re
 from collections.abc import Sequence
 from functools import lru_cache
@@ -11,7 +10,6 @@ import pandas as pd
 from cachetools.func import ttl_cache
 from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_mistralai import ChatMistralAI
 from langchain_openai import ChatOpenAI
@@ -29,7 +27,6 @@ from ypl.backend.llm.constants import (
 from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.routing.route_data_type import PreferredModel, RoutingPreference
 from ypl.backend.utils.json import json_dumps
-from ypl.db.attachments import Attachment
 from ypl.db.chats import Chat, ChatMessage, MessageType
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
 from ypl.utils import async_timed_cache
@@ -238,7 +235,7 @@ def get_image_attachment_models() -> Sequence[str]:
         return image_attachment_models
 
 
-@ttl_cache(ttl=900)  # 15-min cache
+@ttl_cache(ttl=86400)  # 1 day cache
 def get_model_context_lengths() -> dict[str, int]:
     query = select(LanguageModel.internal_name, LanguageModel.context_window_tokens).where(
         LanguageModel.deleted_at.is_(None),  # type: ignore
@@ -248,149 +245,6 @@ def get_model_context_lengths() -> dict[str, int]:
     with Session(get_engine()) as session:
         results = session.exec(query).all()
         return {name: length for name, length in results if length is not None}
-
-
-def get_chat_history(
-    chat_id: str,
-    turn_id: str | None = None,
-    merge_method: str = "single-thread-random",  # noqa: C901
-    last_num_turns: int = 100,
-) -> list[BaseMessage]:
-    """
-    Returns the chat history for the given chat ID.
-
-    Args:
-        chat_id: The ID of the chat to get the history for.
-        turn_id: The ID of the last turn to include in the history. If None, the history will include all turns.
-        merge_method: The method to use to merge the chat history if there are multiple assistant messages. Currently
-            only "single-thread-random" is supported, e.g., randomly select one of the assistant messages if none are
-            explicitly selected by the user.
-
-    Returns:
-        A sequence of {"content": str, "role": str} objects, where role is one of "user", "assistant", or "quicktake".
-    """
-    query_dict = dict(chat_id=chat_id)
-
-    if turn_id is None:
-        sql_query = text(
-            f"""
-            SELECT
-                cm.message_type, cm.content, t.turn_id, me.score,
-                jsonb_agg(
-                    jsonb_build_object(
-                        'attachment_id', a.attachment_id,
-                        'file_name', a.file_name,
-                        'content_type', a.content_type,
-                        'url', a.url,
-                        'thumbnail_url', a.thumbnail_url
-                    )
-                ) FILTER (WHERE a.attachment_id IS NOT NULL) as attachments
-                FROM turns t
-                JOIN chat_messages cm ON cm.turn_id = t.turn_id
-                LEFT JOIN message_evals me ON me.message_id = cm.message_id
-                LEFT JOIN attachments a ON a.chat_message_id = cm.message_id
-            WHERE t.chat_id = :chat_id
-            GROUP BY t.turn_id, cm.message_type, cm.content, me.score, cm.created_at
-            ORDER BY cm.created_at DESC
-            LIMIT {last_num_turns}
-            """
-        )
-    else:
-        sql_query = text(
-            f"""
-            WITH turn_seq_id AS (
-                SELECT sequence_id FROM turns WHERE turn_id = :turn_id
-            )
-            SELECT
-                cm.message_type, cm.content, t.turn_id, me.score,
-                jsonb_agg(
-                    jsonb_build_object(
-                        'attachment_id', a.attachment_id,
-                        'file_name', a.file_name,
-                        'content_type', a.content_type,
-                        'url', a.url,
-                        'thumbnail_url', a.thumbnail_url
-                    )
-                ) FILTER (WHERE a.attachment_id IS NOT NULL) as attachments
-                FROM turns t
-                JOIN chat_messages cm ON cm.turn_id = t.turn_id
-                LEFT JOIN message_evals me ON me.message_id = cm.message_id
-                LEFT JOIN attachments a ON a.chat_message_id = cm.message_id
-            WHERE t.chat_id = :chat_id
-                AND t.sequence_id BETWEEN (SELECT sequence_id FROM turn_seq_id) - {last_num_turns}
-                AND (SELECT sequence_id FROM turn_seq_id)
-            GROUP BY t.turn_id, cm.message_type, cm.content, me.score
-            ORDER BY cm.created_at DESC
-            """
-        )
-        query_dict["turn_id"] = turn_id
-
-    with get_engine().connect() as conn:
-        c = conn.execute(sql_query, query_dict)
-        rows = c.fetchall()
-
-    last_turn_id = None
-    last_turn_id_to_include = turn_id
-    history: list[BaseMessage] = []
-    asst_buffer: list[AIMessage] = []
-
-    for row in reversed(rows):
-        if last_turn_id is not None and last_turn_id_to_include == last_turn_id:
-            break
-
-        msg_type, content, turn_id, score, attachments = row
-
-        attachments = attachments or []
-
-        if turn_id != last_turn_id:
-            if asst_buffer:
-                random.shuffle(asst_buffer)
-                history.append(
-                    AIMessage(
-                        content=max(
-                            asst_buffer,
-                            key=lambda x: x.additional_kwargs.get("score") or 0,
-                        ).content
-                    )
-                )
-
-            asst_buffer.clear()
-
-        last_turn_id = turn_id
-
-        match msg_type:
-            case "USER_MESSAGE":
-                history.append(
-                    HumanMessage(
-                        content=content,
-                        additional_kwargs={
-                            "attachments": [Attachment(**attachment) for attachment in attachments]
-                            if attachments
-                            else []
-                        },
-                    )
-                )
-            case "ASSISTANT_MESSAGE":
-                asst_buffer.append(
-                    AIMessage(
-                        content=content,
-                        additional_kwargs={"score": 0 if score is None else score},
-                    )
-                )
-            case "QUICK_RESPONSE_MESSAGE":
-                history.append(BaseMessage(content=content or "", type="quicktake"))
-            case _:
-                continue
-
-    if asst_buffer:
-        random.shuffle(asst_buffer)
-        history.append(
-            AIMessage(
-                content=max(asst_buffer, key=lambda x: x.additional_kwargs.get("score") or 0).content,
-            )
-        )
-
-    return history
 
 
 def get_preferences(user_id: str | None, chat_id: str) -> tuple[RoutingPreference, list[str]]:

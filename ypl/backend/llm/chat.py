@@ -27,14 +27,15 @@ from ypl.backend.llm.attachment import get_attachments
 from ypl.backend.llm.constants import ACTIVE_MODELS_BY_PROVIDER, ChatProvider
 from ypl.backend.llm.db_helpers import (
     deduce_original_providers,
-    get_chat_history,
     get_chat_model,
+    get_model_context_lengths,
     get_preferences,
     get_shown_models,
     get_user_message,
 )
 from ypl.backend.llm.labeler import QT_CANT_ANSWER, MultiLLMLabeler, QuickTakeGenerator
 from ypl.backend.llm.model_data_type import ModelInfo
+from ypl.backend.llm.model_heuristics import ModelHeuristics
 from ypl.backend.llm.prompt_selector import CategorizedPromptModifierSelector, get_modifiers_by_model, store_modifiers
 from ypl.backend.llm.provider.provider_clients import get_model_provider_tuple
 from ypl.backend.llm.routing.debug import RoutingDebugInfo, build_routing_debug_info
@@ -907,12 +908,7 @@ def get_gemini_2_flash_llm() -> GeminiLangChainAdapter:
 
 
 QT_LLMS = None
-QT_MAX_CONTEXT_LENGTH = {
-    "gpt-4o": 128000,
-    "gpt-4o-mini": 16000,
-    "gemini-1.5-flash-002": 1000000,
-    "gemini-2.0-flash-exp": 1000000,
-}
+DEFAULT_QT_MAX_CONTEXT_LENGTH = 128000  # gpt-4o-mini
 
 
 def get_qt_llms() -> Mapping[str, BaseChatModel]:
@@ -982,7 +978,13 @@ async def generate_quicktake(
             pass
         case _, _, None:
             assert request.chat_id is not None  # because mypy cannot infer this
-            chat_history = get_chat_history(request.chat_id, request.turn_id)
+            turn_id = uuid.UUID(request.turn_id) if request.turn_id else None
+            chat_history = await get_curated_chat_context(
+                chat_id=uuid.UUID(request.chat_id),
+                use_all_models_in_chat_history=False,
+                model=request.model or "",
+                current_turn_id=turn_id,
+            )
 
     assert chat_history is not None, "chat_history is null"
 
@@ -998,6 +1000,10 @@ async def generate_quicktake(
     )
 
     chat_history.append(latest_message)
+    chat_history_text = "\n".join(m.content for m in chat_history)  # type: ignore
+    chat_history_context_len = len(ModelHeuristics(tokenizer_type="tiktoken").encode_tokens(chat_history_text))
+    # Add a buffer for system prompt etc.
+    min_required_context_len = int(chat_history_context_len * 1.2)
 
     has_attachments = any(isinstance(m, HumanMessage) and m.additional_kwargs.get("attachments") for m in chat_history)
 
@@ -1009,12 +1015,19 @@ async def generate_quicktake(
         else request.timeout_secs or settings.DEFAULT_QT_TIMEOUT_SECS
     )
 
+    context_lengths = get_model_context_lengths()
+    qt_models = [
+        model
+        for model in MODELS_FOR_DEFAULT_QT
+        if context_lengths.get(model, DEFAULT_QT_MAX_CONTEXT_LENGTH) > min_required_context_len
+    ]
+    qt_context_lengths = {k: v for k, v in context_lengths.items() if k in qt_models}
+
     try:
         if not request.model:
             # Default: use multiple models
             labelers: dict[str, Any] = {
-                model: get_quicktake_generator(model, chat_history, timeout_secs=timeout_secs)
-                for model in MODELS_FOR_DEFAULT_QT
+                model: get_quicktake_generator(model, chat_history, timeout_secs=timeout_secs) for model in qt_models
             }
             # Add a fast model that uses the prompts only in the chat history.
             labelers[MODEL_FOR_PROMPT_ONLY_FULL_NAME] = get_quicktake_generator(
@@ -1027,10 +1040,11 @@ async def generate_quicktake(
             multi_generator = MultiLLMLabeler(
                 labelers=labelers,
                 timeout_secs=timeout_secs,
-                early_terminate_on=MODELS_FOR_DEFAULT_QT,
+                early_terminate_on=qt_models,
             )
             max_context_length = min(
-                (QT_MAX_CONTEXT_LENGTH.get(model, 16000) for model in MODELS_FOR_DEFAULT_QT), default=16000
+                (qt_context_lengths.get(model, DEFAULT_QT_MAX_CONTEXT_LENGTH) for model in qt_models),
+                default=DEFAULT_QT_MAX_CONTEXT_LENGTH,
             )
             quicktakes = await multi_generator.alabel(
                 tiktoken_trim(request.prompt or "", int(max_context_length * 0.75), direction="right")
@@ -1046,7 +1060,7 @@ async def generate_quicktake(
         elif request.model in get_qt_llms():
             # Specific model requested.
             generator = get_quicktake_generator(request.model, chat_history)
-            max_context_length = QT_MAX_CONTEXT_LENGTH.get(request.model, min(QT_MAX_CONTEXT_LENGTH.values()))
+            max_context_length = qt_context_lengths.get(request.model, min(qt_context_lengths.values()))
             quicktake = await generator.alabel(
                 tiktoken_trim(request.prompt or "", int(max_context_length * 0.75), direction="right")
             )
