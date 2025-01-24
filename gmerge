@@ -1,0 +1,43 @@
+#!/bin/bash
+
+# merge with main
+
+# Get current branch name
+current_branch=$(git rev-parse --abbrev-ref HEAD)
+
+# Exit if on main branch
+if [ "$current_branch" = "main" ]; then
+    echo "Already on main branch, exiting..."
+    exit 0
+fi
+
+# Check for uncommitted changes
+if [ -n "$(git status --porcelain)" ]; then
+    read -p "You have uncommitted changes. Would you like to stash them? [y/N] " answer
+    if [[ "$answer" =~ ^[Yy]$ ]]; then
+        git stash
+        echo "Changes stashed"
+    fi
+fi
+
+# Switch to main and pull
+echo "Switching to main branch..."
+git checkout main
+
+echo "Pulling latest changes..."
+if git pull; then
+    # Switch back and merge
+    echo "Switching back to $current_branch..."
+    git checkout "$current_branch"
+    
+    echo "Merging main into $current_branch..."
+    if ! git merge main; then
+        echo "⚠️  Merge conflicts detected. Please resolve conflicts and commit changes."
+        exit 1
+    fi
+else
+    echo "Error pulling from main branch"
+    git checkout "$current_branch"
+    exit 1
+fi
+
