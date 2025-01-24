@@ -25,7 +25,7 @@ from ypl.backend.llm.chat import (
 from ypl.backend.llm.turn_quality import label_turn_quality
 from ypl.backend.rw_cache import TurnQualityCache
 from ypl.backend.utils.json import json_dumps
-from ypl.db.chats import Chat, ChatMessage, SuggestedTurnPrompt, Turn, TurnQuality
+from ypl.db.chats import Chat, ChatMessage, SuggestedTurnPrompt, SuggestedUserPrompt, Turn, TurnQuality
 
 # Maximum number of pinned chats for a user.
 MAX_PINNED_CHATS = 10
@@ -402,17 +402,17 @@ async def get_turn_annotations(
     return response
 
 
-class SuggestedFollowup(BaseModel):
+class SuggestedPrompt(BaseModel):
     prompt: str
     summary: str
 
 
-class SuggestedFollowupResponse(BaseModel):
-    followups: list[SuggestedFollowup]
+class SuggestedPromptsResponse(BaseModel):
+    prompts: list[SuggestedPrompt]
 
 
-@router.get("/turns/{turn_id}/suggested_followups", response_model=SuggestedFollowupResponse)
-async def get_suggested_followups(turn_id: UUID) -> SuggestedFollowupResponse:
+@router.get("/turns/{turn_id}/suggested_followups", response_model=SuggestedPromptsResponse)
+async def get_suggested_followups(turn_id: UUID) -> SuggestedPromptsResponse:
     try:
         async with get_async_session() as session:
             stmt = select(SuggestedTurnPrompt).where(
@@ -421,10 +421,29 @@ async def get_suggested_followups(turn_id: UUID) -> SuggestedFollowupResponse:
             )
             result = await session.execute(stmt)
             suggested_followups = result.scalars().all()
-            return SuggestedFollowupResponse(
-                followups=[SuggestedFollowup(prompt=sf.prompt, summary=sf.summary) for sf in suggested_followups]
+            return SuggestedPromptsResponse(
+                prompts=[SuggestedPrompt(prompt=sf.prompt, summary=sf.summary) for sf in suggested_followups]
             )
     except Exception as e:
         log_dict = {"message": f"Error getting suggested followups for turn {turn_id}: {str(e)}"}
+        logging.exception(json_dumps(log_dict))
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/users/{user_id}/conversation_starters", response_model=SuggestedPromptsResponse)
+async def get_conversation_starters(user_id: UUID) -> SuggestedPromptsResponse:
+    try:
+        async with get_async_session() as session:
+            stmt = select(SuggestedUserPrompt).where(
+                SuggestedUserPrompt.user_id == user_id,  # type: ignore
+                SuggestedUserPrompt.deleted_at.is_(None),  # type: ignore
+            )
+            result = await session.execute(stmt)
+            conversation_starters = result.scalars().all()
+            return SuggestedPromptsResponse(
+                prompts=[SuggestedPrompt(prompt=cs.prompt, summary=cs.summary) for cs in conversation_starters]
+            )
+    except Exception as e:
+        log_dict = {"message": f"Error getting conversation starters for user {user_id}: {str(e)}"}
         logging.exception(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
