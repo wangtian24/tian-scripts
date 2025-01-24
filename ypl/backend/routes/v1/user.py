@@ -3,9 +3,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 
-from fastapi import APIRouter, HTTPException, Path
+from fastapi import APIRouter, HTTPException, Path, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import col, or_, select
+from sqlmodel import col, func, or_, select
 
 from ypl.backend.db import get_async_session
 from ypl.backend.utils.json import json_dumps
@@ -365,3 +365,74 @@ async def _get_sibling_users(session: AsyncSession, user_id: str, parent_user_id
         del all_siblings[user_id]
 
     return list(all_siblings.values())
+
+
+@router.post("/users/{user_id}/deactivate")
+async def deactivate_user(
+    user_id: str = Path(..., description="User ID"),
+    creator_user_email: str = Query(..., description="Email of the user performing the deactivation"),
+) -> None:
+    """Deactivate a user by setting their status to DEACTIVATED.
+
+    Args:
+        user_id: The ID of the user to deactivate
+        creator_user_email: Email of the user performing the deactivation
+    """
+    log_dict = {
+        "message": "Deactivating user",
+        "user_id": user_id,
+        "creator_user_email": creator_user_email,
+    }
+    logging.info(json_dumps(log_dict))
+    try:
+        async with get_async_session() as session:
+            creator_stmt = select(User).where(
+                func.lower(User.email) == func.lower(creator_user_email),
+                User.deleted_at.is_(None),  # type: ignore
+            )
+            creator = (await session.execute(creator_stmt)).scalar_one_or_none()
+
+            if not creator:
+                log_dict = {
+                    "message": "Error: Creator user not found",
+                    "creator_user_email": creator_user_email,
+                }
+                logging.warning(json_dumps(log_dict))
+                raise HTTPException(status_code=404, detail="Creator user not found")
+
+            if creator.user_id == user_id:
+                log_dict = {
+                    "message": "Error: User cannot deactivate themselves",
+                    "user_id": user_id,
+                    "creator_user_email": creator_user_email,
+                }
+                logging.error(json_dumps(log_dict))
+                raise HTTPException(status_code=400, detail="Users cannot deactivate themselves")
+
+            stmt = select(User).where(User.user_id == user_id)
+            result = await session.execute(stmt)
+            user = result.scalar_one_or_none()
+
+            if not user:
+                raise HTTPException(status_code=404, detail="User not found")
+
+            user.status = UserStatus.DEACTIVATED
+            user.deleted_at = datetime.now()
+            await session.commit()
+
+            log_dict = {
+                "message": "User deactivated successfully",
+                "user_id": user_id,
+                "creator_user_email": creator_user_email,
+            }
+            logging.info(json_dumps(log_dict))
+
+    except Exception as e:
+        log_dict = {
+            "message": "Error deactivating user",
+            "user_id": user_id,
+            "creator_user_email": creator_user_email,
+            "error": str(e),
+        }
+        logging.error(json_dumps(log_dict))
+        raise HTTPException(status_code=500, detail=str(e)) from e
