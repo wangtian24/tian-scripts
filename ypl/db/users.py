@@ -24,7 +24,8 @@ if TYPE_CHECKING:
 NEW_USER_CHAT_THRESHOLD = 10
 
 # The number of credits given to a user when they sign up.
-SIGNUP_CREDITS = 1000
+# All new users should get their credits through a sign-up reward instead.
+SIGNUP_CREDITS = 0
 
 # The time threshold for considering a user as "inactive"
 # Users who haven't had activity longer than this are considered inactive
