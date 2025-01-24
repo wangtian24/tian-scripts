@@ -90,6 +90,8 @@ class SelectModelsV2Request(BaseModel):
     provided_categories: list[str] | None = None  # categories provided by the user
     debug_level: int = 0  # 0: return no debug info, log only, 1: return debug
     prompt_modifier_id: uuid.UUID | None = None  # prompt modifier ID to apply to all models
+    # whether to set prompt modifiers automatically, if prompt_modifier_id is not provided
+    auto_select_prompt_modifiers: bool = False
 
 
 class SelectModelsV2Response(BaseModel):
@@ -114,6 +116,55 @@ async def has_image_attachments(chat_id: str) -> bool:
             .limit(1)
         )
         return result.first() is not None
+
+
+def _set_prompt_modifiers(
+    request: SelectModelsV2Request,
+    selected_models_rs: RouterState,
+    fallback_models_rs: RouterState,
+) -> dict[str, list[tuple[str, str]]]:
+    prompt_modifiers: dict[str, list[tuple[str, str]]] = {}
+    if not (request.auto_select_prompt_modifiers or request.prompt_modifier_id):
+        return prompt_modifiers
+
+    modifier_selector = CategorizedPromptModifierSelector.make_default_from_db()
+    selected_models = selected_models_rs.get_sorted_selected_models()
+    fallback_models = fallback_models_rs.get_sorted_selected_models()
+
+    if request.prompt_modifier_id:
+        modifier = modifier_selector.modifiers_by_id.get(str(request.prompt_modifier_id))
+        if modifier:
+            prompt_modifiers = {
+                m: [(str(request.prompt_modifier_id), modifier.text)] for m in (selected_models + fallback_models)
+            }
+        else:
+            logging.warning(f"Ignoring unknown modifier ID: {request.prompt_modifier_id}")
+
+    elif request.auto_select_prompt_modifiers:
+        try:
+            if request.chat_id:
+                modifier_history = get_modifiers_by_model(request.chat_id)
+            else:
+                modifier_history = {}
+
+            base_prompt_modifiers = modifier_selector.select_modifiers(
+                selected_models,
+                modifier_history,
+                selected_models_rs.applicable_modifiers,
+            )
+            fallback_prompt_modifiers = modifier_selector.select_modifiers(
+                fallback_models,
+                modifier_history,
+                selected_models_rs.applicable_modifiers,
+            )
+            prompt_modifiers = base_prompt_modifiers | fallback_prompt_modifiers
+        except Exception as e:
+            logging.error(f"Error selecting modifiers: {e}")
+
+    if request.turn_id and prompt_modifiers:
+        asyncio.create_task(store_modifiers(request.turn_id, prompt_modifiers))
+
+    return prompt_modifiers
 
 
 async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Response:
@@ -209,45 +260,10 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         show_me_more_models=show_me_more_models,
         provided_categories=request.provided_categories,
     )
-
     selected_models = selected_models_rs.get_sorted_selected_models()
     fallback_models = fallback_models_rs.get_sorted_selected_models()
 
-    prompt_modifiers: dict[str, list[tuple[str, str]]] = {}
-    modifier_selector = CategorizedPromptModifierSelector.make_default_from_db()
-
-    if request.prompt_modifier_id:
-        modifier = modifier_selector.modifiers_by_id.get(str(request.prompt_modifier_id))
-        if modifier:
-            prompt_modifiers = {
-                m: [(str(request.prompt_modifier_id), modifier.text)] for m in (selected_models + fallback_models)
-            }
-        else:
-            logging.warning(f"Ignoring unknown modifier ID: {request.prompt_modifier_id}")
-
-    else:
-        try:
-            if SelectIntent.NEW_CHAT and request.chat_id:
-                modifier_history = get_modifiers_by_model(request.chat_id)
-            else:
-                modifier_history = {}
-
-            base_prompt_modifiers = modifier_selector.select_modifiers(
-                selected_models,
-                modifier_history,
-                selected_models_rs.applicable_modifiers,
-            )
-            fallback_prompt_modifiers = modifier_selector.select_modifiers(
-                fallback_models,
-                modifier_history,
-                selected_models_rs.applicable_modifiers,
-            )
-            prompt_modifiers = base_prompt_modifiers | fallback_prompt_modifiers
-        except Exception as e:
-            logging.error(f"Error selecting modifiers: {e}")
-
-    if request.turn_id and prompt_modifiers:
-        asyncio.create_task(store_modifiers(request.turn_id, prompt_modifiers))
+    prompt_modifiers = _set_prompt_modifiers(request, selected_models_rs, fallback_models_rs)
 
     # increment counters
     metric_inc_by("routing/count_models_served", len(selected_models))
