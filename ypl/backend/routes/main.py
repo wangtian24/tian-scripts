@@ -17,6 +17,7 @@ from ypl.backend.routes.v1 import chats as chats_route
 from ypl.backend.routes.v1 import email as email_route
 from ypl.backend.routes.v1 import event as event_route
 from ypl.backend.routes.v1 import files as files_route
+from ypl.backend.routes.v1 import message as message_route
 from ypl.backend.routes.v1 import points as points_route
 from ypl.backend.routes.v1 import profile as profile_route
 from ypl.backend.routes.v1 import provider as provider_route
@@ -75,6 +76,7 @@ api_router.include_router(event_route.router, prefix="/v1", tags=["event"])
 
 admin_router.include_router(points_route.router, prefix="/v1", tags=["admin"])
 admin_router.include_router(user_capability_route.router, prefix="/v1", tags=["admin"])
+admin_router.include_router(message_route.router, prefix="/v1", tags=["admin"])
 
 api_router.include_router(admin_router)
 
