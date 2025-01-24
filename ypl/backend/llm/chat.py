@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import Insert as pg_insert
 from sqlalchemy.orm import joinedload
-from sqlmodel import select
+from sqlmodel import select, update
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ypl.backend.config import settings
@@ -76,7 +76,11 @@ IMAGE_ATTACHMENT_MIME_TYPE_SQL_PATTERN = "image/%"
 class SelectIntent(str, Enum):
     NEW_CHAT = "new_chat"
     NEW_TURN = "new_turn"
+    # TODO(bhanu): remove this after consolidating enum in YuppHead
     SHOW_ME_MORE = "show_me_more"
+    SHOW_MORE_WITH_SAME_TURN = "show_more_with_same_turn"
+    RETRY = "retry"
+    NEW_STYLE = "new_style"
 
 
 class SelectModelsV2Request(BaseModel):
@@ -1179,3 +1183,22 @@ def contains_billing_keywords(message: str) -> bool:
     """Checks if a message contains keywords that indicate severe billing/quota issues"""
     message_lower = message.lower()
     return any(keyword in message_lower for keyword in BILLING_ERROR_KEYWORDS)
+
+
+async def update_failed_message_status(message_id: UUID) -> None:
+    """Update completion status of failed message to streaming_error_with_retry"""
+    async with get_async_session() as session:
+        try:
+            query = (
+                update(ChatMessage)
+                .where(ChatMessage.message_id == message_id)  # type: ignore
+                .values(completion_status=CompletionStatus.STREAMING_ERROR_WITH_FALLBACK)
+            )
+            await session.exec(query)  # type: ignore[call-overload]
+            await session.commit()
+        except Exception as e:
+            info = {
+                "message": "Error updating failed message status",
+                "error_details": str(e),
+            }
+            logging.error(json_dumps(info))

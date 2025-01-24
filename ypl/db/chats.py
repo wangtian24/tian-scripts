@@ -116,6 +116,10 @@ class CompletionStatus(enum.Enum):
     USER_ABORTED = "user_aborted"
     # An error occurred with the model provider during generation
     PROVIDER_ERROR = "provider_error"
+    # An error occurred during streaming
+    STREAMING_ERROR = "streaming_error"
+    # An error occurred during streaming but a fallback model was used
+    STREAMING_ERROR_WITH_FALLBACK = "streaming_error_with_fallback"
     # Any unexpected System Error
     SYSTEM_ERROR = "system_error"
 

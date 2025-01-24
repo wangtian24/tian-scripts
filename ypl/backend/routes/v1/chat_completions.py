@@ -22,9 +22,11 @@ from ypl.backend.jobs.tasks import astore_language_code
 from ypl.backend.llm.attachment import get_attachments, link_attachments
 from ypl.backend.llm.chat import (
     Intent,
+    SelectIntent,
     check_for_stop_request,
     contains_billing_keywords,
     get_curated_chat_context,
+    update_failed_message_status,
     upsert_chat_message,
 )
 from ypl.backend.llm.crawl import enhance_citations
@@ -92,6 +94,8 @@ class ChatRequest(BaseModel):
         description="If true, include the chat history of all responding models.",
     )
     user_message_id: uuid.UUID | None = Field(None, description="Message ID of the user message")
+    intent: SelectIntent | None = Field(None, description="Intent of the message")
+    retry_message_id: uuid.UUID | None = Field(None, description="ID of failed message, for which we are retrying")
 
 
 STREAMING_ERROR_TEXT: str = "\n\\<streaming stopped unexpectedly\\>"
@@ -320,7 +324,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
             logging.warning("Cancelled Error (while streaming) because of client disconnect")
             stream_completion_status = CompletionStatus.SYSTEM_ERROR
         except Exception as e:
-            stream_completion_status = CompletionStatus.PROVIDER_ERROR
+            stream_completion_status = CompletionStatus.STREAMING_ERROR
             full_response += STREAMING_ERROR_TEXT
             chunk_str = str(chunk) if chunk is not None else "No chunk available"
             logging.error(
@@ -329,6 +333,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                 f"Last chunk: {chunk_str}\n"
                 f"{traceback.format_exc()}"
             )
+            yield StreamResponse({"content": STREAMING_ERROR_TEXT, "model": chat_request.model}).encode()
             yield StreamResponse(
                 {"error": f"Streaming error: {str(e)}", "code": "stream_error", "model": chat_request.model}, "error"
             ).encode()
@@ -343,6 +348,10 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                 )
 
         asyncio.create_task(astore_language_code(str(chat_request.message_id), chat_request.prompt))
+
+        # once streaming is done, update the status of the failed message
+        if chat_request.intent == "retry" and chat_request.retry_message_id:
+            asyncio.create_task(update_failed_message_status(chat_request.retry_message_id))
 
         # Send completion status
         end_time = datetime.now()
