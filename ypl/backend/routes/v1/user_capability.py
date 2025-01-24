@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import UTC, datetime
 
@@ -5,17 +6,22 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from sqlmodel import func, select
 
+from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
+from ypl.backend.llm.utils import post_to_slack_with_user_name
 from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.utils import CapabilityType
 from ypl.db.users import (
     Capability,
     CapabilityStatus,
+    User,
     UserCapabilityOverride,
     UserCapabilityStatus,
 )
 
 router = APIRouter()
+
+SLACK_WEBHOOK_CASHOUT = settings.SLACK_WEBHOOK_CASHOUT
 
 
 class CashoutOverrideConfig(BaseModel):
@@ -30,7 +36,7 @@ class CashoutOverrideConfig(BaseModel):
 
 class CashoutOverrideRequest(BaseModel):
     user_id: str
-    creator_user_id: str
+    creator_user_email: str
     status: UserCapabilityStatus
     reason: str
     override_config: CashoutOverrideConfig | None = None
@@ -54,16 +60,39 @@ async def create_cashout_override(request: CashoutOverrideRequest) -> str:
     log_dict = {
         "message": "Creating cashout override",
         "user_id": request.user_id,
-        "creator_user_id": request.creator_user_id,
+        "creator_user_email": request.creator_user_email,
         "status": str(request.status),
         "reason": request.reason,
         "override_config": str(request.override_config or ""),
     }
     logging.info(json_dumps(log_dict))
-    if request.creator_user_id == "request.user_id":
-        raise HTTPException(status_code=400, detail="Internal Error")
     try:
         async with get_async_session() as session:
+            user_stmt = select(User).where(
+                func.lower(User.email) == func.lower(request.creator_user_email),
+                User.deleted_at.is_(None),  # type: ignore
+            )
+            user = (await session.exec(user_stmt)).first()
+            if not user:
+                log_dict = {
+                    "message": "Error: User not found",
+                    "creator_user_email": request.creator_user_email,
+                }
+                logging.warning(json_dumps(log_dict))
+                raise HTTPException(status_code=404, detail="User not found")
+
+            if user.user_id == request.user_id:
+                log_dict = {
+                    "message": "Error: User ID and creator user ID are the same for cashout override",
+                    "user_id": request.user_id,
+                    "creator_user_email": request.creator_user_email,
+                }
+                logging.error(json_dumps(log_dict))
+                asyncio.create_task(
+                    post_to_slack_with_user_name(user.user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
+                )
+                raise HTTPException(status_code=400, detail="Internal Error")
+
             capability_stmt = select(Capability).where(
                 func.lower(Capability.capability_name) == CapabilityType.CASHOUT.value.lower(),
                 Capability.deleted_at.is_(None),  # type: ignore
@@ -87,7 +116,7 @@ async def create_cashout_override(request: CashoutOverrideRequest) -> str:
             existing_overrides = (await session.exec(existing_overrides_stmt)).all()
             for existing_override in existing_overrides:
                 existing_override.deleted_at = datetime.now(UTC)
-                existing_override.creator_user_id = request.creator_user_id
+                existing_override.creator_user_id = user.user_id
 
             override_config = None
             if request.override_config:
@@ -98,7 +127,7 @@ async def create_cashout_override(request: CashoutOverrideRequest) -> str:
             override = UserCapabilityOverride(
                 user_id=request.user_id,
                 capability_id=capability.capability_id,
-                creator_user_id=request.creator_user_id,
+                creator_user_id=user.user_id,
                 status=request.status,
                 reason=request.reason,
                 effective_start_date=datetime.now(UTC),
@@ -112,7 +141,7 @@ async def create_cashout_override(request: CashoutOverrideRequest) -> str:
             log_dict = {
                 "message": "Successfully created cashout override",
                 "user_id": request.user_id,
-                "creator_user_id": request.creator_user_id,
+                "creator_user_email": request.creator_user_email,
                 "status": str(request.status),
                 "reason": request.reason,
                 "override_config": str(override_config or ""),
