@@ -19,7 +19,7 @@ from ypl.backend.utils.utils import CapabilityType, UserCapabilityStatus, get_ca
 from ypl.db.payments import PaymentInstrumentFacilitatorEnum
 from ypl.db.point_transactions import PointsActionEnum, PointTransaction
 from ypl.db.redis import get_upstash_redis_client
-from ypl.db.users import SIGNUP_CREDITS, User
+from ypl.db.users import User
 
 CASHOUT_KILLSWITCH_KEY = "cashout:killswitch"
 # Facilitator specific killswitch, facilitator *SHOULD BE lowercase*
@@ -41,6 +41,13 @@ MAX_FIRST_TIME_CASHOUT_CREDITS = 15000
 MAX_DAILY_CASHOUT_CREDITS = 15000
 MAX_WEEKLY_CASHOUT_CREDITS = 15000
 MAX_MONTHLY_CASHOUT_CREDITS = 75000
+
+# Minimum credits that have to be cashed out per transaction.
+MINIMUM_CREDITS_PER_CASHOUT = 1000
+# Yuppsters can cash out with a minimum of 100 credits per cashout, to allow tests with smaller amounts.
+MINIMUM_CREDITS_PER_CASHOUT_YUPPSTER = 100
+# Minimum credits that have to be kept after a cashout.
+CREDITS_TO_KEEP_AFTER_CASHOUT = 1000
 
 SLACK_WEBHOOK_CASHOUT = settings.SLACK_WEBHOOK_CASHOUT
 
@@ -73,28 +80,43 @@ class CashoutLimitType(Enum):
     RATE_LIMIT = "rate limit"
     NEW_USER_COOLOFF = "new user cooloff"
     DISABLED = "disabled"
+    INSUFFICIENT_CREDIT_BALANCE = "insufficient credit balance"
+    MINIMUM_CREDITS_PER_CASHOUT = "minimum credits per cashout"
 
 
 class CashoutLimitError(HTTPException):
     """Custom exception for cashout limit violations."""
 
-    def __init__(self, period: str, limit_type: CashoutLimitType, current_value: int, max_value: int, user_id: str):
+    def __init__(
+        self,
+        period: str,
+        limit_type: CashoutLimitType,
+        current_value: int,
+        max_value: int,
+        user_id: str,
+        min_value: int = 0,
+    ):
         self.period = period
         self.limit_type = limit_type
         self.current_value = current_value
         self.max_value = max_value
         self.user_id = user_id
+        self.min_value = min_value
 
-        # Client will show this message to the user.
+        # Client will show these messages to the user.
         # Keep it ambiguous to avoid leaking information about the limit.
         if limit_type == CashoutLimitType.RATE_LIMIT:
-            detail = f"Please wait {max_value} seconds before submitting another cashout request"
+            detail = f"Please wait {max_value} seconds before submitting another cash out request"
         elif limit_type == CashoutLimitType.DISABLED:
-            detail = "Cashout is disabled for your account. Please contact support if you think this is an error."
+            detail = "Cash out is disabled for your account.\nPlease contact support if you think this is an error."
+        elif limit_type == CashoutLimitType.INSUFFICIENT_CREDIT_BALANCE:
+            detail = "You have insufficient credits to cash out"
+        elif limit_type == CashoutLimitType.MINIMUM_CREDITS_PER_CASHOUT:
+            detail = f"You must cash out at least {min_value} credits"
         elif limit_type == CashoutLimitType.NEW_USER_COOLOFF:
-            detail = f"Please wait {current_value} days before submitting a cashout request"
+            detail = f"Please wait {current_value} days before submitting a cash out request"
         else:
-            detail = f"You have reached the {period} cashout limit. Please try again later."
+            detail = f"You have reached the {period} cash out limit.\nPlease try again later."
 
         super().__init__(status_code=429 if limit_type == CashoutLimitType.RATE_LIMIT else 400, detail=detail)
 
@@ -104,6 +126,7 @@ class CashoutLimitError(HTTPException):
             "user_id": user_id,
             "limit_type": limit_type.value,
             "current_value": current_value,
+            "min_value": min_value,
             "max_value": max_value,
             "period": period,
             "error_message": detail,
@@ -404,30 +427,34 @@ async def check_request_rate_limit(user_id: str) -> None:
         await redis.expire(bucket_key, CASHOUT_REQUEST_WINDOW_SECONDS)
 
 
-async def _get_credits_balance(session: AsyncSession, user_id: str) -> int:
+async def _get_credits_balance(session: AsyncSession, user_id: str) -> tuple[int, bool]:
     """
     Get the user's current credits balance.
+
+    Returns:
+        tuple[int, bool]: The user's current credits balance and whether the user is a yuppster.
     """
-    query = select(User.points).where(
+    query = select(User.points, User.email).where(
         User.user_id == user_id,
         User.deleted_at.is_(None),  # type: ignore
     )
     result = await session.execute(query)
-    return result.scalar_one()
+    points, email = result.one()
+    return points, email.endswith("@yupp.ai")
 
 
 @dataclass
 class CashoutUserInfo:
     credits_balance: int
     credits_available_for_cashout: int
-    minimum_credits_per_cashout: int = 1000
+    minimum_credits_per_cashout: int = MINIMUM_CREDITS_PER_CASHOUT
 
 
 async def validate_and_return_cashout_user_limits(user_id: str, credits_to_cashout: int = 0) -> CashoutUserInfo:
     """
-    Validate that the user hasn't exceeded their cashout limits.
+    Validate the cashout request, and enforce limits.
     Checks both count of cashouts and total credits cashed out for daily, weekly and monthly periods.
-    Raises HTTPException if any limit is exceeded.
+    Raises CashoutLimitError if any limit is exceeded.
 
     Args:
         user_id: The ID of the user to check
@@ -445,14 +472,36 @@ async def validate_and_return_cashout_user_limits(user_id: str, credits_to_casho
     }
 
     async with get_async_session() as session:
-        credits_balance = await _get_credits_balance(session, user_id)
+        credits_balance, is_yuppster = await _get_credits_balance(session, user_id)
+        min_credits_per_cashout = MINIMUM_CREDITS_PER_CASHOUT_YUPPSTER if is_yuppster else MINIMUM_CREDITS_PER_CASHOUT
+        if credits_to_cashout != 0 and credits_to_cashout < min_credits_per_cashout:
+            # User is trying to cashout less than the minimum amount.
+            raise CashoutLimitError(
+                period="request",
+                limit_type=CashoutLimitType.MINIMUM_CREDITS_PER_CASHOUT,
+                current_value=credits_to_cashout,
+                min_value=min_credits_per_cashout,
+                max_value=0,
+                user_id=user_id,
+            )
         total_credits_available_for_cashout = (
-            credits_balance - SIGNUP_CREDITS if credits_balance > SIGNUP_CREDITS else 0
+            credits_balance - CREDITS_TO_KEEP_AFTER_CASHOUT
+            if credits_balance > CREDITS_TO_KEEP_AFTER_CASHOUT + min_credits_per_cashout
+            else 0
         )
+        if total_credits_available_for_cashout < min_credits_per_cashout:
+            raise CashoutLimitError(
+                period="request",
+                limit_type=CashoutLimitType.INSUFFICIENT_CREDIT_BALANCE,
+                current_value=total_credits_available_for_cashout,
+                max_value=0,
+                user_id=user_id,
+            )
         cashout_user_info = CashoutUserInfo(
             credits_balance=credits_balance,
-            # This value will be updated later, based on the limits.
+            # This value will be updated later in the method, based on the limits.
             credits_available_for_cashout=total_credits_available_for_cashout,
+            minimum_credits_per_cashout=min_credits_per_cashout,
         )
         if settings.ENVIRONMENT != "production":
             return cashout_user_info
@@ -549,8 +598,8 @@ async def check_global_cashout_killswitch(user_id: str) -> None:
     """Check if there's a global cashout killswitch."""
     redis_client = await get_upstash_redis_client()
     if await redis_client.get(CASHOUT_KILLSWITCH_KEY):
-        _log_killswitch_error("Cashout is currently disabled", user_id)
-        raise CashoutKillswitchError("Cashout is currently disabled")
+        _log_killswitch_error(":x: Failure - Cashout is currently disabled", user_id)
+        raise CashoutKillswitchError("Cash out is currently disabled")
 
 
 async def check_facilitator_cashout_killswitch(facilitator: PaymentInstrumentFacilitatorEnum, user_id: str) -> None:
@@ -560,7 +609,7 @@ async def check_facilitator_cashout_killswitch(facilitator: PaymentInstrumentFac
         _log_killswitch_error(
             f":x: Failure - Cashout is currently disabled for {facilitator.name}", user_id, facilitator
         )
-        raise CashoutKillswitchError("Cashout is currently disabled for this payment method")
+        raise CashoutKillswitchError("Cash out is currently disabled for this payment method")
 
 
 async def check_new_user_cashout_eligibility(session: AsyncSession, user_id: str) -> None:

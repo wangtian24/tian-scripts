@@ -33,7 +33,6 @@ from ypl.db.payments import (
     PaymentInstrumentFacilitatorEnum,
     PaymentInstrumentIdentifierTypeEnum,
 )
-from ypl.db.users import SIGNUP_CREDITS
 
 router = APIRouter()
 
@@ -131,17 +130,6 @@ async def validate_cashout_request(request: CashoutCreditsRequest) -> None:
             raise HTTPException(
                 status_code=400, detail=f"Please enter the following details! {', '.join(missing_fields)}"
             )
-
-    user_credit_balance = await get_user_credit_balance(request.user_id)
-    if request.credits_to_cashout > user_credit_balance - SIGNUP_CREDITS:
-        log_dict = {
-            "message": "User does not have enough credits",
-            "user_id": request.user_id,
-            "credits_to_cashout": request.credits_to_cashout,
-            "user_credit_balance": user_credit_balance,
-        }
-        logging.info(json_dumps(log_dict))
-        raise HTTPException(status_code=400, detail="You do not have enough credits to cash out")
 
     try:
         validate_destination_identifier_for_currency(request.cashout_currency, request.destination_identifier_type)
