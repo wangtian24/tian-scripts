@@ -481,10 +481,20 @@ def deduce_single_model_speed_score(model: str) -> float:
 
     DEFAULT_SPEED_SCORE = 0.1
     if not rows:
+        logging.info(
+            json_dumps(
+                {"message": f"Model speed: calculating for {model}, no stats, using default {DEFAULT_SPEED_SCORE}"}
+            )
+        )
         return DEFAULT_SPEED_SCORE
 
     row = rows[0]
     if any(x is None for x in row):
+        logging.info(
+            json_dumps(
+                {"message": f"Model speed: calculating for {model}, bad stats, using default {DEFAULT_SPEED_SCORE}"}
+            )
+        )
         return DEFAULT_SPEED_SCORE
 
     num_reqs, ttft_p90, ttft_p50 = row[0], float(row[1]), float(row[2])
@@ -512,9 +522,10 @@ def deduce_single_model_speed_score(model: str) -> float:
     latency_est = ttft_p90_ub * TTFT_WEIGHT + est_streaming_latency * STREAMING_WEIGHT
     speed_score = 1000.0 / (1000.0 + latency_est)
 
-    logging.debug(
+    logging.info(
         json_dumps(
             {
+                "message": f"Model speed: calculating for {model}, score = {speed_score:.3f}",
                 "model": model,
                 "num_requests": num_reqs,
                 "ttft_p90_ms": round(ttft_p90, 2),
