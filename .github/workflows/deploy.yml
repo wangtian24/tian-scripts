@@ -132,6 +132,7 @@ jobs:
         echo "NLTK_DATA=\"data/nltk_data\" " >> .env
         echo "BACKEND_CORS_ORIGINS=${{ env.BACKEND_CORS_ORIGINS }}" >> .env
         echo "X_API_KEY=${{ secrets.X_API_KEY }}" >> .env
+        echo "X_ADMIN_API_KEY=${{ secrets.X_ADMIN_API_KEY }}" >> .env
         echo "PYTORCH_SERVE_GCP_URL='${{ github.event.inputs.pytorch_serve_gcp_url || 'https://backend-pytorch-service-staging-451082535721.us-central1.run.app/api/v1' }}'" >> .env
         echo "CATEGORIZER_MODEL_PATH=${{ github.events.inputs.categorizer_model_path || 'gs://yupp-models/online-classifier-base.zip' }}" >> .env
         echo "ROUTING_USE_PROMPT_CONDITIONAL=${{ github.event.inputs.use_prompt_conditional_routing || 'true' }}" >> .env
