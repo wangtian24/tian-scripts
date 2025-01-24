@@ -79,6 +79,16 @@ async def create_cashout_override(request: CashoutOverrideRequest) -> str:
                 logging.warning(json_dumps(log_dict))
                 raise HTTPException(status_code=404, detail="Cashout capability not found")
 
+            existing_overrides_stmt = select(UserCapabilityOverride).where(
+                UserCapabilityOverride.user_id == request.user_id,
+                UserCapabilityOverride.capability_id == capability.capability_id,
+                UserCapabilityOverride.deleted_at.is_(None),  # type: ignore
+            )
+            existing_overrides = (await session.exec(existing_overrides_stmt)).all()
+            for existing_override in existing_overrides:
+                existing_override.deleted_at = datetime.now(UTC)
+                existing_override.creator_user_id = request.creator_user_id
+
             override_config = None
             if request.override_config:
                 override_config = {k: v for k, v in request.override_config.dict().items() if v is not None}
