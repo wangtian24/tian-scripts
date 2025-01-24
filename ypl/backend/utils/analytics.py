@@ -16,6 +16,29 @@ from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.utils import fetch_user_names
 
 
+class RatioTracker:
+    """Class to track various ratios throughout the analytics process."""
+
+    def __init__(self) -> None:
+        self.ratios: dict[str, float] = {}
+
+    def add_ratio(self, name: str, numerator: int, denominator: int) -> None:
+        if denominator > 0:
+            self.ratios[name] = numerator / denominator
+
+    def get_ratio_message(self) -> str:
+        if not self.ratios:
+            return ""
+
+        message = "\n\n*Key Ratios:*"
+        for name, value in self.ratios.items():
+            message += f"\n• {name}: {value:.2%}"
+        return message
+
+
+ratio_tracker = RatioTracker()
+
+
 class ChartInfo(TypedDict):
     id: str
     description: str
@@ -197,7 +220,34 @@ async def post_data_from_charts(auth: str, start_date: datetime, end_date: datet
                 logging.error(f"Failed to process data for {metric}: {e}")
                 metrics[metric] = 0
 
-        message = f"*Amplitude Metrics for {start_date.date()}*\n"
+        # Add conversation ratios
+        total_convos = metrics.get("conversations", 0) + metrics.get("follow_up", 0)
+        new_convos = metrics.get("conversations", 0)
+        ratio_tracker.add_ratio("New/Total Conversations", new_convos, total_convos)
+
+        #  Add QT ratios
+        total_qt = total_convos
+        ratio_tracker.add_ratio("QT Refusals/Total QT", metrics.get("qt_refusals", 0), total_qt)
+        ratio_tracker.add_ratio("QT High Latency/Total QT", metrics.get("qt_latency", 0), total_qt)
+        ratio_tracker.add_ratio("QT Evals/Total QT", metrics.get("qt_evals", 0), total_qt)
+        ratio_tracker.add_ratio("QT Thumbs Up/Total QT", metrics.get("qt_thumbs_up", 0), total_qt)
+        ratio_tracker.add_ratio("QT Thumbs Down/Total QT", metrics.get("qt_thumbs_down", 0), total_qt)
+
+        # Add feedback ratios
+        total_feedbacks = (
+            metrics.get("feedbacks_pref", 0) + metrics.get("feedbacks_mof", 0) + metrics.get("feedbacks_af", 0)
+        )
+        ratio_tracker.add_ratio("PREF/Total Feedbacks", metrics.get("feedbacks_pref", 0), total_feedbacks)
+        ratio_tracker.add_ratio("MOF/Total Feedbacks", metrics.get("feedbacks_mof", 0), total_feedbacks)
+        ratio_tracker.add_ratio("AF/Total Feedbacks", metrics.get("feedbacks_af", 0), total_feedbacks)
+
+        # Add SIC ratios
+        ratio_tracker.add_ratio(
+            "SIC->Chat Conversion", metrics.get("sic_post_signup_chat", 0), metrics.get("sic_submitted_valid", 0)
+        )
+        ratio_tracker.add_ratio(
+            "SIC->PREF Conversion", metrics.get("sic_post_signup_pref", 0), metrics.get("sic_submitted_valid", 0)
+        )
 
         # a. Users section
         message += (
@@ -268,6 +318,7 @@ async def post_data_from_charts(auth: str, start_date: datetime, end_date: datet
             f" {metrics.get('sic_post_signup_chat', 0)} / {metrics.get('sic_submitted_valid', 1)} sent prompt,"
             f" {metrics.get('sic_post_signup_pref', 0)} / {metrics.get('sic_submitted_valid', 1)} did PREF\n"
         )
+
         logging.info(json_dumps(log_dict))
         analytics_webhook_url = os.environ.get("ANALYTICS_SLACK_WEBHOOK_URL")
         await post_to_slack(message, analytics_webhook_url)
@@ -278,17 +329,14 @@ async def post_data_from_charts(auth: str, start_date: datetime, end_date: datet
 
 
 async def post_data_from_cohorts(auth: str, start_date: datetime, end_date: datetime) -> None:
-    """Fetch metrics for multiple Amplitude cohorts and post them to Slack."""
+    """Fetch metrics for multiple Amplitude cohorts and post them to Slack.
+    Always pulls both daily and weekly data. Shows daily user names every day,
+    but weekly user names only on Sundays."""
     message = f"*Guest report for {start_date.date()}*"
     log_dict: dict[str, int] = {}
 
     try:
-        # Only process weekly cohorts on Sunday (weekday 6)
-        cohorts_items = [
-            (name, info)
-            for name, info in AMPLITUDE_COHORTS.items()
-            if not name.startswith("weekly_") or start_date.weekday() == 6
-        ]
+        cohorts_items = list(AMPLITUDE_COHORTS.items())
         metrics: dict[str, int] = {}
 
         for cohort_name, cohort_info in cohorts_items:
@@ -299,13 +347,25 @@ async def post_data_from_cohorts(auth: str, start_date: datetime, end_date: date
                 user_ids = cohort_data.get("ids", [])
                 total_users = len(user_ids)
                 metrics[cohort_name] = total_users
-                message += f"\n\n*{cohort_info['description']}: {total_users}*\n\n"
-                user_names_dict = await fetch_user_names(user_ids)
-                message += ", ".join(sorted(user_names_dict.values(), key=lambda name: name.lower()))
+                message += f"\n\n*{cohort_info['description']}: {total_users}*"
+
+                if cohort_name.startswith("daily_"):
+                    user_names_dict = await fetch_user_names(user_ids)
+                    message += f"\n{', '.join(sorted(user_names_dict.values(), key=lambda name: name.lower()))}"
+                elif cohort_name.startswith("weekly_") and start_date.weekday() == 6:
+                    user_names_dict = await fetch_user_names(user_ids)
+                    message += f"\n{', '.join(sorted(user_names_dict.values(), key=lambda name: name.lower()))}"
+
             except (KeyError, RequestException) as e:
                 logging.error(f"Failed to process data for cohort {cohort_name}: {e}")
                 metrics[cohort_name] = 0
 
+        # Add DAU/WAU ratio
+        daily_users = metrics.get("daily_active_guests", 0)
+        weekly_users = metrics.get("weekly_active_guests", 0)
+        ratio_tracker.add_ratio("DAU/WAU", daily_users, weekly_users)
+
+        message += ratio_tracker.get_ratio_message()
         logging.info(json_dumps(log_dict))
         analytics_webhook_url = os.environ.get("ANALYTICS_SLACK_WEBHOOK_URL")
         await post_to_slack(message, analytics_webhook_url)
