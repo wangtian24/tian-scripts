@@ -8,7 +8,7 @@ import re
 import sys
 from collections import Counter, defaultdict
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -58,6 +58,7 @@ from ypl.backend.llm.model.model_onboarding import verify_onboard_submitted_mode
 from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.moderation import LLAMA_GUARD_3_8B_MODEL_NAME, ModerationReason, moderate
 from ypl.backend.llm.prompt_classifiers import categorize_user_messages
+from ypl.backend.llm.prompt_suggestions import refresh_conversation_starters
 from ypl.backend.llm.ranking import get_default_ranker
 from ypl.backend.llm.synthesize import SQLChatIO, SynthesizerConfig, SyntheticUserGenerator, asynthesize_chats
 from ypl.backend.llm.utils import fetch_categories_with_descriptions_from_db
@@ -93,6 +94,7 @@ from ypl.db.users import (
     CapabilityStatus,
     UserCapabilityOverride,
     UserCapabilityStatus,
+    UserStatus,
 )
 
 logging.getLogger().setLevel(logging.INFO)
@@ -1427,6 +1429,66 @@ def post_source_account_balances() -> None:
         await post_to_slack(message, SLACK_WEBHOOK_CASHOUT)
 
     asyncio.run(format_and_post_balances())
+
+
+@cli.command()
+@click.option("--max-recent-chats", default=10, help="Maximum number of recent chats to consider")
+@click.option("--max-messages-per-chat", default=10, help="Maximum messages to include per chat")
+@click.option("--max-message-length", default=1000, help="Maximum length of each message")
+@click.option("--min-new-chats", default=2, help="Minimum number of new chats required")
+@click.option("--num-days-for-user-activity", default=1, help="Limit to users with chats in the last N days")
+@click.option("--num-parallel", default=4, help="Number number of users to refresh in parallel")
+@db_cmd
+def refresh_all_users_conversation_starters(
+    max_recent_chats: int = 10,
+    max_messages_per_chat: int = 10,
+    max_message_length: int = 1000,
+    min_new_chats: int = 2,
+    num_days_for_user_activity: int = 1,
+    num_parallel: int = 4,
+) -> None:
+    """Refresh conversation starters for all users."""
+
+    # Get users to refresh: all active users with at least 1 chat in the last 24 hours
+    with Session(get_engine()) as session:
+        user_ids = (
+            session.execute(
+                select(User.user_id)
+                .where(User.status == UserStatus.ACTIVE)
+                .join(
+                    Chat,
+                    and_(
+                        User.user_id == Chat.creator_user_id,  # type: ignore
+                        Chat.created_at >= datetime.now(UTC) - timedelta(days=num_days_for_user_activity),  # type: ignore
+                        Chat.deleted_at.is_(None),  # type: ignore
+                    ),
+                )
+                .distinct()
+            )
+            .scalars()
+            .all()
+        )
+
+        logging.info(f"Found {len(user_ids)} users to refresh conversation starters for")
+
+        sem = asyncio.Semaphore(num_parallel)
+
+        async def refresh_with_semaphore(user_id: str) -> None:
+            async with sem:
+                await refresh_conversation_starters(
+                    user_id,
+                    max_recent_chats=max_recent_chats,
+                    max_messages_per_chat=max_messages_per_chat,
+                    max_message_length=max_message_length,
+                    min_new_chats=min_new_chats,
+                )
+
+        async def run_tasks() -> None:
+            tasks = [refresh_with_semaphore(user_id) for user_id in user_ids]
+            await asyncio.gather(*tasks)
+
+        asyncio.run(run_tasks())
+        logging.info(f"Completed refreshing conversation starters for {len(user_ids)} users")
 
 
 @cli.command()

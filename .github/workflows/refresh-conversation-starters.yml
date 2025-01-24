@@ -1,0 +1,21 @@
+name: Refresh conversation starters
+
+on:
+  schedule:
+    - cron: '0 15 * * *'  # Daily at 3:00 PM UTC
+  workflow_dispatch:
+
+jobs:
+  refresh_conversation_starters_staging:
+    uses: ./.github/workflows/cronjob.yml
+    with:
+      command: refresh-all-users-conversation-starters
+      environment: staging
+    secrets: inherit
+
+  refresh_conversation_starters_production:
+    uses: ./.github/workflows/cronjob.yml
+    with:
+      command: refresh-all-users-conversation-starters
+      environment: production
+    secrets: inherit

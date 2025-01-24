@@ -58,7 +58,7 @@ async def maybe_add_suggested_followups(chat_id: uuid.UUID, turn_id: uuid.UUID) 
 
 
 async def refresh_conversation_starters(
-    user_id: uuid.UUID,
+    user_id: str,
     max_recent_chats: int = 10,
     max_messages_per_chat: int = 10,
     max_message_length: int = 1000,
