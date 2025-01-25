@@ -132,9 +132,6 @@ jobs:
         sbom: false
         github-token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Install gcloud beta
-      run: gcloud components install beta
-
     - name: Deploy to Cloud Run
       run: |
         gcloud beta run deploy ${{ env.SERVICE_NAME }} \
