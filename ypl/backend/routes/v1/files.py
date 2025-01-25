@@ -348,3 +348,161 @@ async def get_data_url(attachment_id: str) -> DataUrlResponse:
         except Exception as e:
             logging.exception(f"Error downloading thumbnail: {str(e)}")
             return DataUrlResponse(data_url="")
+
+
+THUMBNAILS_FOLDER = "thumbnails"
+DEFAULT_ATTACHMENT_BUCKET = "gs://yupp-attachments/staging"
+
+
+def get_bucket_name_and_root_folder() -> tuple[str, str]:
+    # ATTACHMENT_BUCKET is of the format gs://bucket_name/path/to/root_folder
+    # This function returns the bucket_name and the path_to_root_folder
+    path_to_root_folder = os.getenv("ATTACHMENT_BUCKET") or DEFAULT_ATTACHMENT_BUCKET
+    bucket_name, *path_parts = path_to_root_folder.replace("gs://", "").split("/")
+    if not bucket_name or not path_parts:
+        raise ValueError(f"Invalid GCS path format: {path_to_root_folder}")
+    return bucket_name, os.path.join(*path_parts)
+
+
+def path_to_object(object_id: str, folder_path: str = "") -> str:
+    # object_id is the id of the object to be stored in GCS
+    # folder_path is the path to the folder where the object is to be stored
+    # This function returns the path to the object in GCS
+    _, root_folder = get_bucket_name_and_root_folder()
+    object_path = os.path.join(root_folder, folder_path, object_id)
+    return object_path
+
+
+def get_gcs_url(object_id: str, folder_path: str = "") -> str:
+    # object_id is the id of the object to be stored in GCS
+    # folder_path is the path to the folder where the object is to be stored
+    # This function returns the GCS URL to the object
+    attachment_bucket_gcs_path = os.getenv("ATTACHMENT_BUCKET") or DEFAULT_ATTACHMENT_BUCKET
+    return os.path.join(attachment_bucket_gcs_path, folder_path, object_id)
+
+
+@dataclass
+class SignedUrlResponse:
+    signed_url: str
+    file_id: UUID
+
+
+@router.get("/attachment/signed-url")
+async def get_signed_url() -> SignedUrlResponse:
+    start = datetime.now()
+    attachment_bucket, _ = get_bucket_name_and_root_folder()
+    try:
+        file_id = uuid4()
+        blob_name = path_to_object(str(file_id))
+        async with Storage() as async_client:
+            bucket = async_client.get_bucket(attachment_bucket)
+            blob = bucket.new_blob(blob_name=blob_name)
+            signed_url = await blob.get_signed_url(http_method="PUT", expiration=120)  # Keep it valid only for 2 mins
+            return SignedUrlResponse(signed_url=signed_url, file_id=file_id)
+    except Exception as e:
+        logging.exception(f"Error generating signed URL: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    finally:
+        logging.info(
+            json_dumps(
+                {
+                    "message": "Attachments: Signed URL generated",
+                    "duration_ms": datetime.now() - start,
+                }
+            )
+        )
+
+
+@dataclass
+class CreateAttachmentRequest(BaseModel):
+    file_name: str
+    content_type: str
+    file_id: UUID
+
+
+@router.post("/attachment")
+async def create_attachment(request: CreateAttachmentRequest) -> Attachment:
+    blob = None
+    if not request.content_type.startswith("image/"):
+        raise ValueError(f"Unsupported content type {request.content_type}; must start with 'image/'")
+
+    file_id = str(request.file_id)
+
+    attachment_bucket, _ = get_bucket_name_and_root_folder()
+    object_name = path_to_object(file_id)
+
+    logging.info(f"Attachments: Creating attachment for file {file_id}")
+
+    try:
+        async with Storage() as async_client:
+            blob = await async_client.download(bucket=attachment_bucket, object_name=object_name)
+    except Exception as e:
+        logging.exception(f"Attachments: Error downloading file: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+    if not blob:
+        raise HTTPException(status_code=500, detail="Failed to download file")
+
+    thumbnail_start = datetime.now()
+    thumbnail_path = path_to_object(file_id, THUMBNAILS_FOLDER)
+    original_dimensions = None
+    try:
+        async with Storage() as async_client:
+            original_image = Image.open(BytesIO(blob))
+            image = original_image.copy()
+            original_dimensions = original_image.size
+            image.thumbnail((512, 512))
+            image_bytes = BytesIO()
+            image.save(image_bytes, format="PNG")
+            image_bytes.seek(0)
+            logging.info(
+                json_dumps(
+                    {
+                        "message": "Attachments: Thumbnail image resized",
+                        "duration_ms": datetime.now() - thumbnail_start,
+                        "file_name": request.file_name,
+                        "file_id": file_id,
+                    }
+                )
+            )
+            await async_client.upload(
+                bucket=attachment_bucket,
+                object_name=thumbnail_path,
+                file_data=image_bytes,
+                content_type="image/png",
+            )
+            logging.info(
+                json_dumps(
+                    {
+                        "message": "Attachments: Thumbnail upload completed",
+                        "duration_ms": datetime.now() - thumbnail_start,
+                        "file_name": request.file_name,
+                    }
+                )
+            )
+    except Exception as e:
+        logging.exception(f"Attachments: Error uploading thumbnail: {str(e)}")
+        raise e
+
+    metadata = {"dimensions": original_dimensions, "size": len(blob)}
+
+    thumbnail_url = get_gcs_url(file_id, THUMBNAILS_FOLDER)
+    url = get_gcs_url(file_id)
+
+    try:
+        async with get_async_session() as session:
+            attachment = Attachment(
+                attachment_id=uuid4(),
+                file_name=request.file_name,
+                content_type=request.content_type,
+                url=url,
+                thumbnail_url=thumbnail_url,
+                attachment_metadata=metadata,
+            )
+            session.add(attachment)
+            await session.commit()
+            await session.refresh(attachment)
+            return attachment
+    except Exception as e:
+        logging.exception(f"Attachments: Error creating attachment: {str(e)}")
+        raise e
