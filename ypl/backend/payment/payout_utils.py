@@ -273,7 +273,7 @@ async def process_pending_coinbase_transaction(payment: PaymentTransaction) -> N
     try:
         if not payment.partner_reference_id:
             log_dict = {
-                "message": ":x: - Missing transaction ID for Coinbase transaction",
+                "message": ":x: - Missing transaction ID for Coinbase retail transaction",
                 "payment_transaction_id": str(payment.payment_transaction_id),
             }
             logging.error(json_dumps(log_dict))
@@ -285,7 +285,7 @@ async def process_pending_coinbase_transaction(payment: PaymentTransaction) -> N
         account_id = str(account_info["account_id"])
         if not account_id:
             log_dict = {
-                "message": ":x: - Missing account ID for Coinbase transaction",
+                "message": ":x: - Missing account ID for Coinbase retail transaction",
                 "payment_transaction_id": str(payment.payment_transaction_id),
                 "currency": payment.currency.value,
             }

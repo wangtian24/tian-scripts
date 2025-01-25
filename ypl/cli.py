@@ -1595,5 +1595,16 @@ def create_cashout_override(
     asyncio.run(_create_override())
 
 
+@cli.command()
+@click.option("--account-id", required=True, help="The ID of the Coinbase account")
+@click.option("--transaction-id", required=True, help="The ID of the Coinbase transaction")
+def get_coinbase_retail_transaction_status(account_id: str, transaction_id: str) -> None:
+    """Get the status of a Coinbase retail transaction."""
+    from ypl.backend.payment.coinbase.coinbase_payout import get_transaction_status
+
+    txn_status = asyncio.run(get_transaction_status(account_id, transaction_id))
+    print(txn_status)
+
+
 if __name__ == "__main__":
     cli()

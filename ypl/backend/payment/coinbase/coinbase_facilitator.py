@@ -292,6 +292,7 @@ class CoinbaseFacilitator(BaseFacilitator):
                     "destination_instrument_id": str(destination_instrument_id),
                     "destination_identifier": destination_identifier,
                     "currency": self.currency.value,
+                    "account_id": account_id,
                     "transaction_id": transaction_id,
                     "payment_transaction_id": str(payment_transaction_id),
                     "points_transaction_id": str(point_transaction_id),
