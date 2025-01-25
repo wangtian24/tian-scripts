@@ -38,6 +38,7 @@ router = APIRouter()
 
 CREDITS_TO_INR_RATE = Decimal("0.05")
 CREDITS_TO_USD_RATE = Decimal("0.002")
+USD_TO_INR_RATE = Decimal("85")  # TODO: Get this from the exchange rate API. Hardcoded to match superset
 
 
 @router.get("/credits/balance")

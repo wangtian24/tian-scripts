@@ -11,7 +11,7 @@ import requests
 from requests.exceptions import RequestException
 from typing_extensions import TypedDict
 from ypl.backend.llm.utils import post_to_slack
-from ypl.backend.routes.v1.credit import CREDITS_TO_USD_RATE
+from ypl.backend.routes.v1.credit import CREDITS_TO_INR_RATE, CREDITS_TO_USD_RATE, USD_TO_INR_RATE
 from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.utils import fetch_user_names
 
@@ -332,7 +332,7 @@ async def post_data_from_cohorts(auth: str, start_date: datetime, end_date: date
     """Fetch metrics for multiple Amplitude cohorts and post them to Slack.
     Always pulls both daily and weekly data. Shows daily user names every day,
     but weekly user names only on Sundays."""
-    message = f"*Guest report for {start_date.date()}*"
+    message = f"*Amplitude Guest Report for {start_date.date()}*\n"
     log_dict: dict[str, int] = {}
 
     try:
@@ -387,27 +387,34 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
     from sqlmodel import Session, text
     from ypl.backend.db import get_engine
 
+    #  row means Rest of World in the query below
     daily_query = """
     WITH base_data AS (
         SELECT
-            date_trunc('day', created_at AT TIME ZONE 'America/Los_Angeles')::date AS date,
-            SUM(credit_delta) AS total_credits
+            date_trunc('day', r.created_at AT TIME ZONE 'America/Los_Angeles')::date AS date,
+            SUM(r.credit_delta) AS total_credits,
+            SUM(CASE WHEN up.country = 'IN' THEN r.credit_delta ELSE 0 END) as total_credits_from_india,
+            SUM(CASE WHEN COALESCE(up.country, 'ROW') != 'IN' THEN r.credit_delta ELSE 0 END) as total_credits_from_row
         FROM
-            rewards
+            rewards r
+        LEFT JOIN
+            user_profiles up ON r.user_id = up.user_id
         WHERE
-            status = 'CLAIMED'
-            AND created_at >= NOW() - INTERVAL '2 days'
+            r.status = 'CLAIMED'
+            AND (r.created_at AT TIME ZONE 'America/Los_Angeles')::date =
+            ((current_date - INTERVAL '1 day') AT TIME ZONE 'America/Los_Angeles')::date
         GROUP BY
-            date_trunc('day', created_at AT TIME ZONE 'America/Los_Angeles')::date
+            date_trunc('day', r.created_at AT TIME ZONE 'America/Los_Angeles')::date
     ),
     turn_data AS (
         SELECT
             date_trunc('day', created_at AT TIME ZONE 'America/Los_Angeles')::date AS date,
-            COUNT(turn_id) AS turn_count
+            COUNT(*) AS turn_count
         FROM
             turns t
         WHERE
-            created_at >= NOW() - INTERVAL '2 days'
+            (created_at AT TIME ZONE 'America/Los_Angeles')::date =
+            ((current_date - INTERVAL '1 day') AT TIME ZONE 'America/Los_Angeles')::date
             AND deleted_at IS NULL
         GROUP BY
             date_trunc('day', created_at AT TIME ZONE 'America/Los_Angeles')::date
@@ -416,6 +423,8 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
         SELECT
             b.date,
             b.total_credits,
+            b.total_credits_from_india,
+            b.total_credits_from_row,
             COALESCE(t.turn_count, 0) as turn_count
         FROM base_data b
         LEFT JOIN turn_data t ON b.date = t.date
@@ -424,6 +433,8 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
         'daily' AS period,
         date AS period_start,
         SUM(total_credits) AS total_credits,
+        SUM(total_credits_from_india) AS total_credits_from_india,
+        SUM(total_credits_from_row) AS total_credits_from_row,
         SUM(turn_count) AS turn_count,
         CASE
             WHEN SUM(turn_count) > 0 THEN ROUND(SUM(total_credits)::numeric / SUM(turn_count))::integer
@@ -440,15 +451,20 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
     weekly_query = """
     WITH base_data AS (
         SELECT
-            date_trunc('day', created_at AT TIME ZONE 'America/Los_Angeles')::date AS date,
-            SUM(credit_delta) AS total_credits
+            date_trunc('day', r.created_at AT TIME ZONE 'America/Los_Angeles')::date AS date,
+            SUM(r.credit_delta) AS total_credits,
+            SUM(CASE WHEN up.country = 'IN' THEN r.credit_delta ELSE 0 END) as total_credits_from_india,
+            SUM(CASE WHEN COALESCE(up.country, 'ROW') != 'IN' THEN r.credit_delta ELSE 0 END) as total_credits_from_row
         FROM
-            rewards
+            rewards r
+        LEFT JOIN
+            user_profiles up ON r.user_id = up.user_id
         WHERE
-            status = 'CLAIMED'
-            AND created_at >= NOW() - INTERVAL '90 days'
+            r.status = 'CLAIMED'
+            AND (r.created_at AT TIME ZONE 'America/Los_Angeles')::date >=
+            ((current_date - INTERVAL '90 days') AT TIME ZONE 'America/Los_Angeles')::date
         GROUP BY
-            date_trunc('day', created_at AT TIME ZONE 'America/Los_Angeles')::date
+            date_trunc('day', r.created_at AT TIME ZONE 'America/Los_Angeles')::date
     ),
     turn_data AS (
         SELECT
@@ -457,7 +473,8 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
         FROM
             turns t
         WHERE
-            created_at >= NOW() - INTERVAL '90 days'
+            (created_at AT TIME ZONE 'America/Los_Angeles')::date >=
+            ((current_date - INTERVAL '90 days') AT TIME ZONE 'America/Los_Angeles')::date
             AND deleted_at IS NULL
         GROUP BY
             date_trunc('day', created_at AT TIME ZONE 'America/Los_Angeles')::date
@@ -466,6 +483,8 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
         SELECT
             b.date,
             b.total_credits,
+            b.total_credits_from_india,
+            b.total_credits_from_row,
             COALESCE(t.turn_count, 0) as turn_count
         FROM base_data b
         LEFT JOIN turn_data t ON b.date = t.date
@@ -474,6 +493,8 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
         'weekly' AS period,
         date_trunc('week', date)::date AS period_start,
         SUM(total_credits) AS total_credits,
+        SUM(total_credits_from_india) AS total_credits_from_india,
+        SUM(total_credits_from_row) AS total_credits_from_row,
         SUM(turn_count) AS turn_count,
         CASE
             WHEN SUM(turn_count) > 0 THEN ROUND(SUM(total_credits)::numeric / SUM(turn_count))::integer
@@ -488,6 +509,8 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
         'monthly' AS period,
         date_trunc('month', date)::date AS period_start,
         SUM(total_credits) AS total_credits,
+        SUM(total_credits_from_india) AS total_credits_from_india,
+        SUM(total_credits_from_row) AS total_credits_from_row,
         SUM(turn_count) AS turn_count,
         CASE
             WHEN SUM(turn_count) > 0 THEN ROUND(SUM(total_credits)::numeric / SUM(turn_count))::integer
@@ -502,6 +525,8 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
         'quarterly' AS period,
         date_trunc('quarter', date)::date AS period_start,
         SUM(total_credits) AS total_credits,
+        SUM(total_credits_from_india) AS total_credits_from_india,
+        SUM(total_credits_from_row) AS total_credits_from_row,
         SUM(turn_count) AS turn_count,
         CASE
             WHEN SUM(turn_count) > 0 THEN ROUND(SUM(total_credits)::numeric / SUM(turn_count))::integer
@@ -520,14 +545,18 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
             daily_results = session.execute(text(daily_query)).all()
             daily_metrics = list(daily_results)
 
-            if len(daily_metrics) >= 2:
-                yesterday_metrics = daily_metrics[1]
-                message = f"*Credit Metrics for {yesterday_metrics.period_start}*\n"
+            if len(daily_metrics) >= 1:
+                yesterday_metrics = daily_metrics[0]
+                message = f"*Database Credit Metrics for {yesterday_metrics.period_start}*\n"
+                usd_amount_india = yesterday_metrics.total_credits_from_india * CREDITS_TO_INR_RATE / USD_TO_INR_RATE
+                usd_amount_row = yesterday_metrics.total_credits_from_row * CREDITS_TO_USD_RATE
+                usd_amount = usd_amount_india + usd_amount_row
                 message += (
                     f"Credits Claimed Yesterday: {yesterday_metrics.total_credits:,.0f} "
                     f"({yesterday_metrics.turn_count:,} turns, "
                     f"{yesterday_metrics.credits_per_turn:,d} credits/turn)\n"
-                    f"Corresponding USD: {yesterday_metrics.total_credits * CREDITS_TO_USD_RATE:,.2f}\n"
+                    f"Corresponding USD: {usd_amount:,.2f}\n"
+                    f"(India: {usd_amount_india:,.2f}, Row: {usd_amount_row:,.2f})\n"
                 )
 
                 if start_date.weekday() == 6:
@@ -537,30 +566,47 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
                     quarterly_metrics = next((r for r in weekly_results if r.period == "quarterly"), None)
 
                     if weekly_metrics:
+                        usd_amount_india = (
+                            weekly_metrics.total_credits_from_india * CREDITS_TO_INR_RATE / USD_TO_INR_RATE
+                        )
+                        usd_amount_row = weekly_metrics.total_credits_from_row * CREDITS_TO_USD_RATE
+                        usd_amount = usd_amount_india + usd_amount_row
                         message += (
                             f"\nWeekly Credits (Week of {weekly_metrics.period_start}): "
                             f"{weekly_metrics.total_credits:,.0f} "
                             f"({weekly_metrics.turn_count:,} turns, "
-                            f"{weekly_metrics.credits_per_turn:,d} credits/turn)"
-                            f"Corresponding USD: {weekly_metrics.total_credits * CREDITS_TO_USD_RATE:,.2f}\n"
+                            f"{weekly_metrics.credits_per_turn:,d} credits/turn)\n"
+                            f"Corresponding USD: {usd_amount:,.2f}\n"
+                            f"(India: {usd_amount_india:,.2f}, Rest of World: {usd_amount_row:,.2f})\n"
                         )
                     if monthly_metrics:
+                        usd_amount_india = (
+                            monthly_metrics.total_credits_from_india * CREDITS_TO_INR_RATE / USD_TO_INR_RATE
+                        )
+                        usd_amount_row = monthly_metrics.total_credits_from_row * CREDITS_TO_USD_RATE
+                        usd_amount = usd_amount_india + usd_amount_row
                         message += (
                             f"\nMonthly Credits ({monthly_metrics.period_start.strftime('%B %Y')}): "
                             f"{monthly_metrics.total_credits:,.0f} "
                             f"({monthly_metrics.turn_count:,} turns, "
-                            f"{monthly_metrics.credits_per_turn:,d} credits/turn)"
-                            f"Corresponding USD: {monthly_metrics.total_credits * CREDITS_TO_USD_RATE:,.2f}\n"
+                            f"{monthly_metrics.credits_per_turn:,d} credits/turn)\n"
+                            f"Corresponding USD: {usd_amount:,.2f}\n"
+                            f"(India: {usd_amount_india:,.2f}, Row: {usd_amount_row:,.2f})\n"
                         )
                     if quarterly_metrics:
                         quarter = (quarterly_metrics.period_start.month - 1) // 3 + 1
+                        usd_amount_india = (
+                            quarterly_metrics.total_credits_from_india * CREDITS_TO_INR_RATE / USD_TO_INR_RATE
+                        )
+                        usd_amount_row = quarterly_metrics.total_credits_from_row * CREDITS_TO_USD_RATE
+                        usd_amount = usd_amount_india + usd_amount_row
                         message += (
-                            f"\nQuarterly Credits (Q{quarter} "
-                            f"{quarterly_metrics.period_start.year}): "
+                            f"\nQuarterly Credits (Q{quarter} {quarterly_metrics.period_start.year}): "
                             f"{quarterly_metrics.total_credits:,.0f} "
                             f"({quarterly_metrics.turn_count:,} turns, "
-                            f"{quarterly_metrics.credits_per_turn:,d} credits/turn)"
-                            f"Corresponding USD: {quarterly_metrics.total_credits * CREDITS_TO_USD_RATE:,.2f}\n"
+                            f"{quarterly_metrics.credits_per_turn:,d} credits/turn)\n"
+                            f"Corresponding USD: {usd_amount:,.2f}\n"
+                            f"(India: {usd_amount_india:,.2f}, Row: {usd_amount_row:,.2f})\n"
                         )
 
                 analytics_webhook_url = os.environ.get("ANALYTICS_SLACK_WEBHOOK_URL")
