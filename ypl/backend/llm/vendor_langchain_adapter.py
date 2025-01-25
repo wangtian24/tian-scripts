@@ -13,6 +13,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatResult
 from langchain_core.outputs.chat_generation import ChatGeneration
+from langchain_google_genai.chat_models import _convert_to_parts
 from openai import AsyncOpenAI, OpenAI
 
 from ypl.backend.llm.model_data_type import ModelInfo
@@ -98,7 +99,7 @@ class GeminiLangChainAdapter(VendorLangChainAdapter):
                 contents=[
                     genai.protos.Content(
                         role=GOOGLE_ROLE_MAP.get(message.type, message.type),
-                        parts=[genai.protos.Part(text=str(message.content))],
+                        parts=_convert_to_parts(message.content),
                     )
                     for message in messages
                 ],
