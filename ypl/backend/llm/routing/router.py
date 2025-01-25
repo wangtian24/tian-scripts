@@ -62,6 +62,7 @@ async def get_simple_pro_router(
     show_me_more_models: list[str] | None = None,
     provided_categories: list[str] | None = None,
     extra_prefix: str | None = None,
+    chat_id: str | None = None,
 ) -> RouterModule:
     """
     The main routing function.
@@ -129,6 +130,7 @@ async def get_simple_pro_router(
                 required_models=user_selected_models,
                 metadata={
                     "user_id": preference.user_id,
+                    "chat_id": chat_id,
                     "categories": categories,
                 },
             )

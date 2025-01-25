@@ -200,6 +200,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
             show_me_more_models=preference.same_turn_shown_models or [],
             provided_categories=provided_categories,
             extra_prefix="PRIMARY-",
+            chat_id=request.chat_id,
         )
         all_models_state = RouterState.new_all_models_state()
         selected_models_rs = router.select_models(state=all_models_state)
