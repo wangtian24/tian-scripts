@@ -1,9 +1,11 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse, ORJSONResponse
 from fastapi.routing import APIRoute
 from starlette.middleware.cors import CORSMiddleware
@@ -50,7 +52,56 @@ app = FastAPI(
     generate_unique_id_function=custom_generate_unique_id,
     default_response_class=ORJSONResponse,
     lifespan=lifespan,
+    swagger_ui_init_oauth={},
+    swagger_ui_parameters={"persistAuthorization": True},
 )
+
+
+def custom_openapi() -> dict[str, Any]:
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+        tags=app.openapi_tags,
+        servers=app.servers,
+    )
+
+    if "components" not in openapi_schema:
+        openapi_schema["components"] = {}
+
+    components = openapi_schema["components"]
+    components["securitySchemes"] = {
+        "ApiKeyAuth": {
+            "type": "apiKey",
+            "in": "header",
+            "name": "X-API-KEY",
+            "description": "Regular API key for standard endpoints",
+        },
+        "AdminApiKeyAuth": {
+            "type": "apiKey",
+            "in": "header",
+            "name": "X-ADMIN-API-KEY",
+            "description": "Admin API key for administrative endpoints",
+        },
+    }
+
+    openapi_schema["security"] = [{"ApiKeyAuth": []}, {"AdminApiKeyAuth": []}]
+
+    # Add explicit security requirements for each operation
+    for path_item in openapi_schema["paths"].values():
+        for operation in path_item.values():
+            if isinstance(operation, dict):
+                operation["security"] = [{"ApiKeyAuth": []}, {"AdminApiKeyAuth": []}]
+
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+
+app.openapi = custom_openapi  # type: ignore
 
 
 @app.exception_handler(RequestValidationError)
@@ -70,8 +121,8 @@ if settings.BACKEND_CORS_ORIGINS:
         allow_origins=[str(origin).strip("/") for origin in settings.BACKEND_CORS_ORIGINS],
         allow_credentials=True,
         allow_methods=["*"],
-        allow_headers=["*"],
-        expose_headers=["Content-Disposition"],
+        allow_headers=["*", "X-API-KEY", "X-ADMIN-API-KEY"],
+        expose_headers=["Content-Disposition", "X-API-KEY", "X-ADMIN-API-KEY"],
     )
 
 app.include_router(api_router, prefix=settings.API_PREFIX)
