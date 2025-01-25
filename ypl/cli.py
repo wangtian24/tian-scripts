@@ -1375,7 +1375,7 @@ def generate_invite_codes_for_yuppster() -> None:
 
 
 @cli.command()
-@click.option("--init-value", default=1500, help="Initial value to reset points to")
+@click.option("--init-value", default=2500, help="Initial value to reset points to")
 @db_cmd
 def reset_yuppster_points(init_value: int) -> None:
     """Reset points for Yupp employees to the specified initial value."""
