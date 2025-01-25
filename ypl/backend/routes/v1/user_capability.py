@@ -42,7 +42,7 @@ class CashoutOverrideRequest(BaseModel):
     override_config: CashoutOverrideConfig | None = None
 
 
-@router.post("/user-capability/cashout/override", tags=["admin"])
+@router.post("/admin/user-capability/cashout/override")
 async def create_cashout_override(request: CashoutOverrideRequest) -> str:
     """Create a cashout capability override for a user.
 

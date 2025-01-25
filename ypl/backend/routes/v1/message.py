@@ -7,7 +7,7 @@ from ypl.backend.message.message import MessagesResponse, get_user_messages
 router = APIRouter()
 
 
-@router.get("/messages")
+@router.get("/admin/messages")
 async def get_messages(
     user_id: Annotated[str | None, Query(description="Optional User ID to filter messages")] = None,
     limit: Annotated[int, Query(ge=1, le=100, description="Number of messages to return")] = 50,

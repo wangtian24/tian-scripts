@@ -59,7 +59,7 @@ class UserSearchResponse:
     users: list[UserSearchResult]
 
 
-@router.get("/users/search")
+@router.get("/admin/users/search")
 async def get_users(query: str) -> UserSearchResponse:
     """Search for users where name or user_id partially matches the query string.
 
@@ -149,7 +149,7 @@ async def get_users(query: str) -> UserSearchResponse:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.get("/users/{user_id}/related")
+@router.get("/admin/users/{user_id}/related")
 async def get_related_users(user_id: str = Path(..., description="User ID")) -> RelatedUsersResponse:
     """Get users related to the given user.
 
@@ -367,7 +367,7 @@ async def _get_sibling_users(session: AsyncSession, user_id: str, parent_user_id
     return list(all_siblings.values())
 
 
-@router.post("/users/{user_id}/deactivate")
+@router.post("/admin/users/{user_id}/deactivate")
 async def deactivate_user(
     user_id: str = Path(..., description="User ID"),
     creator_user_email: str = Query(..., description="Email of the user performing the deactivation"),
