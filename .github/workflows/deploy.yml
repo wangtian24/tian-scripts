@@ -74,6 +74,9 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
+    env:
+      DB_OR_RULES_CHANGED: false
+
     steps:
     # Remove unused content on github runners.
     - name: Free up space
@@ -90,6 +93,20 @@ jobs:
 
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch all history to compare with main branch
+
+    - name: Check for DB or rules changes
+      id: check_changes
+      run: |
+        git fetch origin main
+        if git diff --name-only origin/main HEAD | grep -q -E 'data/reward_rules\.yml|ypm/db/alembic/'; then
+          echo "DB_OR_RULES_CHANGED=true" >> $GITHUB_ENV
+          echo "Detected DB or reward rules changes"
+        else
+          echo "DB_OR_RULES_CHANGED=false" >> $GITHUB_ENV
+          echo "No DB or reward rules changes detected"
+        fi
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v2
@@ -308,17 +325,20 @@ jobs:
           --platform managed
 
     - name: Setup Python
+      if: env.DB_OR_RULES_CHANGED
       uses: actions/setup-python@v5
       with:
         python-version: 3.11
 
     - name: Cache Poetry install
+      if: env.DB_OR_RULES_CHANGED
       uses: actions/cache@v4
       with:
         path: ~/.local
         key: poetry-1.8.2-0
 
     - name: Install Poetry
+      if: env.DB_OR_RULES_CHANGED
       uses: snok/install-poetry@v1
       with:
         version: 1.8.2
@@ -326,6 +346,7 @@ jobs:
         virtualenvs-in-project: true
 
     - name: Cache Poetry dependencies
+      if: env.DB_OR_RULES_CHANGED
       id: cache-deps
       uses: actions/cache@v4
       with:
@@ -333,14 +354,16 @@ jobs:
         key: pydeps-${{ hashFiles('**/poetry.lock') }}
 
     - name: Install dependencies
+      if: env.DB_OR_RULES_CHANGED
       run: poetry install --no-interaction --no-root --sync
 
     - name: Run migrations
-      if: env.ENVIRONMENT == 'staging'
+      if: ${{ env.ENVIRONMENT == 'staging' && env.DB_OR_RULES_CHANGED }}
       run: |
         echo "yupp" | poetry run alembic upgrade head
 
     - name: Refresh reward rules
+      if: env.DB_OR_RULES_CHANGED
       run: poetry run python -m ypl.cli refresh-rewards-rules
 
     - name: Tag commit
