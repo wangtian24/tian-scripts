@@ -431,7 +431,7 @@ async def get_suggested_followups(turn_id: UUID) -> SuggestedPromptsResponse:
 
 
 @router.get("/users/{user_id}/conversation_starters", response_model=SuggestedPromptsResponse)
-async def get_conversation_starters(user_id: UUID) -> SuggestedPromptsResponse:
+async def get_conversation_starters(user_id: str) -> SuggestedPromptsResponse:
     try:
         async with get_async_session() as session:
             stmt = select(SuggestedUserPrompt).where(
