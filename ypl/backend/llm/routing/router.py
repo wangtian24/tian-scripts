@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 from google.auth import default
 from google.cloud import run_v2
@@ -39,6 +40,7 @@ from ypl.backend.llm.routing.modules.rankers import SpeedRanker
 from ypl.backend.llm.routing.policy import SelectionCriteria, decayed_random_fraction
 from ypl.backend.llm.routing.route_data_type import RoutingPreference
 from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter, OpenAILangChainAdapter
+from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.monitoring import metric_inc_by
 
 # Begin pro router logic and routine
@@ -80,6 +82,20 @@ async def get_simple_pro_router(
         online_labeler.alabel(prompt),
         topic_labeler.alabel(prompt),
         modifier_labeler.alabel(prompt),
+    )
+
+    short_prompt = prompt[:100] + "..." if len(prompt) > 100 else prompt
+    logging.info(
+        json_dumps(
+            {
+                "message": "Routing input",
+                "chat_id": chat_id,
+                "prompt": short_prompt,
+                "online_label": online_label,
+                "topic_labels": topic_labels,
+                "modifier_labels": modifier_labels,
+            }
+        )
     )
 
     online_category = ONLINE_CATEGORY if online_label else OFFLINE_CATEGORY

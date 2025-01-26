@@ -713,7 +713,7 @@ async def get_curated_chat_context(
             else str(fmsg.content)
         )
         info[f"message_{i}_type"] = type(fmsg).__name__
-    logging.info(json_dumps(info))
+    logging.debug(json_dumps(info))
 
     return formatted_messages
 
