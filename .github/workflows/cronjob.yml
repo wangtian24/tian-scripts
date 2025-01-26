@@ -36,6 +36,7 @@ on:
           - update-ranking
           - update-ranking-all-categories
           - validate-active-models
+          - validate-ledger-balance
           - validate-pending-cashouts
           - verify-submitted-models
       args:

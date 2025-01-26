@@ -64,6 +64,7 @@ from ypl.backend.llm.synthesize import SQLChatIO, SynthesizerConfig, SyntheticUs
 from ypl.backend.llm.utils import fetch_categories_with_descriptions_from_db
 from ypl.backend.payment.crypto.crypto_payout import process_pending_crypto_rewards
 from ypl.backend.payment.crypto.crypto_wallet import create_wallet, get_wallet_balance
+from ypl.backend.payment.payment import validate_ledger_balance_all_users
 from ypl.backend.payment.payout_utils import validate_pending_cashouts_async
 from ypl.backend.payment.plaid.plaid_payout import PlaidPayout, process_plaid_payout
 from ypl.backend.utils.analytics import post_analytics_to_slack
@@ -1604,6 +1605,12 @@ def get_coinbase_retail_transaction_status(account_id: str, transaction_id: str)
 
     txn_status = asyncio.run(get_transaction_status(account_id, transaction_id))
     print(txn_status)
+
+
+@cli.command()
+def validate_ledger_balance() -> None:
+    """Validate ledger balance for all users."""
+    asyncio.run(validate_ledger_balance_all_users())
 
 
 if __name__ == "__main__":

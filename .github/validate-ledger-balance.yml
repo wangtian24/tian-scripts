@@ -1,0 +1,14 @@
+name: Validate Ledger Balance
+
+on:
+  schedule:
+    - cron: '0 1 * * 0'  # Runs every Sunday at 1am
+  workflow_dispatch:
+
+jobs:
+  validate_ledger_balance_production:
+    uses: ./.github/workflows/cronjob.yml
+    with:
+      command: validate-ledger-balance
+      environment: production
+    secrets: inherit

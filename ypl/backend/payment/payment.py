@@ -6,10 +6,11 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import DatabaseError, OperationalError
 from tenacity import after_log, retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 from ypl.backend.db import get_async_session
+from ypl.backend.llm.utils import post_to_slack
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import (
     CurrencyEnum,
@@ -329,3 +330,53 @@ async def get_cashouts(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred",
         ) from e
+
+
+async def validate_ledger_balance_all_users() -> None:
+    """
+    Validate user point balances against their transaction history.
+
+    This function checks if each user's points balance matches the sum of their point_delta
+    from the point_transactions table. If there's a mismatch, it logs a warning.
+    """
+    mismatched_users = 0
+    log_dict: dict[str, Any] = {
+        "message": "Validating ledger balance for all users",
+    }
+    logging.info(json_dumps(log_dict))
+
+    async with get_async_session() as session:
+        result = await session.execute(
+            select(User).where(
+                User.deleted_at.is_(None)  # type: ignore
+            )
+        )
+        users = result.scalars().all()
+
+        for user in users:
+            point_delta_result = await session.execute(
+                select(func.sum(PointTransaction.point_delta)).where(
+                    PointTransaction.user_id == user.user_id,
+                    PointTransaction.deleted_at.is_(None),  # type: ignore
+                )
+            )
+            point_delta_sum = point_delta_result.scalar_one_or_none()
+
+            point_delta_sum = point_delta_sum or 0
+
+            if user.points != point_delta_sum:
+                mismatched_users += 1
+                log_dict = {
+                    "message": "Mismatched ledger balance detected",
+                    "user_id": user.user_id,
+                    "user_name": user.name,
+                    "user_points": user.points,
+                    "points_sum": point_delta_sum,
+                    "difference": user.points - point_delta_sum,
+                }
+                logging.warning(json_dumps(log_dict))
+
+    if mismatched_users > 0:
+        await post_to_slack(
+            f":warning: Ledger balance validation found {mismatched_users} users with mismatched point balances."
+        )
