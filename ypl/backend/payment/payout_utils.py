@@ -462,6 +462,9 @@ async def handle_failed_transaction(
                     point_delta=credits_to_cashout,
                     action_type=PointsActionEnum.CASHOUT_REVERSED,
                     cashout_payment_transaction_id=payment_transaction_id,
+                    action_details={
+                        "reversal_payment_transaction_id": str(payment_transaction_id),
+                    },
                 )
             )
         log_dict = {

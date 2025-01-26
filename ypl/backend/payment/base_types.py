@@ -1,9 +1,12 @@
+import logging
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from decimal import Decimal
 from uuid import UUID
 
+from sqlmodel import select
+from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import (
     CurrencyEnum,
     PaymentInstrumentFacilitatorEnum,
@@ -189,11 +192,36 @@ class BaseFacilitator(ABC):
 
     @staticmethod
     async def for_payment_transaction_id(payment_transaction_id: uuid.UUID) -> "BaseFacilitator":
-        from ypl.backend.payment.upi.axis.facilitator import AxisUpiFacilitator
-
-        # TODO: Implement this
-        # 1. Fetch the transaction details from the db.
-        # 2. Return the facilitator for the transaction.
-        return AxisUpiFacilitator(
-            CurrencyEnum.INR, PaymentInstrumentIdentifierTypeEnum.PHONE_NUMBER, PaymentInstrumentFacilitatorEnum.UPI
+        from ypl.backend.db import get_async_session
+        from ypl.db.payments import (
+            PaymentInstrument,
+            PaymentTransaction,
         )
+
+        log_dict = {
+            "message": "Getting facilitator for payment transaction ID",
+            "payment_transaction_id": str(payment_transaction_id),
+        }
+        logging.info(json_dumps(log_dict))
+        async with get_async_session() as session:
+            query = (
+                select(PaymentTransaction, PaymentInstrument)
+                .join(
+                    PaymentInstrument,
+                    PaymentTransaction.source_instrument_id == PaymentInstrument.payment_instrument_id,  # type: ignore
+                )
+                .where(PaymentTransaction.payment_transaction_id == payment_transaction_id)
+            )
+            result = await session.exec(query)
+            row = result.first()
+            if not row:
+                raise PaymentStatusFetchError(f"Payment transaction {payment_transaction_id} not found")
+
+            transaction: PaymentTransaction = row[0]
+            source_instrument: PaymentInstrument = row[1]
+
+            return BaseFacilitator.init(
+                currency=transaction.currency,
+                destination_identifier_type=source_instrument.identifier_type,
+                facilitator=source_instrument.facilitator,
+            )

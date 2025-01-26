@@ -8,13 +8,16 @@ from decimal import Decimal
 from cdp.transaction import Transaction
 from cdp.transfer import Transfer
 from fastapi import HTTPException
+from sqlmodel import select
 from tenacity import retry, stop_after_attempt, wait_exponential
+from ypl.backend.db import get_async_session
 from ypl.backend.llm.utils import post_to_slack_with_user_name
 from ypl.backend.payment.base_types import (
     BaseFacilitator,
     PaymentInstrumentError,
     PaymentProcessingError,
     PaymentResponse,
+    PaymentStatusFetchError,
     PointTransactionCreationError,
     TransactionCreationError,
 )
@@ -22,6 +25,7 @@ from ypl.backend.payment.crypto.crypto_payout import (
     CryptoPayoutError,
     CryptoReward,
     get_crypto_balance,
+    get_transaction_status,
     process_single_crypto_reward,
 )
 from ypl.backend.payment.payment import (
@@ -45,6 +49,7 @@ from ypl.db.payments import (
     CurrencyEnum,
     PaymentInstrumentFacilitatorEnum,
     PaymentInstrumentIdentifierTypeEnum,
+    PaymentTransaction,
     PaymentTransactionStatusEnum,
 )
 from ypl.db.point_transactions import PointsActionEnum
@@ -294,6 +299,19 @@ class OnChainFacilitator(BaseFacilitator):
                     "error": str(e),
                 }
                 logging.exception(json_dumps(log_dict))
+                await handle_failed_transaction(
+                    payment_transaction_id,
+                    point_transaction_id,
+                    user_id,
+                    credits_to_cashout,
+                    amount,
+                    source_instrument_id,
+                    destination_instrument_id,
+                    destination_identifier,
+                    destination_identifier_type,
+                    update_points=True,
+                    currency=self.currency,
+                )
                 raise ValueError(str(e)) from e
             except Exception as e:
                 log_dict = {
@@ -333,11 +351,45 @@ class OnChainFacilitator(BaseFacilitator):
             raise PaymentProcessingError("Payment processing failed") from e
 
     async def get_payment_status(self, payment_transaction_id: uuid.UUID) -> PaymentResponse:
-        # TODO: Implement this
+        log_dict = {
+            "message": "Getting payment status",
+            "payment_transaction_id": str(payment_transaction_id),
+            "currency": self.currency.value,
+        }
+        logging.info(json_dumps(log_dict))
+        async with get_async_session() as session:
+            query = select(PaymentTransaction).where(
+                PaymentTransaction.payment_transaction_id == payment_transaction_id
+            )
+            result = await session.exec(query)
+            transaction = result.first()
+            if not transaction:
+                raise PaymentStatusFetchError(f"Payment transaction {payment_transaction_id} not found")
+
+        if transaction.status in (
+            PaymentTransactionStatusEnum.SUCCESS,
+            PaymentTransactionStatusEnum.FAILED,
+            PaymentTransactionStatusEnum.REVERSED,
+        ):
+            return PaymentResponse(
+                payment_transaction_id=payment_transaction_id,
+                transaction_status=transaction.status,
+                customer_reference_id=str(transaction.partner_reference_id),
+                partner_reference_id=str(transaction.partner_reference_id),
+            )
+
+        status = await get_transaction_status(str(transaction.partner_reference_id))
+        log_dict = {
+            "message": "Payment status",
+            "payment_transaction_id": str(payment_transaction_id),
+            "status": status.value,
+        }
+        logging.info(json_dumps(log_dict))
         return PaymentResponse(
             payment_transaction_id=payment_transaction_id,
-            transaction_status=PaymentTransactionStatusEnum.SUCCESS,
-            customer_reference_id=str(payment_transaction_id),
+            transaction_status=status,
+            customer_reference_id=str(transaction.partner_reference_id),
+            partner_reference_id=str(transaction.partner_reference_id),
         )
 
     async def _monitor_transfer_completion(

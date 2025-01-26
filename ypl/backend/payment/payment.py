@@ -38,6 +38,7 @@ class CashoutPointTransactionRequest:
     point_delta: int
     action_type: PointsActionEnum
     cashout_payment_transaction_id: UUID
+    action_details: dict | None = None
 
 
 @dataclass
