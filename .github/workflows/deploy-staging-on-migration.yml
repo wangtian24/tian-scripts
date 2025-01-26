@@ -1,0 +1,26 @@
+name: Deploy Staging on DB Migration
+
+on:
+  push:
+    paths:
+      - 'ypl/db/alembic/**'
+    branches:
+      - main
+
+jobs:
+  trigger-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger deploy workflow
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              repo: context.repo.name,
+              workflow_id: 'deploy.yml',
+              ref: 'staging',
+              inputs: {
+                environment: 'staging',
+              }
+            });
