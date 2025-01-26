@@ -11,7 +11,7 @@ from ypl.backend.db import get_async_session
 from ypl.backend.utils.json import json_dumps
 from ypl.db.invite_codes import SpecialInviteCode, SpecialInviteCodeClaimLog
 from ypl.db.payments import PaymentInstrument
-from ypl.db.users import User, UserStatus
+from ypl.db.users import User, UserStatus, WaitlistedUser
 
 router = APIRouter()
 
@@ -209,99 +209,148 @@ async def get_related_users(user_id: str = Path(..., description="User ID")) -> 
 
 async def _get_parent_user(session: AsyncSession, user_id: str) -> RelatedUser | None:
     """Get the user who referred this user (parent) or created this user."""
-    # First try to find referral parent
-    query = (
-        select(User)
-        .select_from(SpecialInviteCodeClaimLog)
-        .join(
-            SpecialInviteCode,
-            SpecialInviteCodeClaimLog.special_invite_code_id == SpecialInviteCode.special_invite_code_id,  # type: ignore
+    try:
+        # First try to find referral parent
+        log_dict = {
+            "message": "Getting referral parent from special invite code claim log",
+            "user_id": user_id,
+        }
+        logging.info(json_dumps(log_dict))
+        query = (
+            select(User)
+            .select_from(SpecialInviteCodeClaimLog)
+            .join(
+                SpecialInviteCode,
+                SpecialInviteCodeClaimLog.special_invite_code_id == SpecialInviteCode.special_invite_code_id,  # type: ignore
+            )
+            .join(User, User.user_id == SpecialInviteCode.creator_user_id)  # type: ignore
+            .where(SpecialInviteCodeClaimLog.user_id == user_id)
         )
-        .join(User, User.user_id == SpecialInviteCode.creator_user_id)  # type: ignore
-        .where(SpecialInviteCodeClaimLog.user_id == user_id)
-    )
 
-    result = await session.execute(query)
-    parent = result.scalar_one_or_none()
+        result = await session.execute(query)
+        parent = result.scalar_one_or_none()
 
-    if not parent:
-        # If no referral parent found, check for creator_user_id
-        # First get the user to find their creator_user_id
-        user_query = select(User).where(User.user_id == user_id)
-        result = await session.execute(user_query)
-        user = result.scalar_one_or_none()
+        # Check presence in waitlisted_users table for referrer_id
+        if not parent:
+            log_dict = {
+                "message": "Getting referral parent from waitlisted_users table",
+                "user_id": user_id,
+            }
+            logging.info(json_dumps(log_dict))
+            user_query = select(User).where(User.user_id == user_id)
+            result = await session.execute(user_query)
+            wu_user = result.scalar_one_or_none()
 
-        if user and user.creator_user_id:
-            # Then get the creator user's details
-            creator_query = select(User).where(User.user_id == user.creator_user_id)
-            result = await session.execute(creator_query)
-            parent = result.scalar_one_or_none()
+            if wu_user:
+                waitlisted_query = (
+                    select(User)
+                    .select_from(WaitlistedUser)
+                    .join(User, User.user_id == WaitlistedUser.referrer_id)  # type: ignore
+                    .where(WaitlistedUser.email == wu_user.email)
+                )
+                result = await session.execute(waitlisted_query)
+                parent = result.scalar_one_or_none()
 
-    if not parent:
+        if not parent:
+            # If no referral parent found, check for creator_user_id
+            # First get the user to find their creator_user_id
+            log_dict = {
+                "message": "Getting creator user from users table",
+                "user_id": user_id,
+            }
+            logging.info(json_dumps(log_dict))
+            user_query = select(User).where(User.user_id == user_id)
+            result = await session.execute(user_query)
+            user = result.scalar_one_or_none()
+
+            if user and user.creator_user_id:
+                # Then get the creator user's details
+                creator_query = select(User).where(User.user_id == user.creator_user_id)
+                result = await session.execute(creator_query)
+                parent = result.scalar_one_or_none()
+
+        if not parent:
+            return None
+
+        return RelatedUser(
+            user_id=parent.user_id,
+            name=parent.name,
+            relationship_type=RelationshipType.PARENT,
+            relationship_basis=RelationshipBasis.REFERRAL,
+            points=parent.points,
+            created_at=parent.created_at,
+        )
+    except Exception as e:
+        log_dict = {
+            "message": "Error getting referral parent",
+            "user_id": user_id,
+            "error": str(e),
+        }
+        logging.error(json_dumps(log_dict))
         return None
-
-    return RelatedUser(
-        user_id=parent.user_id,
-        name=parent.name,
-        relationship_type=RelationshipType.PARENT,
-        relationship_basis=RelationshipBasis.REFERRAL,
-        points=parent.points,
-        created_at=parent.created_at,
-    )
 
 
 async def _get_children_users(session: AsyncSession, user_id: str) -> list[RelatedUser]:
     """Get users that this user has referred (children)."""
-    query = (
-        select(User)
-        .select_from(SpecialInviteCodeClaimLog)
-        .join(
-            SpecialInviteCode,
-            SpecialInviteCode.special_invite_code_id == SpecialInviteCodeClaimLog.special_invite_code_id,  # type: ignore
+    try:
+        query = (
+            select(User)
+            .select_from(SpecialInviteCodeClaimLog)
+            .join(
+                SpecialInviteCode,
+                SpecialInviteCode.special_invite_code_id == SpecialInviteCodeClaimLog.special_invite_code_id,  # type: ignore
+            )
+            .join(
+                User,
+                User.user_id == SpecialInviteCodeClaimLog.user_id,  # type: ignore
+            )
+            .where(SpecialInviteCode.creator_user_id == user_id)
         )
-        .join(
-            User,
-            User.user_id == SpecialInviteCodeClaimLog.user_id,  # type: ignore
-        )
-        .where(SpecialInviteCode.creator_user_id == user_id)
-    )
 
-    result = await session.execute(query)
-    children = result.scalars().all()
+        result = await session.execute(query)
+        children = result.scalars().all()
 
-    # Also get users directly created by this user
-    created_query = select(User).where(User.creator_user_id == user_id)
-    created_result = await session.execute(created_query)
-    created_children = created_result.scalars().all()
+        # Also get users directly created by this user
+        created_query = select(User).where(User.creator_user_id == user_id)
+        created_result = await session.execute(created_query)
+        created_children = created_result.scalars().all()
 
-    log_dict = {
-        "message": "Referred children found",
-        "user_id": user_id,
-        "referred_children_count": len(children),
-    }
-    logging.info(json_dumps(log_dict))
+        log_dict = {
+            "message": "Referred children found",
+            "user_id": user_id,
+            "referred_children_count": len(children),
+        }
+        logging.info(json_dumps(log_dict))
 
-    log_dict = {
-        "message": "Created children found",
-        "user_id": user_id,
-        "created_children_count": len(created_children),
-    }
-    logging.info(json_dumps(log_dict))
+        log_dict = {
+            "message": "Created children found",
+            "user_id": user_id,
+            "created_children_count": len(created_children),
+        }
+        logging.info(json_dumps(log_dict))
 
-    # Combine both lists and remove duplicates
-    all_children = {
-        child.user_id: RelatedUser(
-            user_id=child.user_id,
-            name=child.name,
-            relationship_type=RelationshipType.CHILD,
-            relationship_basis=RelationshipBasis.REFERRAL,
-            points=child.points,
-            created_at=child.created_at,
-        )
-        for child in list(children) + list(created_children)
-    }
+        # Combine both lists and remove duplicates
+        all_children = {
+            child.user_id: RelatedUser(
+                user_id=child.user_id,
+                name=child.name,
+                relationship_type=RelationshipType.CHILD,
+                relationship_basis=RelationshipBasis.REFERRAL,
+                points=child.points,
+                created_at=child.created_at,
+            )
+            for child in list(children) + list(created_children)
+        }
 
-    return list(all_children.values())
+        return list(all_children.values())
+    except Exception as e:
+        log_dict = {
+            "message": "Error getting children",
+            "user_id": user_id,
+            "error": str(e),
+        }
+        logging.error(json_dumps(log_dict))
+        return []
 
 
 async def _get_sibling_users(session: AsyncSession, user_id: str, parent_user_id: str | None) -> list[RelatedUser]:
@@ -309,62 +358,71 @@ async def _get_sibling_users(session: AsyncSession, user_id: str, parent_user_id
     if not parent_user_id:
         return []
 
-    # Get all children of the parent through referrals (these are siblings)
-    query = (
-        select(User)
-        .select_from(SpecialInviteCodeClaimLog)
-        .join(
-            SpecialInviteCode,
-            SpecialInviteCode.special_invite_code_id == SpecialInviteCodeClaimLog.special_invite_code_id,  # type: ignore
+    try:
+        # Get all children of the parent through referrals (these are siblings)
+        query = (
+            select(User)
+            .select_from(SpecialInviteCodeClaimLog)
+            .join(
+                SpecialInviteCode,
+                SpecialInviteCode.special_invite_code_id == SpecialInviteCodeClaimLog.special_invite_code_id,  # type: ignore
+            )
+            .join(
+                User,
+                User.user_id == SpecialInviteCodeClaimLog.user_id,  # type: ignore
+            )
+            .where(SpecialInviteCode.creator_user_id == parent_user_id)
         )
-        .join(
-            User,
-            User.user_id == SpecialInviteCodeClaimLog.user_id,  # type: ignore
-        )
-        .where(SpecialInviteCode.creator_user_id == parent_user_id)
-    )
 
-    result = await session.execute(query)
-    referred_users = result.scalars().all()
+        result = await session.execute(query)
+        referred_users = result.scalars().all()
 
-    referred_siblings = [
-        RelatedUser(
-            user_id=user.user_id,
-            name=user.name,
-            relationship_type=RelationshipType.SIBLING,
-            relationship_basis=RelationshipBasis.REFERRAL,
-            points=user.points,
-            created_at=user.created_at,
-        )
-        for user in referred_users
-    ]
+        referred_siblings = [
+            RelatedUser(
+                user_id=user.user_id,
+                name=user.name,
+                relationship_type=RelationshipType.SIBLING,
+                relationship_basis=RelationshipBasis.REFERRAL,
+                points=user.points,
+                created_at=user.created_at,
+            )
+            for user in referred_users
+        ]
 
-    # Get all users created by the parent
-    query = select(User).where(User.creator_user_id == parent_user_id)
-    result = await session.execute(query)
-    created_users = result.scalars().all()
+        # Get all users created by the parent
+        query = select(User).where(User.creator_user_id == parent_user_id)
+        result = await session.execute(query)
+        created_users = result.scalars().all()
 
-    # Convert created users to RelatedUser format
-    created_siblings = [
-        RelatedUser(
-            user_id=user.user_id,
-            name=user.name,
-            relationship_type=RelationshipType.SIBLING,
-            relationship_basis=RelationshipBasis.REFERRAL,
-            points=user.points,
-            created_at=user.created_at,
-        )
-        for user in created_users
-    ]
+        # Convert created users to RelatedUser format
+        created_siblings = [
+            RelatedUser(
+                user_id=user.user_id,
+                name=user.name,
+                relationship_type=RelationshipType.SIBLING,
+                relationship_basis=RelationshipBasis.REFERRAL,
+                points=user.points,
+                created_at=user.created_at,
+            )
+            for user in created_users
+        ]
 
-    # Combine both lists and remove duplicates based on user_id
-    all_siblings = {sibling.user_id: sibling for sibling in referred_siblings + created_siblings}
+        # Combine both lists and remove duplicates based on user_id
+        all_siblings = {sibling.user_id: sibling for sibling in referred_siblings + created_siblings}
 
-    # Filter out the original user
-    if user_id in all_siblings:
-        del all_siblings[user_id]
+        # Filter out the original user
+        if user_id in all_siblings:
+            del all_siblings[user_id]
 
-    return list(all_siblings.values())
+        return list(all_siblings.values())
+    except Exception as e:
+        log_dict = {
+            "message": "Error getting siblings",
+            "user_id": user_id,
+            "error": str(e),
+        }
+        logging.error(json_dumps(log_dict))
+        return []
 
 
 @router.post("/admin/users/{user_id}/deactivate")

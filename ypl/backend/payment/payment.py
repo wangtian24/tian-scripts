@@ -59,6 +59,7 @@ class PointTransactionsHistoryResponse:
 @dataclass
 class CashoutResponse:
     created_at: datetime
+    payment_transaction_id: UUID
     user_name: str
     email: str
     action_type: PointsActionEnum
@@ -300,6 +301,7 @@ async def get_cashouts(
             return CashoutsHistoryResponse(
                 cashouts=[
                     CashoutResponse(
+                        payment_transaction_id=point_tx.cashout_payment_transaction_id,
                         created_at=point_tx.created_at,
                         action_type=point_tx.action_type,
                         currency=payment_tx.currency,
