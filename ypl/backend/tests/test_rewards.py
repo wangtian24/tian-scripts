@@ -64,6 +64,7 @@ def create_user_turn_reward(**kwargs: Any) -> UserTurnReward:
     user_turn_reward = UserTurnReward.__new__(UserTurnReward)
     user_turn_reward.user_id = "fake_user_id"
     user_turn_reward.turn_id = uuid.uuid4()
+    user_turn_reward.chat_id = uuid.uuid4()
     user_turn_reward.action_type = RewardActionEnum.TURN
     for key, value in kwargs.items():
         if value is not None:
@@ -484,15 +485,24 @@ def test_turn_reward_amount(
     user_with_recent_reward = create_user_turn_reward(points_last_award=10)
     low_value_reward_amounts = []
     high_value_reward_amounts = []
+    should_reward_values = []
     num_iterations = 1000
     for _ in range(num_iterations):
-        _, reward_amount, high_value_reward_amount, _, _, _ = _handle_turn_based_reward(user_with_recent_reward)
+        should_reward, reward_amount, high_value_reward_amount, _, _, _ = _handle_turn_based_reward(
+            user_with_recent_reward
+        )
         low_value_reward_amounts.append(reward_amount)
         high_value_reward_amounts.append(high_value_reward_amount)
+        should_reward_values.append(should_reward)
     expected_zero_reward_count = zero_reward_probability * num_iterations
     assert len([x for x in low_value_reward_amounts if x == 0]) == approx(expected_zero_reward_count, rel=0.2)
     # A high value reward should never be zero.
     assert len([x for x in high_value_reward_amounts if x == 0]) == 0
+    # TODO: Rethink if we need should_reward in the return value as it'll always be true.
+    # A user should always be rewarded, even if they get a zero reward.
+    # assert (
+    #     len([x for x in should_reward_values if x is False]) == 0
+    # ), "A user should always be rewarded even if they get a zero reward."
 
     # A user should not get a zero reward if their most recent one was 0 (or never received anything).
     user_with_recent_zero_reward = create_user_turn_reward(points_last_award=0)
@@ -518,9 +528,10 @@ def test_maybe_decay_amounts(period: str) -> None:
         points_last_week=weekly_limit * low_multiplier,
         points_last_month=monthly_limit * low_multiplier,
     )
-    decayed_min, decayed_max = utr_no_decay._maybe_decay_amounts(min_val, max_val)
+    decayed_min, decayed_max, decay_factor = utr_no_decay._maybe_decay_amounts(min_val, max_val, False)
     assert decayed_min == min_val
     assert decayed_max == max_val
+    assert decay_factor == 1.0
 
     # Test decay when points are high
     utr_decay = create_user_turn_reward(
@@ -528,9 +539,10 @@ def test_maybe_decay_amounts(period: str) -> None:
         points_last_week=weekly_limit * (high_multiplier if period == "week" else low_multiplier),
         points_last_month=monthly_limit * (high_multiplier if period == "month" else low_multiplier),
     )
-    decayed_min, decayed_max = utr_decay._maybe_decay_amounts(min_val, max_val)
+    decayed_min, decayed_max, decay_factor = utr_decay._maybe_decay_amounts(min_val, max_val, False)
     assert 0 < decayed_min < min_val
     assert 0 < decayed_max < max_val
+    assert decay_factor < 1.0
 
     # Test decay is more severe with higher point totals
     utr_heavy_decay = create_user_turn_reward(
@@ -538,6 +550,9 @@ def test_maybe_decay_amounts(period: str) -> None:
         points_last_week=weekly_limit * (very_high_multiplier if period == "week" else high_multiplier),
         points_last_month=monthly_limit * (very_high_multiplier if period == "month" else high_multiplier),
     )
-    heavily_decayed_min, heavily_decayed_max = utr_heavy_decay._maybe_decay_amounts(min_val, max_val)
+    heavily_decayed_min, heavily_decayed_max, heavily_decayed_decay_factor = utr_heavy_decay._maybe_decay_amounts(
+        min_val, max_val, False
+    )
     assert heavily_decayed_min < decayed_min
     assert heavily_decayed_max < decayed_max
+    assert heavily_decayed_decay_factor < decay_factor

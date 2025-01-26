@@ -188,6 +188,7 @@ def get_matching_rule(rules: list[RewardRule], context: dict[str, Any]) -> Rewar
 class UserTurnReward:
     user_id: str
     turn_id: UUID
+    chat_id: UUID | None = None
     # TODO(carmen): Deprecate turn_position_in_chat and is_first_turn.
     turn_position_in_chat: int = -1
     is_first_turn: bool = False
@@ -211,6 +212,8 @@ class UserTurnReward:
     user_name: str | None = None
     pref_rewards_count: int = -1
     pref_rewards_count_since_reactivation: int = -1
+    decay_factor: float | None = None
+    decay_factor_high_value: float | None = None
 
     def __post_init__(self) -> None:
         self._fetch_data_and_set_flags()
@@ -247,6 +250,7 @@ class UserTurnReward:
             self.pref_rewards_count_since_reactivation = user.get_pref_rewards_count_since_reactivation(
                 end_date=turn_created_at
             )
+            self.chat_id = chat_id
 
             self.is_first_eval = not session.exec(
                 select(
@@ -335,7 +339,9 @@ class UserTurnReward:
     def _get_probability_rule(self) -> RewardProbabilityRule | None:
         return get_matching_rule(get_reward_probability_rules(self.action_type), self.to_dict())  # type: ignore
 
-    def _maybe_decay_amounts(self, min_value: int, max_value: int) -> tuple[int, int]:
+    def _maybe_decay_amounts(self, min_value: int, max_value: int, high_value: bool) -> tuple[int, int, float]:
+        # Default to no decay.
+        decay_factor = 1.0
         if "daily_points_limit" in RULE_CONSTANTS:
             daily_points_limit = RULE_CONSTANTS["daily_points_limit"]
             weekly_points_limit = RULE_CONSTANTS["weekly_points_limit"]
@@ -353,6 +359,7 @@ class UserTurnReward:
                 decay_factor = math.exp(-6 * (fraction_of_limit - 0.5))
                 log_dict = {
                     "message": "Decaying reward amounts",
+                    "high_value": high_value,
                     "points_last_day": f"{self.points_last_day}/{daily_points_limit}",
                     "points_last_week": f"{self.points_last_week}/{weekly_points_limit}",
                     "points_last_month": f"{self.points_last_month}/{monthly_points_limit}",
@@ -364,7 +371,9 @@ class UserTurnReward:
                     "original_max_value": str(max_value),
                     "decay_factor": str(decay_factor),
                     "user_name": self.user_name,
+                    "user_id": self.user_id,
                     "turn_id": str(self.turn_id),
+                    "chat_id": str(self.chat_id),
                 }
                 min_value = int(round(min_value * decay_factor, -1))
                 max_value = int(round(max_value * decay_factor, -1))
@@ -372,7 +381,7 @@ class UserTurnReward:
                 log_dict["decayed_max_value"] = str(max_value)
                 logging.info(json_dumps(log_dict))
 
-        return min_value, max_value
+        return min_value, max_value, decay_factor
 
     def get_amount(self, high_value: bool = False) -> int:
         rule = self.amount_rule
@@ -381,6 +390,8 @@ class UserTurnReward:
                 "message": "No reward amount rule found for turn_id",
                 "turn_id": str(self.turn_id),
                 "user_name": self.user_name,
+                "user_id": self.user_id,
+                "chat_id": str(self.chat_id),
             }
             logging.warning(json_dumps(log_dict))
             return 0
@@ -390,7 +401,12 @@ class UserTurnReward:
         max_value = rule.high_max_value if (high_value and rule.high_max_value is not None) else rule.max_value
 
         # Optionally decay the reward amount, as the daily limit approaches.
-        min_value, max_value = self._maybe_decay_amounts(min_value, max_value)
+        min_value, max_value, decay_factor = self._maybe_decay_amounts(min_value, max_value, high_value)
+
+        if high_value:
+            self.decay_factor_high_value = decay_factor
+        else:
+            self.decay_factor = decay_factor
 
         # Return the reward based on the specified method
         return get_reward(min_value=min_value, max_value=max_value)
@@ -401,7 +417,9 @@ class UserTurnReward:
             log_dict = {
                 "message": "No reward probability rule found for turn_id",
                 "turn_id": str(self.turn_id),
+                "user_id": self.user_id,
                 "user_name": self.user_name,
+                "chat_id": str(self.chat_id),
             }
             logging.warning(json_dumps(log_dict))
             return 0
@@ -480,6 +498,7 @@ def _handle_turn_based_reward(
             "high_value_reward_amount": high_value_reward_amount,
             "reward_comment": reward_comment,
             "turn_id": str(user_turn_reward.turn_id),
+            "chat_id": str(user_turn_reward.chat_id),
         }
         logging.info(json_dumps(log_dict))
 
@@ -493,7 +512,10 @@ def _handle_turn_based_reward(
             probability_rule=None,
             amount_rule=None,
             high_value_reward_amount=high_value_reward_amount,
+            decay_factor=user_turn_reward.decay_factor,
+            decay_factor_high_value=user_turn_reward.decay_factor_high_value,
             turn_id=str(user_turn_reward.turn_id),
+            chat_id=str(user_turn_reward.chat_id),
         )
 
         return should_reward, reward_amount, high_value_reward_amount, reward_comment, None, None
@@ -511,17 +533,21 @@ def _handle_turn_based_reward(
 
     reward_comment = user_turn_reward.get_reward_comment()
 
-    # A safety check to prevent negative or zero credit rewards from being given.
-    if reward_amount <= 0 or high_value_reward_amount <= 0:
-        should_reward = False
-        reward_amount = high_value_reward_amount = 0
-
     log_reward_debug_info(
         should_reward=should_reward,
         reward_amount=reward_amount,
         high_value_reward_amount=high_value_reward_amount,
         **user_turn_reward.to_dict(),
     )
+
+    # Safety check to prevent negative rewards.
+    if reward_amount < 0:
+        reward_amount = 0
+    if high_value_reward_amount < 0:
+        high_value_reward_amount = 0
+
+    if reward_amount == 0:
+        reward_comment = "Better luck next time!"
 
     return (
         should_reward,
@@ -564,6 +590,7 @@ def log_reward_debug_info(
     user_str = user_name or f"id={user_id}"
     message = (
         f"\nUser: {user_str}\n"
+        f"User ID: {user_id}\n"
         f"Type: {action_type.value.lower()}_reward_calculated\n"
         f"Probability Rule: {probability_rule_str}\n"
         f"Amount Rule: {amount_rule_str}\n"
@@ -578,7 +605,7 @@ def log_reward_debug_info(
     try:
         post_to_slack_task.delay(message=message, webhook_url=webhook_url)
     except Exception as e:
-        log_dict = {"message": "Error posting to Slack", "error": str(e)}
+        log_dict = {"message": "Error posting to Slack", "error": str(e), "user_id": user_id}
         logging.error(json_dumps(log_dict))
 
 

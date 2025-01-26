@@ -47,37 +47,40 @@ async def handle_turn_reward(reward_action_log: RewardActionLog) -> RewardCreati
         reward_probability_rule,
     ) = await turn_based_reward(updated_reward_action_log.user_id, turn_id)
 
-    if should_reward:
-        created_reward = await create_reward(
-            user_id=updated_reward_action_log.user_id,
-            credit_delta=credit_delta,
-            comment=comment,
-            reward_action_logs=[updated_reward_action_log],
-            turn_id=turn_id,
-            reward_amount_rule=reward_amount_rule,
-            reward_probability_rule=reward_probability_rule,
-        )
+    # Create a reward with 0 credits if the user should not be rewarded.
+    if not should_reward:
+        credit_delta = 0
+        high_value_credit_delta = 0
+        comment = "Better luck next time!"
 
-        created_high_value_reward = await create_reward(
-            user_id=updated_reward_action_log.user_id,
-            credit_delta=high_value_credit_delta,
-            comment="Model feedback reward boost.",
-            reward_action_logs=[],  # TODO: add model feedback reward action log from FE?
-            turn_id=turn_id,
-            reward_amount_rule=reward_amount_rule,
-            reward_probability_rule=reward_probability_rule,
-        )
+    created_reward = await create_reward(
+        user_id=updated_reward_action_log.user_id,
+        credit_delta=credit_delta,
+        comment=comment,
+        reward_action_logs=[updated_reward_action_log],
+        turn_id=turn_id,
+        reward_amount_rule=reward_amount_rule,
+        reward_probability_rule=reward_probability_rule,
+    )
 
-        return RewardCreationResponse(
-            is_rewarded=True,
-            reward_id=created_reward.reward_id,
-            comment=comment,
-            credit_delta=credit_delta,
-            high_value_reward_id=created_high_value_reward.reward_id,
-            high_value_credit_delta=high_value_credit_delta,
-        )
+    created_high_value_reward = await create_reward(
+        user_id=updated_reward_action_log.user_id,
+        credit_delta=high_value_credit_delta,
+        comment="Model feedback reward boost.",
+        reward_action_logs=[],  # TODO: add model feedback reward action log from FE?
+        turn_id=turn_id,
+        reward_amount_rule=reward_amount_rule,
+        reward_probability_rule=reward_probability_rule,
+    )
 
-    return RewardCreationResponse(is_rewarded=False)
+    return RewardCreationResponse(
+        is_rewarded=True,
+        reward_id=created_reward.reward_id,
+        comment=comment,
+        credit_delta=credit_delta,
+        high_value_reward_id=created_high_value_reward.reward_id,
+        high_value_credit_delta=high_value_credit_delta,
+    )
 
 
 async def process_reward_creation_and_claim(
