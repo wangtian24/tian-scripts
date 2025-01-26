@@ -779,9 +779,9 @@ def test_context_length_filter(mock_context_lengths: Mock) -> None:
 @patch("ypl.backend.llm.routing.modules.filters.HighErrorRateFilter._get_error_rates", return_value={})
 @patch("ypl.backend.llm.prompt_selector.CategorizedPromptModifierSelector.make_default_from_db")
 @patch("ypl.backend.llm.chat.get_user_message", return_value="hi")
-@patch("ypl.backend.llm.chat.get_modifiers_by_model", return_value={})
+@patch("ypl.backend.llm.chat.get_modifiers_by_model_and_position", return_value={})
 async def test_select_models_plus(
-    mock_get_modifiers_by_model: Mock,
+    mock_get_modifiers_by_model_and_position: Mock,
     mock_get_user_message: Mock,
     mock_make_default_from_db: Mock,
     mock_high_error_rate_filter: Mock,

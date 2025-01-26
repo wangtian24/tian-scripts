@@ -1,3 +1,5 @@
+import logging
+import uuid
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Self
@@ -7,7 +9,15 @@ from sqlalchemy import select
 from sqlmodel import Session
 
 from ypl.backend.db import get_async_session, get_engine
-from ypl.db.chats import ChatMessage, MessageType, ModifierCategory, PromptModifier, PromptModifierAssoc, Turn
+from ypl.db.chats import (
+    ChatMessage,
+    MessageModifierStatus,
+    MessageType,
+    ModifierCategory,
+    PromptModifier,
+    PromptModifierAssoc,
+    Turn,
+)
 from ypl.db.language_models import LanguageModel
 from ypl.utils import RNGMixin
 
@@ -35,10 +45,12 @@ DEFAULT_PROMPT_MODIFIER_POLICY = PromptModifierPolicy(
 )
 
 
-def get_modifiers_by_model(chat_id: str) -> dict[str, list[str]]:
+def get_modifiers_by_model_and_position(chat_id: str) -> tuple[dict[str, list[str]], tuple[str | None, str | None]]:
     """
     Fetches the modifier history for a given chat from the DB.
-    Returns a mapping between the model name and a list of modifier IDs.
+    Returns a tuple of:
+    - a mapping between the model name and a list of modifier IDs.
+    - a tuple of the modifier most recently applied to the LHS and the one most recently applied to the RHS.
     """
     with Session(get_engine()) as session:
         query = (
@@ -53,7 +65,22 @@ def get_modifiers_by_model(chat_id: str) -> dict[str, list[str]]:
             if modifier_id is not None:
                 modifiers_by_model[model_name].append(str(modifier_id))
 
-        return dict(modifiers_by_model)
+        modifiers_by_position = (None, None)
+        # Get the 2 most recent messages with modifiers
+        recent_query = (
+            select(ChatMessage.message_id, PromptModifierAssoc.prompt_modifier_id)  # type: ignore
+            .join(Turn, ChatMessage.turn_id == Turn.turn_id)
+            .outerjoin(PromptModifierAssoc, PromptModifierAssoc.chat_message_id == ChatMessage.message_id)
+            .where(Turn.chat_id == uuid.UUID(chat_id), ChatMessage.modifier_status == MessageModifierStatus.SELECTED)
+            .order_by(Turn.sequence_id.desc(), ChatMessage.turn_sequence_number.desc())  # type: ignore
+            .limit(2)
+        )
+        res = session.exec(recent_query).all()
+        if res and len(res) == 2:
+            # Reverse the order of the results to get the LHS and RHS modifiers.
+            modifiers_by_position = (res[1][1], res[0][1])
+
+        return dict(modifiers_by_model), modifiers_by_position
 
 
 async def store_modifiers(turn_id: str, modifiers: dict[str, list[tuple[str, str]]]) -> None:
@@ -114,6 +141,9 @@ class CategorizedPromptModifierSelector(RNGMixin):
         models: list[str],
         modifier_history: dict[str, list[str]] | None = None,
         applicable_modifiers: list[str] | None = None,
+        user_selected_modifier_id: uuid.UUID | None = None,
+        modifiers_by_position: tuple[str | None, str | None] = (None, None),
+        should_auto_select_modifiers: bool = True,
     ) -> dict[str, list[tuple[str, str]]]:
         """
         Selects a set of prompt modifiers for a given list of models.
@@ -125,6 +155,9 @@ class CategorizedPromptModifierSelector(RNGMixin):
             models: A list of model names.
             modifier_history: A dictionary mapping model names to previously chosen modifier IDs.
             applicable_modifiers: A list of modifier IDs that are applicable to the models.
+            user_selected_modifier_id: The ID of the modifier that the user selected, if any.
+            modifiers_by_position: A tuple of the modifier most recently applied to the LHS and RHS.
+            should_auto_select_modifiers: Whether to select modifiers for unmodified models.
 
         Returns:
             A dictionary mapping each model name to its selected modifier, as a tuple of (ID, text).
@@ -136,26 +169,40 @@ class CategorizedPromptModifierSelector(RNGMixin):
 
         modifiers_by_model: dict[str, list[PromptModifier]] = {}
 
-        # First, apply any modifiers that were previously selected for these models.
+        # First, apply any modifiers that were most recently applied to the LHS and RHS.
+        if len(modifiers_by_position) == 2:
+            lhs_modifier, rhs_modifier = modifiers_by_position
+            if lhs_modifier:
+                modifiers_by_model[models[0]] = [self.modifiers_by_id[str(lhs_modifier)]]
+                logging.debug(f"Applying LHS modifier {lhs_modifier} to model {models[0]}")
+            if rhs_modifier:
+                modifiers_by_model[models[-1]] = [self.modifiers_by_id[str(rhs_modifier)]]
+                logging.debug(f"Applying RHS modifier {rhs_modifier} to model {models[-1]}")
+
+        # Next, apply any modifiers that were previously selected.
         if self.policy.reuse_previous_modifiers:
-            unmodified_models = []
-            previously_modified_models = []
             for model in models:
+                if model in modifiers_by_model:
+                    continue
                 if modifier_history.get(model):
-                    previously_modified_models.append(model)
                     modifiers_by_model[model] = [
                         self.modifiers_by_id[id] for id in modifier_history[model] if id in self.modifiers_by_id
                     ]
+                    logging.debug(f"Reusing modifier {modifiers_by_model[model]} for model {model}")
+        unmodified_models = [model for model in models if model not in modifiers_by_model]
 
-                    if not modifiers_by_model[model]:
-                        unmodified_models.append(model)
-                        del modifiers_by_model[model]
-                else:
-                    unmodified_models.append(model)
-        else:
-            unmodified_models = models
-
-        if not unmodified_models:
+        # Apply any user-selected modifiers to unmodified models.
+        if user_selected_modifier_id:
+            for model in unmodified_models:
+                modifiers_by_model[model] = [self.modifiers_by_id[str(user_selected_modifier_id)]]
+                unmodified_models.remove(model)
+                logging.debug(f"Applying user-selected modifier {user_selected_modifier_id} to model {model}")
+        if (
+            not unmodified_models  # No models to modify.
+            or not should_auto_select_modifiers  # Client requested no modifiers.
+            or lhs_modifier  # Modifiers were already applied due to LHS/RHS selection.
+            or rhs_modifier  # Modifiers were already applied due to LHS/RHS selection.
+        ):
             return self._to_modifier_history(modifiers_by_model)
 
         # Select which models to modify.
@@ -203,6 +250,7 @@ class CategorizedPromptModifierSelector(RNGMixin):
                 modifiers.append(self.modifiers_by_id[modifier_id])
                 already_used_modifiers.add(modifier_id)
             modifiers_by_model[model] = modifiers
+            logging.debug(f"Applying modifier {modifiers} to model {model}")
 
         # Return just the modifier IDs and texts.
         return self._to_modifier_history(modifiers_by_model)

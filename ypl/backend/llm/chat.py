@@ -35,7 +35,11 @@ from ypl.backend.llm.db_helpers import (
 from ypl.backend.llm.labeler import QT_CANT_ANSWER, MultiLLMLabeler, QuickTakeGenerator
 from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.model_heuristics import ModelHeuristics
-from ypl.backend.llm.prompt_selector import CategorizedPromptModifierSelector, get_modifiers_by_model, store_modifiers
+from ypl.backend.llm.prompt_selector import (
+    CategorizedPromptModifierSelector,
+    get_modifiers_by_model_and_position,
+    store_modifiers,
+)
 from ypl.backend.llm.provider.provider_clients import get_model_provider_tuple
 from ypl.backend.llm.routing.debug import RoutingDebugInfo, build_routing_debug_info
 from ypl.backend.llm.routing.route_data_type import RoutingPreference
@@ -126,39 +130,62 @@ def _set_prompt_modifiers(
     selected_models_rs: RouterState,
     fallback_models_rs: RouterState,
 ) -> dict[str, list[tuple[str, str]]]:
-    prompt_modifiers: dict[str, list[tuple[str, str]]] = {}
-    if not (request.auto_select_prompt_modifiers or request.prompt_modifier_id):
-        return prompt_modifiers
+    """
+    Sets prompt modifiers for the selected models.
 
-    modifier_selector = CategorizedPromptModifierSelector.make_default_from_db()
+    Logic:
+    - If modifiers were applied to the last two messages, use them to set the modifier for the corresponding messages
+      in terms of the position of the model in the selection (LHS or RHS).
+    - If prompt_modifier_id is provided, use it to set the prompt modifier for unmodified models.
+    - If a model has previously been modified in a certain way, use the same modifier for it.
+    - If a model is unmodified after all checks above, and `auto_select_prompt_modifiers` is set in the request,
+      select a random modifier for it.
+    """
+    prompt_modifiers: dict[str, list[tuple[str, str]]] = {}
+
     selected_models = selected_models_rs.get_sorted_selected_models()
     fallback_models = fallback_models_rs.get_sorted_selected_models()
 
-    if request.prompt_modifier_id:
-        modifier = modifier_selector.modifiers_by_id.get(str(request.prompt_modifier_id))
-        if modifier:
-            prompt_modifiers = {
-                m: [(str(request.prompt_modifier_id), modifier.text)] for m in (selected_models + fallback_models)
-            }
-        else:
-            logging.warning(f"Ignoring unknown modifier ID: {request.prompt_modifier_id}")
-
-    elif request.auto_select_prompt_modifiers:
-        try:
-            if request.chat_id:
-                modifier_history = get_modifiers_by_model(request.chat_id)
+    modifier_selector = CategorizedPromptModifierSelector.make_default_from_db()
+    if request.intent == SelectIntent.NEW_CHAT:
+        if request.prompt_modifier_id:
+            modifier = modifier_selector.modifiers_by_id.get(str(request.prompt_modifier_id))
+            if modifier:
+                prompt_modifiers = {
+                    m: [(str(request.prompt_modifier_id), modifier.text)] for m in (selected_models + fallback_models)
+                }
             else:
-                modifier_history = {}
+                logging.warning(f"Ignoring unknown modifier ID: {request.prompt_modifier_id}")
+        else:
+            return prompt_modifiers
+
+    else:
+        try:
+            if request.chat_id and request.intent != SelectIntent.NEW_CHAT:
+                modifier_history, modifiers_by_position = get_modifiers_by_model_and_position(request.chat_id)
+            else:
+                modifier_history, modifiers_by_position = {}, (None, None)
+
+            should_auto_select_modifiers = request.auto_select_prompt_modifiers and request.intent not in (
+                SelectIntent.SHOW_ME_MORE,
+                SelectIntent.SHOW_MORE_WITH_SAME_TURN,
+            )
 
             base_prompt_modifiers = modifier_selector.select_modifiers(
                 selected_models,
                 modifier_history,
                 selected_models_rs.applicable_modifiers,
+                user_selected_modifier_id=request.prompt_modifier_id,
+                modifiers_by_position=modifiers_by_position,
+                should_auto_select_modifiers=should_auto_select_modifiers,
             )
             fallback_prompt_modifiers = modifier_selector.select_modifiers(
                 fallback_models,
                 modifier_history,
                 selected_models_rs.applicable_modifiers,
+                user_selected_modifier_id=request.prompt_modifier_id,
+                modifiers_by_position=modifiers_by_position,
+                should_auto_select_modifiers=should_auto_select_modifiers,
             )
             prompt_modifiers = base_prompt_modifiers | fallback_prompt_modifiers
         except Exception as e:
@@ -828,11 +855,11 @@ MODEL_FOR_PROMPT_ONLY_FULL_NAME = MODEL_FOR_PROMPT_ONLY + ":prompt-only"
 MODEL_FOR_FINETUNE_QT = "gpt-4o"
 MODEL_FOR_FINETUNE_QT_FULL_NAME = "ft:gpt-4o-2024-08-06:yupp::AgJJZBsG"
 
-GPT_4O_MINI_LLM = None
-GPT_4O_LLM = None
-FINE_TUNED_GPT_4O_LLM = None
-GEMINI_15_FLASH_LLM = None
-GEMINI_2_FLASH_LLM = None
+GPT_4O_MINI_LLM: OpenAILangChainAdapter | None = None
+GPT_4O_LLM: OpenAILangChainAdapter | None = None
+FINE_TUNED_GPT_4O_LLM: OpenAILangChainAdapter | None = None
+GEMINI_15_FLASH_LLM: GeminiLangChainAdapter | None = None
+GEMINI_2_FLASH_LLM: GeminiLangChainAdapter | None = None
 
 
 def get_gpt_4o_mini_llm() -> OpenAILangChainAdapter:
@@ -926,7 +953,7 @@ def get_gemini_2_flash_llm() -> GeminiLangChainAdapter:
     return GEMINI_2_FLASH_LLM
 
 
-QT_LLMS = None
+QT_LLMS: dict[str, BaseChatModel] | None = None
 DEFAULT_QT_MAX_CONTEXT_LENGTH = 128000  # gpt-4o-mini
 
 
