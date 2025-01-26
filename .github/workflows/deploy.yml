@@ -65,6 +65,7 @@ env:
   SERVICE_NAME: ${{ github.event.inputs.image || 'backend' }}
   IMAGE_NAME: "gcr.io/yupp-llms/${{ github.event.inputs.image || 'backend' }}-${{ github.event.inputs.environment || 'staging' }}:v1"
   REGION: ${{ github.event.inputs.region || 'us-east4' }}
+  DB_OR_RULES_CHANGED: 'false'
 
 permissions:
   contents: write  # Permission required for pushing new tags.
@@ -73,9 +74,6 @@ permissions:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-
-    env:
-      DB_OR_RULES_CHANGED: false
 
     steps:
     # Remove unused content on github runners.
@@ -101,10 +99,10 @@ jobs:
       run: |
         git fetch origin main
         if git diff --name-only origin/main HEAD | grep -q -E 'data/reward_rules\.yml|ypm/db/alembic/'; then
-          echo "DB_OR_RULES_CHANGED=true" >> $GITHUB_ENV
+          echo "DB_OR_RULES_CHANGED='true'" >> $GITHUB_ENV
           echo "Detected DB or reward rules changes"
         else
-          echo "DB_OR_RULES_CHANGED=false" >> $GITHUB_ENV
+          echo "DB_OR_RULES_CHANGED='false'" >> $GITHUB_ENV
           echo "No DB or reward rules changes detected"
         fi
 
@@ -325,20 +323,20 @@ jobs:
           --platform managed
 
     - name: Setup Python
-      if: env.DB_OR_RULES_CHANGED
+      if: ${{ env.DB_OR_RULES_CHANGED == 'true' }}
       uses: actions/setup-python@v5
       with:
         python-version: 3.11
 
     - name: Cache Poetry install
-      if: env.DB_OR_RULES_CHANGED
+      if: ${{ env.DB_OR_RULES_CHANGED == 'true' }}
       uses: actions/cache@v4
       with:
         path: ~/.local
         key: poetry-1.8.2-0
 
     - name: Install Poetry
-      if: env.DB_OR_RULES_CHANGED
+      if: ${{ env.DB_OR_RULES_CHANGED == 'true' }}
       uses: snok/install-poetry@v1
       with:
         version: 1.8.2
@@ -346,7 +344,7 @@ jobs:
         virtualenvs-in-project: true
 
     - name: Cache Poetry dependencies
-      if: env.DB_OR_RULES_CHANGED
+      if: ${{ env.DB_OR_RULES_CHANGED == 'true' }}
       id: cache-deps
       uses: actions/cache@v4
       with:
@@ -354,16 +352,16 @@ jobs:
         key: pydeps-${{ hashFiles('**/poetry.lock') }}
 
     - name: Install dependencies
-      if: env.DB_OR_RULES_CHANGED
+      if: ${{ env.DB_OR_RULES_CHANGED == 'true' }}
       run: poetry install --no-interaction --no-root --sync
 
     - name: Run migrations
-      if: ${{ env.ENVIRONMENT == 'staging' && env.DB_OR_RULES_CHANGED }}
+      if: ${{ env.ENVIRONMENT == 'staging' && env.DB_OR_RULES_CHANGED == 'true' }}
       run: |
         echo "yupp" | poetry run alembic upgrade head
 
     - name: Refresh reward rules
-      if: env.DB_OR_RULES_CHANGED
+      if: ${{ env.DB_OR_RULES_CHANGED == 'true' }}
       run: poetry run python -m ypl.cli refresh-rewards-rules
 
     - name: Tag commit
