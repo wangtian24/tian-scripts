@@ -1018,6 +1018,8 @@ async def generate_quicktake(
         turn_id: The turn ID to fetch history for.
         chat_history: The chat history to use.
     """
+    start_time = time.time()
+
     match request.chat_id, request.turn_id, chat_history:
         case None, None, None:
             raise ValueError("Either chat_id or chat_history must be provided")
@@ -1035,8 +1037,9 @@ async def generate_quicktake(
 
     assert chat_history is not None, "chat_history is null"
 
+    chat_history_time = time.time() - start_time
+
     response_model = ""
-    start_time = time.time()
     responses_by_model: dict[str, str] = {}
 
     latest_message = HumanMessage(
@@ -1130,6 +1133,10 @@ async def generate_quicktake(
     metric_record("quicktake/latency_ms", int((end_time - start_time) * 1000))
     log_dict = {
         "message": f"Quicktake generated with {response_model} in {int((end_time - start_time) * 1000)}ms",
+        "chat_history_time_ms": str(int(chat_history_time * 1000)),
+        "chat_history_num_messages": str(len(chat_history)),
+        "chat_history_context_length": str(chat_history_context_len),
+        "chat_history_text_length": str(len(chat_history_text)),
         "is_refusal": str(quicktake == QT_CANT_ANSWER),
         "chat_id": request.chat_id,
         "turn_id": request.turn_id,

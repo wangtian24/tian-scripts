@@ -26,7 +26,7 @@ async def maybe_add_suggested_followups(chat_id: uuid.UUID, turn_id: uuid.UUID) 
         labeler = SuggestedFollowupsLabeler(get_gemini_15_flash_llm())
         suggested_followups = labeler.label(chat_context)
 
-        logging.debug(
+        logging.info(
             json_dumps(
                 {
                     "message": "Suggested follow ups",
@@ -143,6 +143,16 @@ async def refresh_conversation_starters(
                     )
                 )
                 return
+
+            logging.info(
+                json_dumps(
+                    {
+                        "message": "Conversation starters generated",
+                        "user_id": user_id,
+                        "conversation_starters": conversation_starters,
+                    }
+                )
+            )
 
             # Refresh the DB data.
             suggested_user_prompts = [
