@@ -443,18 +443,15 @@ async def create_attachment(request: CreateAttachmentRequest) -> Attachment:
     if not blob:
         raise HTTPException(status_code=500, detail="Failed to download file")
 
+    if len(blob) > MAX_FILE_SIZE_BYTES:
+        raise HTTPException(status_code=400, detail="File size exceeds maximum limit")
+
     thumbnail_start = datetime.now()
     thumbnail_path = path_to_object(file_id, THUMBNAILS_FOLDER)
     original_dimensions = None
     try:
         async with Storage() as async_client:
-            original_image = Image.open(BytesIO(blob))
-            image = original_image.copy()
-            original_dimensions = original_image.size
-            image.thumbnail((512, 512))
-            image_bytes = BytesIO()
-            image.save(image_bytes, format="PNG")
-            image_bytes.seek(0)
+            thumbnail_bytes = await asyncio.to_thread(downsize_image, blob, (1024, 1024))
             logging.info(
                 json_dumps(
                     {
@@ -468,7 +465,7 @@ async def create_attachment(request: CreateAttachmentRequest) -> Attachment:
             await async_client.upload(
                 bucket=attachment_bucket,
                 object_name=thumbnail_path,
-                file_data=image_bytes,
+                file_data=thumbnail_bytes,
                 content_type="image/png",
             )
             logging.info(
@@ -506,3 +503,13 @@ async def create_attachment(request: CreateAttachmentRequest) -> Attachment:
     except Exception as e:
         logging.exception(f"Attachments: Error creating attachment: {str(e)}")
         raise e
+
+
+def downsize_image(blob: bytes, size: tuple[int, int]) -> bytes:
+    original_image = Image.open(BytesIO(blob))
+    image = original_image.copy()
+    image.thumbnail(size)
+    image_bytes = BytesIO()
+    image.save(image_bytes, format="PNG")
+    image_bytes.seek(0)
+    return image_bytes.getvalue()

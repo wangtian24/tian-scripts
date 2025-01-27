@@ -44,7 +44,7 @@ from ypl.backend.llm.provider.provider_clients import get_model_provider_tuple
 from ypl.backend.llm.routing.debug import RoutingDebugInfo, build_routing_debug_info
 from ypl.backend.llm.routing.route_data_type import RoutingPreference
 from ypl.backend.llm.routing.router_state import RouterState
-from ypl.backend.llm.transform_messages import transform_user_messages
+from ypl.backend.llm.transform_messages import TransformOptions, transform_user_messages
 from ypl.backend.llm.turn_quality import label_turn_quality
 from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter, OpenAILangChainAdapter
 from ypl.backend.prompts import ALL_MODELS_IN_CHAT_HISTORY_PREAMBLE, RESPONSE_SEPARATOR
@@ -1054,7 +1054,9 @@ async def generate_quicktake(
 
     has_attachments = any(isinstance(m, HumanMessage) and m.additional_kwargs.get("attachments") for m in chat_history)
 
-    chat_history = await transform_user_messages(chat_history, "gpt-4o", options={"use_thumbnails": True})
+    transform_options: TransformOptions = {"image_type": "thumbnail", "use_signed_url": True}
+
+    chat_history = await transform_user_messages(chat_history, "gpt-4o", options=transform_options)
 
     timeout_secs = (
         settings.ATTACHMENT_QUICKTAKE_TIMEOUT_SECS

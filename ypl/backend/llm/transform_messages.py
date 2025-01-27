@@ -1,8 +1,9 @@
 import asyncio
 import base64
 import logging
+import os
 from datetime import datetime
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict
 
 from gcloud.aio.storage import Storage
 from langchain_core.messages import BaseMessage, HumanMessage
@@ -15,33 +16,38 @@ from ypl.db.attachments import Attachment
 
 class TransformOptions(TypedDict, total=False):
     use_signed_url: bool
-    use_thumbnails: bool
+    image_type: Literal["thumbnail", "original"]
 
 
 DEFAULT_OPTIONS: TransformOptions = {
     "use_signed_url": False,
-    "use_thumbnails": False,
+    "image_type": "thumbnail",
 }
 
 
-async def download_attachment(attachment: Attachment, use_thumbnails: bool = False) -> bytes:
+def get_bucket_and_object_name(url: str) -> tuple[str, str]:
+    if not url or not url.startswith("gs://"):
+        raise ValueError(f"Invalid GCS path: {url}")
+
+    bucket_name, *path_parts = url.replace("gs://", "").split("/")
+    if not bucket_name or not path_parts:
+        raise ValueError(f"Invalid GCS path format: {url}")
+    return bucket_name, os.path.join(*path_parts)
+
+
+async def download_attachment(attachment: Attachment, options: TransformOptions) -> bytes:
     start_time = datetime.now()
     try:
-        gcs_path = attachment.url if not use_thumbnails else attachment.thumbnail_url
+        gcs_path = get_image_url(attachment, options)
 
-        if not gcs_path or not gcs_path.startswith("gs://"):
-            raise ValueError(f"Invalid GCS path: {gcs_path}")
-
-        bucket_name, *path_parts = gcs_path.replace("gs://", "").split("/")
-        if not bucket_name or not path_parts:
-            raise ValueError(f"Invalid GCS path format: {gcs_path}")
+        bucket_name, object_name = get_bucket_and_object_name(gcs_path)
 
         try:
             logging.info(f"Attachments: Downloading attachment {attachment.attachment_id} from {gcs_path}")
             async with Storage() as async_client:
                 blob = await async_client.download(
                     bucket=bucket_name,
-                    object_name=f"{'/'.join(path_parts)}",
+                    object_name=object_name,
                 )
                 return blob
 
@@ -73,14 +79,16 @@ async def download_attachment(attachment: Attachment, use_thumbnails: bool = Fal
         raise
 
 
-async def generate_image_part(
-    attachment: Attachment, use_signed_url: bool = False, use_thumbnails: bool = False
-) -> dict[str, Any]:
-    if use_signed_url:
-        url = await get_image_signed_url(attachment)
+async def generate_image_part(attachment: Attachment, transform_options: TransformOptions) -> dict[str, Any]:
+    if transform_options.get("use_signed_url", DEFAULT_OPTIONS["use_signed_url"]):
+        url = await get_image_signed_url(attachment, transform_options)
     else:
-        image_bytes = await download_attachment(attachment, use_thumbnails)
-        mime_type = "image/png" if use_thumbnails else attachment.content_type
+        image_bytes = await download_attachment(attachment, transform_options)
+        mime_type = (
+            "image/png"
+            if transform_options.get("image_type", DEFAULT_OPTIONS["image_type"]) == "thumbnail"
+            else attachment.content_type
+        )
         url = f"data:{mime_type};base64," + base64.b64encode(image_bytes).decode("utf-8")
     return {
         "type": "image_url",
@@ -120,13 +128,8 @@ async def transform_user_messages(
 
     transformed_messages: list[BaseMessage] = []
 
-    use_signed_url = options.get("use_signed_url", DEFAULT_OPTIONS["use_signed_url"])
-    use_thumbnails = options.get("use_thumbnails", DEFAULT_OPTIONS["use_thumbnails"])
-
     attachment_id_to_content_dict: dict[str, dict[str, Any]] = {}
-    attachment_tasks = [
-        generate_image_part(attachment, use_signed_url, use_thumbnails) for attachment in all_attachments
-    ]
+    attachment_tasks = [generate_image_part(attachment, options) for attachment in all_attachments]
     results = await asyncio.gather(*attachment_tasks, return_exceptions=True)
     for attachment, result in zip(all_attachments, results, strict=True):
         if isinstance(result, BaseException):
@@ -177,10 +180,18 @@ def get_images_polyfill_prompt(attachments: list[Attachment], question: str) -> 
     return IMAGE_POLYFILL_PROMPT.format(image_metadata_prompt=image_metadata_prompt, question=question)
 
 
-async def get_image_signed_url(attachment: Attachment) -> str:
+def get_image_url(attachment: Attachment, transform_options: TransformOptions) -> str:
+    if transform_options.get("image_type", DEFAULT_OPTIONS["image_type"]) == "thumbnail":
+        if not attachment.thumbnail_url:
+            raise ValueError(f"Attachments: Thumbnail URL not found for attachment: {attachment.attachment_id}")
+        return attachment.thumbnail_url
+    return attachment.url
+
+
+async def get_image_signed_url(attachment: Attachment, transform_options: TransformOptions) -> str:
     start_time = datetime.now()
     try:
-        gcs_path = attachment.url
+        gcs_path = get_image_url(attachment, transform_options)
         if not gcs_path or not gcs_path.startswith("gs://"):
             raise ValueError(f"Invalid GCS path: {gcs_path}")
 
@@ -192,7 +203,7 @@ async def get_image_signed_url(attachment: Attachment) -> str:
             async with Storage() as async_client:
                 bucket = async_client.get_bucket(bucket_name)
                 blob = await bucket.get_blob(f"{'/'.join(path_parts)}")
-                url = await blob.get_signed_url(expiration=604800)
+                url = await blob.get_signed_url(expiration=120, http_method="GET")
                 return url
 
         except Exception as e:

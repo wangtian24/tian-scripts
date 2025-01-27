@@ -251,7 +251,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                 messages[-1] = last_message
 
         transform_options = TransformOptions(
-            use_thumbnails=False,
+            image_type="thumbnail",
             use_signed_url=False,
         )
         messages = await transform_user_messages(messages, chat_request.model, transform_options)
