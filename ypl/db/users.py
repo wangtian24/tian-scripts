@@ -486,6 +486,12 @@ class WaitlistedUser(BaseModel, table=True):
     )
 
 
+class VendorNameEnum(enum.Enum):
+    """Represents supported vendor names."""
+
+    HYPERWALLET = "hyperwallet"
+
+
 class UserVendorProfile(BaseModel, table=True):
     """Represents vendor-specific profile information for a user."""
 
@@ -499,6 +505,12 @@ class UserVendorProfile(BaseModel, table=True):
     )
     # This is the vendor's ID for the user.
     user_vendor_id: str = Field(nullable=False, sa_type=sa.Text)
+    vendor_name: VendorNameEnum = Field(
+        sa_column=Column(
+            sa.Enum(VendorNameEnum),
+            nullable=False,
+        ),
+    )
     additional_details: dict[str, Any] = Field(
         default_factory=dict,
         sa_type=JSONB,
