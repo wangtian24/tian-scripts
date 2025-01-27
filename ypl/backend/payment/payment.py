@@ -79,6 +79,30 @@ class CashoutsHistoryResponse:
     has_more_rows: bool
 
 
+@dataclass
+class PaymentInstrumentResponse:
+    payment_instrument_id: UUID
+    user_id: str
+    facilitator: str
+    identifier: str
+    identifier_type: str
+    metadata: dict
+    created_at: datetime
+    deleted_at: datetime | None
+
+
+@dataclass
+class PaymentInstrumentsResponse:
+    instruments: list[PaymentInstrumentResponse]
+    has_more_rows: bool
+
+
+@dataclass
+class UpdatePaymentInstrumentRequest:
+    instrument_metadata: dict | None = None
+    deleted_at: datetime | None = None
+
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_fixed(0.1),
@@ -381,3 +405,97 @@ async def validate_ledger_balance_all_users() -> None:
         await post_to_slack(
             f":warning: Ledger balance validation found {mismatched_users} users with mismatched point balances."
         )
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_fixed(0.1),
+    after=after_log(logging.getLogger(), logging.WARNING),
+    retry=retry_if_exception_type((OperationalError, DatabaseError)),
+)
+async def get_payment_instruments(
+    user_id: str,
+    limit: int = 50,
+    offset: int = 0,
+) -> PaymentInstrumentsResponse:
+    async with get_async_session() as session:
+        query = (
+            select(PaymentInstrument)
+            .where(PaymentInstrument.user_id == user_id)  # type: ignore
+            .order_by(PaymentInstrument.created_at.desc())  # type: ignore
+            .offset(offset)
+            .limit(limit + 1)
+        )
+
+        result = await session.execute(query)
+        instruments = result.scalars().all()
+
+        has_more_rows = len(instruments) > limit
+        if has_more_rows:
+            instruments = instruments[:-1]
+
+        log_dict = {
+            "message": "Payment instruments found",
+            "instruments_count": len(instruments),
+            "limit": limit,
+            "offset": offset,
+            "has_more_rows": has_more_rows,
+            "user_id": user_id,
+        }
+        logging.info(json_dumps(log_dict))
+
+        return PaymentInstrumentsResponse(
+            instruments=[
+                PaymentInstrumentResponse(
+                    payment_instrument_id=instrument.payment_instrument_id,
+                    user_id=str(instrument.user_id),
+                    facilitator=str(instrument.facilitator.value),
+                    identifier=str(instrument.identifier),
+                    identifier_type=str(instrument.identifier_type.value),
+                    metadata=dict(instrument.instrument_metadata) if instrument.instrument_metadata else {},
+                    created_at=instrument.created_at,
+                    deleted_at=instrument.deleted_at,
+                )
+                for instrument in instruments
+            ],
+            has_more_rows=has_more_rows,
+        )
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_fixed(0.1),
+    after=after_log(logging.getLogger(), logging.WARNING),
+    retry=retry_if_exception_type((OperationalError, DatabaseError)),
+)
+async def update_payment_instrument(payment_instrument_id: UUID, request: UpdatePaymentInstrumentRequest) -> None:
+    """
+    Update payment instrument fields with retry logic.
+
+    Args:
+        payment_instrument_id: The ID of the payment instrument to update
+        request: The update request containing fields to update
+    """
+    async with get_async_session() as session:
+        payment_instrument = await session.execute(
+            select(PaymentInstrument).where(PaymentInstrument.payment_instrument_id == payment_instrument_id)  # type: ignore
+        )
+        payment_instrument_row = payment_instrument.scalar_one()
+
+        if payment_instrument_row is None:
+            log_dict = {
+                "message": "Payment instrument not found",
+                "payment_instrument_id": str(payment_instrument_id),
+            }
+            logging.error(json_dumps(log_dict))
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Payment instrument not found",
+            )
+
+        if request.instrument_metadata is not None:
+            payment_instrument_row.instrument_metadata = request.instrument_metadata
+        if request.deleted_at is not None:
+            payment_instrument_row.deleted_at = request.deleted_at
+
+        await session.commit()
