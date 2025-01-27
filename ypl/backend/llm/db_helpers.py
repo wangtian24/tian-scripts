@@ -433,6 +433,12 @@ def deduce_single_model_speed_score(model: str) -> float:
     Returns an abstract speed score (0.0 - 1.0), which is computed based on model's
     time-to-first-token and tokens-per-second stats from the past X days.
     """
+
+    # TODO(Tian): we are taking past 1000 requests for each model to estimate the speed, but it would be
+    # better to estimate a short-term speed and long-term speed separately, so we can be responsive to some
+    # temporary performance issues (like a certain API was having a bad day). Also this speed score is currently
+    # only used to rank last 2 models displayed, not to rank all models proposals in routing, which we should
+    # eventually do.
     sql_query = text(
         """
             select
@@ -467,8 +473,8 @@ def deduce_single_model_speed_score(model: str) -> float:
                         JOIN language_models lm ON cm.assistant_model_name = lm.internal_name
                     WHERE message_type IN ('ASSISTANT_MESSAGE')
                         AND streaming_metrics IS NOT NULL
-                        AND cm.created_at >= NOW() - INTERVAL '1 days'
                         AND lm.internal_name = :model_name
+                    ORDER BY cm.created_at DESC
                     LIMIT 1000
                 ) AS subquery
             ) AS metrics
