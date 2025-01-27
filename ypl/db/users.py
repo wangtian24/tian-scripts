@@ -1,6 +1,6 @@
 import enum
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import sqlalchemy as sa
@@ -210,6 +210,13 @@ class SyntheticUserAttributes(BaseModel, table=True):
     user: "User" = Relationship(back_populates="synthetic_attributes")
 
 
+class ProfileTypeEnum(enum.Enum):
+    """Represents the type of user profile."""
+
+    INDIVIDUAL = "INDIVIDUAL"
+    BUSINESS = "BUSINESS"
+
+
 class UserProfile(BaseModel, table=True):
     """Represents additional profile information for a user."""
 
@@ -230,6 +237,22 @@ class UserProfile(BaseModel, table=True):
         default=None,
     )
     discord_username: str | None = Field(default=None, sa_type=sa.String)
+
+    profile_type: ProfileTypeEnum | None = Field(
+        sa_column=Column(
+            "profile_type",
+            sa.Enum(ProfileTypeEnum),
+            nullable=True,
+        ),
+        default=None,
+    )
+    first_name: str | None = Field(default=None, sa_type=sa.String)
+    last_name: str | None = Field(default=None, sa_type=sa.String)
+    date_of_birth: date | None = Field(default=None, sa_type=sa.Date)
+    address_line1: str | None = Field(default=None, sa_type=sa.String)
+    address_line2: str | None = Field(default=None, sa_type=sa.String)
+    state_province: str | None = Field(default=None, sa_type=sa.String)
+    postal_code: str | None = Field(default=None, sa_type=sa.String)
 
     # Relationship to User model
     user: "User" = Relationship(back_populates="profile")
