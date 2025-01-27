@@ -53,7 +53,7 @@ class Turn(BaseModel, table=True):
 
     turn_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
 
-    chat_id: uuid.UUID = Field(foreign_key="chats.chat_id", nullable=False)
+    chat_id: uuid.UUID = Field(foreign_key="chats.chat_id", nullable=False, index=True)
     chat: "Chat" = Relationship(back_populates="turns")
 
     # Sequence of the turn in the chat. This sequence is not guaranteed to be
@@ -67,7 +67,7 @@ class Turn(BaseModel, table=True):
 
     evals: list["Eval"] = Relationship(back_populates="turn")
 
-    creator_user_id: str = Field(foreign_key="users.user_id", nullable=False, sa_type=Text)
+    creator_user_id: str = Field(foreign_key="users.user_id", nullable=False, sa_type=Text, index=True)
     creator: "User" = Relationship(back_populates="turns")
 
     turn_quality: "TurnQuality" = Relationship(back_populates="turn")
