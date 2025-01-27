@@ -99,7 +99,7 @@ jobs:
       run: |
         git fetch --tags
         TAG_NAME=latest-${{ github.event.inputs.environment || 'staging' }}
-        if git diff --name-only origin/main $TAG_NAME | grep -q -E 'data/reward_rules\.yml|ypm/db/alembic/'; then
+        if git diff --name-only $TAG_NAME | grep -q -E 'data/reward_rules|ypl/db/alembic/'; then
           echo "DB_OR_RULES_CHANGED='true'" >> $GITHUB_ENV
           echo "Detected DB or reward rules changes"
         else

@@ -87,4 +87,6 @@ if context.is_offline_mode():
 else:
     run_migrations_online()
 
+print("Alembic migration complete")
+
 config.set_main_option("sqlalchemy.url", settings.db_url.replace("%", "%%"))
