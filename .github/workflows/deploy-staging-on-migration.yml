@@ -18,6 +18,7 @@ jobs:
           script: |
             await github.rest.actions.createWorkflowDispatch({
               repo: context.repo.name,
+              owner: context.repo.owner,
               workflow_id: 'deploy.yml',
               ref: 'staging',
               inputs: {
