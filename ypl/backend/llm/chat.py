@@ -18,11 +18,11 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import Insert as pg_insert
 from sqlalchemy.orm import joinedload
-from sqlmodel import select, update
+from sqlmodel import Session, select, update
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ypl.backend.config import settings
-from ypl.backend.db import get_async_engine, get_async_session
+from ypl.backend.db import get_async_engine, get_async_session, get_engine
 from ypl.backend.llm.attachment import get_attachments
 from ypl.backend.llm.constants import ACTIVE_MODELS_BY_PROVIDER, ChatProvider
 from ypl.backend.llm.db_helpers import (
@@ -709,8 +709,9 @@ async def get_curated_chat_context(
         query = query.where(Turn.turn_id != current_turn_id)
 
     formatted_messages: list[BaseMessage] = []
-    async with AsyncSession(get_async_engine()) as session:
-        result = await session.exec(query)
+    # An async sessions is 2-3X slower.
+    with Session(get_engine()) as session:
+        result = session.exec(query)
         # Limit to the most recent messages.
         # Not done in the SQL query, since it orders by ascending turns, but we want to limit to recent messages.
         messages = result.unique().all()[:max_messages]
