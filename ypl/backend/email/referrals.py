@@ -15,7 +15,7 @@ async def send_referral_bonus_emails(
     # Send email to the new user if they got credits
     if new_user_credit_delta > 0 and new_user_model:
         await send_email_async(
-            campaign="referred_user",
+            campaign="first_pref_bonus",
             to_address=new_user_model.email,
             template_params={
                 "name": new_user_model.name,

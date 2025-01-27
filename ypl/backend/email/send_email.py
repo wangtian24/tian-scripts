@@ -5,15 +5,17 @@ import resend
 from resend.emails._email import Email
 from ypl.backend.config import settings
 from ypl.backend.email.campaigns.signup import (
+    FIRST_PREF_BONUS_EMAIL_TEMPLATE,
+    FIRST_PREF_BONUS_EMAIL_TITLE,
     REFFERAL_BONUS_EMAIL_TEMPLATE,
     REFFERAL_BONUS_EMAIL_TITLE,
-    REFFERED_USER_EMAIL_TEMPLATE,
-    REFFERED_USER_EMAIL_TITLE,
     SIC_AVAILABILITY_EMAIL_TEMPLATE,
     SIC_AVAILABILITY_EMAIL_TEMPLATE_HTML,
     SIC_AVAILABILITY_EMAIL_TITLE,
     SIGN_UP_EMAIL_TEMPLATE,
     SIGN_UP_EMAIL_TITLE,
+    YOUR_FRIEND_JOINED_EMAIL_TEMPLATE,
+    YOUR_FRIEND_JOINED_EMAIL_TITLE,
 )
 from ypl.backend.utils.json import json_dumps
 
@@ -31,18 +33,38 @@ EMAIL_CAMPAIGNS = {
         "title": REFFERAL_BONUS_EMAIL_TITLE,
         "template": REFFERAL_BONUS_EMAIL_TEMPLATE,
     },
-    "referred_user": {
-        "title": REFFERED_USER_EMAIL_TITLE,
-        "template": REFFERED_USER_EMAIL_TEMPLATE,
+    "referred_user": {  # deprecated, use first_pref_bonus
+        "title": FIRST_PREF_BONUS_EMAIL_TITLE,
+        "template": FIRST_PREF_BONUS_EMAIL_TEMPLATE,
+    },
+    "first_pref_bonus": {
+        "title": FIRST_PREF_BONUS_EMAIL_TITLE,
+        "template": FIRST_PREF_BONUS_EMAIL_TEMPLATE,
+    },
+    "your_friend_joined": {
+        "title": YOUR_FRIEND_JOINED_EMAIL_TITLE,
+        "template": YOUR_FRIEND_JOINED_EMAIL_TEMPLATE,
     },
 }
 
 REPLY_TO_ADDRESS = "gcmouli+yupp@yupp.ai"
 
+BRAND_NAME = "Yupp (Alpha)"
+CONFIDENTIALITY_FOOTER = """----
+Thanks for being a part of our small, invite-only alpha.
+We really appreciate your trust and ask for your strict confidentiality.
+"""
+
 
 async def send_email_async(campaign: str, to_address: str, template_params: dict[str, Any]) -> Email | None:
     if campaign not in EMAIL_CAMPAIGNS:
         raise ValueError(f"Campaign '{campaign}' not found")
+
+    template_params = {
+        **template_params,
+        "BRAND_NAME": BRAND_NAME,
+        "CONFIDENTIALITY_FOOTER": CONFIDENTIALITY_FOOTER,
+    }
 
     campaign_data = EMAIL_CAMPAIGNS[campaign]
     try:

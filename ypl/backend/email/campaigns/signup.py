@@ -7,7 +7,7 @@ Hey {name},
 
 We just gifted you with your own referral code!
 
-Now you can invite your friends to try Yupp (Alpha):
+Now you can invite your friends to try {BRAND_NAME}:
 From your profile picture on the top right corner, click “Refer your friends” to see your special invite code.
 Ask your friends to visit https://gg.yupp.ai, login using their Google account, and enter your invite code when prompted. Note: You can currently invite up to 3 friends per week.
 
@@ -24,7 +24,7 @@ SIC_AVAILABILITY_EMAIL_TEMPLATE_HTML = """
 
 <p>We just gifted you with your own referral code!</p>
 
-<p>Now you can invite your friends to try Yupp (Alpha):</p>
+<p>Now you can invite your friends to try {BRAND_NAME}:</p>
 
 <ol>
 <li>From your profile picture on the top right corner, click “Refer your friends” to see your special invite code.</li>
@@ -42,7 +42,7 @@ SIC_AVAILABILITY_EMAIL_TEMPLATE_HTML = """
 ################################################################################
 
 
-SIGN_UP_EMAIL_TITLE = "Thanks for joining Yupp (Alpha) as an early Trusted Tester"
+SIGN_UP_EMAIL_TITLE = "Thanks for joining {BRAND_NAME} as an early Trusted Tester"
 SIGN_UP_EMAIL_TEMPLATE = """
 Hey {name},
 
@@ -62,8 +62,24 @@ Your feedback plays a crucial role in refining the product, we can’t wait to h
 - Mouli, product team
 
 
-----
-Thanks for being a part of our small, invite-only alpha. We really appreciate your trust and ask for your strict confidentiality.
+{CONFIDENTIALITY_FOOTER}
+"""  # noqa: E501
+
+################################################################################
+# TODO: Add "Please continue to refer more of your friends by sharing <this URL with promo code> with them!"
+
+
+YOUR_FRIEND_JOINED_EMAIL_TITLE = "{referee_name} is now on {BRAND_NAME}"
+YOUR_FRIEND_JOINED_EMAIL_TEMPLATE = """
+Hey {referrer_name}:
+
+{referee_name} just joined you on {BRAND_NAME} with your invite code.
+
+Once they finish writing their first prompt and doing their first “I prefer this” feedback, you’ll be eligible to earn the referral bonus of {credits} YUPP credits.
+
+- Mouli, product team
+
+{CONFIDENTIALITY_FOOTER}
 """  # noqa: E501
 
 
@@ -79,16 +95,15 @@ Hey {referrer_name},
 - Mouli, product team
 
 
-----
-Thanks for being a part of our small, invite-only alpha. We really appreciate your trust and ask for your strict confidentiality.
+{CONFIDENTIALITY_FOOTER}
 """  # noqa: E501
 
 
 ################################################################################
 
 
-REFFERED_USER_EMAIL_TITLE = "You just scored {credits} YUPP credits!"
-REFFERED_USER_EMAIL_TEMPLATE = """
+FIRST_PREF_BONUS_EMAIL_TITLE = "You just scored {credits} YUPP credits!"
+FIRST_PREF_BONUS_EMAIL_TEMPLATE = """
 Hey {name},
 
 Thank you for giving your first feedback to the AI models. Since you joined Yupp with your friend’s invite code, you’ve been rewarded {credits} YUPP credits!
@@ -96,6 +111,5 @@ Thank you for giving your first feedback to the AI models. Since you joined Yupp
 - Mouli, product team
 
 
-----
-Thanks for being a part of our small, invite-only alpha. We really appreciate your trust and ask for your strict confidentiality.
+{CONFIDENTIALITY_FOOTER}
 """  # noqa: E501
