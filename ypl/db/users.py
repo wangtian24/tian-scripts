@@ -98,6 +98,7 @@ class User(BaseModel, table=True):
 
     # User profile relationship
     profile: "UserProfile" = Relationship(back_populates="user", cascade_delete=True)
+    user_vendor_profile: list["UserVendorProfile"] = Relationship(back_populates="user", cascade_delete=True)
 
     status: UserStatus = Field(
         default=UserStatus.ACTIVE,
@@ -460,3 +461,26 @@ class WaitlistedUser(BaseModel, table=True):
     waitlist_type: WaitlistType | None = Field(
         sa_column=Column(sa.Enum(WaitlistType), nullable=True),
     )
+
+
+class UserVendorProfile(BaseModel, table=True):
+    """Represents vendor-specific profile information for a user."""
+
+    __tablename__ = "user_vendor_profiles"
+
+    user_vendor_profile_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
+    user_id: str = Field(
+        sa_column=sa.Column(
+            sa.Text, sa.ForeignKey("users.user_id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False
+        )
+    )
+    # This is the vendor's ID for the user.
+    user_vendor_id: str = Field(nullable=False, sa_type=sa.Text)
+    additional_details: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_type=JSONB,
+        nullable=True,
+    )
+
+    # Relationship to User model
+    user: "User" = Relationship(back_populates="user_vendor_profile")
