@@ -313,6 +313,11 @@ def get_preferences(user_id: str | None, chat_id: str, turn_id: str) -> RoutingP
     # not all user-selected models are necessarily shown before (if we allow more user selected models than we display).
     user_selected_models = list(dict.fromkeys(df[df["selection_src"] == "USER_SELECTED"]["model_name"].tolist()))
 
+    # NOTE(Tian): this is a bit hacky, but it guarantees the last-turn preferred model will be shown,
+    # if there's space for it, it can show up in SMM, but will it be recorded as a USER_SELECTED model in db?
+    if len(turns_list) > 0 and turns_list[-1].preferred:
+        user_selected_models.append(turns_list[-1].preferred)
+
     user_id = df["creator_user_id"].tolist()[0]
 
     return RoutingPreference(
