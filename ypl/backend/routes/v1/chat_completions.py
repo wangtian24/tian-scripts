@@ -31,6 +31,7 @@ from ypl.backend.llm.chat import (
 )
 from ypl.backend.llm.crawl import enhance_citations
 from ypl.backend.llm.model.model import ModelResponseTelemetry
+from ypl.backend.llm.model_heuristics import ModelHeuristics
 from ypl.backend.llm.prompt_suggestions import maybe_add_suggested_followups
 from ypl.backend.llm.provider.provider_clients import get_language_model, get_provider_client
 from ypl.backend.llm.sanitize_messages import DEFAULT_MAX_TOKENS, sanitize_messages
@@ -102,6 +103,8 @@ STREAMING_ERROR_TEXT: str = "\n\\<streaming stopped unexpectedly\\>"
 STOPPED_STREAMING: str = "\n\n*You stopped this response*"
 
 router = APIRouter()
+
+model_heuristics = ModelHeuristics(tokenizer_type="tiktoken")
 
 
 @router.post("/chat/completions")
@@ -258,7 +261,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
         messages = await transform_user_messages(messages, chat_request.model, transform_options)
 
         first_token_timestamp: float = 0
-        response_tokens_num = 0
+        chunks_count = 0
         full_response = ""
         message_metadata: dict[str, Any] = {}
         chunk = None  # Define chunk outside the try block
@@ -272,7 +275,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                 if hasattr(chunk, "content") and chunk.content:
                     if first_token_timestamp == 0:
                         first_token_timestamp = datetime.now().timestamp()
-                    response_tokens_num += 1
+                    chunks_count += 1
                     content = chunk.content
                     # Only log in local environment
                     if settings.ENVIRONMENT == "local":
@@ -356,6 +359,8 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
 
         # Send completion status
         end_time = datetime.now()
+        tokenizer = model_heuristics.get_tokenizer_counter()
+        response_tokens_num = tokenizer(full_response)
         yield StreamResponse(
             final_status
             | {
@@ -370,6 +375,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
             firstTokenTimestamp=first_token_timestamp * 1000,
             lastTokenTimestamp=end_time.timestamp() * 1000,
             completionTokens=response_tokens_num,
+            chunks_count=chunks_count,
         )
 
         try:

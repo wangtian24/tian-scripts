@@ -225,3 +225,4 @@ class ModelResponseTelemetry(BaseModel):
     lastTokenTimestamp: float | None = None
     completionTokens: int | None = None
     experiments: dict | None = None
+    chunks_count: int | None = None
