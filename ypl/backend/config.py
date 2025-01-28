@@ -126,6 +126,7 @@ class Settings(BaseSettings):
     SLACK_WEBHOOK_CASHOUT: str = os.getenv("SLACK_WEBHOOK_CASHOUT", "")
 
     DEFAULT_QT_TIMEOUT_SECS: float = 1.5
+    DEFAULT_QT_FALLBACK_TIMEOUT_SECS: float = 1.2
 
     ATTACHMENT_QUICKTAKE_TIMEOUT_SECS: float = 4.0
 

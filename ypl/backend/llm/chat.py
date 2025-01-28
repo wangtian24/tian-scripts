@@ -47,7 +47,14 @@ from ypl.backend.llm.routing.router_state import RouterState
 from ypl.backend.llm.transform_messages import TransformOptions, transform_user_messages
 from ypl.backend.llm.turn_quality import label_turn_quality
 from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter, OpenAILangChainAdapter
-from ypl.backend.prompts import ALL_MODELS_IN_CHAT_HISTORY_PREAMBLE, RESPONSE_SEPARATOR
+from ypl.backend.prompts import (
+    ALL_MODELS_IN_CHAT_HISTORY_PREAMBLE,
+    RESPONSE_SEPARATOR,
+    SYSTEM_QUICKTAKE_FALLBACK_PROMPT,
+    SYSTEM_QUICKTAKE_PROMPT,
+    USER_QUICKTAKE_FALLBACK_PROMPT,
+    USER_QUICKTAKE_PROMPT,
+)
 from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.monitoring import metric_inc, metric_inc_by, metric_record
 from ypl.db.attachments import Attachment
@@ -860,6 +867,10 @@ MODEL_FOR_PROMPT_ONLY_FULL_NAME = MODEL_FOR_PROMPT_ONLY + ":prompt-only"
 MODEL_FOR_FINETUNE_QT = "gpt-4o"
 MODEL_FOR_FINETUNE_QT_FULL_NAME = "ft:gpt-4o-2024-08-06:yupp::AgJJZBsG"
 
+# For fallback.
+MODELS_FOR_FALLBACK = ["gemini-1.5-flash-002"]  # can add others later
+
+
 GPT_4O_MINI_LLM: OpenAILangChainAdapter | None = None
 GPT_4O_LLM: OpenAILangChainAdapter | None = None
 FINE_TUNED_GPT_4O_LLM: OpenAILangChainAdapter | None = None
@@ -978,6 +989,7 @@ def get_qt_llms() -> Mapping[str, BaseChatModel]:
 class QuickTakeResponse(BaseModel):
     quicktake: str
     model: str
+    errors: str | None = None
 
 
 class QuickTakeRequest(BaseModel):
@@ -988,6 +1000,7 @@ class QuickTakeRequest(BaseModel):
     attachment_ids: list[UUID] | None = None
     model: str | None = None  # one of the entries in QT_LLMS; if none, use MODELS_FOR_DEFAULT_QT
     timeout_secs: float = settings.DEFAULT_QT_TIMEOUT_SECS
+    for_fallback: bool = False
 
 
 class PromptModifierInfo(BaseModel):
@@ -1001,12 +1014,19 @@ def get_quicktake_generator(
     chat_history: list[BaseMessage],
     prompt_only: bool = False,
     timeout_secs: float = settings.DEFAULT_QT_TIMEOUT_SECS,
+    for_fallback: bool = False,
 ) -> QuickTakeGenerator:
     """Get a quicktake generator for a given model, or raise if the model is not supported."""
     if prompt_only:
         # Use only the prompts from the chat history.
         chat_history = [m for m in chat_history if isinstance(m, HumanMessage)]
-    return QuickTakeGenerator(get_qt_llms()[model], chat_history, timeout_secs=timeout_secs)
+    return QuickTakeGenerator(
+        get_qt_llms()[model],
+        chat_history,
+        timeout_secs=timeout_secs,
+        user_quicktake_prompt=USER_QUICKTAKE_FALLBACK_PROMPT if for_fallback else USER_QUICKTAKE_PROMPT,
+        system_quicktake_prompt=SYSTEM_QUICKTAKE_FALLBACK_PROMPT if for_fallback else SYSTEM_QUICKTAKE_PROMPT,
+    )
 
 
 async def generate_quicktake(
@@ -1044,9 +1064,6 @@ async def generate_quicktake(
 
     chat_history_time = time.time() - start_time
 
-    response_model = ""
-    responses_by_model: dict[str, str] = {}
-
     latest_message = HumanMessage(
         content=request.prompt or "",
         additional_kwargs={
@@ -1055,45 +1072,57 @@ async def generate_quicktake(
     )
 
     chat_history.append(latest_message)
-    chat_history_text = "\n".join(m.content for m in chat_history)  # type: ignore
-    chat_history_context_len = len(ModelHeuristics(tokenizer_type="tiktoken").encode_tokens(chat_history_text))
-    # Add a buffer for system prompt etc.
-    min_required_context_len = int(chat_history_context_len * 1.2)
 
+    # Add attachments (image, etc) to the chat history, as a url or base64 encoded string.
     has_attachments = any(isinstance(m, HumanMessage) and m.additional_kwargs.get("attachments") for m in chat_history)
-
     transform_options: TransformOptions = {"image_type": "thumbnail", "use_signed_url": True}
-
     chat_history = await transform_user_messages(chat_history, "gpt-4o", options=transform_options)
 
-    timeout_secs = (
-        settings.ATTACHMENT_QUICKTAKE_TIMEOUT_SECS
-        if has_attachments
-        else request.timeout_secs or settings.DEFAULT_QT_TIMEOUT_SECS
-    )
-
+    # Calculate the length of input with all the information, and check against the context length allowed by the model.
+    chat_history_text = "\n".join(m.content for m in chat_history)  # type: ignore
+    chat_history_context_len = len(ModelHeuristics(tokenizer_type="tiktoken").encode_tokens(chat_history_text))
+    min_required_context_len = int(chat_history_context_len * 1.2)  # Add a buffer for system prompt etc.
     context_lengths = get_model_context_lengths()
+
     qt_models = [
         model
-        for model in MODELS_FOR_DEFAULT_QT
+        for model in (MODELS_FOR_DEFAULT_QT if not request.for_fallback else MODELS_FOR_FALLBACK)
         if context_lengths.get(model, DEFAULT_QT_MAX_CONTEXT_LENGTH) > min_required_context_len
     ]
     qt_context_lengths = {k: v for k, v in context_lengths.items() if k in qt_models}
 
+    timeout_secs = (
+        request.timeout_secs  # the timeout provided by the client will override the defaults
+        if request.timeout_secs
+        else settings.ATTACHMENT_QUICKTAKE_TIMEOUT_SECS
+        if has_attachments
+        else settings.DEFAULT_QT_FALLBACK_TIMEOUT_SECS
+        if request.for_fallback
+        else settings.DEFAULT_QT_TIMEOUT_SECS
+    )
+    response_model = ""
+    responses_by_model: dict[str, str] = {}
+
     try:
         if not request.model:
-            # Default: use multiple models
+            # No specific model has been request, go by default and use multiple models.
             labelers: dict[str, Any] = {
-                model: get_quicktake_generator(model, chat_history, timeout_secs=timeout_secs) for model in qt_models
+                model: get_quicktake_generator(
+                    model, chat_history, timeout_secs=timeout_secs, for_fallback=request.for_fallback
+                )
+                for model in qt_models
             }
-            # Add a fast model that uses the prompts only in the chat history.
-            labelers[MODEL_FOR_PROMPT_ONLY_FULL_NAME] = get_quicktake_generator(
-                MODEL_FOR_PROMPT_ONLY, chat_history, prompt_only=True, timeout_secs=timeout_secs
-            )
-            # Add a fine-tuned model that minimizes truncations and formatting in responses.
-            labelers[MODEL_FOR_FINETUNE_QT_FULL_NAME] = get_quicktake_generator(
-                MODEL_FOR_FINETUNE_QT_FULL_NAME, chat_history, timeout_secs=timeout_secs
-            )
+            if not request.for_fallback:
+                # Add a fast model that uses the prompts only in the chat history.
+                labelers[MODEL_FOR_PROMPT_ONLY_FULL_NAME] = get_quicktake_generator(
+                    MODEL_FOR_PROMPT_ONLY, chat_history, prompt_only=True, timeout_secs=timeout_secs, for_fallback=False
+                )
+                # Add a fine-tuned model that minimizes truncations and formatting in responses.
+                labelers[MODEL_FOR_FINETUNE_QT_FULL_NAME] = get_quicktake_generator(
+                    MODEL_FOR_FINETUNE_QT_FULL_NAME, chat_history, timeout_secs=timeout_secs, for_fallback=False
+                )
+
+            # Do the actual quicktake generation using the labeler models found above.
             multi_generator = MultiLLMLabeler(
                 labelers=labelers,
                 timeout_secs=timeout_secs,
@@ -1107,16 +1136,23 @@ async def generate_quicktake(
                 tiktoken_trim(request.prompt or "", int(max_context_length * 0.75), direction="right")
             )
             quicktake = QT_CANT_ANSWER
+            errors = None
             responses_by_model = {model: type(response).__name__ for model, response in quicktakes.items()}
+            found_response = False
             for model in labelers:
                 response = quicktakes.get(model)
                 if response and not isinstance(response, Exception):
                     response_model = model
                     quicktake = response
+                    found_response = True
                     break
+
+            if not found_response:
+                errors = "no_response"
+
         elif request.model in get_qt_llms():
             # Specific model requested.
-            generator = get_quicktake_generator(request.model, chat_history)
+            generator = get_quicktake_generator(request.model, chat_history, for_fallback=request.for_fallback)
             max_context_length = qt_context_lengths.get(request.model, min(qt_context_lengths.values()))
             quicktake = await generator.alabel(
                 tiktoken_trim(request.prompt or "", int(max_context_length * 0.75), direction="right")
@@ -1146,6 +1182,7 @@ async def generate_quicktake(
         "chat_id": request.chat_id,
         "turn_id": request.turn_id,
         "model": response_model,
+        "for_fallback": str(request.for_fallback),
         "duration_secs": str(end_time - start_time),
         "content_length": str(len(quicktake)),
     }
@@ -1157,7 +1194,7 @@ async def generate_quicktake(
         response_model = MODEL_FOR_PROMPT_ONLY
     if response_model == MODEL_FOR_FINETUNE_QT_FULL_NAME:
         response_model = MODEL_FOR_FINETUNE_QT
-    return QuickTakeResponse(quicktake=quicktake, model=response_model)
+    return QuickTakeResponse(quicktake=quicktake, model=response_model, errors=errors)
 
 
 async def check_for_stop_request(chat_uuid: UUID, turn_uuid: UUID, model_name: str) -> bool:

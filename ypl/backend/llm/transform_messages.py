@@ -124,6 +124,27 @@ async def transform_user_messages(
     model_name: str,
     options: TransformOptions = DEFAULT_OPTIONS,
 ) -> list[BaseMessage]:
+    """
+    Transform user messages by handling attachments and converting them to a format supported by the model.
+
+    Args:
+        messages: List of messages to transform
+        model_name: Name of the model to transform messages for
+        options: Options for transforming messages, including:
+            - use_signed_url: Whether to use signed URLs for images
+            - image_type: Type of image to use ('thumbnail' or original)
+
+    Returns:
+        List of transformed messages with attachments properly formatted for the model
+
+    The function:
+    1. Checks if the model supports images
+    2. For messages without attachments, returns them unchanged
+    3. For messages with attachments:
+        - Generates image parts (either signed URLs or base64)
+        - Combines image content with text content
+        - Formats messages according to model requirements
+    """
     model_provider = get_model_provider_tuple(model_name)
     if not model_provider:
         raise ValueError(f"No model-provider configuration found for: {model_name}")

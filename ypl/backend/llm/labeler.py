@@ -549,10 +549,14 @@ class QuickTakeGenerator(LLMLabeler[str, str]):
         llm: BaseChatModel,
         chat_history: list[BaseMessage],
         keep_role: str | None = "ai",
+        user_quicktake_prompt: str = USER_QUICKTAKE_PROMPT,
+        system_quicktake_prompt: str = SYSTEM_QUICKTAKE_PROMPT,
         **kwargs: Any,
     ) -> None:
         self.keep_role = keep_role
         self.chat_history = chat_history
+        self.user_quicktake_prompt = user_quicktake_prompt
+        self.system_quicktake_prompt = system_quicktake_prompt
         super().__init__(llm, **kwargs)
 
     @property
@@ -572,14 +576,14 @@ class QuickTakeGenerator(LLMLabeler[str, str]):
                     x = cast(dict[str, Any], x)
                     if x["type"] == "image_url":
                         new_content.append({"type": "image_url", "image_url": {"url": x["image_url"]["url"]}})
-                new_content.append({"type": "text", "text": USER_QUICKTAKE_PROMPT})
+                new_content.append({"type": "text", "text": self.user_quicktake_prompt})
                 return HumanMessage(content=new_content)
 
     def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
         keep_roles = {"human", self.keep_role} if self.keep_role else {"human", "ai", "quicktake"}
         last_message = self.chat_history[-1]
 
-        messages: list[BaseMessage] = [SystemMessage(content=SYSTEM_QUICKTAKE_PROMPT)]
+        messages: list[BaseMessage] = [SystemMessage(content=self.system_quicktake_prompt)]
 
         message_length = len(self.chat_history)
         for i, message in enumerate(self.chat_history):
