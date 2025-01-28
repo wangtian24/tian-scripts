@@ -39,6 +39,7 @@ class PaymentInstrumentFacilitatorEnum(enum.Enum):
     UPI = "upi"
     PLAID = "plaid"
     STRIPE = "stripe"
+    HYPERWALLET = "hyperwallet"
 
 
 class PaymentInstrumentIdentifierTypeEnum(enum.Enum):
