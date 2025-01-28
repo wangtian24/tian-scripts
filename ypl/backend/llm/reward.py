@@ -350,8 +350,7 @@ class UserTurnReward:
                 self.points_last_day / daily_points_limit,
                 self.points_last_week / weekly_points_limit,
                 self.points_last_month / monthly_points_limit,
-                self.referral_points_last_day / daily_points_limit,
-                self.referral_points_last_week / weekly_points_limit,
+                # Referrals are only limited at the monthly level.
                 self.referral_points_last_month / monthly_points_limit,
             )
             if fraction_of_limit > 0.5:
