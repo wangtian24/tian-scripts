@@ -10,6 +10,7 @@ from ypl.backend.llm.db_helpers import (
     get_all_pro_models,
     get_all_strong_models,
     get_image_attachment_models,
+    get_pdf_attachment_models,
 )
 from ypl.backend.llm.ranking import ConfidenceIntervalRankerMixin, Ranker
 from ypl.backend.llm.routing.modules.base import RouterModule
@@ -98,6 +99,11 @@ class ProModelProposer(RNGMixin, ModelProposer):
 class ImageProModelProposer(ProModelProposer):
     def _get_all_pro_models(self) -> set[str]:
         return set(get_image_attachment_models())
+
+
+class PdfProModelProposer(ProModelProposer):
+    def _get_all_pro_models(self) -> set[str]:
+        return set(get_pdf_attachment_models())
 
 
 class StrongModelProposer(RNGMixin, ModelProposer):

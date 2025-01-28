@@ -14,6 +14,7 @@ from ypl.backend.llm.db_helpers import (
     get_active_models,
     get_image_attachment_models,
     get_model_context_lengths,
+    get_pdf_attachment_models,
 )
 from ypl.backend.llm.model_heuristics import ModelHeuristics
 from ypl.backend.llm.routing.modules.base import RouterModule
@@ -213,6 +214,14 @@ class SupportsImageAttachmentModelFilter(Exclude):
     def __init__(self) -> None:
         non_image_attachment_models = set(get_active_models()) - set(get_image_attachment_models())
         super().__init__(name="-noImageAttachment", models=non_image_attachment_models)
+
+
+class SupportsPdfAttachmentModelFilter(Exclude):
+    """Filter to models that support pdf attachments."""
+
+    def __init__(self) -> None:
+        non_pdf_attachment_models = set(get_active_models()) - set(get_pdf_attachment_models())
+        super().__init__(name="-noPdfAttachment", models=non_pdf_attachment_models)
 
 
 class ContextLengthFilter(Exclude):

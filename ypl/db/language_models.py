@@ -229,8 +229,13 @@ class LanguageModel(BaseModel, table=True):
         default=None, sa_column=Column(ARRAY(String), nullable=True)
     )
 
-    def supports_images(self) -> bool:
-        return any(mime_type.startswith("image/") for mime_type in self.supported_attachment_mime_types or [])
+    def supports_mime_type(self, mime_type: str) -> bool:
+        import re
+
+        if self.supported_attachment_mime_types is None:
+            return False
+        pattern = "|".join([m.replace("*", ".*") for m in self.supported_attachment_mime_types])
+        return re.match(pattern, mime_type) is not None
 
 
 # Provider is a service that can be used to access a model, e.g. OpenAI, Anthropic, Together AI, etc.

@@ -32,6 +32,7 @@ from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provi
 from ypl.utils import async_timed_cache
 
 IMAGE_ATTACHMENT_MIME_TYPE = "image/*"
+PDF_ATTACHMENT_MIME_TYPE = "application/pdf"
 
 
 def simple_deduce_original_provider(model: str) -> str:
@@ -221,7 +222,7 @@ def get_active_models() -> Sequence[str]:
         return active_models
 
 
-@ttl_cache(ttl=900)  # 15-min cache
+@ttl_cache(ttl=3600)  # 1 hour cache
 def get_image_attachment_models() -> Sequence[str]:
     query = select(LanguageModel.internal_name).where(
         LanguageModel.supported_attachment_mime_types.contains([IMAGE_ATTACHMENT_MIME_TYPE]),  # type: ignore
@@ -233,6 +234,20 @@ def get_image_attachment_models() -> Sequence[str]:
         image_attachment_models = session.exec(query).all()
         logging.info(f"Refreshed image attachment models: {image_attachment_models}")
         return image_attachment_models
+
+
+@ttl_cache(ttl=3600)  # 1 hour cache
+def get_pdf_attachment_models() -> Sequence[str]:
+    query = select(LanguageModel.internal_name).where(
+        LanguageModel.supported_attachment_mime_types.contains([PDF_ATTACHMENT_MIME_TYPE]),  # type: ignore
+        LanguageModel.deleted_at.is_(None),  # type: ignore
+        LanguageModel.status == LanguageModelStatusEnum.ACTIVE,
+    )
+
+    with Session(get_engine()) as session:
+        pdf_attachment_models = session.exec(query).all()
+        logging.info(f"Refreshed pdf attachment models: {pdf_attachment_models}")
+        return pdf_attachment_models
 
 
 @ttl_cache(ttl=86400)  # 1 day cache

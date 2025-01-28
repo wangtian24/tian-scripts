@@ -6,7 +6,7 @@ from google.cloud import run_v2
 from langchain_core.language_models.chat_models import BaseChatModel
 
 from ypl.backend.config import settings
-from ypl.backend.llm.constants import ChatProvider
+from ypl.backend.llm.constants import IMAGE_CATEGORY, OFFLINE_CATEGORY, ONLINE_CATEGORY, PDF_CATEGORY, ChatProvider
 from ypl.backend.llm.db_helpers import deduce_original_providers
 from ypl.backend.llm.judge import PromptModifierLabeler, YuppMultilabelClassifier, YuppOnlinePromptLabeler
 from ypl.backend.llm.model_data_type import ModelInfo
@@ -23,6 +23,7 @@ from ypl.backend.llm.routing.modules.filters import (
     RandomJitter,
     StreamableModelFilter,
     SupportsImageAttachmentModelFilter,
+    SupportsPdfAttachmentModelFilter,
     TopK,
 )
 from ypl.backend.llm.routing.modules.misc import ModifierAnnotator, Passthrough
@@ -32,6 +33,7 @@ from ypl.backend.llm.routing.modules.proposers import (
     EloProposer,
     ImageProModelProposer,
     MaxSpeedProposer,
+    PdfProModelProposer,
     ProModelProposer,
     RandomModelProposer,
     StrongModelProposer,
@@ -49,10 +51,6 @@ ONLINE_LABELER: YuppOnlinePromptLabeler | None = None
 TOPIC_LABELER: YuppMultilabelClassifier | None = None
 MODIFIER_LABELER: PromptModifierLabeler | None = None
 USE_GEMINI_FOR_ROUTING = False
-
-IMAGE_CATEGORY = "image"
-ONLINE_CATEGORY = "online"
-OFFLINE_CATEGORY = "offline"
 
 
 async def get_simple_pro_router(
@@ -115,8 +113,16 @@ async def get_simple_pro_router(
 
     if IMAGE_CATEGORY in categories:
         pro_proposer = ImageProModelProposer()
+    if PDF_CATEGORY in categories:
+        pro_proposer = PdfProModelProposer()
+
     image_proposer = ImageProModelProposer() if IMAGE_CATEGORY in categories else Passthrough()
+    pdf_proposer = PdfProModelProposer() if PDF_CATEGORY in categories else Passthrough()
+    attachment_proposer = image_proposer | pdf_proposer
+
     image_filter = SupportsImageAttachmentModelFilter() if IMAGE_CATEGORY in categories else Passthrough()
+    pdf_filter = SupportsPdfAttachmentModelFilter() if PDF_CATEGORY in categories else Passthrough()
+    attachment_filter = image_filter | pdf_filter
 
     def get_postprocessing_stage(exclude_models: set[str] | None = None, prefix: str = "first") -> RouterModule:
         """
@@ -130,8 +136,12 @@ async def get_simple_pro_router(
             # Also they are always treated with priority in the following dedup filters.
             | Inject(user_selected_models or [], score=10000000)
             # Don't apply semantic group filter for image turns, since we don't have many supporting models.
-            | (semantic_group_filter if IMAGE_CATEGORY not in categories else Passthrough())
-            | image_filter
+            | (
+                semantic_group_filter
+                if IMAGE_CATEGORY not in categories and PDF_CATEGORY not in categories
+                else Passthrough()
+            )
+            | attachment_filter
             | ProviderFilter(one_per_provider=True, priority_models=user_selected_models)  # dedupe by provider
             # -- ranking stage --
             | TopK(num_models, name="final")  # keeps only top k models
@@ -173,8 +183,8 @@ async def get_simple_pro_router(
                 & (StrongModelProposer() | error_filter | TopK(1, name="strong")).with_flags(
                     always_include=True, offset=50000
                 )
-                # propose models with image capabilities, strong offset
-                & (image_proposer | error_filter).with_flags(always_include=True, offset=200000)
+                # propose models with image or pdf capabilities, strong offset
+                & (attachment_proposer | error_filter).with_flags(always_include=True, offset=200000)
                 # propose reputable models
                 & (
                     reputable_proposer

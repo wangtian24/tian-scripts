@@ -746,3 +746,9 @@ PROVIDER_MODEL_PATTERNS = {
     re.compile(r"^(x-ai).*$", re.IGNORECASE): "x-ai",
     re.compile(r"^(gryphe).*$", re.IGNORECASE): "gryphe",
 }
+
+
+IMAGE_CATEGORY = "image"
+PDF_CATEGORY = "pdf"
+ONLINE_CATEGORY = "online"
+OFFLINE_CATEGORY = "offline"

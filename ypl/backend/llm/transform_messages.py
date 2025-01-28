@@ -8,10 +8,12 @@ from typing import Any, Literal, TypedDict
 from gcloud.aio.storage import Storage
 from langchain_core.messages import BaseMessage, HumanMessage
 
+from ypl.backend.llm.db_helpers import PDF_ATTACHMENT_MIME_TYPE
 from ypl.backend.llm.provider.provider_clients import get_model_provider_tuple
 from ypl.backend.prompts import IMAGE_POLYFILL_PROMPT
 from ypl.backend.utils.json import json_dumps
 from ypl.db.attachments import Attachment
+from ypl.db.language_models import Provider
 
 
 class TransformOptions(TypedDict, total=False):
@@ -35,48 +37,55 @@ def get_bucket_and_object_name(url: str) -> tuple[str, str]:
     return bucket_name, os.path.join(*path_parts)
 
 
-async def download_attachment(attachment: Attachment, options: TransformOptions) -> bytes:
+async def download_attachment(attachment: Attachment, transform_options: TransformOptions | None = None) -> bytes:
     start_time = datetime.now()
+    gcs_path = get_download_url(attachment, transform_options)
+
+    bucket_name, object_name = get_bucket_and_object_name(gcs_path)
+
     try:
-        gcs_path = get_image_url(attachment, options)
+        logging.info(f"Attachments: Downloading attachment {attachment.attachment_id} from {gcs_path}")
+        async with Storage() as async_client:
+            blob = await async_client.download(
+                bucket=bucket_name,
+                object_name=object_name,
+            )
+            logging.info(
+                f"Attachments: {attachment.attachment_id} - GCS download took {datetime.now() - start_time} seconds"
+            )
+            return blob
 
-        bucket_name, object_name = get_bucket_and_object_name(gcs_path)
-
-        try:
-            logging.info(f"Attachments: Downloading attachment {attachment.attachment_id} from {gcs_path}")
-            async with Storage() as async_client:
-                blob = await async_client.download(
-                    bucket=bucket_name,
-                    object_name=object_name,
-                )
-                return blob
-
-        except Exception as e:
-            log_dict = {
-                "message": "GCS download failed",
-                "error": str(e),
-                "attachment_id": str(attachment.attachment_id),
-                "gcs_path": gcs_path,
-                "file_name": attachment.file_name,
-                "content_type": attachment.content_type,
-            }
-            logging.exception(json_dumps(log_dict))
-            raise RuntimeError(f"Failed to download file from GCS: {str(e)}") from e
-        finally:
-            end_time = datetime.now()
-            logging.info(f"Attachments: {attachment.attachment_id} - GCS download took {end_time - start_time} seconds")
-
-    except ValueError as e:
+    except Exception as e:
         log_dict = {
-            "message": "Invalid GCS path",
+            "message": "GCS download failed",
             "error": str(e),
             "attachment_id": str(attachment.attachment_id),
-            "url": attachment.url,
+            "gcs_path": gcs_path,
             "file_name": attachment.file_name,
             "content_type": attachment.content_type,
         }
-        logging.error(json_dumps(log_dict))
-        raise
+        logging.exception(json_dumps(log_dict))
+        raise RuntimeError(f"Failed to download file from GCS: {str(e)}") from e
+
+
+async def generate_pdf_part(attachment: Attachment, provider: Provider) -> dict[str, Any]:
+    file_bytes = await download_attachment(attachment, transform_options=None)
+    if provider.name == "Anthropic":
+        return {
+            "type": "document",
+            "source": {
+                "type": "base64",
+                "data": base64.b64encode(file_bytes).decode("utf-8"),
+                "media_type": attachment.content_type,
+            },
+        }
+    elif provider.name == "Google":
+        return {
+            "type": "media",
+            "mime_type": attachment.content_type,
+            "data": base64.b64encode(file_bytes).decode("utf-8"),
+        }
+    raise ValueError(f"Unsupported provider: {provider.name}")
 
 
 async def generate_image_part(attachment: Attachment, transform_options: TransformOptions) -> dict[str, Any]:
@@ -92,10 +101,22 @@ async def generate_image_part(attachment: Attachment, transform_options: Transfo
         url = f"data:{mime_type};base64," + base64.b64encode(image_bytes).decode("utf-8")
     return {
         "type": "image_url",
-        "image_url": {
-            "url": url,
-        },
+        "image_url": {"url": url},
     }
+
+
+async def generate_part(
+    attachment: Attachment,
+    provider: Provider,
+    options: TransformOptions = DEFAULT_OPTIONS,
+) -> dict[str, Any]:
+    is_pdf = attachment.content_type.startswith(PDF_ATTACHMENT_MIME_TYPE)
+    if is_pdf:
+        return await generate_pdf_part(attachment, provider)
+    is_image = attachment.content_type.startswith("image/")
+    if is_image:
+        return await generate_image_part(attachment, options)
+    raise ValueError(f"Unsupported attachment type: {attachment.content_type}")
 
 
 async def transform_user_messages(
@@ -112,26 +133,31 @@ async def transform_user_messages(
     all_attachments = [
         attachment for message in messages for attachment in message.additional_kwargs.get("attachments", [])
     ]
-    chat_has_attachments = len(all_attachments) > 0
+    filtered_attachments = []
+    for attachment in all_attachments:
+        if not model.supports_mime_type(attachment.content_type):
+            log_dict = {
+                "message": "Model does not support mime type. Skipping transformation for attachment.",
+                "attachment_id": str(attachment.attachment_id),
+                "mime_type": attachment.content_type,
+                "model": model.name,
+                "provider": model_provider[1].name,
+            }
+            logging.warning(json_dumps(log_dict))
+            continue
+        filtered_attachments.append(attachment)
 
-    supports_images = model.supports_images()
-
-    if not chat_has_attachments:
-        return [m if not isinstance(m, HumanMessage) else HumanMessage(content=m.content) for m in messages]
-
-    if not supports_images:
-        logging.warning(
-            "Attachments: Model does not support images. Skipping transformation."
-            + f"Model: {model.name} - Provider: {model_provider[1]}"
-        )
+    if not filtered_attachments:
         return [m if not isinstance(m, HumanMessage) else HumanMessage(content=m.content) for m in messages]
 
     transformed_messages: list[BaseMessage] = []
 
     attachment_id_to_content_dict: dict[str, dict[str, Any]] = {}
-    attachment_tasks = [generate_image_part(attachment, options) for attachment in all_attachments]
+    attachment_tasks = [
+        generate_part(attachment, provider=model_provider[1], options=options) for attachment in filtered_attachments
+    ]
     results = await asyncio.gather(*attachment_tasks, return_exceptions=True)
-    for attachment, result in zip(all_attachments, results, strict=True):
+    for attachment, result in zip(filtered_attachments, results, strict=True):
         if isinstance(result, BaseException):
             logging.exception(f"Attachments: skipping attachment: {attachment.attachment_id} - {str(result)}")
             continue
@@ -180,7 +206,9 @@ def get_images_polyfill_prompt(attachments: list[Attachment], question: str) -> 
     return IMAGE_POLYFILL_PROMPT.format(image_metadata_prompt=image_metadata_prompt, question=question)
 
 
-def get_image_url(attachment: Attachment, transform_options: TransformOptions) -> str:
+def get_download_url(attachment: Attachment, transform_options: TransformOptions | None = None) -> str:
+    if transform_options is None:
+        return attachment.url
     if transform_options.get("image_type", DEFAULT_OPTIONS["image_type"]) == "thumbnail":
         if not attachment.thumbnail_url:
             raise ValueError(f"Attachments: Thumbnail URL not found for attachment: {attachment.attachment_id}")
@@ -190,45 +218,31 @@ def get_image_url(attachment: Attachment, transform_options: TransformOptions) -
 
 async def get_image_signed_url(attachment: Attachment, transform_options: TransformOptions) -> str:
     start_time = datetime.now()
+    gcs_path = get_download_url(attachment, transform_options)
     try:
-        gcs_path = get_image_url(attachment, transform_options)
         if not gcs_path or not gcs_path.startswith("gs://"):
             raise ValueError(f"Invalid GCS path: {gcs_path}")
-
         bucket_name, *path_parts = gcs_path.replace("gs://", "").split("/")
         if not bucket_name or not path_parts:
             raise ValueError(f"Invalid GCS path format: {gcs_path}")
 
-        try:
-            async with Storage() as async_client:
-                bucket = async_client.get_bucket(bucket_name)
-                blob = await bucket.get_blob(f"{'/'.join(path_parts)}")
-                url = await blob.get_signed_url(expiration=120, http_method="GET")
-                return url
+        async with Storage() as async_client:
+            bucket = async_client.get_bucket(bucket_name)
+            blob = await bucket.get_blob(f"{'/'.join(path_parts)}")
+            url = await blob.get_signed_url(expiration=120, http_method="GET")
+            logging.info(
+                f"Attachments: {attachment.attachment_id} - GCS signed url took {datetime.now() - start_time} seconds"
+            )
+            return url
 
-        except Exception as e:
-            log_dict = {
-                "message": "GCS signed url failed",
-                "error": str(e),
-                "attachment_id": str(attachment.attachment_id),
-                "gcs_path": gcs_path,
-                "file_name": attachment.file_name,
-                "content_type": attachment.content_type,
-            }
-            logging.exception(json_dumps(log_dict))
-            raise RuntimeError(f"Failed to download file from GCS: {str(e)}") from e
-        finally:
-            end_time = datetime.now()
-            logging.info(f"Attachments: {attachment.attachment_id} - GCS download took {end_time - start_time} seconds")
-
-    except ValueError as e:
+    except Exception as e:
         log_dict = {
-            "message": "Invalid GCS path",
+            "message": "GCS signed url failed",
             "error": str(e),
             "attachment_id": str(attachment.attachment_id),
-            "url": attachment.url,
+            "gcs_path": gcs_path,
             "file_name": attachment.file_name,
             "content_type": attachment.content_type,
         }
-        logging.error(json_dumps(log_dict))
-        raise
+        logging.exception(json_dumps(log_dict))
+        raise RuntimeError(f"Failed to download file from GCS: {str(e)}") from e

@@ -2,6 +2,7 @@ import asyncio
 import base64
 import logging
 import os
+import re
 from collections.abc import Awaitable
 from dataclasses import dataclass
 from datetime import datetime
@@ -35,6 +36,8 @@ class AttachmentResponse(BaseModel):
 
 MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024
 
+SUPPORTED_MIME_TYPES_PATTERN = "image/.*|application/pdf"
+
 
 @router.post("/file/upload", response_model=AttachmentResponse)
 async def upload_file(file: UploadFile = File(...)) -> AttachmentResponse:  # noqa: B008
@@ -47,19 +50,19 @@ async def upload_file(file: UploadFile = File(...)) -> AttachmentResponse:  # no
 
     if not file.filename:
         log_dict = {"message": "Attachments: File name is required"}
-        logging.error(json_dumps(log_dict))
+        logging.warning(json_dumps(log_dict))
         raise HTTPException(status_code=400, detail="File name is required")
     if not file.content_type:
         log_dict = {"message": "Attachments: Content type is required", "file_name": file.filename}
-        logging.error(json_dumps(log_dict))
+        logging.warning(json_dumps(log_dict))
         raise HTTPException(status_code=400, detail="Content type is required")
-    if not file.content_type.startswith("image/"):
+    if not re.match(SUPPORTED_MIME_TYPES_PATTERN, file.content_type):
         log_dict = {
             "message": "Attachments: Unsupported file type",
             "file_name": file.filename,
             "content_type": file.content_type,
         }
-        logging.error(json_dumps(log_dict))
+        logging.warning(json_dumps(log_dict))
         raise HTTPException(status_code=400, detail="Unsupported file type")
 
     attachment_gcs_bucket_path = os.getenv("ATTACHMENT_BUCKET") or "gs://yupp-attachments/staging"
@@ -159,7 +162,11 @@ async def upload_file(file: UploadFile = File(...)) -> AttachmentResponse:  # no
         gather_start = datetime.now()
         results = await asyncio.gather(
             asyncio.create_task(upload_original(gcs_file_uuid)),
-            asyncio.create_task(upload_thumbnail(gcs_thumbnail_uuid)),
+            asyncio.create_task(
+                upload_thumbnail(gcs_thumbnail_uuid)
+                if file.content_type and file.content_type.startswith("image/")
+                else asyncio.sleep(0)
+            ),
         )
         logging.info(
             json_dumps(
