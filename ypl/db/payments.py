@@ -47,6 +47,7 @@ class PaymentInstrumentIdentifierTypeEnum(enum.Enum):
     EMAIL = "email"
     CRYPTO_ADDRESS = "crypto_address"
     BANK_ACCOUNT_NUMBER = "bank_account_number"
+    PARTNER_IDENTIFIER = "partner_identifier"
 
 
 class PaymentInstrument(BaseModel, table=True):
