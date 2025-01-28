@@ -82,16 +82,18 @@ async def get_simple_pro_router(
         modifier_labeler.alabel(prompt),
     )
 
-    short_prompt = prompt[:100] + "..." if len(prompt) > 100 else prompt
+    short_prompt = (prompt[:60] + "...") if len(prompt) > 60 else prompt
+    short_prompt = short_prompt.replace("\n", " ")
     logging.info(
         json_dumps(
             {
-                "message": "Routing input",
+                "message": f"Model routing input - user prompt = [{short_prompt}]",
                 "chat_id": chat_id,
-                "prompt": short_prompt,
                 "online_label": online_label,
                 "topic_labels": topic_labels,
                 "modifier_labels": modifier_labels,
+                "preference": preference,
+                "provided_categories": provided_categories,
             }
         )
     )

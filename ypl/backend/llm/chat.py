@@ -318,6 +318,16 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
             is_selected = " S => " if model in selected_models else ""
             logging.debug(f"> {model:<50}{is_selected:<8}{model_debug.score:-10.1f}{model_debug.journey}")
 
+    # if the number of returned models is different from what the requests asked, log more information
+    if len(selected_models) != request.num_models:
+        dict = {
+            "message": f"Model routing: requested {request.num_models} models, but returned {len(selected_models)}.",
+            "chat_id": request.chat_id,
+            "turn_id": request.turn_id,
+            "intent": request.intent,
+        }
+        logging.info(json_dumps(dict))
+
     response = SelectModelsV2Response(
         models=[(model, prompt_modifiers.get(model, [])) for model in selected_models],
         fallback_models=[(model, prompt_modifiers.get(model, [])) for model in fallback_models],
