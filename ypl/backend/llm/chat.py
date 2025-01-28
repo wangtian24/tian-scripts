@@ -675,6 +675,7 @@ async def get_curated_chat_context(
     include_current_turn: bool = False,
     max_messages: int = 1000,
     max_message_length: int | None = None,
+    context_for_logging: str | None = None,
 ) -> list[BaseMessage]:
     """Fetch chat history and format it for OpenAI context.
 
@@ -730,18 +731,26 @@ async def get_curated_chat_context(
             )
 
     info = {
-        "message": "chat_context",
+        "message": f"chat_context ({context_for_logging or 'no context'})",
         "chat_id": str(chat_id),
         "model": model,
     }
     for i, fmsg in enumerate(formatted_messages):
-        info[f"message_{i}_content"] = (
+        msg_type = (
+            "Human"
+            if isinstance(fmsg, HumanMessage)
+            else "AI"
+            if isinstance(fmsg, AIMessage)
+            else "Sys"
+            if isinstance(fmsg, SystemMessage)
+            else type(fmsg).__name__
+        )
+        info[f"m{i}_{msg_type}"] = (
             str(fmsg.content[:MAX_LOGGED_MESSAGE_LENGTH]) + "..."
             if len(fmsg.content) > MAX_LOGGED_MESSAGE_LENGTH
             else str(fmsg.content)
         )
-        info[f"message_{i}_type"] = type(fmsg).__name__
-    logging.debug(json_dumps(info))
+    logging.info(json_dumps(info))
 
     return formatted_messages
 
@@ -1033,6 +1042,7 @@ async def generate_quicktake(
                 use_all_models_in_chat_history=False,
                 model=request.model or "",
                 current_turn_id=turn_id,
+                context_for_logging="quicktake",
             )
 
     assert chat_history is not None, "chat_history is null"

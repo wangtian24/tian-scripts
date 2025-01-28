@@ -8,6 +8,7 @@ import vertexai
 import vertexai.preview
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
+from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel as BaseModelV1
 from sqlmodel import Session, select
 from vertexai.preview.generative_models import GenerativeModel
@@ -26,13 +27,14 @@ from ypl.backend.prompts import (
     JUDGE_SUGGESTED_FOLLOWUPS_PROMPT_TEMPLATE,
     JUDGE_YUPP_CHAT_PROMPT_SPEED_AWARE_TEMPLATE,
     JUDGE_YUPP_CHAT_PROMPT_TEMPLATE,
-    JUDGE_YUPP_ONLINE_PROMPT_TEMPLATE,
+    JUDGE_YUPP_ONLINE_PROMPT,
     JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT_SIMPLE_TEMPLATE,
     JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT_TEMPLATE,
     JUDGE_YUPP_PROMPT_DIFFICULTY_WITH_COMMENT_PROMPT_TEMPLATE,
     PROMPT_MULTILABEL_CLASSIFICATION_PROMPT_TEMPLATE,
     RESPONSE_DIFFICULTY_PROMPT_TEMPLATE,
     RESPONSE_QUALITY_PROMPT_TEMPLATE,
+    fill_cur_datetime,
 )
 from ypl.db.chats import PromptModifier
 
@@ -237,7 +239,8 @@ class YuppOnlinePromptLabeler(PromptCategorizer, TruncatedPromptLabeler[bool]):
     cached = True
 
     def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
-        return JUDGE_YUPP_ONLINE_PROMPT_TEMPLATE | llm  # type: ignore
+        cp_template = ChatPromptTemplate.from_messages([("human", fill_cur_datetime(JUDGE_YUPP_ONLINE_PROMPT))])
+        return cp_template | llm  # type: ignore
 
     def _parse_output(self, output: BaseMessage) -> bool:
         return "true" in str(output.content).lower()

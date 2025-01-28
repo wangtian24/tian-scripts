@@ -145,7 +145,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
             chat_request.message_id = existing_message.message_id
             asyncio.create_task(update_modifier_status(chat_request))
             log_dict = {
-                "message": "Existing message found",
+                "message": "chat_completions: Existing message found",
                 "chat_id": str(chat_request.chat_id),
                 "turn_id": str(chat_request.turn_id),
                 "message_id": str(existing_message.message_id),
@@ -214,6 +214,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                 chat_request.use_all_models_in_chat_history,
                 chat_request.model,
                 chat_request.turn_id,
+                context_for_logging="chat_completions",
             )
             language_model = await get_language_model(chat_request.model)
             chat_context = sanitize_messages(

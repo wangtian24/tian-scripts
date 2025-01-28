@@ -21,6 +21,7 @@ async def maybe_add_suggested_followups(chat_id: uuid.UUID, turn_id: uuid.UUID) 
             include_current_turn=True,
             max_messages=10,
             max_message_length=1000,
+            context_for_logging="add_suggested_followups",
         )
 
         labeler = SuggestedFollowupsLabeler(get_gemini_15_flash_llm())
@@ -126,6 +127,7 @@ async def refresh_conversation_starters(
                     model="",
                     max_messages=max_messages_per_chat,
                     max_message_length=max_message_length,
+                    context_for_logging="refresh_conversation_starters",
                 )
                 full_chat_context.append(chat_context)
 
