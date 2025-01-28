@@ -8,8 +8,11 @@ from io import StringIO
 from typing import Any, Final
 
 import requests
+from pytz import timezone
 from requests.exceptions import RequestException
+from sqlmodel import Session, text
 from typing_extensions import TypedDict
+from ypl.backend.db import get_engine
 from ypl.backend.llm.utils import post_to_slack
 from ypl.backend.routes.v1.credit import CREDITS_TO_INR_RATE, CREDITS_TO_USD_RATE, USD_TO_INR_RATE
 from ypl.backend.utils.json import json_dumps
@@ -374,6 +377,96 @@ async def post_data_from_cohorts(auth: str, start_date: datetime, end_date: date
         logging.error(error_message)
 
 
+async def post_user_base_metrics(report_date: datetime) -> None:
+    """Fetch and post user base metrics to Slack, including total users and referrals."""
+
+    user_data_query = """
+         SELECT
+            COUNT(*) filter (where u.status = 'ACTIVE') as total_users,
+            COUNT(*) filter (
+                where u.status = 'ACTIVE'
+                and
+                    ((created_at at TIME zone 'America/Los_Angeles')::date = :report_date)
+            ) as new_actives,
+            COUNT(*) filter (
+            where u.status = 'DEACTIVATED') as total_users_deactivated
+        FROM
+            users u
+        WHERE
+            u.deleted_at is null;
+    """
+
+    waitlist_data_query = """
+        SELECT
+            COUNT(*) AS total_waitlist_users,
+            COUNT(*) filter (
+                where ((created_at at TIME zone 'America/Los_Angeles')::date = :report_date)
+            ) as new_waitlist_users
+        FROM
+            waitlisted_users wu
+        WHERE
+            wu.status = 'PENDING'
+            AND wu.deleted_at IS NULL;
+    """
+
+    yesterday_referral_data_query = """
+        SELECT
+            u.user_id,
+            u.name,
+            COUNT(*) AS referred_user_count
+        FROM
+            special_invite_code_claim_logs siclog
+        JOIN
+            special_invite_codes sic ON siclog.special_invite_code_id  = sic.special_invite_code_id
+        JOIN
+            users u ON sic.creator_user_id = u.user_id
+        WHERE
+            ((siclog.created_at at TIME zone 'America/Los_Angeles')::date = :report_date)
+        GROUP BY u.user_id, name
+        ORDER BY referred_user_count DESC
+    """
+
+    try:
+        with Session(get_engine()) as session:
+            pst_date = report_date.astimezone(timezone("America/Los_Angeles")).date()
+            params = {"report_date": pst_date}
+
+            user_data_results = session.execute(text(user_data_query), params).all()
+            user_data = list(user_data_results)
+
+            waitlist_data_results = session.execute(text(waitlist_data_query), params).all()
+            waitlist_data = list(waitlist_data_results)
+
+            message = f"*User and Waitlist Metrics for {report_date.date()}*\n"
+            if len(user_data) >= 1:
+                yesterday_metrics = user_data[0]
+                message += f"Total users granted accecss: {yesterday_metrics.total_users:,.0f}"
+                message += f" ({yesterday_metrics.new_actives:,.0f} new yesterday)\n"
+                message += f"Total deactivated users: {yesterday_metrics.total_users_deactivated:,.0f}\n"
+            if len(waitlist_data) >= 1:
+                yesterday_metrics = waitlist_data[0]
+                message += f"Total users on waitlist: {yesterday_metrics.total_waitlist_users:,.0f}"
+                message += f" ({yesterday_metrics.new_waitlist_users:,.0f} new yesterday)\n"
+
+            referral_data_results = session.execute(text(yesterday_referral_data_query), params).all()
+            referral_data = list(referral_data_results)
+
+            if len(referral_data) >= 1:
+                message += f"\nNew users were invited by these {len(referral_data)} existing users:\n"
+                referral_names = [f"{referral.name} ({referral.referred_user_count})" for referral in referral_data]
+                message += ", ".join(referral_names)
+            else:
+                message += "\nNo referrals yesterday"
+
+            analytics_webhook_url = os.environ.get("ANALYTICS_SLACK_WEBHOOK_URL")
+            await post_to_slack(message, analytics_webhook_url)
+
+    except Exception as e:
+        error_message = f"⚠️ Failed to fetch user base metrics: {e}"
+        logging.error(error_message)
+        raise
+
+
 async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
     """Fetch and post credit metrics to Slack.
 
@@ -641,7 +734,7 @@ async def post_analytics_to_slack() -> None:
         await post_data_from_charts(auth=auth, start_date=start_date, end_date=end_date)
         await post_data_from_cohorts(auth=auth, start_date=start_date, end_date=end_date)
         await post_credit_metrics(start_date=start_date, end_date=end_date)
-
+        await post_user_base_metrics(report_date=start_date)
     except Exception as e:
         error_message = f"⚠️ Failed to fetch Amplitude metrics: {e}"
         logging.error(error_message)
