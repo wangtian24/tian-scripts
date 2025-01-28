@@ -213,11 +213,6 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         ]
         provided_categories = provided_categories or []
 
-        if IMAGE_CATEGORY not in provided_categories and request.intent == SelectIntent.NEW_TURN and request.chat_id:
-            # Check if previous turns have image attachments; if so, mark image as a provided category.
-            if await has_image_attachments(request.chat_id):
-                provided_categories.append(IMAGE_CATEGORY)
-
         # select N models
         router = await get_simple_pro_router(
             prompt,
