@@ -10,7 +10,6 @@ jobs:
   reset-points:
     uses: ./.github/workflows/cronjob.yml
     with:
-      # Remove the arg after the job image is updated.
-      command: reset-yuppster-points --init-value 2500
+      command: reset-yuppster-points
       environment: production
     secrets: inherit 
