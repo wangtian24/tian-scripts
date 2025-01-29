@@ -54,6 +54,7 @@ CONFIDENTIALITY_FOOTER = """----
 Thanks for being a part of our small, invite-only alpha.
 We really appreciate your trust and ask for your strict confidentiality.
 """
+INVITE_FRIEND_BONUS_CREDITS = "10,000"
 
 
 async def send_email_async(campaign: str, to_address: str, template_params: dict[str, Any]) -> Email | None:
@@ -64,6 +65,7 @@ async def send_email_async(campaign: str, to_address: str, template_params: dict
         **template_params,
         "BRAND_NAME": BRAND_NAME,
         "CONFIDENTIALITY_FOOTER": CONFIDENTIALITY_FOOTER,
+        "credits": template_params.get("credits", INVITE_FRIEND_BONUS_CREDITS),
     }
 
     campaign_data = EMAIL_CAMPAIGNS[campaign]
