@@ -72,7 +72,7 @@ from ypl.db.chats import (
 )
 from ypl.db.language_models import LanguageModel
 from ypl.db.redis import get_upstash_redis_client
-from ypl.utils import tiktoken_trim
+from ypl.utils import get_text_part, replace_text_part, tiktoken_trim
 
 MAX_LOGGED_MESSAGE_LENGTH = 200
 DEFAULT_HIGH_SIM_THRESHOLD = 0.825
@@ -1074,22 +1074,13 @@ async def generate_quicktake(
 
     chat_history_time = time.time() - start_time
 
-    latest_message = HumanMessage(
-        content=request.prompt or "",
-        additional_kwargs={
-            "attachments": await get_attachments(request.attachment_ids) if request.attachment_ids else [],
-        },
-    )
-
-    chat_history.append(latest_message)
-
     # Add attachments (image, etc) to the chat history, as a url or base64 encoded string.
     has_attachments = any(isinstance(m, HumanMessage) and m.additional_kwargs.get("attachments") for m in chat_history)
     transform_options: TransformOptions = {"image_type": "thumbnail", "use_signed_url": False}
-    chat_history = await transform_user_messages(chat_history, "gpt-4o", options=transform_options)
+    chat_history = await transform_user_messages(chat_history, "gemini-2.0-flash-exp", options=transform_options)
 
     # Calculate the length of input with all the information, and check against the context length allowed by the model.
-    chat_history_text = "\n".join(m.content for m in chat_history)  # type: ignore
+    chat_history_text = "\n".join(get_text_part(m) for m in chat_history)
     chat_history_context_len = len(ModelHeuristics(tokenizer_type="tiktoken").encode_tokens(chat_history_text))
     min_required_context_len = int(chat_history_context_len * 1.2)  # Add a buffer for system prompt etc.
     context_lengths = get_model_context_lengths()
@@ -1113,6 +1104,21 @@ async def generate_quicktake(
     response_model = ""
     responses_by_model: dict[str, str] = {}
 
+    latest_message_transform_result = await transform_user_messages(
+        [
+            HumanMessage(
+                content=request.prompt or "",
+                additional_kwargs={
+                    "attachments": await get_attachments(request.attachment_ids) if request.attachment_ids else [],
+                },
+            )
+        ],
+        "gemini-2.0-flash-exp",
+        options=transform_options,
+    )
+    latest_message = HumanMessage(content=latest_message_transform_result[0].content)
+    user_message_prompt_template = USER_QUICKTAKE_FALLBACK_PROMPT if request.for_fallback else USER_QUICKTAKE_PROMPT
+    errors = None
     try:
         if not request.model:
             # No specific model has been request, go by default and use multiple models.
@@ -1142,11 +1148,14 @@ async def generate_quicktake(
                 (qt_context_lengths.get(model, DEFAULT_QT_MAX_CONTEXT_LENGTH) for model in qt_models),
                 default=DEFAULT_QT_MAX_CONTEXT_LENGTH,
             )
-            quicktakes = await multi_generator.alabel(
-                tiktoken_trim(request.prompt or "", int(max_context_length * 0.75), direction="right")
+            trimmed_message = replace_text_part(
+                latest_message,
+                user_message_prompt_template.format(
+                    prompt=tiktoken_trim(request.prompt or "", int(max_context_length * 0.75), direction="right")
+                ),
             )
+            quicktakes = await multi_generator.alabel(trimmed_message)
             quicktake = QT_CANT_ANSWER
-            errors = None
             responses_by_model = {model: type(response).__name__ for model, response in quicktakes.items()}
             found_response = False
             for model in labelers:
@@ -1162,11 +1171,17 @@ async def generate_quicktake(
 
         elif request.model in get_qt_llms():
             # Specific model requested.
-            generator = get_quicktake_generator(request.model, chat_history, for_fallback=request.for_fallback)
-            max_context_length = qt_context_lengths.get(request.model, min(qt_context_lengths.values()))
-            quicktake = await generator.alabel(
-                tiktoken_trim(request.prompt or "", int(max_context_length * 0.75), direction="right")
+            generator = get_quicktake_generator(
+                request.model, chat_history, for_fallback=request.for_fallback, timeout_secs=timeout_secs
             )
+            max_context_length = qt_context_lengths.get(request.model, min(qt_context_lengths.values()))
+            trimmed_message = replace_text_part(
+                latest_message,
+                user_message_prompt_template.format(
+                    prompt=tiktoken_trim(request.prompt or "", int(max_context_length * 0.75), direction="right")
+                ),
+            )
+            quicktake = await generator.alabel(trimmed_message)
             response_model = request.model
             responses_by_model[request.model] = type(quicktake).__name__
         else:

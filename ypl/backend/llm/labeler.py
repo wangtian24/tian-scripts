@@ -12,9 +12,7 @@ from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
-from langchain_core.prompts import (
-    ChatPromptTemplate,
-)
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from pydantic import BaseModel
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 from tqdm.asyncio import tqdm_asyncio
@@ -539,7 +537,7 @@ class QuickTakeRequest(BaseModel):
     prompt: str
 
 
-class QuickTakeGenerator(LLMLabeler[str, str]):
+class QuickTakeGenerator(LLMLabeler[HumanMessage, str]):
     """
     Writes a quicktake for a given conversation history and prompt.
     """
@@ -565,30 +563,25 @@ class QuickTakeGenerator(LLMLabeler[str, str]):
 
     def _get_prompt_template(self, message: HumanMessage) -> HumanMessage:
         if isinstance(message.content, str):
-            return message
-        elif isinstance(message.content, list):
-            content = message.content
-            if isinstance(content[0], str):
-                return message
-            else:
-                new_content: list[str | dict[str, Any]] = []
-                for x in content:
-                    x = cast(dict[str, Any], x)
-                    if x["type"] == "image_url":
-                        new_content.append({"type": "image_url", "image_url": {"url": x["image_url"]["url"]}})
-                new_content.append({"type": "text", "text": self.user_quicktake_prompt})
-                return HumanMessage(content=new_content)
+            return HumanMessage(content=self.user_quicktake_prompt)
+        new_content: list[str | dict[str, Any]] = []
+        for part in message.content:
+            if isinstance(part, str):  # We don't come across this case yet
+                new_content.append(part)
+                continue
+            part = cast(dict[str, Any], part)
+            if part["type"] != "text":
+                new_content.append(part)
+                continue
+            new_content.append({"type": "text", "text": self.user_quicktake_prompt})
+        return HumanMessage(content=new_content)
 
     def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
         keep_roles = {"human", self.keep_role} if self.keep_role else {"human", "ai", "quicktake"}
-        last_message = self.chat_history[-1]
 
         messages: list[BaseMessage] = [SystemMessage(content=self.system_quicktake_prompt)]
 
-        message_length = len(self.chat_history)
-        for i, message in enumerate(self.chat_history):
-            if i == message_length - 1:
-                continue
+        for message in self.chat_history:
             if message.type not in keep_roles:
                 continue
             if message.type == "quicktake":
@@ -596,15 +589,12 @@ class QuickTakeGenerator(LLMLabeler[str, str]):
                 continue
             messages.append(message)
 
-        if isinstance(last_message, HumanMessage):
-            messages.append(self._get_prompt_template(last_message))
-
-        template = ChatPromptTemplate.from_messages(messages)
+        template = ChatPromptTemplate.from_messages([*messages, MessagesPlaceholder(variable_name="prompt")])
 
         return template | llm  # type: ignore
 
-    def _prepare_input(self, prompt: str) -> dict[str, Any]:
-        return dict(prompt=prompt)
+    def _prepare_input(self, prompt: HumanMessage) -> dict[str, Any]:
+        return dict(prompt=[prompt])
 
     def _parse_output(self, output: BaseMessage) -> str:
         assert output.content is not None and isinstance(output.content, str)

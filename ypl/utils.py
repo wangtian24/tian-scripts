@@ -5,10 +5,11 @@ import time
 from collections.abc import Callable, Generator
 from functools import lru_cache
 from threading import Lock
-from typing import Any, Literal, Self, TypeVar, Union, no_type_check
+from typing import Any, Literal, Self, TypeVar, Union, cast, no_type_check
 
 import numpy as np
 import tiktoken
+from langchain_core.messages import BaseMessage, HumanMessage
 
 
 class SingletonMixin:
@@ -266,3 +267,26 @@ def tiktoken_trim(
             return enc.decode(enc.encode(text)[-max_length:])
         case _:
             raise ValueError(f"Invalid direction: {direction}")
+
+
+def get_text_part(message: BaseMessage) -> str:
+    if isinstance(message.content, str):
+        return message.content
+    text_parts = [part["text"] for part in message.content if isinstance(part, dict) and part.get("type") == "text"]
+    return "\n".join(text_parts)
+
+
+def replace_text_part(message: BaseMessage, new_text: str) -> HumanMessage:
+    if isinstance(message.content, str):
+        return HumanMessage(content=new_text)
+    new_content: list[str | dict[str, Any]] = []
+    for part in message.content:
+        if isinstance(part, str):
+            new_content.append(part)
+            continue
+        part = cast(dict[str, Any], part)
+        if part["type"] != "text":
+            new_content.append(part)
+            continue
+        new_content.append({"type": "text", "text": new_text})
+    return HumanMessage(content=new_content)

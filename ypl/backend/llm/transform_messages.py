@@ -180,7 +180,7 @@ async def transform_user_messages(
     results = await asyncio.gather(*attachment_tasks, return_exceptions=True)
     for attachment, result in zip(filtered_attachments, results, strict=True):
         if isinstance(result, BaseException):
-            logging.exception(f"Attachments: skipping attachment: {attachment.attachment_id} - {str(result)}")
+            logging.warning(f"Attachments: skipping attachment: {attachment.attachment_id} - {str(result)}")
             continue
         attachment_id_to_content_dict[attachment.attachment_id] = result
 
@@ -265,5 +265,5 @@ async def get_image_signed_url(attachment: Attachment, transform_options: Transf
             "file_name": attachment.file_name,
             "content_type": attachment.content_type,
         }
-        logging.exception(json_dumps(log_dict))
+        logging.warning(json_dumps(log_dict))
         raise RuntimeError(f"Failed to download file from GCS: {str(e)}") from e
