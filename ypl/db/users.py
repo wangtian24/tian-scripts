@@ -125,6 +125,21 @@ class User(BaseModel, table=True):
 
     suggested_prompts: list["SuggestedUserPrompt"] = Relationship(back_populates="user")
 
+    educational_institution: str | None = Field(default=None, sa_type=sa.String)
+
+    # ISO 3166-1 alpha-2 format
+    country_code: str | None = Field(
+        sa_column=Column(
+            "country_code",
+            sa.String(2),
+            nullable=True,
+            index=True,
+        ),
+        default=None,
+    )
+    city: str | None = Field(default=None, sa_type=sa.String)
+    discord_username: str | None = Field(default=None, sa_type=sa.String)
+
     def is_new_user(self) -> bool:
         return len(self.chats) < NEW_USER_CHAT_THRESHOLD
 
@@ -217,6 +232,7 @@ class ProfileTypeEnum(enum.Enum):
     BUSINESS = "BUSINESS"
 
 
+# deprecated, use User directly.
 class UserProfile(BaseModel, table=True):
     """Represents additional profile information for a user."""
 
