@@ -559,11 +559,12 @@ def _mock_staging_verify_vpa_response(
 ) -> dict:
     if settings.ENVIRONMENT == "production":
         raise Exception("Cannot mock response in production")
-    if destination_identifier == "1234567890":
+    # Allow all phone numbers starting with 1234 to pass.
+    if destination_identifier.startswith("1234"):
         return {
             "result": "SUCCESS",
             "vpa": "test@okaxis",
-            "customerName": "Test User",
+            "customerName": f"Test User {destination_identifier[-4:]}",
         }
     if destination_identifier == "9876543210@okaxis":
         return {
