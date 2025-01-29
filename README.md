@@ -100,6 +100,18 @@ The backend server needs to load all necessary credentials from `.env` file in t
   op item get "yupp-mind .env file" --vault="Shared_dev" --fields text |  sed '1s/^"//; $s/"$//' | sed 's/\"\"/\"/g' > .env
   ```
 
+Alternately, download it from 1Password web-ui.
+
+#### Set Up GCP Service Account
+
+The service sends logs and metrics to GCP under `yupp-llms` project. You need to pass
+serice acount credentials for this project. Download `GCP service account key` under `Shared_dev`
+in 1Password and set `GOOGLE_APPLICATION_CREDENTIALS` to the path for the file.
+
+```sh
+  export GOOGLE_APPLICATION_CREDENTIALS=$HOME/yupp-llms-832409585585.json
+```
+
 ### 3. Build and Run
 
 #### Build with Poetry
@@ -116,7 +128,7 @@ pip install -e .  # editable mode for dev
 #### Runing the Server
 
 The server could run in four modes:
-- `local`: runs the server locally and have it talk to a local database. (Needs local database setup, see [here](ypl/db/local_pg_setup/README.md) for more details)
+- `local`: runs the server locally and have it talk to a local database.
 - `staging`: runs the server in staging environment, using the production database.
 - `production`: runs the server in production environment, using the production database.
 - `test`: runs the server for test only, not the topic here (TBD)
@@ -124,7 +136,9 @@ The server could run in four modes:
 You can start the server in any of these modes by specifying the `ENVIRONMENT` variable either in commandline, or in the first line `.env` file. for example:
 
 
-- Local mode (needs local database)
+- Local mode
+  - Set up local database. See [here](ypl/db/local_pg_setup/README.md) for more details.
+  - Update `.env` file: Uncomment local DB configuration (`POSTGRES_HOST` etc) and comment out the same for staging.
   ```sh
   ENVIRONMENT=local uvicorn ypl.backend.server:app --reload
   ```
@@ -140,14 +154,14 @@ After the server is up, in the `staging`/`local` mode, you can navigate to [loca
 
 ## Google Cloud Logging
 
-Google Cloud Logging is disabled by default. To enable it, set `USE_GOOGLE_CLOUD_LOGGING=True` in the `.env` file. In order to do GCP logging from local environment, you need to download the GCP service account key file from 1Password and set the `GOOGLE_APPLICATION_CREDENTIALS` environment variable to the path of the downloaded key file.
+Google Cloud Logging is disabled by default. To enable it, set `USE_GOOGLE_CLOUD_LOGGING=True` in the `.env` file. See 'Set Up GCP Service Account' above for GCP service account credentials.
 
 In order to redact sensitive data, the `redact_sensitive_data` function is used. If you need to add new sensitive data patterns to redact, you can do so by adding them to the function.
 
 
 ## Accessing the APIs
 
-The APIs are protected by API key. The key is stored in the Github Secrets (and Vercel Environment Variables), which will be injected as part of Github Actions Workflow. You can also find it in the `.env` file you set up earlier. If you want to access the API, you need to set the `X-API-KEY` header with the right key value.
+The APIs are protected by API key. The key is stored in the Github Secrets (and Vercel Environment Variables), which will be injected as part of Github Actions Workflow. You can also find it in the `.env` file you set up earlier (look for `X_API_KEY`). If you want to access the API, you need to set the `X-API-KEY` header with the right key value.
 At the moment, `local` environment is exempt from authentication and is enabled only for other (`staging` and `production`) environments.
 
 If you need to access the APIs from FastAPI Docs, you can add the API key by clicking on `Authorize` button (top right).
