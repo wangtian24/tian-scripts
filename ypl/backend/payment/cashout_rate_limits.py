@@ -33,9 +33,6 @@ NEW_USER_COOLOFF_PERIOD_DAYS = 7
 MAX_DAILY_CASHOUT_COUNT = 1
 MAX_WEEKLY_CASHOUT_COUNT = 1
 MAX_MONTHLY_CASHOUT_COUNT = 5
-# TODO(arawind, ENG-1708): Fix this value after the UI knows whether the user is first time or not.
-# Keep this value in sync with the MAX_CREDITS_FOR_CASHOUT value in lib/credits.ts.
-# Keep this value in sync with daily_points_limit in data/reward_rules.yml.
 MAX_FIRST_TIME_CASHOUT_CREDITS = 15000
 
 MAX_DAILY_CASHOUT_CREDITS = 15000
@@ -118,19 +115,27 @@ class CashoutLimitError(HTTPException):
 
         super().__init__(status_code=429 if limit_type == CashoutLimitType.RATE_LIMIT else 400, detail=detail)
 
-        # Log the error
-        log_dict = {
-            "message": f":x: Failure - {period.capitalize()} cashout limit reached",
-            "user_id": user_id,
-            "limit_type": limit_type.value,
-            "current_value": current_value,
-            "min_value": min_value,
-            "max_value": max_value,
-            "period": period,
-            "error_message": detail,
-        }
-        logging.warning(json_dumps(log_dict))
-        asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+
+def log_cashout_limit_error(
+    error: CashoutLimitError,
+    is_precheck: bool,
+) -> None:
+    # Log the error
+    log_dict = {
+        "message": f":x: Failure - {error.period.capitalize()} cashout limit reached",
+        "user_id": error.user_id,
+        "limit_type": error.limit_type.value,
+        "current_value": error.current_value,
+        "min_value": error.min_value,
+        "max_value": error.max_value,
+        "period": error.period,
+        "error_message": error.detail,
+        "is_precheck": is_precheck,
+    }
+    logging.warning(json_dumps(log_dict))
+    # Don't post to slack if the exception was raised during a pre-cashout validation.
+    if not is_precheck:
+        asyncio.create_task(post_to_slack_with_user_name(error.user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
 
 
 def build_time_window_stats(
@@ -327,6 +332,12 @@ async def validate_period_limits_and_return_limiting_credits(
     """
     Validate cashout limits for each time period.
 
+    Args:
+        user_id: The ID of the user to check
+        credits_to_cashout: The number of credits to cash out. Set to 0 if the call is made in a pre-cashout validation.
+        period_stats: The stats for the user for each time period.
+        override_config: The override config for the user, if any.
+
     Returns:
         int: The maximum amount that the user can cashout, without exceeding any limits.
             This method doesn't account for the credits that the user currently has,
@@ -425,16 +436,17 @@ async def check_request_rate_limit(user_id: str) -> None:
         await redis.expire(bucket_key, CASHOUT_REQUEST_WINDOW_SECONDS)
 
 
-async def _get_credits_balance(session: AsyncSession, user_id: str) -> int:
+async def _get_credits_balance(session: AsyncSession, user_id: str) -> tuple[int, bool]:
     """
     Get the user's current credits balance.
     """
-    query = select(User.points).where(
+    query = select(User.points, User.email).where(
         User.user_id == user_id,
         User.deleted_at.is_(None),  # type: ignore
     )
     result = await session.execute(query)
-    return result.scalar_one()
+    points, email = result.one()
+    return points, email.endswith("@yupp.ai")
 
 
 @dataclass
@@ -466,7 +478,7 @@ async def validate_and_return_cashout_user_limits(user_id: str, credits_to_casho
     }
 
     async with get_async_session() as session:
-        credits_balance = await _get_credits_balance(session, user_id)
+        credits_balance, is_yuppster = await _get_credits_balance(session, user_id)
         if credits_to_cashout != 0 and credits_to_cashout < MINIMUM_CREDITS_PER_CASHOUT:
             # User is trying to cashout less than the minimum amount.
             raise CashoutLimitError(
@@ -499,8 +511,6 @@ async def validate_and_return_cashout_user_limits(user_id: str, credits_to_casho
         if settings.ENVIRONMENT != "production":
             return cashout_user_info
 
-        await check_new_user_cashout_eligibility(session, user_id)
-
         capability_override_details = await get_capability_override_details(session, user_id, CapabilityType.CASHOUT)
         log_dict = {
             "message": "Cashout override details",
@@ -525,6 +535,14 @@ async def validate_and_return_cashout_user_limits(user_id: str, credits_to_casho
                 max_value=0,
                 user_id=user_id,
             )
+
+        # If the user is a yuppster, we shouldn't check rest of the limits.
+        # Yuppsters short-circuit rest of the limits.
+        # Ensure that we do the capability override checks before, just in case.
+        if is_yuppster:
+            return cashout_user_info
+
+        await check_new_user_cashout_eligibility(session, user_id)
 
         period_stats, is_first_time = await get_cashout_stats(session, user_id, time_windows)
 

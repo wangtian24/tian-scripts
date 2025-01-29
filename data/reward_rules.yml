@@ -1,5 +1,4 @@
 constants: &constants
-  # Keep daily_points_limit in sync with the MAX_FIRST_TIME_CASHOUT_CREDITS in cashout_rate_limits.py until ENG-1708 is fixed.
   daily_points_limit: &daily_points_limit 25000
   weekly_points_limit: &weekly_points_limit 50000
   monthly_points_limit: &monthly_points_limit 100000

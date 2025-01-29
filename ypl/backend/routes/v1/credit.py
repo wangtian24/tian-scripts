@@ -21,6 +21,7 @@ from ypl.backend.payment.cashout_rate_limits import (
     check_facilitator_cashout_killswitch,
     check_global_cashout_killswitch,
     check_request_rate_limit,
+    log_cashout_limit_error,
     validate_and_return_cashout_user_limits,
 )
 from ypl.backend.payment.currency import get_supported_currencies
@@ -170,6 +171,7 @@ async def cashout_credits(request: CashoutCreditsRequest) -> str | None | Paymen
         await check_request_rate_limit(request.user_id)
         await validate_and_return_cashout_user_limits(request.user_id, request.credits_to_cashout)
     except CashoutLimitError as e:
+        log_cashout_limit_error(e, is_precheck=False)
         raise HTTPException(status_code=400, detail=e.detail) from e
     except Exception as e:
         log_dict = {
@@ -306,6 +308,7 @@ async def fetch_cashout_options(request: CashoutOptionsRequest) -> CashoutOption
         }
         logging.info(json_dumps(log_dict))
     except CashoutLimitError as e:
+        log_cashout_limit_error(e, is_precheck=True)
         return CashoutNotAvailableResponse(unavailable_reason=e.detail)
     return CashoutOptionsResponse(
         user_info=user_info,
