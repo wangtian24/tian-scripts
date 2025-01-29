@@ -21,7 +21,7 @@ from tenacity import (
 from tenacity.asyncio import AsyncRetrying
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
-from ypl.backend.llm.utils import post_to_slack, post_to_slack_with_user_name
+from ypl.backend.llm.utils import post_to_slack_with_user_name
 from ypl.backend.payment.base_types import PaymentInstrumentNotFoundError
 from ypl.backend.payment.payment import (
     CashoutPointTransactionRequest,
@@ -169,6 +169,7 @@ async def process_pending_onchain_transaction(payment: PaymentTransaction) -> No
     """
     from ypl.backend.payment.crypto.crypto_payout import get_transaction_status
 
+    user_id = payment.destination_instrument.user_id
     try:
         if not payment.partner_reference_id:
             log_dict = {
@@ -176,7 +177,7 @@ async def process_pending_onchain_transaction(payment: PaymentTransaction) -> No
                 "payment_transaction_id": str(payment.payment_transaction_id),
             }
             logging.error(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+            asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
             return
 
         tx_status = await get_transaction_status(transaction_hash=payment.partner_reference_id)
@@ -190,7 +191,7 @@ async def process_pending_onchain_transaction(payment: PaymentTransaction) -> No
                 "new_status": str(tx_status),
             }
             logging.info(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+            asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
             await update_payment_transaction(
                 payment_transaction_id=payment.payment_transaction_id,
                 status=PaymentTransactionStatusEnum.SUCCESS,
@@ -202,7 +203,7 @@ async def process_pending_onchain_transaction(payment: PaymentTransaction) -> No
                 "transaction_hash": payment.partner_reference_id,
             }
             logging.error(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+            asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
 
             points_transaction = await get_points_transaction_from_payment_transaction_id(
                 payment.payment_transaction_id
@@ -213,7 +214,7 @@ async def process_pending_onchain_transaction(payment: PaymentTransaction) -> No
                     "payment_transaction_id": str(payment.payment_transaction_id),
                 }
                 logging.error(json_dumps(log_dict))
-                asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+                asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
                 return
             payment_instrument = await get_payment_instrument_from_id(payment.destination_instrument_id)
             if payment_instrument is None:
@@ -222,7 +223,7 @@ async def process_pending_onchain_transaction(payment: PaymentTransaction) -> No
                     "payment_transaction_id": str(payment.payment_transaction_id),
                 }
                 logging.error(json_dumps(log_dict))
-                asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+                asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
                 return
             await handle_failed_transaction(
                 payment_transaction_id=payment.payment_transaction_id,
@@ -244,7 +245,7 @@ async def process_pending_onchain_transaction(payment: PaymentTransaction) -> No
                 "transaction_hash": payment.partner_reference_id,
             }
             logging.error(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+            asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
 
     except Exception as e:
         log_dict = {
@@ -254,7 +255,7 @@ async def process_pending_onchain_transaction(payment: PaymentTransaction) -> No
             "error": str(e),
         }
         logging.error(json_dumps(log_dict))
-        asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+        asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
 
 
 async def process_pending_coinbase_transaction(payment: PaymentTransaction) -> None:
@@ -270,6 +271,7 @@ async def process_pending_coinbase_transaction(payment: PaymentTransaction) -> N
         get_transaction_status,
     )
 
+    user_id = payment.destination_instrument.user_id
     try:
         if not payment.partner_reference_id:
             log_dict = {
@@ -277,7 +279,7 @@ async def process_pending_coinbase_transaction(payment: PaymentTransaction) -> N
                 "payment_transaction_id": str(payment.payment_transaction_id),
             }
             logging.error(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+            asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
             return
 
         # Get the account ID from Coinbase API using the currency
@@ -290,7 +292,7 @@ async def process_pending_coinbase_transaction(payment: PaymentTransaction) -> N
                 "currency": payment.currency.value,
             }
             logging.error(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+            asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
             return
 
         status = await get_transaction_status(account_id=account_id, transaction_id=payment.partner_reference_id)
@@ -304,7 +306,7 @@ async def process_pending_coinbase_transaction(payment: PaymentTransaction) -> N
                 "new_status": str(PaymentTransactionStatusEnum.SUCCESS),
             }
             logging.info(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+            asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
             await update_payment_transaction(
                 payment_transaction_id=payment.payment_transaction_id,
                 status=PaymentTransactionStatusEnum.SUCCESS,
@@ -316,7 +318,7 @@ async def process_pending_coinbase_transaction(payment: PaymentTransaction) -> N
                 "transaction_id": payment.partner_reference_id,
             }
             logging.error(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+            asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
 
             points_transaction = await get_points_transaction_from_payment_transaction_id(
                 payment.payment_transaction_id
@@ -327,7 +329,7 @@ async def process_pending_coinbase_transaction(payment: PaymentTransaction) -> N
                     "payment_transaction_id": str(payment.payment_transaction_id),
                 }
                 logging.error(json_dumps(log_dict))
-                asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+                asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
                 return
 
             payment_instrument = await get_payment_instrument_from_id(payment.destination_instrument_id)
@@ -337,7 +339,7 @@ async def process_pending_coinbase_transaction(payment: PaymentTransaction) -> N
                     "payment_transaction_id": str(payment.payment_transaction_id),
                 }
                 logging.error(json_dumps(log_dict))
-                asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+                asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
                 return
 
             await handle_failed_transaction(
@@ -361,7 +363,7 @@ async def process_pending_coinbase_transaction(payment: PaymentTransaction) -> N
                 "status": status,
             }
             logging.error(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+            asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
 
     except Exception as e:
         log_dict = {
@@ -371,7 +373,7 @@ async def process_pending_coinbase_transaction(payment: PaymentTransaction) -> N
             "error": str(e),
         }
         logging.error(json_dumps(log_dict))
-        asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+        asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
 
 
 async def process_pending_upi_transaction(payment: PaymentTransaction) -> None:
@@ -644,7 +646,7 @@ async def get_destination_instrument_id(
                     "count_of_users_already_using_instrument": len(existing_instruments),
                 }
                 logging.warning(json_dumps(log_dict))
-                asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+                asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
 
                 # log_dict = {
                 #     "message": "Creating new payment instrument for user (instrument exists for other users)",
