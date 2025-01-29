@@ -887,6 +887,8 @@ FINE_TUNED_GPT_4O_LLM: OpenAILangChainAdapter | None = None
 GEMINI_15_FLASH_LLM: GeminiLangChainAdapter | None = None
 GEMINI_2_FLASH_LLM: GeminiLangChainAdapter | None = None
 
+QT_MODEL_WITH_PDF_SUPPORT = "gemini-2.0-flash-exp"
+
 
 def get_gpt_4o_mini_llm() -> OpenAILangChainAdapter:
     global GPT_4O_MINI_LLM
@@ -1075,9 +1077,11 @@ async def generate_quicktake(
     chat_history_time = time.time() - start_time
 
     # Add attachments (image, etc) to the chat history, as a url or base64 encoded string.
-    has_attachments = any(isinstance(m, HumanMessage) and m.additional_kwargs.get("attachments") for m in chat_history)
+    all_attachments = [attachment for m in chat_history for attachment in m.additional_kwargs.get("attachments", [])]
+    has_attachments = len(all_attachments) > 0
+    has_pdf_attachments = any(attachment.content_type == "application/pdf" for attachment in all_attachments)
     transform_options: TransformOptions = {"image_type": "thumbnail", "use_signed_url": False}
-    chat_history = await transform_user_messages(chat_history, "gemini-2.0-flash-exp", options=transform_options)
+    chat_history = await transform_user_messages(chat_history, QT_MODEL_WITH_PDF_SUPPORT, options=transform_options)
 
     # Calculate the length of input with all the information, and check against the context length allowed by the model.
     chat_history_text = "\n".join(get_text_part(m) for m in chat_history)
@@ -1104,6 +1108,8 @@ async def generate_quicktake(
     response_model = ""
     responses_by_model: dict[str, str] = {}
 
+    # Transform the latest message with attachments, if any.
+    # Supply this to the labelers after trimming the context.
     latest_message_transform_result = await transform_user_messages(
         [
             HumanMessage(
@@ -1113,14 +1119,15 @@ async def generate_quicktake(
                 },
             )
         ],
-        "gemini-2.0-flash-exp",
+        QT_MODEL_WITH_PDF_SUPPORT,
         options=transform_options,
     )
     latest_message = HumanMessage(content=latest_message_transform_result[0].content)
     user_message_prompt_template = USER_QUICKTAKE_FALLBACK_PROMPT if request.for_fallback else USER_QUICKTAKE_PROMPT
     errors = None
+    preferred_model = request.model if request.model else QT_MODEL_WITH_PDF_SUPPORT if has_pdf_attachments else None
     try:
-        if not request.model:
+        if not preferred_model:
             # No specific model has been request, go by default and use multiple models.
             labelers: dict[str, Any] = {
                 model: get_quicktake_generator(
@@ -1169,12 +1176,12 @@ async def generate_quicktake(
             if not found_response:
                 errors = "no_response"
 
-        elif request.model in get_qt_llms():
+        elif preferred_model in get_qt_llms():
             # Specific model requested.
             generator = get_quicktake_generator(
-                request.model, chat_history, for_fallback=request.for_fallback, timeout_secs=timeout_secs
+                preferred_model, chat_history, for_fallback=request.for_fallback, timeout_secs=timeout_secs
             )
-            max_context_length = qt_context_lengths.get(request.model, min(qt_context_lengths.values()))
+            max_context_length = qt_context_lengths.get(preferred_model, min(qt_context_lengths.values()))
             trimmed_message = replace_text_part(
                 latest_message,
                 user_message_prompt_template.format(
@@ -1182,14 +1189,14 @@ async def generate_quicktake(
                 ),
             )
             quicktake = await generator.alabel(trimmed_message)
-            response_model = request.model
-            responses_by_model[request.model] = type(quicktake).__name__
+            response_model = preferred_model
+            responses_by_model[preferred_model] = type(quicktake).__name__
         else:
-            raise ValueError(f"Unsupported model: {request.model}; supported: {','.join(get_qt_llms().keys())}")
+            raise ValueError(f"Unsupported model: {preferred_model}; supported: {','.join(get_qt_llms().keys())}")
     except Exception as e:
         log_dict = {
             "message": "Error generating quicktake",
-            "model": request.model,
+            "model": preferred_model,
             "error": str(e),
         }
         logging.exception(json_dumps(log_dict))
