@@ -209,6 +209,21 @@ class Settings(BaseSettings):
 
     @computed_field  # type: ignore[misc]
     @property
+    def checkout_com_api_url(self) -> str:
+        return self._get_gcp_secret(f"checkout-com-api-url-{self.ENVIRONMENT}")
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def checkout_com_secret(self) -> str:
+        return self._get_gcp_secret(f"checkout-com-secret-{self.ENVIRONMENT}")
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def checkout_com_processing_channel(self) -> str:
+        return self._get_gcp_secret(f"checkout-com-processing-channel-{self.ENVIRONMENT}")
+
+    @computed_field  # type: ignore[misc]
+    @property
     def server_host(self) -> str:
         # Use HTTPS for anything other than local development
         if self.ENVIRONMENT == "local":
@@ -323,4 +338,7 @@ async def preload_gcp_secrets() -> None:
         asyncio.to_thread(lambda: settings.hyperwallet_program_token),
         asyncio.to_thread(lambda: settings.hyperwallet_username),
         asyncio.to_thread(lambda: settings.hyperwallet_password),
+        asyncio.to_thread(lambda: settings.checkout_com_api_url),
+        asyncio.to_thread(lambda: settings.checkout_com_secret),
+        asyncio.to_thread(lambda: settings.checkout_com_processing_channel),
     )
