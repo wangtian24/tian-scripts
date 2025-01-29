@@ -65,7 +65,6 @@ env:
   SERVICE_NAME: ${{ github.event.inputs.image || 'backend' }}
   IMAGE_NAME: "gcr.io/yupp-llms/${{ github.event.inputs.image || 'backend' }}-${{ github.event.inputs.environment || 'staging' }}:v1"
   REGION: ${{ github.event.inputs.region || 'us-east4' }}
-  DB_OR_RULES_CHANGED: 'false'
 
 permissions:
   contents: write  # Permission required for pushing new tags.
@@ -93,19 +92,6 @@ jobs:
       uses: actions/checkout@v4
       with:
         fetch-depth: 0  # Fetch all history to compare with main branch
-
-    - name: Check for DB or rules changes
-      id: check_changes
-      run: |
-        git fetch --tags
-        TAG_NAME=latest-${{ github.event.inputs.environment || 'staging' }}
-        if git diff --name-only $TAG_NAME | grep -q -E 'data/reward_rules|ypl/db/alembic/'; then
-          echo "DB_OR_RULES_CHANGED='true'" >> $GITHUB_ENV
-          echo "Detected DB or reward rules changes"
-        else
-          echo "DB_OR_RULES_CHANGED='false'" >> $GITHUB_ENV
-          echo "No DB or reward rules changes detected"
-        fi
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v2
@@ -140,6 +126,18 @@ jobs:
           echo "DOCKERFILE=Dockerfile" >> $GITHUB_ENV
         fi
 
+    - name: Check for DB or rules changes
+      id: check_changes
+      run: |
+        git fetch --tags
+        TAG_NAME=latest-${{ github.event.inputs.environment || 'staging' }}
+        if git diff --name-only $TAG_NAME | grep -q -E 'data/reward_rules|ypl/db/alembic/'; then
+          echo "DB_OR_RULES_CHANGED=true" >> $GITHUB_ENV
+          echo "Detected DB or reward rules changes"
+        else
+          echo "DB_OR_RULES_CHANGED=false" >> $GITHUB_ENV
+          echo "No DB or reward rules changes detected"
+        fi
 
     - name: Create .env file
       run: |
@@ -369,12 +367,8 @@ jobs:
       run: |
         git fetch --tags
         TAG_NAME=latest-${{ github.event.inputs.environment || 'staging' }}
-        PR_TITLES=$(git log $TAG_NAME..HEAD --pretty=format:"* %s (%al)")  # Get changes from last tag.
-        {
-          echo "PR_TITLES<<EOF"
-          echo "${PR_TITLES}"
-          echo "EOF"
-        } >> $GITHUB_ENV
+        PR_TITLES=$(git log $TAG_NAME..HEAD --pretty=format:"* %s (%al)" | tr '\n' '\\n')  # Get changes from last tag.
+        echo "PR_TITLES=${PR_TITLES}" >> $GITHUB_ENV
         git config user.name 'github-actions[bot]'
         git config user.email 'github-actions[bot]@users.noreply.github.com'
         git tag -f $TAG_NAME ${{ github.sha }}
