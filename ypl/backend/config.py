@@ -189,6 +189,26 @@ class Settings(BaseSettings):
 
     @computed_field  # type: ignore[misc]
     @property
+    def hyperwallet_api_url(self) -> str:
+        return self._get_gcp_secret(f"hyperwallet-api-url-{self.ENVIRONMENT}")
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def hyperwallet_program_token(self) -> str:
+        return self._get_gcp_secret(f"hyperwallet-program-token-{self.ENVIRONMENT}")
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def hyperwallet_username(self) -> str:
+        return self._get_gcp_secret(f"hyperwallet-username-{self.ENVIRONMENT}")
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def hyperwallet_password(self) -> str:
+        return self._get_gcp_secret(f"hyperwallet-password-{self.ENVIRONMENT}")
+
+    @computed_field  # type: ignore[misc]
+    @property
     def server_host(self) -> str:
         # Use HTTPS for anything other than local development
         if self.ENVIRONMENT == "local":
@@ -299,4 +319,8 @@ async def preload_gcp_secrets() -> None:
     await asyncio.gather(
         asyncio.to_thread(lambda: settings.axis_upi_config),
         asyncio.to_thread(lambda: settings.validate_destination_identifier_secret_key),
+        asyncio.to_thread(lambda: settings.hyperwallet_api_url),
+        asyncio.to_thread(lambda: settings.hyperwallet_program_token),
+        asyncio.to_thread(lambda: settings.hyperwallet_username),
+        asyncio.to_thread(lambda: settings.hyperwallet_password),
     )

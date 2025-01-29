@@ -175,11 +175,14 @@ class BaseFacilitator(ABC):
     ) -> "BaseFacilitator":
         from ypl.backend.payment.coinbase.coinbase_facilitator import CoinbaseFacilitator
         from ypl.backend.payment.facilitator import OnChainFacilitator
+        from ypl.backend.payment.hyperwallet.hyperwallet_facilitator import HyperwalletFacilitator
         from ypl.backend.payment.plaid.plaid_facilitator import PlaidFacilitator
         from ypl.backend.payment.upi.axis.facilitator import AxisUpiFacilitator
 
         if currency == CurrencyEnum.INR:
             return AxisUpiFacilitator(currency, destination_identifier_type, facilitator)
+        elif currency == CurrencyEnum.USD and facilitator == PaymentInstrumentFacilitatorEnum.HYPERWALLET:
+            return HyperwalletFacilitator(currency, destination_identifier_type, facilitator)
         elif currency.is_crypto():
             if facilitator == PaymentInstrumentFacilitatorEnum.COINBASE:
                 return CoinbaseFacilitator(currency, destination_identifier_type, facilitator)

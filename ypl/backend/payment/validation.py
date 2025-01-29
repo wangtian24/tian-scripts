@@ -2,7 +2,10 @@ from ypl.db.payments import CurrencyEnum, PaymentInstrumentIdentifierTypeEnum
 
 supported_currency_to_instrument_identifier_type = {
     CurrencyEnum.INR: [PaymentInstrumentIdentifierTypeEnum.PHONE_NUMBER, PaymentInstrumentIdentifierTypeEnum.UPI_ID],
-    CurrencyEnum.USD: [PaymentInstrumentIdentifierTypeEnum.BANK_ACCOUNT_NUMBER],
+    CurrencyEnum.USD: [
+        PaymentInstrumentIdentifierTypeEnum.BANK_ACCOUNT_NUMBER,
+        PaymentInstrumentIdentifierTypeEnum.PARTNER_IDENTIFIER,
+    ],
     CurrencyEnum.USDC: [
         PaymentInstrumentIdentifierTypeEnum.PHONE_NUMBER,
         PaymentInstrumentIdentifierTypeEnum.EMAIL,

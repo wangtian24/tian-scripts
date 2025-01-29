@@ -8,12 +8,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, func, or_, select
 
 from ypl.backend.db import get_async_session
+from ypl.backend.user.user import RegisterVendorRequest, VendorProfileResponse, register_user_with_vendor
 from ypl.backend.utils.json import json_dumps
 from ypl.db.invite_codes import SpecialInviteCode, SpecialInviteCodeClaimLog
 from ypl.db.payments import PaymentInstrument
 from ypl.db.users import User, UserStatus, WaitlistedUser
 
 router = APIRouter()
+admin_router = APIRouter()
 
 
 class RelationshipType(str, Enum):
@@ -59,7 +61,30 @@ class UserSearchResponse:
     users: list[UserSearchResult]
 
 
-@router.get("/admin/users/search")
+@router.post("/users/register_user_with_vendor", response_model=VendorProfileResponse)
+async def register_user_with_vendor_route(request: RegisterVendorRequest) -> VendorProfileResponse:
+    """Register a user with a vendor.
+
+    Args:
+        request: The request containing user_id, vendor_id and optional additional details
+
+    Returns:
+        The created user vendor profile
+    """
+    try:
+        return await register_user_with_vendor(request)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except Exception as e:
+        log_dict = {
+            "message": "Error registering the user with the vendor",
+            "error": str(e),
+        }
+        logging.error(json_dumps(log_dict))
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@admin_router.get("/admin/users/search")
 async def get_users(query: str) -> UserSearchResponse:
     """Search for users where name or user_id partially matches the query string.
 
@@ -149,7 +174,7 @@ async def get_users(query: str) -> UserSearchResponse:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.get("/admin/users/{user_id}/related")
+@admin_router.get("/admin/users/{user_id}/related")
 async def get_related_users(user_id: str = Path(..., description="User ID")) -> RelatedUsersResponse:
     """Get users related to the given user.
 
@@ -425,7 +450,7 @@ async def _get_sibling_users(session: AsyncSession, user_id: str, parent_user_id
         return []
 
 
-@router.post("/admin/users/{user_id}/deactivate")
+@admin_router.post("/admin/users/{user_id}/deactivate")
 async def deactivate_user(
     user_id: str = Path(..., description="User ID"),
     creator_user_email: str = Query(..., description="Email of the user performing the deactivation"),
