@@ -40,6 +40,7 @@ class PaymentInstrumentFacilitatorEnum(enum.Enum):
     PLAID = "plaid"
     STRIPE = "stripe"
     HYPERWALLET = "hyperwallet"
+    CHECKOUT_COM = "checkout.com"
 
 
 class PaymentInstrumentIdentifierTypeEnum(enum.Enum):
