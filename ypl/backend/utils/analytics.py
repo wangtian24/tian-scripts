@@ -512,15 +512,32 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
         GROUP BY
             date_trunc('day', created_at AT TIME ZONE 'America/Los_Angeles')::date
     ),
+    referral_data AS (
+        SELECT
+            date_trunc('day', created_at AT TIME ZONE 'America/Los_Angeles')::date AS date,
+            COUNT(*) as referred_user_bonus_count
+        FROM
+            reward_action_logs t
+        WHERE
+            (created_at AT TIME ZONE 'America/Los_Angeles')::date =
+            ((current_date - INTERVAL '1 day') AT TIME ZONE 'America/Los_Angeles')::date
+            AND action_type = 'REFERRAL_BONUS_REFERRED_USER'
+            AND associated_reward_id IS NOT NULL
+            AND deleted_at IS NULL
+        GROUP BY
+            date_trunc('day', created_at AT TIME ZONE 'America/Los_Angeles')::date
+    ),
     combined_data AS (
         SELECT
             b.date,
             b.total_credits,
             b.total_credits_from_india,
             b.total_credits_from_row,
-            COALESCE(t.turn_count, 0) as turn_count
+            COALESCE(t.turn_count, 0) as turn_count,
+            COALESCE(r.referred_user_bonus_count, 0) as referred_user_bonus_count
         FROM base_data b
         LEFT JOIN turn_data t ON b.date = t.date
+        LEFT JOIN referral_data r ON b.date = r.date
     )
     SELECT
         'daily' AS period,
@@ -529,6 +546,7 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
         SUM(total_credits_from_india) AS total_credits_from_india,
         SUM(total_credits_from_row) AS total_credits_from_row,
         SUM(turn_count) AS turn_count,
+        SUM(referred_user_bonus_count) AS referred_user_bonus_count,
         CASE
             WHEN SUM(turn_count) > 0 THEN ROUND(SUM(total_credits)::numeric / SUM(turn_count))::integer
             ELSE 0
@@ -572,15 +590,32 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
         GROUP BY
             date_trunc('day', created_at AT TIME ZONE 'America/Los_Angeles')::date
     ),
+    referral_data AS (
+        SELECT
+            date_trunc('day', created_at AT TIME ZONE 'America/Los_Angeles')::date AS date,
+            COUNT(*) as referred_user_bonus_count
+        FROM
+            reward_action_logs t
+        WHERE
+            (created_at AT TIME ZONE 'America/Los_Angeles')::date >=
+            ((current_date - INTERVAL '90 day') AT TIME ZONE 'America/Los_Angeles')::date
+            AND action_type = 'REFERRAL_BONUS_REFERRED_USER'
+            AND associated_reward_id IS NOT NULL
+            AND deleted_at IS NULL
+        GROUP BY
+            date_trunc('day', created_at AT TIME ZONE 'America/Los_Angeles')::date
+    ),
     combined_data AS (
         SELECT
             b.date,
             b.total_credits,
             b.total_credits_from_india,
             b.total_credits_from_row,
-            COALESCE(t.turn_count, 0) as turn_count
+            COALESCE(t.turn_count, 0) as turn_count,
+            COALESCE(r.referred_user_bonus_count, 0) as referred_user_bonus_count
         FROM base_data b
         LEFT JOIN turn_data t ON b.date = t.date
+        LEFT JOIN referral_data r ON b.date = r.date
     )
     SELECT
         'weekly' AS period,
@@ -589,6 +624,7 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
         SUM(total_credits_from_india) AS total_credits_from_india,
         SUM(total_credits_from_row) AS total_credits_from_row,
         SUM(turn_count) AS turn_count,
+        SUM(referred_user_bonus_count) AS referred_user_bonus_count,
         CASE
             WHEN SUM(turn_count) > 0 THEN ROUND(SUM(total_credits)::numeric / SUM(turn_count))::integer
             ELSE 0
@@ -605,6 +641,7 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
         SUM(total_credits_from_india) AS total_credits_from_india,
         SUM(total_credits_from_row) AS total_credits_from_row,
         SUM(turn_count) AS turn_count,
+        SUM(referred_user_bonus_count) AS referred_user_bonus_count,
         CASE
             WHEN SUM(turn_count) > 0 THEN ROUND(SUM(total_credits)::numeric / SUM(turn_count))::integer
             ELSE 0
@@ -621,6 +658,7 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
         SUM(total_credits_from_india) AS total_credits_from_india,
         SUM(total_credits_from_row) AS total_credits_from_row,
         SUM(turn_count) AS turn_count,
+        SUM(referred_user_bonus_count) AS referred_user_bonus_count,
         CASE
             WHEN SUM(turn_count) > 0 THEN ROUND(SUM(total_credits)::numeric / SUM(turn_count))::integer
             ELSE 0
@@ -647,7 +685,8 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
                 message += (
                     f"Credits Claimed Yesterday: {yesterday_metrics.total_credits:,.0f} "
                     f"({yesterday_metrics.turn_count:,} turns, "
-                    f"{yesterday_metrics.credits_per_turn:,d} credits/turn)\n"
+                    f"{yesterday_metrics.credits_per_turn:,d} credits/turn; "
+                    f"{yesterday_metrics.referred_user_bonus_count:,} referred users)\n"
                     f"Corresponding USD: {usd_amount:,.2f}\n"
                     f"(India: {usd_amount_india:,.2f}, Row: {usd_amount_row:,.2f})\n"
                 )
@@ -668,7 +707,8 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
                             f"\nWeekly Credits (Week of {weekly_metrics.period_start}): "
                             f"{weekly_metrics.total_credits:,.0f} "
                             f"({weekly_metrics.turn_count:,} turns, "
-                            f"{weekly_metrics.credits_per_turn:,d} credits/turn)\n"
+                            f"{weekly_metrics.credits_per_turn:,d} credits/turn; "
+                            f"{weekly_metrics.referred_user_bonus_count:,} referred users)\n"
                             f"Corresponding USD: {usd_amount:,.2f}\n"
                             f"(India: {usd_amount_india:,.2f}, Rest of World: {usd_amount_row:,.2f})\n"
                         )
@@ -682,7 +722,8 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
                             f"\nMonthly Credits ({monthly_metrics.period_start.strftime('%B %Y')}): "
                             f"{monthly_metrics.total_credits:,.0f} "
                             f"({monthly_metrics.turn_count:,} turns, "
-                            f"{monthly_metrics.credits_per_turn:,d} credits/turn)\n"
+                            f"{monthly_metrics.credits_per_turn:,d} credits/turn; "
+                            f"{monthly_metrics.referred_user_bonus_count:,} referred users)\n"
                             f"Corresponding USD: {usd_amount:,.2f}\n"
                             f"(India: {usd_amount_india:,.2f}, Row: {usd_amount_row:,.2f})\n"
                         )
@@ -697,14 +738,15 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
                             f"\nQuarterly Credits (Q{quarter} {quarterly_metrics.period_start.year}): "
                             f"{quarterly_metrics.total_credits:,.0f} "
                             f"({quarterly_metrics.turn_count:,} turns, "
-                            f"{quarterly_metrics.credits_per_turn:,d} credits/turn)\n"
+                            f"{quarterly_metrics.credits_per_turn:,d} credits/turn; "
+                            f"{quarterly_metrics.referred_user_bonus_count:,} referred users)\n"
                             f"Corresponding USD: {usd_amount:,.2f}\n"
                             f"(India: {usd_amount_india:,.2f}, Row: {usd_amount_row:,.2f})\n"
                         )
 
-                analytics_webhook_url = os.environ.get("ANALYTICS_SLACK_WEBHOOK_URL")
             else:
                 message = "⚠️ No credit metrics data available"
+            analytics_webhook_url = os.environ.get("ANALYTICS_SLACK_WEBHOOK_URL")
             await post_to_slack(message, analytics_webhook_url)
 
     except Exception as e:
