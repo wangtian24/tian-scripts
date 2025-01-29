@@ -2,8 +2,7 @@ name: Update ranking
 
 on:
   schedule:
-    # TODO(gm): Change to be more frequent once we have more data.
-    - cron: '15 */6 * * *'  # Every 6 hours, at 15 minutes past the hour.
+    - cron: '15 0 * * *'  # Daily at 15 minutes past midnight.
   workflow_dispatch:
 
 jobs:

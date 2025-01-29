@@ -60,9 +60,9 @@ async def maybe_add_suggested_followups(chat_id: uuid.UUID, turn_id: uuid.UUID) 
 
 async def refresh_conversation_starters(
     user_id: str,
-    max_recent_chats: int = 10,
-    max_messages_per_chat: int = 10,
-    max_message_length: int = 1000,
+    max_recent_chats: int = 15,
+    max_messages_per_chat: int = 15,
+    max_message_length: int = 2000,
     min_new_chats: int = 2,
 ) -> None:
     """Refresh conversation starters for a user.
@@ -162,8 +162,10 @@ async def refresh_conversation_starters(
                     user_id=user_id,
                     prompt=starter["suggestion"],
                     summary=starter["label"],
+                    explanation=starter.get("explanation"),
                 )
                 for starter in conversation_starters
+                if "prompt" in starter and "label" in starter
             ]
 
             delete_query = delete(SuggestedUserPrompt).where(SuggestedUserPrompt.user_id == user_id)  # type: ignore

@@ -405,6 +405,7 @@ async def get_turn_annotations(
 class SuggestedPrompt(BaseModel):
     prompt: str
     summary: str
+    explanation: str | None = None
 
 
 class SuggestedPromptsResponse(BaseModel):
@@ -441,7 +442,10 @@ async def get_conversation_starters(user_id: str) -> SuggestedPromptsResponse:
             result = await session.execute(stmt)
             conversation_starters = result.scalars().all()
             return SuggestedPromptsResponse(
-                prompts=[SuggestedPrompt(prompt=cs.prompt, summary=cs.summary) for cs in conversation_starters]
+                prompts=[
+                    SuggestedPrompt(prompt=cs.prompt, summary=cs.summary, explanation=cs.explanation)
+                    for cs in conversation_starters
+                ]
             )
     except Exception as e:
         log_dict = {"message": f"Error getting conversation starters for user {user_id}: {str(e)}"}

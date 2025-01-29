@@ -398,3 +398,4 @@ class SuggestedUserPrompt(BaseModel, table=True):
     user: User = Relationship(back_populates="suggested_prompts")
     prompt: str = Field(nullable=False)
     summary: str = Field(nullable=False)
+    explanation: str = Field(nullable=True)

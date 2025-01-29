@@ -1191,10 +1191,13 @@ Based on these, generate up to 10 engaging conversation starters for new chats t
 These conversation starters are intended to be used by the user to ask the LLM, not the LLM to ask the user.
 They should explore related areas, or introduce fresh angles while staying relevant to the user's interests and prior discussions.
 Give more weight to later conversations, but try to generate a diverse set of conversation starters.
-Return the list of follow-up questions as a JSON array, where each item contains the suggestion and a short 2-5 word label for it.
+Return the list of follow-up questions as a JSON array, where each item contains:
+- the suggestion,
+- a short 2-5 word label for it,
+- an explanation of why if was selected, referring to the conversation history elements used.
 
 Output format:
-[{{"suggestion": "...", "label": "..."}}, {{"suggestion": "...", "label": "..."}}]
+[{{"suggestion": "...", "label": "...", "explanation": "..."}}, {{"suggestion": "...", "label": "...", "explanation": "..."}}]
 
 Do not explain; only return the list as JSON. Do not include "```json" or "```" in your response.
 
