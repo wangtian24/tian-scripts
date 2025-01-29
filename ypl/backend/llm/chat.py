@@ -1085,7 +1085,7 @@ async def generate_quicktake(
 
     # Add attachments (image, etc) to the chat history, as a url or base64 encoded string.
     has_attachments = any(isinstance(m, HumanMessage) and m.additional_kwargs.get("attachments") for m in chat_history)
-    transform_options: TransformOptions = {"image_type": "thumbnail", "use_signed_url": True}
+    transform_options: TransformOptions = {"image_type": "thumbnail", "use_signed_url": False}
     chat_history = await transform_user_messages(chat_history, "gpt-4o", options=transform_options)
 
     # Calculate the length of input with all the information, and check against the context length allowed by the model.
