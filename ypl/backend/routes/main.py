@@ -16,6 +16,7 @@ from ypl.backend.routes.v1 import chat_completions, chat_feed, credit, health, m
 from ypl.backend.routes.v1 import chats as chats_route
 from ypl.backend.routes.v1 import email as email_route
 from ypl.backend.routes.v1 import event as event_route
+from ypl.backend.routes.v1 import feedback as feedback_route
 from ypl.backend.routes.v1 import files as files_route
 from ypl.backend.routes.v1 import message as message_route
 from ypl.backend.routes.v1 import points as points_route
@@ -58,6 +59,7 @@ api_router = APIRouter(dependencies=[Depends(validate_api_key)])
 admin_router = APIRouter(dependencies=[Depends(validate_admin_api_key)])
 
 api_router.include_router(credit.router, prefix="/v1", tags=["credit"])
+api_router.include_router(feedback_route.router, prefix="/v1", tags=["feedback"])
 api_router.include_router(health.router, prefix="/v1", tags=["health"])
 api_router.include_router(llm_route.router, prefix="/v1", tags=["route"])
 api_router.include_router(rank.router, prefix="/v1", tags=["leaderboard"])

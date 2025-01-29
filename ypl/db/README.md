@@ -15,19 +15,33 @@ The environment variables for the database can be found on vercel or in the temp
 
 We use [Alembic](https://alembic.sqlalchemy.org/en/latest/) to manage migrations. 
 
+## Step 0: Make sure everything is up to date at the starting point
+
+1. Update the environment variable in `.env` file to the appropriate value (either local or staging). Change the default values from "changethis" to "changethis1" as the default values will result in errors.
+1. Make sure your branch has the latest code from main, then run
+```
+alembic upgrade head
+```
+to update your local database to the latest state. Otherwise you may encounter error like 'Target database is not up to date.'
+
 ## Step 1: Creating a new migration
 
 1. Change table definiton: update the models in `db/...`.
-1. Update the environment variable in `.env` file to the appropriate value (either dev or staging). Change the default values from "changethis" to "changethis1" as the default values will result in errors.
+
 1. Generate migration script: run the following command to create a new migration:
 ```bash
 alembic revision --autogenerate -m "description for the migration"
 ```
 Note: this does not capture server_default changes. If you change the server_default or adding a new column with a default value, you will need to manually add it to the migration script.
-1. A new file will be created in the `versions` folder. 
-1. Review the generated file and make necessary changes.
-1. Run 'poetry run ruff format ypl/db/' to fix any formatting issues. You can fix any issues iteratively by running 'poetry run ruff check --fix' 
-1. Test actual migration: ensure that .env file has the correct environment value (local, staging), and run `alembic upgrade head` to apply the migration to the corresponding database. 
+
+1. After you run the command above, a new file will be created in the `versions` folder. 
+1. Review the generated file and make necessary changes. Sometimes you may want to add extra initializations to your table like adding some data.
+1. Run `poetry run ruff format ypl/db/` to fix any formatting issues. You can fix any issues iteratively by running `poetry run ruff check --fix`. 
+1. Test actual migration: ensure that .env file has the correct environment value (local, staging), and run
+```
+alembic upgrade head
+```
+to apply the migration to the corresponding database. 
 
 ## Step 2: Review cycle
 1. Send the model change and the generated migration script for review.

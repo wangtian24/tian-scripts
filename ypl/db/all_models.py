@@ -1,4 +1,5 @@
 from ypl.db import (
+    app_feedback,
     attachments,
     chats,
     events,
@@ -13,6 +14,7 @@ from ypl.db import (
 )
 
 all_models = [
+    app_feedback,
     attachments,
     chats,
     events,
