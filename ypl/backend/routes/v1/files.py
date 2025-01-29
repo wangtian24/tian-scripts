@@ -15,6 +15,7 @@ from gcloud.aio.storage import Storage
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from PIL import Image
+from pillow_heif import register_heif_opener
 from pydantic import BaseModel, SecretStr
 from sqlmodel import select
 
@@ -26,6 +27,8 @@ from ypl.db.attachments import Attachment, TransientAttachment
 client = ChatOpenAI(model="gpt-4o", api_key=SecretStr(os.getenv("OPENAI_API_KEY", "")))
 
 router = APIRouter()
+
+register_heif_opener()
 
 
 class AttachmentResponse(BaseModel):
