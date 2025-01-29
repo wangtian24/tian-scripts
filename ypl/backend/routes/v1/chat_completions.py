@@ -131,6 +131,9 @@ async def chat_completions(
 async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequest) -> AsyncIterator[str]:
     eager_persist_task: asyncio.Task[Any] | None = None
     stop_stream_task: asyncio.Task[Any] | None = None
+    full_response = ""
+    response_tokens_num = 0
+    chunks_count = 0
     try:
         start_time = datetime.now()
         # Create task keep checking for "Stop Stream" signal from user
@@ -261,8 +264,6 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
         messages = await transform_user_messages(messages, chat_request.model, transform_options)
 
         first_token_timestamp: float = 0
-        chunks_count = 0
-        full_response = ""
         message_metadata: dict[str, Any] = {}
         chunk = None  # Define chunk outside the try block
         metadata_future = None
@@ -331,12 +332,21 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
             stream_completion_status = CompletionStatus.STREAMING_ERROR
             full_response += STREAMING_ERROR_TEXT
             chunk_str = str(chunk) if chunk is not None else "No chunk available"
+
             logging.error(
-                f"Streaming Error for model {chat_request.model} with prompt {chat_request.prompt}: {str(e)} \n"
-                f"Chat ID: {chat_request.chat_id}, Message ID: {chat_request.message_id}\n"
-                f"Last chunk: {chunk_str}\n"
-                f"{traceback.format_exc()}"
+                json_dumps(
+                    {
+                        "message": "Streaming Error",
+                        "model": chat_request.model,
+                        "message_id": str(chat_request.message_id),
+                        "error_message": str(e),
+                        "chat_id": str(chat_request.chat_id),
+                        "last_chunk": chunk_str,
+                        "traceback": traceback.format_exc(),
+                    }
+                )
             )
+
             yield StreamResponse({"content": STREAMING_ERROR_TEXT, "model": chat_request.model}).encode()
             yield StreamResponse(
                 {"error": f"Streaming error: {str(e)}", "code": "stream_error", "model": chat_request.model}, "error"
@@ -447,6 +457,18 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
             {"error": f"Error: {str(e)}", "code": "error", "model": chat_request.model}, "error"
         ).encode()
     finally:
+        logging.info(
+            json_dumps(
+                {
+                    "message": "Streaming Stats",
+                    "model": chat_request.model,
+                    "message_id": str(chat_request.message_id),
+                    "response_length": len(full_response),
+                    "response_tokens": response_tokens_num,
+                    "chunks_count": chunks_count,
+                }
+            )
+        )
         # Cancel any pending tasks
         logging.info("Cancelling any pending tasks for " + str(chat_request.chat_id))
         if eager_persist_task is not None:
