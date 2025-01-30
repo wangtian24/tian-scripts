@@ -637,9 +637,12 @@ async def get_destination_instrument_id(
             user_instrument = next((i for i in existing_instruments if i.user_id == user_id), None)
 
             if not user_instrument:
+                # Log the reuse attempt with all user IDs involved
+                existing_user_ids = [i.user_id for i in existing_instruments]
                 log_dict = {
-                    "message": ":warning: - Payment instrument reused across multiple users",
-                    "user_id": user_id,
+                    "message": ":warning: - Payment instrument reuse attempt",
+                    "new_user_id": user_id,
+                    "existing_user_ids": existing_user_ids,
                     "identifier": destination_identifier,
                     "identifier_type": destination_identifier_type,
                     "facilitator": facilitator,
@@ -648,34 +651,35 @@ async def get_destination_instrument_id(
                 logging.warning(json_dumps(log_dict))
                 asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
 
-                # log_dict = {
-                #     "message": "Creating new payment instrument for user (instrument exists for other users)",
-                #     "identifier_type": destination_identifier_type,
-                #     "facilitator": facilitator,
-                #     "user_id": user_id,
-                #     "identifier": destination_identifier,
-                #     "instrument_metadata": instrument_metadata,
-                # }
-                # logging.info(json_dumps(log_dict))
-                # instrument = PaymentInstrument(
-                #     facilitator=facilitator,
-                #     identifier_type=destination_identifier_type,
-                #     identifier=destination_identifier,
-                #     user_id=user_id,
-                #     instrument_metadata=instrument_metadata,
-                # )
-                # session.add(instrument)
-
-                # leaving the above code commented as I've a gut feel that someone
-                # will ask us to remove this exception one day and allow reuse of the same
-                # payment instrument by multiple users.
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        "This payment info is already linked to another user. "
-                        "We don't support sharing payment destinations"
-                    ),
-                )
+                # Allow reuse if only one user is currently using the instrument
+                if len(existing_instruments) < 2:
+                    log_dict = {
+                        "message": "Creating new payment instrument for user (instrument exists for one other user)",
+                        "identifier_type": destination_identifier_type,
+                        "facilitator": facilitator,
+                        "user_id": user_id,
+                        "existing_user_id": existing_user_ids[0],
+                        "identifier": destination_identifier,
+                        "instrument_metadata": instrument_metadata,
+                    }
+                    logging.info(json_dumps(log_dict))
+                    instrument = PaymentInstrument(
+                        facilitator=facilitator,
+                        identifier_type=destination_identifier_type,
+                        identifier=destination_identifier,
+                        user_id=user_id,
+                        instrument_metadata=instrument_metadata,
+                    )
+                    session.add(instrument)
+                else:
+                    # If 2 or more users are already using this instrument, raise exception
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            "This payment info is already linked to two other users. "
+                            "We don't support sharing payment destinations across more than two users"
+                        ),
+                    )
             else:
                 instrument = user_instrument
                 if instrument_metadata is not None:
