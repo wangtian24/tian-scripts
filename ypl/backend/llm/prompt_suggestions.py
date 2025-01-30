@@ -19,7 +19,7 @@ async def maybe_add_suggested_followups(chat_id: uuid.UUID, turn_id: uuid.UUID) 
             model="",
             current_turn_id=turn_id,
             include_current_turn=True,
-            max_messages=10,
+            max_turns=10,
             max_message_length=1000,
             context_for_logging="add_suggested_followups",
         )
@@ -61,7 +61,7 @@ async def maybe_add_suggested_followups(chat_id: uuid.UUID, turn_id: uuid.UUID) 
 async def refresh_conversation_starters(
     user_id: str,
     max_recent_chats: int = 15,
-    max_messages_per_chat: int = 15,
+    max_turns_per_chat: int = 15,
     max_message_length: int = 2000,
     min_new_chats: int = 2,
 ) -> None:
@@ -125,7 +125,7 @@ async def refresh_conversation_starters(
                     chat_id,
                     use_all_models_in_chat_history=True,
                     model="",
-                    max_messages=max_messages_per_chat,
+                    max_turns=max_turns_per_chat,
                     max_message_length=max_message_length,
                     context_for_logging="refresh_conversation_starters",
                 )

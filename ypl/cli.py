@@ -1442,7 +1442,7 @@ def post_source_account_balances() -> None:
 @db_cmd
 def refresh_all_users_conversation_starters(
     max_recent_chats: int = 10,
-    max_messages_per_chat: int = 10,
+    max_turns_per_chat: int = 10,
     max_message_length: int = 1000,
     min_new_chats: int = 2,
     num_days_for_user_activity: int = 1,
@@ -1479,7 +1479,7 @@ def refresh_all_users_conversation_starters(
                 await refresh_conversation_starters(
                     user_id,
                     max_recent_chats=max_recent_chats,
-                    max_messages_per_chat=max_messages_per_chat,
+                    max_turns_per_chat=max_turns_per_chat,
                     max_message_length=max_message_length,
                     min_new_chats=min_new_chats,
                 )

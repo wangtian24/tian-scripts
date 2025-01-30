@@ -685,7 +685,7 @@ async def get_curated_chat_context(
     model: str,
     current_turn_id: UUID | None = None,
     include_current_turn: bool = False,
-    max_messages: int = 1000,
+    max_turns: int = 20,
     max_message_length: int | None = None,
     context_for_logging: str | None = None,
 ) -> list[BaseMessage]:
@@ -698,6 +698,7 @@ async def get_curated_chat_context(
         current_turn_id: The current turn ID.
         include_current_turn: Whether to include the current turn in the chat history.
     """
+
     query = (
         select(ChatMessage)
         .join(Turn, Turn.turn_id == ChatMessage.turn_id)  # type: ignore[arg-type]
@@ -712,6 +713,12 @@ async def get_curated_chat_context(
             ChatMessage.deleted_at.is_(None),  # type: ignore[union-attr]
             Turn.deleted_at.is_(None),  # type: ignore[union-attr]
             Chat.deleted_at.is_(None),  # type: ignore[union-attr]
+            Turn.turn_id.in_(  # type: ignore[attr-defined]
+                select(Turn.turn_id)
+                .where(Turn.chat_id == chat_id)
+                .order_by(Turn.sequence_id.desc())  # type: ignore[attr-defined]
+                .limit(max_turns)
+            ),
         )
         .order_by(
             Turn.sequence_id.asc(),  # type: ignore[attr-defined]
@@ -726,21 +733,22 @@ async def get_curated_chat_context(
     with Session(get_engine()) as session:
         result = session.exec(query)
         # Limit to the most recent messages.
-        # Not done in the SQL query, since it orders by ascending turns, but we want to limit to recent messages.
-        messages = result.unique().all()[:max_messages]
+        messages = result.unique().all()
 
-        # Group messages by turn_id
-        turns: defaultdict[UUID, list[ChatMessage]] = defaultdict(list)
-        for msg in messages:
-            turns[msg.turn_id].append(msg)
+    # Group messages by turn_id
+    turns: defaultdict[UUID, list[ChatMessage]] = defaultdict(list)
+    for msg in messages:
+        turns[msg.turn_id].append(msg)
 
-        for turn_messages in turns.values():
-            # Get user messages
-            formatted_messages.append(_get_enhanced_user_message(turn_messages, max_message_length))
-            # Get assistant messages
-            formatted_messages.extend(
-                _get_assistant_messages(turn_messages, model, use_all_models_in_chat_history, max_message_length)
-            )
+    # The loop below proceeds in insertion order, which is critical for
+    # the correctness of this method.
+    for turn_messages in turns.values():
+        # Get user messages
+        formatted_messages.append(_get_enhanced_user_message(turn_messages, max_message_length))
+        # Get assistant messages
+        formatted_messages.extend(
+            _get_assistant_messages(turn_messages, model, use_all_models_in_chat_history, max_message_length)
+        )
 
     info = {
         "message": f"chat_context ({context_for_logging or 'no context'})",
