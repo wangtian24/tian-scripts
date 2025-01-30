@@ -67,7 +67,7 @@ class YuppModel(PyTorchModelHubMixin, DeviceMixin, nn.Module):
             with zipfile.ZipFile(base_path / model_file_name, "r") as zip_ref:
                 zip_ref.extractall(base_path)
 
-        return cls.from_pretrained(base_path)  # type: ignore[no-any-return]
+        return cls.from_pretrained(base_path)
 
     def push_to_gcp_zip(self, gcp_path: str) -> None:
         """Zips and pushes the model to GCP."""

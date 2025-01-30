@@ -70,7 +70,7 @@ class RoutingMultilabelClassificationModel(RoutingModel):
         """
         return dict(logits=self.model(**dict_extract(batch, {"input_ids", "attention_mask"})).logits)
 
-    def _save_pretrained(self, save_directory: str) -> None:
+    def _save_pretrained(self, save_directory: str) -> None:  # type: ignore
         Path(save_directory, "base_model").write_text(self.model.config._name_or_path)
         torch.save(self.model.state_dict(), Path(save_directory) / "pytorch_model.bin")
         torch.save(self.model2id, Path(save_directory) / "model_map.pt")

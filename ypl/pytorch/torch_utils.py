@@ -139,8 +139,8 @@ class TorchAccelerationMixin:
                 torch.cuda.synchronize()
                 graph_functors.append(graph_functor)
 
-        self._cuda_graph_executor = CudaGraphPoolExecutor(graph_functors)  # type: ignore[assignment]
-        self._is_cuda_graph_compiled = True  # type: ignore[assignment]
+        self._cuda_graph_executor = CudaGraphPoolExecutor(graph_functors)
+        self._is_cuda_graph_compiled = True
 
     def cuda_graph_forward(self, input: StrTensorDict) -> StrTensorDict:
         return self.cuda_graph_executor.submit(input)
@@ -187,7 +187,7 @@ class TorchAccelerationMixin:
 
         torch._dynamo.config.cache_size_limit = self._dynamo_cache_size_limit
         compiled_obj = torch.compile(self, **self._dynamo_options)
-        compiled_obj._is_dynamo_compiled = True  # type: ignore[attr-defined]
+        compiled_obj._is_dynamo_compiled = True
         torch.set_float32_matmul_precision("high")  # to use tensor cores
 
         for i, input in enumerate(self._warmup_inputs):
@@ -196,4 +196,4 @@ class TorchAccelerationMixin:
 
         logging.info("Model warmed up")
 
-        return compiled_obj  # type: ignore[return-value]
+        return compiled_obj

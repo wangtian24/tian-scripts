@@ -98,7 +98,7 @@ class TransformerResponseLengthModel(TorchAccelerationMixin, ResponseLengthModel
 
         return dict(logits=logs)
 
-    def _save_pretrained(self, save_directory: str) -> None:
+    def _save_pretrained(self, save_directory: str) -> None:  # type: ignore
         Path(save_directory, "base_model").write_text(self.model.config._name_or_path)
         torch.save(self.model.state_dict(), Path(save_directory) / "model.bin")
         torch.save(self.buckets, Path(save_directory) / "buckets.pt")

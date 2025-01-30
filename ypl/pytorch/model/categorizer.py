@@ -144,7 +144,7 @@ class HFCategorizerModel(TorchAccelerationMixin, CategorizerModel[OutputType]):
         """Perform a forward pass through the model to obtain logits."""
         raise NotImplementedError
 
-    def _save_pretrained(self, save_directory: str) -> None:
+    def _save_pretrained(self, save_directory: str) -> None:  # type: ignore
         raise NotImplementedError
 
     @classmethod
@@ -178,7 +178,7 @@ class PromptTopicDifficultyModel(HFCategorizerModel[tuple[str, int] | tuple[list
 
         return self.id2category[category_id], difficulty_id + 1
 
-    def _save_pretrained(self, save_directory: str) -> None:
+    def _save_pretrained(self, save_directory: str) -> None:  # type: ignore
         Path(save_directory, "base_model").write_text(self.category_model.config._name_or_path)
         torch.save(self.multilabel, Path(save_directory) / "is_multilabel.pt")
         torch.save(self.category_model.state_dict(), Path(save_directory) / "category_model.bin")
@@ -219,7 +219,7 @@ class OnlinePromptClassifierModel(HFCategorizerModel[str]):
         category_id = int(outputs.argmax().item())
         return self.id2category[category_id]
 
-    def _save_pretrained(self, save_directory: str) -> None:
+    def _save_pretrained(self, save_directory: str) -> None:  # type: ignore
         Path(save_directory, "base_model").write_text(self.model.config._name_or_path)
         torch.save(self.model.state_dict(), Path(save_directory) / "model.bin")
         torch.save(self.category2id, Path(save_directory) / "category_map.pt")
