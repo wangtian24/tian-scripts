@@ -14,6 +14,7 @@ from ypl.db import (
 )
 
 all_models = [
+    # Please keep sorted.
     app_feedback,
     attachments,
     chats,
