@@ -1,10 +1,11 @@
 import logging
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from ypl.backend.feedback.app_feedback import store_app_feedback
+from ypl.backend.feedback.app_feedback import FeedbacksResponse, get_paginated_feedback, store_app_feedback
 from ypl.backend.utils.json import json_dumps
 from ypl.db.app_feedback import AppFeedback
 
@@ -41,3 +42,12 @@ async def log_app_feedback(request: AppFeedbackRequest) -> None:
         logging.exception(json_dumps(log_dict))
 
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/app_feedback")
+async def get_app_feedback(
+    user_id: Annotated[str | None, Query(description="Optional User ID to filter messages")] = None,
+    limit: Annotated[int, Query(ge=1, le=100, description="Number of messages to return")] = 50,
+    offset: Annotated[int, Query(ge=0, description="Number of messages to skip")] = 0,
+) -> FeedbacksResponse:
+    return await get_paginated_feedback(user_id=user_id, limit=limit, offset=offset)
