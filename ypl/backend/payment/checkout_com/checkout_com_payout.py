@@ -22,7 +22,7 @@ class TransactionStatus(StrEnum):
     """Enum for Checkout.com transaction statuses."""
 
     PENDING = "Pending"
-    RETURNED = "Returned"
+    DECLINED = "Declined"
     PAID = "Paid"
 
 
@@ -46,14 +46,14 @@ class IdDestination:
 class BillingDescriptor:
     """Represents a billing descriptor for Checkout.com."""
 
-    reference: str = "YUPP Payout"
+    reference: Literal["YUPP Payout"]
 
 
 @dataclass(frozen=True)
 class Instruction:
     """Represents an instruction for Checkout.com."""
 
-    purpose: str = "YUPP Payout"
+    purpose: Literal["YUPP Payout"]
 
 
 @dataclass(frozen=True)
@@ -195,7 +195,7 @@ async def process_checkout_payout(payout: CheckoutPayout) -> tuple[str, str]:
             if not transaction_token:
                 details = {
                     "response_data": str(data),
-                    "error": "Checkout.com: Missing token in payment response",
+                    "error": "Checkout.com: Missing id in payment response",
                 }
                 raise CheckoutPayoutError(GENERIC_ERROR_MESSAGE, details)
 
@@ -270,15 +270,173 @@ async def get_transaction_status(transaction_token: str) -> str:
         raise CheckoutPayoutError("Checkout.com: Error getting payout status", details) from e
 
 
-async def create_checkout_instrument(user_id: str, destination_identifier: str) -> str:
-    """Create a checkout instrument for a user.
+@dataclass(frozen=True)
+class BillingAddress:
+    """Represents a billing address for bank account holder."""
+
+    address_line1: str
+    city: str
+    state: str
+    zip: str
+    country: str
+
+    def to_dict(self) -> dict:
+        return {
+            "address_line1": self.address_line1,
+            "city": self.city,
+            "state": self.state,
+            "zip": self.zip,
+            "country": self.country,
+        }
+
+
+@dataclass(frozen=True)
+class AccountHolder:
+    """Represents an account holder for bank account."""
+
+    type: Literal["individual"]
+    first_name: str
+    last_name: str
+    billing_address: BillingAddress
+
+    def to_dict(self) -> dict:
+        return {
+            "type": self.type,
+            "first_name": self.first_name,
+            "last_name": self.last_name,
+            "billing_address": self.billing_address.to_dict(),
+        }
+
+
+@dataclass(frozen=True)
+class BankAccountInstrument:
+    """Represents a bank account instrument payload for Checkout.com."""
+
+    type: Literal["bank_account"]
+    currency: Literal["USD"]
+    account_type: Literal["current"]
+    account_number: str
+    bank_code: str
+    country: str
+    account_holder: AccountHolder
+
+    def to_dict(self) -> dict:
+        return {
+            "type": self.type,
+            "currency": self.currency,
+            "account_type": self.account_type,
+            "account_number": self.account_number,
+            "bank_code": self.bank_code,
+            "country": self.country,
+            "account_holder": self.account_holder.to_dict(),
+        }
+
+
+async def create_checkout_instrument(user_id: str, instrument_details: BankAccountInstrument) -> str:
+    """Create a payment instrument for a user at checkout.com.
 
     Args:
         user_id: The ID of the user
-        destination_identifier: The destination identifier (e.g. wallet address)
+        TODO: To refactor this to enable card type too later. Hence a lot of fields hardcoded for bank account.
+        instrument_details: The instrument details (e.g. bank account details in JSON format)
 
     Returns:
-        str: The instrument ID
+        str: The instrument ID from Checkout.com
     """
-    # TODO: Implement this
-    return ""
+    try:
+        headers = _get_auth_header(CHECKOUT_SECRET_KEY)
+
+        payload = instrument_details.to_dict()
+        log_dict = {
+            "message": "Checkout.com: Creating bank account instrument",
+            "user_id": user_id,
+            "instrument_details": payload,
+        }
+        logging.info(json_dumps(log_dict))
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(f"{CHECKOUT_API_URL}/instruments", headers=headers, json=payload)
+
+            if response.status_code not in (200, 201):
+                details = {"status_code": str(response.status_code), "response": response.text}
+                raise CheckoutPayoutError("Checkout.com: Failed to create bank account instrument", details)
+
+            data = response.json()
+            instrument_id = data.get("id")
+
+            if not instrument_id:
+                details = {
+                    "response_data": str(data),
+                    "error": "Checkout.com: Missing instrument ID in response",
+                }
+                raise CheckoutPayoutError(GENERIC_ERROR_MESSAGE, details)
+
+            log_dict = {
+                "message": "Checkout.com: Successfully created bank account instrument",
+                "user_id": user_id,
+                "instrument_id": instrument_id,
+            }
+            logging.info(json_dumps(log_dict))
+
+            return str(instrument_id)
+
+    except Exception as e:
+        details = {"error": str(e)}
+        raise CheckoutPayoutError("Checkout.com: Failed to create bank account instrument", details) from e
+
+
+async def get_source_instrument_balance() -> Decimal:
+    """Get the balance of a specific instrument."""
+
+    try:
+        headers = _get_auth_header(CHECKOUT_SECRET_KEY)
+
+        entity_id = settings.checkout_com_entity_id
+        log_dict = {
+            "message": "Checkout.com: Getting source instrument balance",
+            "entity_id": entity_id,
+        }
+        logging.info(json_dumps(log_dict))
+
+        async with httpx.AsyncClient() as client:
+            # TODO: Add query for currency later if we have to support other currencies
+            response = await client.get(f"{CHECKOUT_API_URL}/balances/{entity_id}?query=currency:USD", headers=headers)
+
+            if response.status_code not in (200, 201):
+                details = {"status_code": str(response.status_code), "response": response.text}
+                raise CheckoutPayoutError("Checkout.com: Failed to get source instrument balance", details)
+
+            data = response.json()
+            available_balance = extract_available_balance(data)
+
+            if not available_balance:
+                details = {
+                    "response_data": str(data),
+                    "error": "Checkout.com: Missing available balance in response",
+                }
+                raise CheckoutPayoutError(GENERIC_ERROR_MESSAGE, details)
+
+            log_dict = {
+                "message": "Checkout.com: Successfully retrieved source instrument balance",
+                "available_balance": str(available_balance),
+            }
+            logging.info(json_dumps(log_dict))
+
+            return available_balance
+
+    except Exception as e:
+        details = {"error": str(e)}
+        raise CheckoutPayoutError("Checkout.com: Failed to get source instrument balance", details) from e
+
+
+def extract_available_balance(response_data: dict) -> Decimal | None:
+    try:
+        data = response_data.get("data", [])
+        if data and isinstance(data, list):
+            first_entry = data[0]
+            balances = first_entry.get("balances", {})
+            return Decimal(balances.get("available"))
+        return None
+    except Exception as e:
+        details = {"response_data": str(response_data), "error": str(e)}
+        raise CheckoutPayoutError("Checkout.com: Failed to extract available balance", details) from e

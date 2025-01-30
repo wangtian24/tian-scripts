@@ -188,39 +188,44 @@ class Settings(BaseSettings):
         return self._get_gcp_secret(f"resend-api-key-{self.ENVIRONMENT}")
 
     @computed_field  # type: ignore[misc]
-    @property
+    @cached_property
     def hyperwallet_api_url(self) -> str:
         return self._get_gcp_secret(f"hyperwallet-api-url-{self.ENVIRONMENT}")
 
     @computed_field  # type: ignore[misc]
-    @property
+    @cached_property
     def hyperwallet_program_token(self) -> str:
         return self._get_gcp_secret(f"hyperwallet-program-token-{self.ENVIRONMENT}")
 
     @computed_field  # type: ignore[misc]
-    @property
+    @cached_property
     def hyperwallet_username(self) -> str:
         return self._get_gcp_secret(f"hyperwallet-username-{self.ENVIRONMENT}")
 
     @computed_field  # type: ignore[misc]
-    @property
+    @cached_property
     def hyperwallet_password(self) -> str:
         return self._get_gcp_secret(f"hyperwallet-password-{self.ENVIRONMENT}")
 
     @computed_field  # type: ignore[misc]
-    @property
+    @cached_property
     def checkout_com_api_url(self) -> str:
         return self._get_gcp_secret(f"checkout-com-api-url-{self.ENVIRONMENT}")
 
     @computed_field  # type: ignore[misc]
-    @property
+    @cached_property
     def checkout_com_secret(self) -> str:
         return self._get_gcp_secret(f"checkout-com-secret-{self.ENVIRONMENT}")
 
     @computed_field  # type: ignore[misc]
-    @property
+    @cached_property
     def checkout_com_processing_channel(self) -> str:
         return self._get_gcp_secret(f"checkout-com-processing-channel-{self.ENVIRONMENT}")
+
+    @computed_field  # type: ignore[misc]
+    @cached_property
+    def checkout_com_entity_id(self) -> str:
+        return self._get_gcp_secret(f"checkout-com-entity-id-{self.ENVIRONMENT}")
 
     @computed_field  # type: ignore[misc]
     @property
@@ -341,4 +346,5 @@ async def preload_gcp_secrets() -> None:
         asyncio.to_thread(lambda: settings.checkout_com_api_url),
         asyncio.to_thread(lambda: settings.checkout_com_secret),
         asyncio.to_thread(lambda: settings.checkout_com_processing_channel),
+        asyncio.to_thread(lambda: settings.checkout_com_entity_id),
     )

@@ -122,6 +122,13 @@ async def validate_cashout_request(request: CashoutCreditsRequest) -> None:
         logging.warning(json_dumps(log_dict))
         raise HTTPException(status_code=400, detail="Cashout to crypto is not supported in India")
 
+    if (
+        request.cashout_currency == CurrencyEnum.USD
+        and request.facilitator == PaymentInstrumentFacilitatorEnum.CHECKOUT_COM
+    ):
+        if request.destination_additional_details is None:
+            raise HTTPException(status_code=400, detail="Please enter your bank account details!")
+
     if request.cashout_currency == CurrencyEnum.USD and request.facilitator == PaymentInstrumentFacilitatorEnum.PLAID:
         if request.destination_additional_details is None:
             raise HTTPException(status_code=400, detail="Please enter your bank account details!")

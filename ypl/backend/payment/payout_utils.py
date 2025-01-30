@@ -699,3 +699,12 @@ async def get_destination_instrument_id(
 
         await session.commit()
         return instrument.payment_instrument_id
+
+
+async def get_instrument_identifier(instrument_id: uuid.UUID) -> str | None:
+    """Get the instrument identifier for a given instrument ID."""
+    async with get_async_session() as session:
+        query = select(PaymentInstrument).where(PaymentInstrument.payment_instrument_id == instrument_id)
+        result = await session.execute(query)
+        instrument = result.scalar_one_or_none()
+        return instrument.identifier if instrument else None
