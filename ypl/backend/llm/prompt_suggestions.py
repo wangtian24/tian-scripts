@@ -165,7 +165,7 @@ async def refresh_conversation_starters(
                     explanation=starter.get("explanation"),
                 )
                 for starter in conversation_starters
-                if "prompt" in starter and "label" in starter
+                if "suggestion" in starter and "label" in starter
             ]
 
             delete_query = delete(SuggestedUserPrompt).where(SuggestedUserPrompt.user_id == user_id)  # type: ignore
