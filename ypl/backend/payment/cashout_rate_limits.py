@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Final, Literal, TypedDict
 
@@ -29,11 +29,10 @@ CASHOUT_REQUEST_RATE_LIMIT_ENABLED = True
 CASHOUT_REQUEST_RATE_LIMIT: Final[int] = 1  # Only 1 request allowed
 CASHOUT_REQUEST_WINDOW_SECONDS: Final[int] = 10  # Within 10 seconds window
 
-NEW_USER_COOLOFF_PERIOD_DAYS = 7
 MAX_DAILY_CASHOUT_COUNT = 1
-MAX_WEEKLY_CASHOUT_COUNT = 1
+MAX_WEEKLY_CASHOUT_COUNT = 2
 MAX_MONTHLY_CASHOUT_COUNT = 5
-MAX_FIRST_TIME_CASHOUT_CREDITS = 15000
+MAX_FIRST_TIME_CASHOUT_CREDITS = 1000
 
 MAX_DAILY_CASHOUT_CREDITS = 15000
 MAX_WEEKLY_CASHOUT_CREDITS = 15000
@@ -73,7 +72,6 @@ class CashoutLimitType(Enum):
     CREDIT_AMOUNT = "credit amount"
     FIRST_TIME = "first time credit"
     RATE_LIMIT = "rate limit"
-    NEW_USER_COOLOFF = "new user cooloff"
     DISABLED = "disabled"
     INSUFFICIENT_CREDIT_BALANCE = "insufficient credit balance"
     MINIMUM_CREDITS_PER_CASHOUT = "minimum credits per cashout"
@@ -108,8 +106,6 @@ class CashoutLimitError(HTTPException):
             detail = "You have insufficient credits to cash out"
         elif limit_type == CashoutLimitType.MINIMUM_CREDITS_PER_CASHOUT:
             detail = f"You must cash out at least {min_value} credits"
-        elif limit_type == CashoutLimitType.NEW_USER_COOLOFF:
-            detail = f"Please wait {current_value} days before submitting a cash out request"
         else:
             detail = f"You have reached the {period} cash out limit.\nPlease try again later."
 
@@ -542,8 +538,6 @@ async def validate_and_return_cashout_user_limits(user_id: str, credits_to_casho
         if is_yuppster:
             return cashout_user_info
 
-        await check_new_user_cashout_eligibility(session, user_id)
-
         period_stats, is_first_time = await get_cashout_stats(session, user_id, time_windows)
 
         override_config = (
@@ -621,55 +615,3 @@ async def check_facilitator_cashout_killswitch(facilitator: PaymentInstrumentFac
             f":x: Failure - Cashout is currently disabled for {facilitator.name}", user_id, facilitator
         )
         raise CashoutKillswitchError("Cash out is currently disabled for this payment method")
-
-
-async def check_new_user_cashout_eligibility(session: AsyncSession, user_id: str) -> None:
-    """
-    Check if a user is eligible for cashout based on their signup date.
-
-    Args:
-        session: The database session
-        user_id: The ID of the user to check
-
-
-    Raises:
-        CashoutLimitError: If there is any error checking eligibility or if user is in cooloff period
-    """
-    try:
-        result = await session.execute(select(User.created_at).where(User.user_id == user_id))
-        user_created_at = result.scalar_one_or_none()
-
-        if not user_created_at:
-            raise CashoutLimitError(
-                period="request",
-                limit_type=CashoutLimitType.NEW_USER_COOLOFF,
-                current_value=NEW_USER_COOLOFF_PERIOD_DAYS,
-                max_value=NEW_USER_COOLOFF_PERIOD_DAYS,
-                user_id=user_id,
-            )
-
-        # Check if user signed up before the cooloff period
-        cooloff_period_end = user_created_at + timedelta(days=NEW_USER_COOLOFF_PERIOD_DAYS)
-        now = datetime.now(UTC)
-
-        if now >= cooloff_period_end:
-            return
-
-        days_remaining = (cooloff_period_end - now).days + 1
-        raise CashoutLimitError(
-            period="request",
-            limit_type=CashoutLimitType.NEW_USER_COOLOFF,
-            current_value=days_remaining,
-            max_value=NEW_USER_COOLOFF_PERIOD_DAYS,
-            user_id=user_id,
-        )
-    except CashoutLimitError:
-        raise
-    except Exception as e:
-        log_dict = {
-            "message": "Error checking new user cashout eligibility",
-            "user_id": user_id,
-            "error": str(e),
-        }
-        logging.error(json_dumps(log_dict))
-        raise
