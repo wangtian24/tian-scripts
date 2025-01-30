@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
@@ -71,7 +71,7 @@ class StreamResponse:
 
 
 class ChatRequest(BaseModel):
-    prompt: str = Field(..., min_length=1, description="Prompt string")
+    prompt: str = Field(..., min_length=0, description="Prompt string")
     model: str = Field(..., description="Model internal name")
     is_new_chat: bool = True
     chat_id: uuid.UUID = Field(..., description="Chat Id  of generated on client")
@@ -118,6 +118,11 @@ async def chat_completions(
         chat_request: The chat prompt with model selection
         background_tasks: FastAPI background tasks
     """
+    if len(chat_request.prompt.strip()) == 0 and not chat_request.attachment_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Prompt cannot be empty",
+        )
     try:
         client: BaseChatModel = await get_provider_client(chat_request.model)
         return StreamingResponse(_stream_chat_completions(client, chat_request), media_type="text/event-stream")
