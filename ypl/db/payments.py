@@ -109,7 +109,7 @@ class PaymentTransaction(BaseModel, table=True):
     )
 
     destination_instrument_id: uuid.UUID = Field(
-        foreign_key="payment_instruments.payment_instrument_id", nullable=False
+        foreign_key="payment_instruments.payment_instrument_id", nullable=False, index=True
     )
     destination_instrument: "PaymentInstrument" = Relationship(
         back_populates="destination_transactions",
