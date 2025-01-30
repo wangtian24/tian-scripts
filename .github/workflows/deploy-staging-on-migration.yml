@@ -24,7 +24,7 @@ jobs:
               repo: 'yupp-mind',
               owner: 'yupp-ai',
               workflow_id: 'deploy.yml',
-              ref: 'staging',
+              ref: 'main',
               inputs: {
                 environment: 'staging',
               }
