@@ -163,11 +163,6 @@ class RewardVariables(BaseVariables):
     def turn_position_in_chat(self) -> int | None:
         return self.context.get("turn_position_in_chat")
 
-    # TODO(carmen): Deprecate is_first_turn.
-    @boolean_rule_variable
-    def is_first_turn(self) -> bool | None:
-        return self.context.get("is_first_turn")
-
     @boolean_rule_variable
     def is_new_user(self) -> bool | None:
         return self.context.get("is_new_user")

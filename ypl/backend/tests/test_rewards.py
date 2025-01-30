@@ -25,6 +25,12 @@ from ypl.backend.llm.reward import (
     referral_bonus_reward,
     sign_up_reward,
 )
+from ypl.backend.llm.turn_quality import (
+    CONTENT_LENGTH_BUCKETS,
+    HIGH_EVAL_QUALITY_SCORE,
+    LOW_EVAL_QUALITY_SCORE,
+    _estimate_eval_quality_score,
+)
 from ypl.backend.tests.test_utils import MockSession
 from ypl.db.rewards import RewardActionEnum, RewardAmountRule, RewardProbabilityRule
 
@@ -69,6 +75,7 @@ def create_user_turn_reward(**kwargs: Any) -> UserTurnReward:
     for key, value in kwargs.items():
         if value is not None:
             setattr(user_turn_reward, key, value)
+    user_turn_reward.recent_eval_quality_scores = []
     user_turn_reward.amount_rule = user_turn_reward._get_amount_rule()
     user_turn_reward.probability_rule = user_turn_reward._get_probability_rule()
     return user_turn_reward
@@ -269,6 +276,7 @@ async def test_feedback_and_qt_eval_reward(
             assert rule_prob.name == expected_rule_name
 
 
+@patch("ypl.backend.llm.reward._get_recent_eval_quality_scores")
 @patch("ypl.backend.llm.reward._get_reward_points_summary")
 @patch("ypl.backend.llm.reward.get_async_engine")
 @patch("ypl.backend.llm.reward.get_user_reward_count_by_action_type")
@@ -282,11 +290,12 @@ async def test_sign_up_reward(
     mock_get_user_reward_count_by_action_type: Any,
     mock_engine: Any,
     mock_get_reward_points_summary: Any,
+    mock_get_recent_eval_quality_scores: Any,
 ) -> None:
     # Mock PostgresDsn.build to return a valid URL string
     mock_postgres_dsn.return_value.unicode_string.return_value = "postgresql://test_user:test_pass@test_host/test_db"
     mock_get_reward_points_summary.side_effect = lambda user_id, session: get_reward_points_summary(10, 50, 200, 10)
-
+    mock_get_recent_eval_quality_scores.return_value = []
     # Configure the mock session
     mock_session.return_value = MockSession()
 
@@ -341,6 +350,7 @@ async def test_sign_up_reward_no_repeat(
     assert should_reward is False  # should only reward once
 
 
+@patch("ypl.backend.llm.reward._get_recent_eval_quality_scores")
 @patch("ypl.backend.llm.reward._get_reward_points_summary")
 @patch("ypl.backend.llm.reward.get_async_engine")
 @patch("ypl.backend.llm.reward.get_user_reward_count_by_action_type")
@@ -354,6 +364,7 @@ async def test_referral_bonus_reward_referred_user(
     mock_get_user_reward_count_by_action_type: Any,
     mock_engine: Any,
     mock_get_reward_points_summary: Any,
+    mock_get_recent_eval_quality_scores: Any,
 ) -> None:
     # Mock PostgresDsn.build to return a valid URL string
     mock_postgres_dsn.return_value.unicode_string.return_value = "postgresql://test_user:test_pass@test_host/test_db"
@@ -365,7 +376,7 @@ async def test_referral_bonus_reward_referred_user(
     mock_engine_instance = AsyncMock()
     mock_engine.return_value = mock_engine_instance
     mock_get_reward_points_summary.side_effect = lambda user_id, session: get_reward_points_summary(10, 50, 200, 10)
-
+    mock_get_recent_eval_quality_scores.return_value = []
     for existing_claims in (0, 1, 2):
         # Configure the user reward count mock
         mock_get_user_reward_count_by_action_type.side_effect = (
@@ -388,6 +399,7 @@ async def test_referral_bonus_reward_referred_user(
             assert rule_prob.name == "new_user_bonus_already_claimed"
 
 
+@patch("ypl.backend.llm.reward._get_recent_eval_quality_scores")
 @patch("ypl.backend.llm.reward._get_reward_points_summary")
 @patch("ypl.backend.llm.reward.get_async_engine")
 @patch("ypl.backend.llm.reward.get_user_reward_count_by_action_type")
@@ -401,6 +413,7 @@ async def test_referral_bonus_reward_referrer(
     mock_get_user_reward_count_by_action_type: Any,
     mock_engine: Any,
     mock_get_reward_points_summary: Any,
+    mock_get_recent_eval_quality_scores: Any,
 ) -> None:
     # Mock PostgresDsn.build to return a valid URL string
     mock_postgres_dsn.return_value.unicode_string.return_value = "postgresql://test_user:test_pass@test_host/test_db"
@@ -412,7 +425,7 @@ async def test_referral_bonus_reward_referrer(
     mock_engine_instance = AsyncMock()
     mock_engine.return_value = mock_engine_instance
     mock_get_reward_points_summary.side_effect = lambda user_id, session: get_reward_points_summary(10, 50, 200, 10)
-
+    mock_get_recent_eval_quality_scores.return_value = []
     for existing_claims in (0, 1, 2):
         # Configure the user reward count mock
         mock_get_user_reward_count_by_action_type.side_effect = (
@@ -445,6 +458,7 @@ async def test_referral_bonus_reward_referrer(
 @patch("ypl.backend.llm.reward.get_chat_model")
 @patch("ypl.backend.llm.reward.GeminiLangChainAdapter")
 @patch("ypl.backend.llm.reward._get_reward_points_summary")
+@patch("ypl.backend.llm.reward._get_recent_eval_quality_scores")
 @patch("ypl.backend.llm.reward.Session")
 @patch("ypl.backend.config.settings")
 @patch("pydantic.PostgresDsn.build")
@@ -453,6 +467,7 @@ def test_turn_reward_amount(
     mock_settings: Any,
     mock_session: Any,
     mock_get_reward_points_summary: Any,
+    mock_get_recent_eval_quality_scores: Any,
     mock_get_chat_model: Any,
     mock_gemini_adapter: Any,
     mock_engine: Any,
@@ -477,6 +492,7 @@ def test_turn_reward_amount(
     amount_low_points = np.mean([utr_low_points.get_amount() for _ in range(20)])
     amount_mid_points = np.mean([utr_mid_points.get_amount() for _ in range(20)])
     amount_high_points = np.mean([utr_high_points.get_amount() for _ in range(20)])
+    mock_get_recent_eval_quality_scores.return_value = []
 
     assert amount_low_points > amount_mid_points > amount_high_points
 
@@ -556,3 +572,30 @@ def test_maybe_decay_amounts(period: str) -> None:
     assert heavily_decayed_min < decayed_min
     assert heavily_decayed_max < decayed_max
     assert heavily_decayed_decay_factor < decay_factor
+
+
+@mark.parametrize(
+    "response_time_secs, response_lengths, expected_score",
+    [
+        (5.0, (100, 100), LOW_EVAL_QUALITY_SCORE),  # Too fast response for content length
+        (20.0, (100, 100), HIGH_EVAL_QUALITY_SCORE),  # Good response time for content length
+        (100.0, (100, 100), LOW_EVAL_QUALITY_SCORE),  # Too slow response for content length
+        (2.0, (10000, 10000), LOW_EVAL_QUALITY_SCORE),  # Too fast response, regardless of content length
+    ],
+)
+@patch("ypl.backend.llm.turn_quality.get_eval_response_times_by_content_length")
+def test_estimate_eval_quality_score(
+    mock_get_eval_response_times_by_content_length: Any,
+    response_time_secs: float,
+    response_lengths: tuple[int, ...],
+    expected_score: float,
+) -> None:
+    response_percentiles = {bucket: (10, 30) for bucket in CONTENT_LENGTH_BUCKETS}
+    response_percentiles[float("inf")] = (1, 10)
+    mock_get_eval_response_times_by_content_length.return_value = response_percentiles
+    score, explanation = _estimate_eval_quality_score(response_time_secs, response_lengths)
+    assert score == expected_score
+    assert isinstance(explanation, dict)
+    assert explanation["min_response_time_secs"] == "10"
+    assert explanation["max_response_time_secs"] == "30"
+    assert explanation["actual_response_time_secs"] == str(response_time_secs)

@@ -1,10 +1,11 @@
+import asyncio
 import logging
 import math
 import os
 import random
 import time
 import uuid
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -30,6 +31,7 @@ from ypl.backend.llm.db_helpers import get_chat_model
 from ypl.backend.llm.judge import FeedbackQualityLabeler
 from ypl.backend.llm.labeler import MultiLLMLabeler
 from ypl.backend.llm.model_data_type import ModelInfo
+from ypl.backend.llm.turn_quality import LOW_EVAL_QUALITY_SCORE, update_user_eval_quality_scores
 from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import Chat, Eval, Turn, TurnQuality
@@ -61,6 +63,11 @@ POOR_FEEDBACK_SCORE = 2
 AVERAGE_FEEDBACK_SCORE = 3
 GOOD_FEEDBACK_SCORE = 4
 EXCELLENT_FEEDBACK_SCORE = 5
+
+# Number of recent evals to check for low-quality evals.
+NUM_RECENT_EVALS_FOR_QUALITY_CHECK = 5
+# Number of low-quality evals in the recent evals to consider for zero reward.
+NUM_LOW_QUALITY_EVALS_FOR_ZERO_REWARD = 2
 
 # Reward types that count towards point limits.
 REWARDABLE_POINT_ACTION_TYPES = [PointsActionEnum.REWARD, PointsActionEnum.ADJUSTMENT]
@@ -191,7 +198,6 @@ class UserTurnReward:
     chat_id: UUID | None = None
     # TODO(carmen): Deprecate turn_position_in_chat and is_first_turn.
     turn_position_in_chat: int = -1
-    is_first_turn: bool = False
     previous_chat_count: int = 0
     previous_eval_count_in_chat: int = 0
     is_first_eval: bool = False
@@ -214,6 +220,7 @@ class UserTurnReward:
     pref_rewards_count_since_reactivation: int = -1
     decay_factor: float | None = None
     decay_factor_high_value: float | None = None
+    recent_eval_quality_scores: list[float] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self._fetch_data_and_set_flags()
@@ -286,12 +293,6 @@ class UserTurnReward:
                 )
             ).one()
 
-            # TODO(carmen): Deprecate is_first_turn.
-            first_turn_id = session.exec(
-                select(Turn.turn_id).where(Turn.creator_user_id == self.user_id).order_by(Turn.created_at)  # type: ignore
-            ).first()
-            self.is_first_turn = first_turn_id == self.turn_id
-
             # Set turn quality if available
             if turn_quality:
                 self.turn_quality_score = turn_quality.get_overall_quality() or -1
@@ -304,6 +305,7 @@ class UserTurnReward:
             self.referral_points_last_day = reward_points_summary["referral_points_last_day"]
             self.referral_points_last_week = reward_points_summary["referral_points_last_week"]
             self.referral_points_last_month = reward_points_summary["referral_points_last_month"]
+            self.recent_eval_quality_scores = _get_recent_eval_quality_scores(self.user_id, session)
 
             self.amount_rule = self._get_amount_rule()
             self.probability_rule = self._get_probability_rule()
@@ -322,6 +324,22 @@ class UserTurnReward:
         - received less than 3 PREF rewards in total
         - received less than 3 PREF rewards since their last reactivation
         """
+
+        # Check if the user has submitted low quality evals recently.
+        low_quality_count = len([score for score in self.recent_eval_quality_scores if score == LOW_EVAL_QUALITY_SCORE])
+        if low_quality_count >= NUM_LOW_QUALITY_EVALS_FOR_ZERO_REWARD:
+            logging.info(
+                json_dumps(
+                    {
+                        "message": "Zero reward due to multiple recent low quality evals",
+                        "user_id": self.user_id,
+                        "low_quality_count": str(low_quality_count),
+                        "recent_eval_quality_scores": str(self.recent_eval_quality_scores),
+                    }
+                )
+            )
+            return True
+
         if (
             self.points_last_award == 0
             or self.turn_position_in_chat == 0
@@ -476,6 +494,14 @@ async def turn_based_reward(
             - RewardAmountRule | None: The reward amount rule used.
             - RewardProbabilityRule | None: The reward probability rule used.
     """
+
+    async def update_quality_scores() -> None:
+        # In most cases, waiting a bit will result in the inclusion of the eval for the current turn.
+        # If not, it will be included in the next batch of evals.
+        await asyncio.sleep(5)
+        await update_user_eval_quality_scores(user_id)
+
+    asyncio.create_task(update_quality_scores())
     return _handle_turn_based_reward(UserTurnReward(user_id, turn_id))
 
 
@@ -606,6 +632,19 @@ def log_reward_debug_info(
     except Exception as e:
         log_dict = {"message": "Error posting to Slack", "error": str(e), "user_id": user_id}
         logging.error(json_dumps(log_dict))
+
+
+def _get_recent_eval_quality_scores(user_id: str, session: Session) -> list[float]:
+    return [
+        score
+        for score in session.exec(
+            select(Eval.quality_score)
+            .where(Eval.user_id == user_id, Eval.deleted_at.is_(None))  # type: ignore
+            .order_by(Eval.created_at.desc())  # type: ignore
+            .limit(NUM_RECENT_EVALS_FOR_QUALITY_CHECK)
+        ).all()
+        if score is not None
+    ]
 
 
 def _get_reward_points_summary(user_id: str, session: Session) -> dict[str, int]:
