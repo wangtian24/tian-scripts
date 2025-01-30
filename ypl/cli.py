@@ -1433,20 +1433,20 @@ def post_source_account_balances() -> None:
 
 
 @cli.command()
-@click.option("--max-recent-chats", default=10, help="Maximum number of recent chats to consider")
-@click.option("--max-messages-per-chat", default=10, help="Maximum messages to include per chat")
+@click.option("--max-recent-chats", default=20, help="Maximum number of recent chats to consider")
+@click.option("--max-turns-per-chat", default=15, help="Maximum turns to include per chat")
 @click.option("--max-message-length", default=1000, help="Maximum length of each message")
 @click.option("--min-new-chats", default=2, help="Minimum number of new chats required")
 @click.option("--num-days-for-user-activity", default=1, help="Limit to users with chats in the last N days")
 @click.option("--num-parallel", default=4, help="Number number of users to refresh in parallel")
 @db_cmd
 def refresh_all_users_conversation_starters(
-    max_recent_chats: int = 10,
-    max_turns_per_chat: int = 10,
-    max_message_length: int = 1000,
-    min_new_chats: int = 2,
-    num_days_for_user_activity: int = 1,
-    num_parallel: int = 4,
+    max_recent_chats: int,
+    max_turns_per_chat: int,
+    max_message_length: int,
+    min_new_chats: int,
+    num_days_for_user_activity: int,
+    num_parallel: int,
 ) -> None:
     """Refresh conversation starters for all users."""
 
