@@ -1077,7 +1077,9 @@ async def generate_quicktake(
     chat_history_time = time.time() - start_time
 
     # Add attachments (image, etc) to the chat history, as a url or base64 encoded string.
-    all_attachments = [attachment for m in chat_history for attachment in m.additional_kwargs.get("attachments", [])]
+    old_attachments = [attachment for m in chat_history for attachment in m.additional_kwargs.get("attachments", [])]
+    new_attachments = await get_attachments(request.attachment_ids) if request.attachment_ids else []
+    all_attachments = old_attachments + new_attachments
     has_attachments = len(all_attachments) > 0
     has_pdf_attachments = any(attachment.content_type == "application/pdf" for attachment in all_attachments)
     transform_options: TransformOptions = {"image_type": "thumbnail", "use_signed_url": False}
@@ -1110,12 +1112,13 @@ async def generate_quicktake(
 
     # Transform the latest message with attachments, if any.
     # Supply this to the labelers after trimming the context.
+
     latest_message_transform_result = await transform_user_messages(
         [
             HumanMessage(
                 content=request.prompt or "",
                 additional_kwargs={
-                    "attachments": await get_attachments(request.attachment_ids) if request.attachment_ids else [],
+                    "attachments": new_attachments,
                 },
             )
         ],
@@ -1217,6 +1220,9 @@ async def generate_quicktake(
         "for_fallback": str(request.for_fallback),
         "duration_secs": str(end_time - start_time),
         "content_length": str(len(quicktake)),
+        "old_attachments_ids": str([attachment.attachment_id for attachment in old_attachments]),
+        "new_attachments_ids": str([attachment.attachment_id for attachment in new_attachments]),
+        "attachment_mime_types": str([attachment.content_type for attachment in all_attachments]),
     }
     for model, response_type in responses_by_model.items():
         log_dict[f"{model}_response_type"] = response_type
