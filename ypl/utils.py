@@ -199,11 +199,14 @@ class Delegator:
                             task.cancel()
                         # Wait for cancellations to complete
                         if pending:
-                            cancelled_done, _ = await asyncio.wait(pending, return_when=asyncio.ALL_COMPLETED)
+                            cancelled_done, pending = await asyncio.wait(pending, return_when=asyncio.ALL_COMPLETED)
+                            # `pending` is now empty, as there is no timeout for wait().
                             for task in cancelled_done:
                                 name, result = await task
                                 results[name] = result
                         break
+                    # TODO(Raghu): tweak: if all early_terminate_on models refuse, we wait for all of the remaining.
+                    #              We only need one of the remaining to respond.
 
                 # Continue processing remaining tasks in next iteration
                 continue
@@ -215,8 +218,8 @@ class Delegator:
                     task.cancel()
             results.update({name: e for name in self.delegates.keys() if name not in results})
 
-        # Assume everything else timed out
-        results.update({name: TimeoutError() for name in self.delegates if not results.get(name)})
+        # A catch-all for any unexpected errors that are not caught by execute_method()
+        results.update({name: RuntimeError("Unexpected") for name in self.delegates if not results.get(name)})
 
         return results
 

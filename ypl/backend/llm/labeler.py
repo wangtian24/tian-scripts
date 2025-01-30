@@ -38,6 +38,12 @@ OnErrorBehavior = Literal[
 QT_CANT_ANSWER = "<CANT_ANSWER>"
 
 
+class CantAnswerException(Exception):
+    """Exception raised when the LLM explicitly returns "<CANT_ANSWER>"."""
+
+    pass
+
+
 class StopMultistepProcessing(Exception):
     """
     Exception raised to stop the multistep processing of an input.
@@ -192,6 +198,14 @@ class LLMLabeler(Generic[InputType, OutputType]):
     def _clean_output(self, output: BaseMessage) -> str:
         return str(output.content)
 
+    def _validate_output(self, output: BaseMessage) -> None:
+        """
+        Checks if the output from LLM is a valid response. A subclass can override this method to
+        throw an exception if the output indidates error or lack of answer. The default implementation is a no-op.
+        Use case: quicktake labeler checks if the output is <CANT_ANSWER> and treats it as error.
+        """
+        pass
+
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_fixed(0.1),
@@ -227,6 +241,7 @@ class LLMLabeler(Generic[InputType, OutputType]):
             async with asyncio.timeout(self.timeout_secs):
                 prepared_input = self._prepare_input(input)
                 output = await self.llm.ainvoke(prepared_input)  # type: ignore
+                self._validate_output(output)
                 self._log_success(input, output, start_time)
                 return await self._aparse_output(output), self._clean_output(output)
         except Exception as e:
@@ -546,6 +561,7 @@ class QuickTakeGenerator(LLMLabeler[HumanMessage, str]):
         self,
         llm: BaseChatModel,
         chat_history: list[BaseMessage],
+        model_name: str,
         keep_role: str | None = "ai",
         user_quicktake_prompt: str = USER_QUICKTAKE_PROMPT,
         system_quicktake_prompt: str = SYSTEM_QUICKTAKE_PROMPT,
@@ -553,6 +569,7 @@ class QuickTakeGenerator(LLMLabeler[HumanMessage, str]):
     ) -> None:
         self.keep_role = keep_role
         self.chat_history = chat_history
+        self.model_name = model_name
         self.user_quicktake_prompt = user_quicktake_prompt
         self.system_quicktake_prompt = system_quicktake_prompt
         super().__init__(llm, **kwargs)
@@ -560,6 +577,9 @@ class QuickTakeGenerator(LLMLabeler[HumanMessage, str]):
     @property
     def error_value(self) -> str:
         return QT_CANT_ANSWER
+
+    def _get_log_info(self, input: HumanMessage, start_time: float) -> dict[str, Any]:
+        return {"model_name": self.model_name} | super()._get_log_info(input, start_time)
 
     def _get_prompt_template(self, message: HumanMessage) -> HumanMessage:
         if isinstance(message.content, str):
@@ -599,3 +619,8 @@ class QuickTakeGenerator(LLMLabeler[HumanMessage, str]):
     def _parse_output(self, output: BaseMessage) -> str:
         assert output.content is not None and isinstance(output.content, str)
         return str(output.content).strip()
+
+    # Override
+    def _validate_output(self, output: BaseMessage) -> None:
+        if str(output.content).strip() == QT_CANT_ANSWER:
+            raise CantAnswerException(f"{self.model_name} indicated it {QT_CANT_ANSWER}")

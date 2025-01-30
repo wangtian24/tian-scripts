@@ -1035,9 +1035,11 @@ def get_quicktake_generator(
     return QuickTakeGenerator(
         get_qt_llms()[model],
         chat_history,
+        model_name=model,
         timeout_secs=timeout_secs,
         user_quicktake_prompt=USER_QUICKTAKE_FALLBACK_PROMPT if for_fallback else USER_QUICKTAKE_PROMPT,
         system_quicktake_prompt=SYSTEM_QUICKTAKE_FALLBACK_PROMPT if for_fallback else SYSTEM_QUICKTAKE_PROMPT,
+        on_error="raise",
     )
 
 
@@ -1166,9 +1168,10 @@ async def generate_quicktake(
             )
             quicktakes = await multi_generator.alabel(trimmed_message)
             quicktake = QT_CANT_ANSWER
+            # TODO(Raghu): We treat it as refusal even when all the models timeout. Might treat it differently.
             responses_by_model = {model: type(response).__name__ for model, response in quicktakes.items()}
             found_response = False
-            for model in labelers:
+            for model in labelers:  # Iterates in the order of insertion which has preferred models first.
                 response = quicktakes.get(model)
                 if response and not isinstance(response, Exception):
                     response_model = model
