@@ -2,5 +2,8 @@
   "editor.defaultFormatter": "charliermarsh.ruff",
   "editor.formatOnSaveMode": "file",
   "editor.formatOnSave": true,
-  "mypy.runUsingActiveInterpreter": true
+  "mypy.runUsingActiveInterpreter": true,
+  "[github-actions-workflow]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  }
 }

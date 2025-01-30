@@ -1,0 +1,15 @@
+name: Marketing emails
+
+on:
+  schedule:
+    - cron: "0 17 * * *" # Runs at 9 AM PST (17:00/5 PM UTC) daily
+  workflow_dispatch:
+
+jobs:
+  marketing_emails:
+    uses: ./.github/workflows/cronjob.yml
+    with:
+      # TODO(w): Remove dry-run once we want to start sending emails
+      command: send-marketing-emails --dry-run
+      environment: production
+    secrets: inherit

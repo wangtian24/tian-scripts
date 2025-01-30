@@ -4,6 +4,16 @@ from typing import Any
 import resend
 from resend.emails._email import Email
 from ypl.backend.config import settings
+from ypl.backend.email.campaigns.nudge import (
+    WEEK_1_CHECKIN_EMAIL_TEMPLATE,
+    WEEK_1_CHECKIN_EMAIL_TITLE,
+    WEEK_1_INACTIVE_EMAIL_TEMPLATE,
+    WEEK_1_INACTIVE_EMAIL_TITLE,
+    WEEK_5_INACTIVE_EMAIL_TEMPLATE,
+    WEEK_5_INACTIVE_EMAIL_TITLE,
+    WEEK_6_DEACTIVATION_EMAIL_TEMPLATE,
+    WEEK_6_DEACTIVATION_EMAIL_TITLE,
+)
 from ypl.backend.email.campaigns.signup import (
     FIRST_PREF_BONUS_EMAIL_TEMPLATE,
     FIRST_PREF_BONUS_EMAIL_TITLE,
@@ -44,6 +54,22 @@ EMAIL_CAMPAIGNS = {
     "your_friend_joined": {
         "title": YOUR_FRIEND_JOINED_EMAIL_TITLE,
         "template": YOUR_FRIEND_JOINED_EMAIL_TEMPLATE,
+    },
+    "week_1_checkin": {
+        "title": WEEK_1_CHECKIN_EMAIL_TITLE,
+        "template": WEEK_1_CHECKIN_EMAIL_TEMPLATE,
+    },
+    "week_1_inactive": {
+        "title": WEEK_1_INACTIVE_EMAIL_TITLE,
+        "template": WEEK_1_INACTIVE_EMAIL_TEMPLATE,
+    },
+    "week_5_inactive": {
+        "title": WEEK_5_INACTIVE_EMAIL_TITLE,
+        "template": WEEK_5_INACTIVE_EMAIL_TEMPLATE,
+    },
+    "week_6_deactivation": {
+        "title": WEEK_6_DEACTIVATION_EMAIL_TITLE,
+        "template": WEEK_6_DEACTIVATION_EMAIL_TEMPLATE,
     },
 }
 
