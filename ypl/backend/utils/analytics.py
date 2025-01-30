@@ -486,12 +486,15 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
         SELECT
             date_trunc('day', r.created_at AT TIME ZONE 'America/Los_Angeles')::date AS date,
             SUM(r.credit_delta) AS total_credits,
-            SUM(CASE WHEN up.country = 'IN' THEN r.credit_delta ELSE 0 END) as total_credits_from_india,
-            SUM(CASE WHEN COALESCE(up.country, 'ROW') != 'IN' THEN r.credit_delta ELSE 0 END) as total_credits_from_row
+            SUM(CASE WHEN u.country_code = 'IN' THEN r.credit_delta ELSE 0 END) as total_credits_from_india,
+            SUM(CASE WHEN COALESCE(u.country_code, 'ROW') != 'IN' THEN r.credit_delta ELSE 0 END)
+            as total_credits_from_row,
+            COUNT(DISTINCT CASE WHEN u.country_code = 'IN' THEN u.user_id END) as distinct_users_india,
+            COUNT(DISTINCT CASE WHEN COALESCE(u.country_code, 'ROW') != 'IN' THEN u.user_id END) as distinct_users_row
         FROM
             rewards r
-        LEFT JOIN
-            user_profiles up ON r.user_id = up.user_id
+        JOIN
+            users u ON r.user_id = u.user_id
         WHERE
             r.status = 'CLAIMED'
             AND (r.created_at AT TIME ZONE 'America/Los_Angeles')::date =
@@ -533,6 +536,8 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
             b.total_credits,
             b.total_credits_from_india,
             b.total_credits_from_row,
+            b.distinct_users_india,
+            b.distinct_users_row,
             COALESCE(t.turn_count, 0) as turn_count,
             COALESCE(r.referred_user_bonus_count, 0) as referred_user_bonus_count
         FROM base_data b
@@ -545,6 +550,8 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
         SUM(total_credits) AS total_credits,
         SUM(total_credits_from_india) AS total_credits_from_india,
         SUM(total_credits_from_row) AS total_credits_from_row,
+        SUM(distinct_users_india) AS distinct_users_india,
+        SUM(distinct_users_row) AS distinct_users_row,
         SUM(turn_count) AS turn_count,
         SUM(referred_user_bonus_count) AS referred_user_bonus_count,
         CASE
@@ -564,12 +571,15 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
         SELECT
             date_trunc('day', r.created_at AT TIME ZONE 'America/Los_Angeles')::date AS date,
             SUM(r.credit_delta) AS total_credits,
-            SUM(CASE WHEN up.country = 'IN' THEN r.credit_delta ELSE 0 END) as total_credits_from_india,
-            SUM(CASE WHEN COALESCE(up.country, 'ROW') != 'IN' THEN r.credit_delta ELSE 0 END) as total_credits_from_row
+            SUM(CASE WHEN u.country_code = 'IN' THEN r.credit_delta ELSE 0 END) as total_credits_from_india,
+            SUM(CASE WHEN COALESCE(u.country_code, 'ROW') != 'IN' THEN r.credit_delta ELSE 0 END)
+            as total_credits_from_row,
+            COUNT(DISTINCT CASE WHEN u.country_code = 'IN' THEN u.user_id END) as distinct_users_india,
+            COUNT(DISTINCT CASE WHEN COALESCE(u.country_code, 'ROW') != 'IN' THEN u.user_id END) as distinct_users_row
         FROM
             rewards r
-        LEFT JOIN
-            user_profiles up ON r.user_id = up.user_id
+        JOIN
+            users u ON r.user_id = u.user_id
         WHERE
             r.status = 'CLAIMED'
             AND (r.created_at AT TIME ZONE 'America/Los_Angeles')::date >=
@@ -611,6 +621,8 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
             b.total_credits,
             b.total_credits_from_india,
             b.total_credits_from_row,
+            b.distinct_users_india,
+            b.distinct_users_row,
             COALESCE(t.turn_count, 0) as turn_count,
             COALESCE(r.referred_user_bonus_count, 0) as referred_user_bonus_count
         FROM base_data b
@@ -623,6 +635,8 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
         SUM(total_credits) AS total_credits,
         SUM(total_credits_from_india) AS total_credits_from_india,
         SUM(total_credits_from_row) AS total_credits_from_row,
+        COUNT(DISTINCT CASE WHEN distinct_users_india > 0 THEN date END) as distinct_users_india,
+        COUNT(DISTINCT CASE WHEN distinct_users_row > 0 THEN date END) as distinct_users_row,
         SUM(turn_count) AS turn_count,
         SUM(referred_user_bonus_count) AS referred_user_bonus_count,
         CASE
@@ -640,6 +654,8 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
         SUM(total_credits) AS total_credits,
         SUM(total_credits_from_india) AS total_credits_from_india,
         SUM(total_credits_from_row) AS total_credits_from_row,
+        COUNT(DISTINCT CASE WHEN distinct_users_india > 0 THEN date END) as distinct_users_india,
+        COUNT(DISTINCT CASE WHEN distinct_users_row > 0 THEN date END) as distinct_users_row,
         SUM(turn_count) AS turn_count,
         SUM(referred_user_bonus_count) AS referred_user_bonus_count,
         CASE
@@ -657,6 +673,8 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
         SUM(total_credits) AS total_credits,
         SUM(total_credits_from_india) AS total_credits_from_india,
         SUM(total_credits_from_row) AS total_credits_from_row,
+        COUNT(DISTINCT CASE WHEN distinct_users_india > 0 THEN date END) as distinct_users_india,
+        COUNT(DISTINCT CASE WHEN distinct_users_row > 0 THEN date END) as distinct_users_row,
         SUM(turn_count) AS turn_count,
         SUM(referred_user_bonus_count) AS referred_user_bonus_count,
         CASE
@@ -679,6 +697,8 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
             if len(daily_metrics) >= 1:
                 yesterday_metrics = daily_metrics[0]
                 message = f"*Database Credit Metrics for {yesterday_metrics.period_start}*\n"
+                usd_credits_from_india = yesterday_metrics.total_credits_from_india
+                usd_credits_from_row = yesterday_metrics.total_credits_from_row
                 usd_amount_india = yesterday_metrics.total_credits_from_india * CREDITS_TO_INR_RATE / USD_TO_INR_RATE
                 usd_amount_row = yesterday_metrics.total_credits_from_row * CREDITS_TO_USD_RATE
                 usd_amount = usd_amount_india + usd_amount_row
@@ -688,7 +708,10 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
                     f"{yesterday_metrics.credits_per_turn:,d} credits/turn; "
                     f"{yesterday_metrics.referred_user_bonus_count:,} referred users)\n"
                     f"Corresponding USD: {usd_amount:,.2f}\n"
-                    f"(India: {usd_amount_india:,.2f}, Row: {usd_amount_row:,.2f})\n"
+                    f"(India: {yesterday_metrics.distinct_users_india:,} users; {usd_credits_from_india:,} Credits, "
+                    f"${usd_amount_india:,.2f}; "
+                    f"Rest of World: {yesterday_metrics.distinct_users_row:,} users; {usd_credits_from_row:,} Credits, "
+                    f"${usd_amount_row:,.2f}\n"
                 )
 
                 if start_date.weekday() == 6:
@@ -698,6 +721,8 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
                     quarterly_metrics = next((r for r in weekly_results if r.period == "quarterly"), None)
 
                     if weekly_metrics:
+                        usd_credits_from_india = weekly_metrics.total_credits_from_india
+                        usd_credits_from_row = weekly_metrics.total_credits_from_row
                         usd_amount_india = (
                             weekly_metrics.total_credits_from_india * CREDITS_TO_INR_RATE / USD_TO_INR_RATE
                         )
@@ -710,9 +735,14 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
                             f"{weekly_metrics.credits_per_turn:,d} credits/turn; "
                             f"{weekly_metrics.referred_user_bonus_count:,} referred users)\n"
                             f"Corresponding USD: {usd_amount:,.2f}\n"
-                            f"(India: {usd_amount_india:,.2f}, Rest of World: {usd_amount_row:,.2f})\n"
+                            f"(India: {weekly_metrics.distinct_users_india:,} users; {usd_credits_from_india:,} "
+                            f"Credits, ${usd_amount_india:,.2f}; "
+                            f"Rest of World: {weekly_metrics.distinct_users_row:,} users; {usd_credits_from_row:,} "
+                            f"Credits, ${usd_amount_row:,.2f})\n"
                         )
                     if monthly_metrics:
+                        usd_credits_from_india = monthly_metrics.total_credits_from_india
+                        usd_credits_from_row = monthly_metrics.total_credits_from_row
                         usd_amount_india = (
                             monthly_metrics.total_credits_from_india * CREDITS_TO_INR_RATE / USD_TO_INR_RATE
                         )
@@ -725,10 +755,15 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
                             f"{monthly_metrics.credits_per_turn:,d} credits/turn; "
                             f"{monthly_metrics.referred_user_bonus_count:,} referred users)\n"
                             f"Corresponding USD: {usd_amount:,.2f}\n"
-                            f"(India: {usd_amount_india:,.2f}, Row: {usd_amount_row:,.2f})\n"
+                            f"(India: {monthly_metrics.distinct_users_india:,} users; {usd_credits_from_india:,} "
+                            f"Credits, ${usd_amount_india:,.2f}; "
+                            f"Rest of World: {monthly_metrics.distinct_users_row:,} users; {usd_credits_from_row:,} "
+                            f"${usd_amount_row:,.2f})\n"
                         )
                     if quarterly_metrics:
                         quarter = (quarterly_metrics.period_start.month - 1) // 3 + 1
+                        usd_credits_from_india = quarterly_metrics.total_credits_from_india
+                        usd_credits_from_row = quarterly_metrics.total_credits_from_row
                         usd_amount_india = (
                             quarterly_metrics.total_credits_from_india * CREDITS_TO_INR_RATE / USD_TO_INR_RATE
                         )
@@ -741,7 +776,10 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
                             f"{quarterly_metrics.credits_per_turn:,d} credits/turn; "
                             f"{quarterly_metrics.referred_user_bonus_count:,} referred users)\n"
                             f"Corresponding USD: {usd_amount:,.2f}\n"
-                            f"(India: {usd_amount_india:,.2f}, Row: {usd_amount_row:,.2f})\n"
+                            f"(India: {quarterly_metrics.distinct_users_india:,} users; {usd_credits_from_india:,} "
+                            f"Credits, ${usd_amount_india:,.2f}; "
+                            f"Rest of World: {quarterly_metrics.distinct_users_row:,} users; {usd_credits_from_row:,} "
+                            f"${usd_amount_row:,.2f})\n"
                         )
 
             else:
