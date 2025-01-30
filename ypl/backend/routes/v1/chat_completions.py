@@ -32,6 +32,7 @@ from ypl.backend.llm.chat import (
 from ypl.backend.llm.crawl import enhance_citations
 from ypl.backend.llm.model.model import ModelResponseTelemetry
 from ypl.backend.llm.model_heuristics import ModelHeuristics
+from ypl.backend.llm.prompt_suggestions import maybe_add_suggested_followups
 from ypl.backend.llm.provider.provider_clients import get_language_model, get_provider_client
 from ypl.backend.llm.sanitize_messages import DEFAULT_MAX_TOKENS, sanitize_messages
 from ypl.backend.llm.transform_messages import TransformOptions, transform_user_messages
@@ -418,8 +419,8 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                 # Check to see if we can schedule a task to link attachments at the begining
                 # and check status later.
                 await link_attachments(chat_request.user_message_id, chat_request.attachment_ids)
-            # if stream_completion_status == CompletionStatus.SUCCESS:
-            #     asyncio.create_task(maybe_add_suggested_followups(chat_request.chat_id, chat_request.turn_id))
+            if stream_completion_status == CompletionStatus.SUCCESS:
+                asyncio.create_task(maybe_add_suggested_followups(chat_request.chat_id, chat_request.turn_id))
             # Send persistence success status
             yield StreamResponse(
                 {"status": "message_persisted", "timestamp": datetime.now().isoformat(), "model": chat_request.model},
