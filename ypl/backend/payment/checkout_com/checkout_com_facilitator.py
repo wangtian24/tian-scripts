@@ -173,17 +173,18 @@ class CheckoutFacilitator(BaseFacilitator):
         try:
             try:
                 credits_to_cashout += CASHOUT_TXN_COST
-                source_instrument_balance = await self.get_balance(self.currency, payment_transaction_id)
+                # TODO verify this check before reenabling it
+                # source_instrument_balance = await self.get_balance(self.currency, payment_transaction_id)
 
-                if source_instrument_balance < amount:
-                    log_dict = {
-                        "message": "Source instrument does not have enough balance",
-                        "user_id": user_id,
-                        "amount": str(amount),
-                        "source_instrument_balance": str(source_instrument_balance),
-                    }
-                    logging.error(json_dumps(log_dict))
-                    raise PaymentInstrumentError("Source instrument does not have enough balance")
+                # if source_instrument_balance < amount:
+                #     log_dict = {
+                #         "message": "Source instrument does not have enough balance",
+                #         "user_id": user_id,
+                #         "amount": str(amount),
+                #         "source_instrument_balance": str(source_instrument_balance),
+                #     }
+                #     logging.error(json_dumps(log_dict))
+                #     raise PaymentInstrumentError("Source instrument does not have enough balance")
 
                 source_instrument_id = await self.get_source_instrument_id()
                 destination_instrument_id = await self.get_destination_instrument_id(
