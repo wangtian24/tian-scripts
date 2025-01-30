@@ -24,8 +24,8 @@ async def maybe_add_suggested_followups(chat_id: uuid.UUID, turn_id: uuid.UUID) 
             context_for_logging="add_suggested_followups",
         )
 
-        labeler = SuggestedFollowupsLabeler(get_gemini_15_flash_llm())
-        suggested_followups = labeler.label(chat_context)
+        labeler = SuggestedFollowupsLabeler(get_gemini_15_flash_llm(), timeout_secs=3)
+        suggested_followups = await labeler.alabel(chat_context)
 
         logging.info(
             json_dumps(

@@ -954,7 +954,7 @@ def get_gemini_15_flash_llm() -> GeminiLangChainAdapter:
                 project_id=settings.GCP_PROJECT_ID,
                 region=settings.GCP_REGION,
                 temperature=0.0,
-                max_output_tokens=40,
+                max_output_tokens=64,
                 top_k=1,
             ),
         )
