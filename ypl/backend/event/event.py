@@ -8,6 +8,7 @@ from sqlmodel import desc, select
 from ypl.backend.db import get_async_session
 from ypl.backend.utils.json import json_dumps
 from ypl.db.events import Event
+from ypl.db.users import User
 
 
 @dataclass
@@ -149,6 +150,22 @@ async def create_new_event(request: CreateEventRequest) -> EventResponse | None:
                 "event_category": event.event_category,
             }
             logging.info(json_dumps(log_dict))
+
+            # TODO: This is a temporary fix to update the country code in the users table
+            #  if the country code is null in the users table for the user_id,
+            #  then we need to update the country code in the users table from the event_params
+            if event.event_params and event.event_params.get("country_code"):
+                users = await session.execute(select(User).where(User.user_id == event.user_id))
+                user = users.scalar_one_or_none()
+                if user and user.country_code is None:
+                    log_dict = {
+                        "message": "Updating country code",
+                        "user_id": event.user_id,
+                        "country_code": event.event_params["country_code"],
+                    }
+                    logging.info(json_dumps(log_dict))
+                    user.country_code = event.event_params["country_code"]
+                    await session.commit()
 
             return EventResponse(
                 event_id=str(event.event_id),
