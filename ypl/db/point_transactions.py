@@ -55,7 +55,7 @@ class PointTransaction(BaseModel, table=True):
 
     # Set if this transaction is associated with a cashout.
     cashout_payment_transaction_id: uuid.UUID | None = Field(
-        foreign_key="payment_transactions.payment_transaction_id", nullable=True
+        foreign_key="payment_transactions.payment_transaction_id", nullable=True, index=True
     )
     cashout_payment_transaction: "PaymentTransaction" = Relationship(back_populates="credits_transaction")
 
