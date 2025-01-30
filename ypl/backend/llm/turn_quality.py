@@ -20,7 +20,7 @@ from ypl.backend.llm.moderation import DEFAULT_MODERATION_RESULT, amoderate
 from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter
 from ypl.backend.rw_cache import TurnQualityCache
 from ypl.backend.utils.json import json_dumps
-from ypl.db.chats import ChatMessage, Eval, MessageType, Turn, TurnQuality
+from ypl.db.chats import ChatMessage, Eval, EvalType, MessageType, Turn, TurnQuality
 
 LLM: GeminiLangChainAdapter | None = None
 
@@ -180,6 +180,7 @@ def get_eval_response_times_by_content_length() -> dict[int | float, tuple[float
                 ChatMessage.deleted_at.is_(None),  # type: ignore
                 Turn.deleted_at.is_(None),  # type: ignore
                 Eval.deleted_at.is_(None),  # type: ignore
+                Eval.eval_type == EvalType.SELECTION,
             )
             .order_by(Eval.created_at.desc())  # type: ignore
             .limit(NUM_RECENT_EVALS)
@@ -291,6 +292,7 @@ async def update_user_eval_quality_scores(user_id: str) -> None:
                 Eval.user_id == user_id,
                 Eval.quality_score.is_(None),  # type: ignore
                 Eval.deleted_at.is_(None),  # type: ignore
+                Eval.eval_type == EvalType.SELECTION,
             )
         )
         result = await session.exec(query)

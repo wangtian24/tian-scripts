@@ -34,7 +34,7 @@ from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.turn_quality import LOW_EVAL_QUALITY_SCORE, update_user_eval_quality_scores
 from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter
 from ypl.backend.utils.json import json_dumps
-from ypl.db.chats import Chat, Eval, Turn, TurnQuality
+from ypl.db.chats import Chat, Eval, EvalType, Turn, TurnQuality
 from ypl.db.invite_codes import SpecialInviteCodeClaimLog
 from ypl.db.point_transactions import PointsActionEnum, PointTransaction
 from ypl.db.rewards import (
@@ -639,7 +639,7 @@ def _get_recent_eval_quality_scores(user_id: str, session: Session) -> list[floa
         score
         for score in session.exec(
             select(Eval.quality_score)
-            .where(Eval.user_id == user_id, Eval.deleted_at.is_(None))  # type: ignore
+            .where(Eval.user_id == user_id, Eval.deleted_at.is_(None), Eval.eval_type == EvalType.SELECTION)  # type: ignore
             .order_by(Eval.created_at.desc())  # type: ignore
             .limit(NUM_RECENT_EVALS_FOR_QUALITY_CHECK)
         ).all()
