@@ -729,7 +729,7 @@ async def get_curated_chat_context(
         query = query.where(Turn.turn_id != current_turn_id)
 
     formatted_messages: list[BaseMessage] = []
-    # An async sessions is 2-3X slower.
+    # An async session is 2-3X slower.
     with Session(get_engine()) as session:
         result = session.exec(query)
         # Limit to the most recent messages.
@@ -1224,7 +1224,7 @@ async def generate_quicktake(
         "chat_history_num_messages": str(len(chat_history)),
         "chat_history_context_length": str(chat_history_context_len),
         "chat_history_text_length": str(len(chat_history_text)),
-        "is_refusal": str(quicktake == QT_CANT_ANSWER),
+        "is_refusal": str(quicktake.strip() == QT_CANT_ANSWER),
         "chat_id": request.chat_id,
         "turn_id": request.turn_id,
         "model": response_model,

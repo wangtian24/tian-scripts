@@ -318,6 +318,8 @@ class Eval(BaseModel, table=True):
     judge_model_name: str | None = Field(nullable=True)
     message_evals: list[MessageEval] = Relationship(back_populates="eval", cascade_delete=True)
     reward_action_logs: list["RewardActionLog"] = Relationship(back_populates="eval")
+    quality_score: float | None = Field(nullable=True)
+    quality_score_notes: dict | None = Field(sa_column=Column(JSONB, nullable=True))
 
 
 class TurnQuality(BaseModel, table=True):
