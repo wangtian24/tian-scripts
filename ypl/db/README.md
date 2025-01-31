@@ -49,9 +49,9 @@ to apply the migration to the corresponding database.
 1. Delete the previous migration script, then repeat `alembic revision --autogenerate` step to create a new migration; apply it with `alembic upgrade head`. 
 1. Repeat steps 2 and 3 as necessary.
 
-## Step 3: Submit and update the `sarai-chat` project
+## Step 3: Submit and update the `yupp-head` project
 1. Once the pull request looks good, submit it.
-1. Go to the sarai-chat repository, and run `pnpm prisma:pull`, which updates the `prisma.schema` file to reflect the latest schema in the database
+1. Go to the yupp-head repository, and run `pnpm prisma:pull`, which updates the `prisma.schema` file to reflect the latest schema in the database
 1. Review the auto-generated schema change for prisma. In particular, pay attention to the generated relationships to see if they are correct.
 1. Submit the prisma schema file change as another pull request. 
 

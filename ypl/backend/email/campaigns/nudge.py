@@ -119,7 +119,7 @@ Hey {name},
 
 Just a heads-up—your {BRAND_NAME} account has been deactivated after 6 weeks of inactivity. We had to free up space for others, but no worries, it's all good.
 
-If you ever want to jump back into chatting with AIs, getting rewards, and shaping the future of {BRAND_NAME}, you can sign up again anytime. We'd love to have you back!
+If you'd like to come back, please contact support@yupp.ai and we'll help you get set up again. We'd love to have you back chatting with AIs, getting rewards, and shaping the future of {BRAND_NAME}!
 
 Until then, take care and keep doing your thing.
 
@@ -131,7 +131,7 @@ WEEK_6_DEACTIVATION_EMAIL_TEMPLATE_HTML = """
 
 <p>Just a heads-up—your {BRAND_NAME} account has been deactivated after 6 weeks of inactivity. We had to free up space for others, but no worries, it's all good.</p>
 
-<p>If you ever want to jump back into chatting with AIs, getting rewards, and shaping the future of {BRAND_NAME}, you can sign up again anytime. We'd love to have you back!</p>
+<p>If you'd like to come back, please contact support@yupp.ai and we'll help you get set up again. We'd love to have you back chatting with AIs, getting rewards, and shaping the future of {BRAND_NAME}!</p>
 
 <p>Until then, take care and keep doing your thing.</p>
 

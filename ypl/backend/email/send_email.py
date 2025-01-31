@@ -4,6 +4,7 @@ from typing import Any
 import resend
 from resend.emails._email import Email
 from ypl.backend.config import settings
+from ypl.backend.db import get_async_session
 from ypl.backend.email.campaigns.nudge import (
     WEEK_1_CHECKIN_EMAIL_TEMPLATE,
     WEEK_1_CHECKIN_EMAIL_TITLE,
@@ -28,6 +29,7 @@ from ypl.backend.email.campaigns.signup import (
     YOUR_FRIEND_JOINED_EMAIL_TITLE,
 )
 from ypl.backend.utils.json import json_dumps
+from ypl.db.emails import EmailLogs
 
 EMAIL_CAMPAIGNS = {
     "signup": {
@@ -121,7 +123,16 @@ async def send_email_async(campaign: str, to_address: str, template_params: dict
     if settings.resend_api_key:
         resend.api_key = settings.resend_api_key
         email = resend.Emails.send(resend_params)
-        logging.info(f"Email sent: {json_dumps(email)}")
+        email_log = EmailLogs(email_sent_to=to_address, campaign_name=campaign)
+
+        try:
+            async with get_async_session() as session:
+                async with session.begin():
+                    session.add(email_log)
+                    await session.commit()
+            logging.info(f"Email sent: {json_dumps(email)}")
+        except Exception as e:
+            logging.error(f"Failed to log email {campaign} to database: {str(e)}")
         return email
     else:
         return None

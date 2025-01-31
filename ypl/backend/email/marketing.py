@@ -9,7 +9,7 @@ async def send_marketing_emails_async(
 ) -> None:
     """Send emails for the specified campaign."""
     # TODO(w): Actual Implementation
-    email_address = "spherecollider@gmail.com"
+    email_address = "delivered@resend.dev"
     if dry_run:
         print(f"Would send email to {email_address}:")
         print(f"Limit: {limit}")
