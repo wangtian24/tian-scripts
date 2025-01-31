@@ -285,7 +285,7 @@ class AlwaysGoodModelMetaRouter(ModelProposer):
 
     def _propose_models(self, models_to_select: set[str], state: RouterState) -> RouterState:
         good_model_response = (EloProposer(self.ranker) | TopK(self.num_good)).select_models(state.deepcopy())
-        good_model_response.all_models = good_model_response.get_selected_models()
+        good_model_response.all_models = set(good_model_response.get_selected_models())
         good_model_response = self.router.select_models(good_model_response)
 
         top1_filter = TopK(1)

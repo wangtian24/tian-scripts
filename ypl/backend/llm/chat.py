@@ -292,8 +292,9 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         preference=preference,
         provided_categories=request.provided_categories,
     )
-    selected_models = selected_models_rs.get_sorted_selected_models()
-    fallback_models = fallback_models_rs.get_sorted_selected_models()
+    # Already sorted, just get them as is.
+    selected_models = selected_models_rs.get_selected_models()
+    fallback_models = fallback_models_rs.get_selected_models()
 
     prompt_modifiers = _set_prompt_modifiers(request, selected_models_rs, fallback_models_rs)
 

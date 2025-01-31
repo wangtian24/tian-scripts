@@ -112,11 +112,11 @@ class RouterState(BaseModel):
         """Return a deep copy of the RouterState."""
         return self.model_copy(deep=True)
 
-    def get_selected_models(self) -> set[str]:
+    def get_selected_models(self) -> list[str]:
         """
         Return the models that have been selected.
         """
-        return set(self.selected_models.keys())
+        return list(self.selected_models.keys())
 
     def get_sorted_selected_models(self, priority_models: list[str] | None = None) -> list[str]:
         """
