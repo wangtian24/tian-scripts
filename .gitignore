@@ -187,3 +187,6 @@ notebooks/data
 # Crypto wallet files
 crypto_wallet/
 **/crypto_wallet/
+
+# PyCharm
+.idea/
