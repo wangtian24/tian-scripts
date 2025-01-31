@@ -8,14 +8,13 @@ from typing import Any, Final
 from uuid import UUID
 
 import httpx
-from ypl.backend.config import settings
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import CurrencyEnum
 
-HYPERWALLET_API_URL: Final[str] = settings.hyperwallet_api_url
-HYPERWALLET_PROGRAM_TOKEN: Final[str] = settings.hyperwallet_program_token
-HYPERWALLET_USERNAME: Final[str] = settings.hyperwallet_username
-HYPERWALLET_PASSWORD: Final[str] = settings.hyperwallet_password
+HYPERWALLET_API_URL: Final[str] = "https://api.sandbox.hyperwallet.com/rest/v4"
+HYPERWALLET_PROGRAM_TOKEN: Final[str] = "https://api.sandbox.hyperwallet.com/rest/v4"
+HYPERWALLET_USERNAME: Final[str] = "https://api.sandbox.hyperwallet.com/rest/v4"
+HYPERWALLET_PASSWORD: Final[str] = "https://api.sandbox.hyperwallet.com/rest/v4"
 
 MIN_BALANCES: dict[CurrencyEnum, Decimal] = {
     CurrencyEnum.USD: Decimal(1000),
@@ -147,9 +146,9 @@ async def process_hyperwallet_payout(payout: HyperwalletPayout) -> tuple[str, st
     rounded_amount = payout.amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     try:
-        program_token = settings.hyperwallet_program_token
-        api_username = settings.hyperwallet_username
-        api_password = settings.hyperwallet_password
+        program_token = "https://api.sandbox.hyperwallet.com/rest/v4"
+        api_username = "https://api.sandbox.hyperwallet.com/rest/v4"
+        api_password = "https://api.sandbox.hyperwallet.com/rest/v4"
 
         if not all([program_token, api_username, api_password]):
             raise HyperwalletPayoutError(

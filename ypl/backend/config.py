@@ -189,26 +189,6 @@ class Settings(BaseSettings):
 
     @computed_field  # type: ignore[misc]
     @cached_property
-    def hyperwallet_api_url(self) -> str:
-        return self._get_gcp_secret(f"hyperwallet-api-url-{self.ENVIRONMENT}")
-
-    @computed_field  # type: ignore[misc]
-    @cached_property
-    def hyperwallet_program_token(self) -> str:
-        return self._get_gcp_secret(f"hyperwallet-program-token-{self.ENVIRONMENT}")
-
-    @computed_field  # type: ignore[misc]
-    @cached_property
-    def hyperwallet_username(self) -> str:
-        return self._get_gcp_secret(f"hyperwallet-username-{self.ENVIRONMENT}")
-
-    @computed_field  # type: ignore[misc]
-    @cached_property
-    def hyperwallet_password(self) -> str:
-        return self._get_gcp_secret(f"hyperwallet-password-{self.ENVIRONMENT}")
-
-    @computed_field  # type: ignore[misc]
-    @cached_property
     def checkout_com_api_url(self) -> str:
         return self._get_gcp_secret(f"checkout-com-api-url-{self.ENVIRONMENT}")
 
@@ -339,10 +319,6 @@ async def preload_gcp_secrets() -> None:
     await asyncio.gather(
         asyncio.to_thread(lambda: settings.axis_upi_config),
         asyncio.to_thread(lambda: settings.validate_destination_identifier_secret_key),
-        asyncio.to_thread(lambda: settings.hyperwallet_api_url),
-        asyncio.to_thread(lambda: settings.hyperwallet_program_token),
-        asyncio.to_thread(lambda: settings.hyperwallet_username),
-        asyncio.to_thread(lambda: settings.hyperwallet_password),
         asyncio.to_thread(lambda: settings.checkout_com_api_url),
         asyncio.to_thread(lambda: settings.checkout_com_secret),
         asyncio.to_thread(lambda: settings.checkout_com_processing_channel),
