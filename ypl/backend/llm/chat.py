@@ -32,7 +32,7 @@ from ypl.backend.llm.db_helpers import (
     get_preferences,
     get_user_message,
 )
-from ypl.backend.llm.labeler import QT_CANT_ANSWER, MultiLLMLabeler, QuickTakeGenerator
+from ypl.backend.llm.labeler import QT_CANT_ANSWER, QuickTakeGenerator
 from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.model_heuristics import ModelHeuristics
 from ypl.backend.llm.prompt_selector import (
@@ -72,7 +72,7 @@ from ypl.db.chats import (
 )
 from ypl.db.language_models import LanguageModel
 from ypl.db.redis import get_upstash_redis_client
-from ypl.utils import get_text_part, replace_text_part, tiktoken_trim
+from ypl.utils import Delegator, get_text_part, replace_text_part, tiktoken_trim
 
 MAX_LOGGED_MESSAGE_LENGTH = 200
 DEFAULT_HIGH_SIM_THRESHOLD = 0.825
@@ -1021,7 +1021,6 @@ class QuickTakeRequest(BaseModel):
     attachment_ids: list[UUID] | None = None
     model: str | None = None  # one of the entries in QT_LLMS; if none, use MODELS_FOR_DEFAULT_QT
     timeout_secs: float = settings.DEFAULT_QT_TIMEOUT_SECS
-    for_fallback: bool = False
 
 
 class PromptModifierInfo(BaseModel):
@@ -1030,12 +1029,13 @@ class PromptModifierInfo(BaseModel):
     description: str | None = None
 
 
-def get_quicktake_generator(
+def create_quicktake_generator(
     model: str,
     chat_history: list[BaseMessage],
     prompt_only: bool = False,
     timeout_secs: float = settings.DEFAULT_QT_TIMEOUT_SECS,
-    for_fallback: bool = False,
+    user_prompt: str = USER_QUICKTAKE_PROMPT,
+    system_prompt: str = SYSTEM_QUICKTAKE_PROMPT,
 ) -> QuickTakeGenerator:
     """Get a quicktake generator for a given model, or raise if the model is not supported."""
     if prompt_only:
@@ -1046,8 +1046,8 @@ def get_quicktake_generator(
         chat_history,
         model_name=model,
         timeout_secs=timeout_secs,
-        user_quicktake_prompt=USER_QUICKTAKE_FALLBACK_PROMPT if for_fallback else USER_QUICKTAKE_PROMPT,
-        system_quicktake_prompt=SYSTEM_QUICKTAKE_FALLBACK_PROMPT if for_fallback else SYSTEM_QUICKTAKE_PROMPT,
+        user_quicktake_prompt=user_prompt,
+        system_quicktake_prompt=system_prompt,
         on_error="raise",
     )
 
@@ -1102,28 +1102,33 @@ async def generate_quicktake(
     min_required_context_len = int(chat_history_context_len * 1.2)  # Add a buffer for system prompt etc.
     context_lengths = get_model_context_lengths()
 
+    # Choose models to use for generating quicktakes, we have a set of main models that try to answer the question,
+    # and a set of fallback models that are fast but only try to provide contextual commentaries.
+    # TODO(tian): no need to prefilter the models as we are trimming the message to fit their context length anyway.
     qt_models = [
         model
-        for model in (MODELS_FOR_DEFAULT_QT if not request.for_fallback else MODELS_FOR_FALLBACK)
+        for model in MODELS_FOR_DEFAULT_QT
         if context_lengths.get(model, DEFAULT_QT_MAX_CONTEXT_LENGTH) > min_required_context_len
     ]
-    qt_context_lengths = {k: v for k, v in context_lengths.items() if k in qt_models}
+    fallback_qt_models = [
+        model
+        for model in MODELS_FOR_FALLBACK
+        if context_lengths.get(model, DEFAULT_QT_MAX_CONTEXT_LENGTH) > min_required_context_len
+    ]
+    _model_max_context_lengths = {k: v for k, v in context_lengths.items() if k in qt_models + fallback_qt_models}
 
     timeout_secs = (
         request.timeout_secs  # the timeout provided by the client will override the defaults
         if request.timeout_secs
         else settings.ATTACHMENT_QUICKTAKE_TIMEOUT_SECS
         if has_attachments
-        else settings.DEFAULT_QT_FALLBACK_TIMEOUT_SECS
-        if request.for_fallback
         else settings.DEFAULT_QT_TIMEOUT_SECS
     )
-    response_model = ""
-    responses_by_model: dict[str, str] = {}
+
+    preferred_model = request.model if request.model else QT_MODEL_WITH_PDF_SUPPORT if has_pdf_attachments else None
 
     # Transform the latest message with attachments, if any.
     # Supply this to the labelers after trimming the context.
-
     latest_message_transform_result = await transform_user_messages(
         [
             HumanMessage(
@@ -1136,115 +1141,145 @@ async def generate_quicktake(
         QT_MODEL_WITH_PDF_SUPPORT,
         options=transform_options,
     )
-    latest_message = HumanMessage(content=latest_message_transform_result[0].content)
-    user_message_prompt_template = USER_QUICKTAKE_FALLBACK_PROMPT if request.for_fallback else USER_QUICKTAKE_PROMPT
-    errors = None
-    preferred_model = request.model if request.model else QT_MODEL_WITH_PDF_SUPPORT if has_pdf_attachments else None
+    _latest_message = HumanMessage(content=latest_message_transform_result[0].content)
+    errors = ""
+
     try:
+        # -- Prepare labelers for the main quicktake call
+        primary_models = []  # we only early terminate on these models
         if not preferred_model:
-            # No specific model has been request, go by default and use multiple models.
-            labelers: dict[str, Any] = {
-                model: get_quicktake_generator(
-                    model, chat_history, timeout_secs=timeout_secs, for_fallback=request.for_fallback
-                )
-                for model in qt_models
-            }
-            if not request.for_fallback:
-                # Add a fast model that uses the prompts only in the chat history.
-                labelers[MODEL_FOR_PROMPT_ONLY_FULL_NAME] = get_quicktake_generator(
-                    MODEL_FOR_PROMPT_ONLY, chat_history, prompt_only=True, timeout_secs=timeout_secs, for_fallback=False
-                )
-                # Add a fine-tuned model that minimizes truncations and formatting in responses.
-                labelers[MODEL_FOR_FINETUNE_QT_FULL_NAME] = get_quicktake_generator(
-                    MODEL_FOR_FINETUNE_QT_FULL_NAME, chat_history, timeout_secs=timeout_secs, for_fallback=False
-                )
-
-            # Do the actual quicktake generation using the labeler models found above.
-            multi_generator = MultiLLMLabeler(
-                labelers=labelers,
-                timeout_secs=timeout_secs,
-                early_terminate_on=qt_models,
-            )
-            max_context_length = min(
-                (qt_context_lengths.get(model, DEFAULT_QT_MAX_CONTEXT_LENGTH) for model in qt_models),
-                default=DEFAULT_QT_MAX_CONTEXT_LENGTH,
-            )
-            trimmed_message = replace_text_part(
-                latest_message,
-                user_message_prompt_template.format(
-                    prompt=tiktoken_trim(request.prompt or "", int(max_context_length * 0.75), direction="right")
-                ),
-            )
-            quicktakes = await multi_generator.alabel(trimmed_message)
-            quicktake = QT_CANT_ANSWER
-            # TODO(Raghu): We treat it as refusal even when all the models timeout. Might treat it differently.
-            responses_by_model = {model: type(response).__name__ for model, response in quicktakes.items()}
-            found_response = False
-            for model in labelers:  # Iterates in the order of insertion which has preferred models first.
-                response = quicktakes.get(model)
-                if response and not isinstance(response, Exception):
-                    response_model = model
-                    quicktake = response
-                    found_response = True
-                    break
-
-            if not found_response:
-                errors = "no_response"
-
-        elif preferred_model in get_qt_llms():
-            # Specific model requested.
-            generator = get_quicktake_generator(
-                preferred_model, chat_history, for_fallback=request.for_fallback, timeout_secs=timeout_secs
-            )
-            max_context_length = qt_context_lengths.get(preferred_model, min(qt_context_lengths.values()))
-            trimmed_message = replace_text_part(
-                latest_message,
-                user_message_prompt_template.format(
-                    prompt=tiktoken_trim(request.prompt or "", int(max_context_length * 0.75), direction="right")
-                ),
-            )
-            quicktake = await generator.alabel(trimmed_message)
-            response_model = preferred_model
-            responses_by_model[preferred_model] = type(quicktake).__name__
+            primary_models.extend(qt_models)
+        elif preferred_model and preferred_model in get_qt_llms():
+            primary_models.append(preferred_model)
         else:
             raise ValueError(f"Unsupported model: {preferred_model}; supported: {','.join(get_qt_llms().keys())}")
+
+        # We have three tiers of QT models (labelers)
+        # 1. primary - high quality but not the fastets, might have refusal as well. Can early terminate.
+        # 2. secondary - faster but might not be as good.
+        # 3. fallback - fastest but may not fully answer the question, just contextual commentaries.
+        all_labelers: dict[str, Any] = (
+            {
+                # primary labelers
+                model: create_quicktake_generator(
+                    model,
+                    chat_history,
+                    user_prompt=USER_QUICKTAKE_PROMPT,
+                    system_prompt=SYSTEM_QUICKTAKE_PROMPT,
+                )
+                for model in primary_models
+            }
+            | {
+                # secondary labelers
+                MODEL_FOR_PROMPT_ONLY_FULL_NAME: create_quicktake_generator(
+                    MODEL_FOR_PROMPT_ONLY,
+                    chat_history,
+                    prompt_only=True,
+                    user_prompt=USER_QUICKTAKE_PROMPT,
+                    system_prompt=SYSTEM_QUICKTAKE_PROMPT,
+                ),
+                MODEL_FOR_FINETUNE_QT_FULL_NAME: create_quicktake_generator(
+                    MODEL_FOR_FINETUNE_QT_FULL_NAME,
+                    chat_history,
+                    user_prompt=USER_QUICKTAKE_PROMPT,
+                    system_prompt=SYSTEM_QUICKTAKE_PROMPT,
+                ),
+            }
+            | {
+                # fallback labelers
+                model: create_quicktake_generator(
+                    model,
+                    chat_history,
+                    user_prompt=USER_QUICKTAKE_FALLBACK_PROMPT,
+                    system_prompt=SYSTEM_QUICKTAKE_FALLBACK_PROMPT,
+                )
+                for model in fallback_qt_models
+            }
+        )
+
+        # -- Make all quicktake calls in parallel
+        class LabelerTask:
+            model: str
+            labeler: QuickTakeGenerator
+
+            def __init__(self, model: str, labeler: QuickTakeGenerator):
+                self.model = model
+                self.labeler = labeler
+
+            async def async_run(self) -> Any:
+                max_context_length = min(
+                    _model_max_context_lengths.get(self.model, DEFAULT_QT_MAX_CONTEXT_LENGTH),
+                    DEFAULT_QT_MAX_CONTEXT_LENGTH,
+                )
+                trimmed_message = replace_text_part(
+                    _latest_message,
+                    self.labeler.user_quicktake_prompt.format(
+                        prompt=tiktoken_trim(request.prompt or "", int(max_context_length * 0.75), direction="right")
+                    ),
+                )
+                return await self.labeler.alabel(trimmed_message)
+
+        labeler_tasks = {m: LabelerTask(m, labeler) for m, labeler in all_labelers.items()}
+        all_quicktakes: dict[str, Any] = await Delegator(
+            labeler_tasks, timeout_secs=timeout_secs, early_terminate_on=primary_models
+        ).async_run()
+
+        # -- Post-processing
+        response_quicktake = QT_CANT_ANSWER
+        response_model = ""
+        found_response = False
+        for model, response in all_quicktakes.items():
+            if response and not isinstance(response, Exception):
+                response_model = model
+                response_quicktake = response
+                found_response = True
+                break
+        if not found_response:
+            errors = "no_response"
+
     except Exception as e:
-        log_dict = {
+        err_log_dict = {
             "message": "Error generating quicktake",
             "model": preferred_model,
             "error": str(e),
         }
-        logging.exception(json_dumps(log_dict))
+        logging.exception(json_dumps(err_log_dict))
         raise e
 
-    end_time = time.time()
-    metric_record("quicktake/latency_ms", int((end_time - start_time) * 1000))
-    log_dict = {
-        "message": f"Quicktake generated with {response_model} in {int((end_time - start_time) * 1000)}ms",
-        "chat_history_time_ms": str(int(chat_history_time * 1000)),
-        "chat_history_num_messages": str(len(chat_history)),
-        "chat_history_context_length": str(chat_history_context_len),
-        "chat_history_text_length": str(len(chat_history_text)),
-        "is_refusal": str(quicktake.strip() == QT_CANT_ANSWER),
-        "chat_id": request.chat_id,
-        "turn_id": request.turn_id,
-        "model": response_model,
-        "for_fallback": str(request.for_fallback),
-        "duration_secs": str(end_time - start_time),
-        "content_length": str(len(quicktake)),
-        "old_attachments_ids": str([attachment.attachment_id for attachment in old_attachments]),
-        "new_attachments_ids": str([attachment.attachment_id for attachment in new_attachments]),
-        "attachment_mime_types": str([attachment.content_type for attachment in all_attachments]),
-    }
-    for model, response_type in responses_by_model.items():
-        log_dict[f"{model}_response_type"] = response_type
-    logging.info(json_dumps(log_dict))
     # The client is not aware of these private models, so return its base name; keep the full name in the log above.
+    # TODO(tian): this is no longer important, remove this later.
     if response_model == MODEL_FOR_PROMPT_ONLY_FULL_NAME:
         response_model = MODEL_FOR_PROMPT_ONLY
     if response_model == MODEL_FOR_FINETUNE_QT_FULL_NAME:
         response_model = MODEL_FOR_FINETUNE_QT
-    return QuickTakeResponse(quicktake=quicktake, model=response_model, errors=errors)
+
+    # Logging and bookkeeping
+    end_time = time.time()
+    metric_record("quicktake/latency_ms", int((end_time - start_time) * 1000))
+    time_taken_ms = int((end_time - start_time) * 1000)
+    log_dict: dict[str, Any] = {
+        "message": f"Quicktake generated with {response_model} in {time_taken_ms}ms: {response_quicktake}",
+        "chat_history": {
+            "time_ms": int(chat_history_time * 1000),
+            "num_messages": len(chat_history),
+            "context_length": chat_history_context_len,
+            "text_length": len(chat_history_text),
+        },
+        # TODO(Raghu): We treat it as refusal even when all the models timeout. Might treat it differently.
+        "is_refusal": str(response_quicktake.strip() == QT_CANT_ANSWER),
+        "chat_id": request.chat_id,
+        "turn_id": request.turn_id,
+        "model": response_model,
+        "model_responses": {model: str(response) for model, response in all_quicktakes.items()},
+        "duration_secs": end_time - start_time,
+        "content_length": len(response_quicktake),
+        "old_attachments_ids": [attachment.attachment_id for attachment in old_attachments],
+        "new_attachments_ids": [attachment.attachment_id for attachment in new_attachments],
+        "attachment_mime_types": [attachment.content_type for attachment in all_attachments],
+    }
+    logging.info(json_dumps(log_dict))
+
+    return QuickTakeResponse(quicktake=response_quicktake, model=response_model, errors=errors)
 
 
 async def check_for_stop_request(chat_uuid: UUID, turn_uuid: UUID, model_name: str) -> bool:
