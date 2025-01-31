@@ -367,7 +367,7 @@ jobs:
       run: |
         git fetch --tags
         TAG_NAME=latest-${{ github.event.inputs.environment || 'staging' }}
-        PR_TITLES=$(git log $TAG_NAME..HEAD --pretty=format:"* %s (%al)\\\n" | perl -pe 's/\n//g' )  # Get changes from last tag.
+        PR_TITLES=$(git log $TAG_NAME..HEAD --pretty=format:"* %s (%al)" | perl -pe 's/\n/  /g' )  # Get changes from last tag.
         echo "PR_TITLES=${PR_TITLES}" >> $GITHUB_ENV
         git config user.name 'github-actions[bot]'
         git config user.email 'github-actions[bot]@users.noreply.github.com'
@@ -376,6 +376,7 @@ jobs:
 
     - name: Post to Slack for Production Deployment
       if: env.ENVIRONMENT == 'production'
+      continue-on-error: true
       uses: slackapi/slack-github-action@v1.27.0
       with:
         payload: |
