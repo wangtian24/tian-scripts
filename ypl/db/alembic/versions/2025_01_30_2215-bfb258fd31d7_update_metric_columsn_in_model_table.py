@@ -20,10 +20,8 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.alter_column('language_models', 'first_token_avg_latency_ms',
-                    new_column_name='first_token_p50_latency_ms')
-    op.alter_column('language_models', 'output_avg_tps',
-                    new_column_name='output_p50_tps')
+    op.add_column('language_models', sa.Column('first_token_p50_latency_ms', sa.Float(), nullable=True))
+    op.add_column('language_models', sa.Column('output_p50_tps', sa.Float(), nullable=True))
     op.add_column('language_models',
                   sa.Column('num_requests_in_metric_window', sa.Integer(), nullable=True))
     op.add_column('language_models',
@@ -34,8 +32,6 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_column('language_models', 'avg_token_count')
     op.drop_column('language_models', 'num_requests_in_metric_window')
-    op.alter_column('language_models', 'output_p50_tps',
-                    new_column_name='output_avg_tps')
-    op.alter_column('language_models', 'first_token_p50_latency_ms',
-                    new_column_name='first_token_avg_latency_ms')
+    op.drop_column('language_models', 'output_p50_tps')
+    op.drop_column('language_models', 'first_token_p50_latency_ms')
     # ### end Alembic commands ###

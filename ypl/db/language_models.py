@@ -159,12 +159,14 @@ class LanguageModel(BaseModel, table=True):
     )
 
     # Median time in milliseconds to emit the first token
+    first_token_avg_latency_ms: float | None = Field(default=None, nullable=True)
     first_token_p50_latency_ms: float | None = Field(default=None, nullable=True)
 
     # P90 time in milliseconds to emit the first token
     first_token_p90_latency_ms: float | None = Field(default=None, nullable=True)
 
     # Median tokens per second to write the output tokens
+    output_avg_tps: float | None = Field(default=None, nullable=True)
     output_p50_tps: float | None = Field(default=None, nullable=True)
 
     # P90 tokens per second to write the output tokens
