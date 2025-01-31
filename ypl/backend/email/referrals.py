@@ -18,7 +18,7 @@ async def send_referral_bonus_emails(
             campaign="first_pref_bonus",
             to_address=new_user_model.email,
             template_params={
-                "name": new_user_model.name,
+                "email_recipient_name": new_user_model.name,
                 "credits": new_user_credit_delta,
             },
         )
@@ -29,7 +29,7 @@ async def send_referral_bonus_emails(
             campaign="referral_bonus",
             to_address=referrer_model.email,
             template_params={
-                "referrer_name": referrer_model.name,
+                "email_recipient_name": referrer_model.name,
                 "referee_name": new_user_model.name,
                 "credits": referrer_credit_delta,
             },

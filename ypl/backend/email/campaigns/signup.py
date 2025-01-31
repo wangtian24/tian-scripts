@@ -3,7 +3,7 @@
 
 SIC_AVAILABILITY_EMAIL_TITLE = "Share Yupp with your friends!"
 SIC_AVAILABILITY_EMAIL_TEMPLATE = """
-Hey {name},
+Hey {email_recipient_name},
 
 We just gifted you with your own referral code!
 
@@ -20,7 +20,7 @@ Thanks for actively using Yupp, we hope you’re enjoying your experience and fi
 """  # noqa: E501
 
 SIC_AVAILABILITY_EMAIL_TEMPLATE_HTML = """
-<p>Hey {name},</p>
+<p>Hey {email_recipient_name},</p>
 
 <p>We just gifted you with your own referral code!</p>
 
@@ -44,7 +44,7 @@ SIC_AVAILABILITY_EMAIL_TEMPLATE_HTML = """
 
 SIGN_UP_EMAIL_TITLE = "Thanks for joining {BRAND_NAME} as an early Trusted Tester"
 SIGN_UP_EMAIL_TEMPLATE = """
-Hey {name},
+Hey {email_recipient_name},
 
 We’re thrilled to have you here!
 
@@ -71,7 +71,7 @@ Your feedback plays a crucial role in refining the product, we can’t wait to h
 
 YOUR_FRIEND_JOINED_EMAIL_TITLE = "{referee_name} is now on {BRAND_NAME}"
 YOUR_FRIEND_JOINED_EMAIL_TEMPLATE = """
-Hey {referrer_name}:
+Hey {email_recipient_name}:
 
 {referee_name} just joined you on {BRAND_NAME} with your invite code.
 
@@ -88,7 +88,7 @@ Once they finish writing their first prompt and doing their first “I prefer th
 
 REFFERAL_BONUS_EMAIL_TITLE = "You just scored a referral bonus of {credits} YUPP credits!"
 REFFERAL_BONUS_EMAIL_TEMPLATE = """
-Hey {referrer_name},
+Hey {email_recipient_name},
 
 {referee_name} has signed up using your invite code and has started using Yupp–granting you a referral bonus of {credits} YUPP credits.
 
@@ -104,7 +104,7 @@ Hey {referrer_name},
 
 FIRST_PREF_BONUS_EMAIL_TITLE = "You just scored {credits} YUPP credits!"
 FIRST_PREF_BONUS_EMAIL_TEMPLATE = """
-Hey {name},
+Hey {email_recipient_name},
 
 Thank you for giving your first feedback to the AI models. Since you joined Yupp with your friend’s invite code, you’ve been rewarded {credits} YUPP credits!
 

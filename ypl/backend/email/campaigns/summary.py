@@ -1,7 +1,7 @@
 MONTHLY_RECAP_EMAIL_TITLE = "Your {BRAND_NAME} Monthly Recap"
 MONTHLY_RECAP_EMAIL_PREVIEW = "Check out your {BRAND_NAME} activity from last month"
 MONTHLY_RECAP_EMAIL_TEMPLATE = """
-Hey {name},
+Hey {email_recipient_name},
 
 Recap time—a quick snapshot of how you've been using {BRAND_NAME}. Let's dive in:
 
@@ -32,7 +32,7 @@ Keep up the great work, and here's to another month of smarter chats and better 
 """  # noqa: E501
 
 MONTHLY_RECAP_EMAIL_TEMPLATE_HTML = """
-<p>Hey {name},</p>
+<p>Hey {email_recipient_name},</p>
 
 <p>Recap time—a quick snapshot of how you've been using {BRAND_NAME}. Let's dive in:</p>
 

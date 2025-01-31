@@ -19,5 +19,5 @@ async def send_marketing_emails_async(
             # TODO(w): Change with actual campaign
             campaign="week_1_checkin",
             to_address=email_address,
-            template_params={"name": "Test User"},
+            template_params={"email_recipient_name": "Test User"},
         )

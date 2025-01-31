@@ -4,7 +4,7 @@
 WEEK_1_CHECKIN_EMAIL_TITLE = "A quick check-in and important reminder"
 WEEK_1_CHECKIN_EMAIL_PREVIEW = "Tell us your experience so far and please keep things under wraps"
 WEEK_1_CHECKIN_EMAIL_TEMPLATE = """
-Hey {name},
+Hey {email_recipient_name},
 
 Thanks for joining {BRAND_NAME}—we're stoked to have you on board.
 
@@ -19,7 +19,7 @@ Thanks for your cooperation!
 """  # noqa: E501
 
 WEEK_1_CHECKIN_EMAIL_TEMPLATE_HTML = """
-<p>Hey {name},</p>
+<p>Hey {email_recipient_name},</p>
 
 <p>Thanks for joining {BRAND_NAME}—we're stoked to have you on board.</p>
 
@@ -39,7 +39,7 @@ WEEK_1_CHECKIN_EMAIL_TEMPLATE_HTML = """
 WEEK_1_INACTIVE_EMAIL_TITLE = "It's been a minute"
 WEEK_1_INACTIVE_EMAIL_PREVIEW = "We noticed you haven't tried {BRAND_NAME} yet. Let's get you started!"
 WEEK_1_INACTIVE_EMAIL_TEMPLATE = """
-Hey {name}
+Hey {email_recipient_name}
 
 It's been a week since you created your {BRAND_NAME} account, but you haven't actually used the app yet.
 
@@ -53,7 +53,7 @@ Anyways, using {BRAND_NAME} is easy! If you want a walkthrough, we're more than 
 """  # noqa: E501
 
 WEEK_1_INACTIVE_EMAIL_TEMPLATE_HTML = """
-<p>Hey {name}</p>
+<p>Hey {email_recipient_name}</p>
 
 <p>It's been a week since you created your {BRAND_NAME} account, but you haven't actually used the app yet.</p>
 
@@ -76,7 +76,7 @@ We really appreciate your trust and ask for your strict confidentiality.</p>
 WEEK_5_INACTIVE_EMAIL_TITLE = "Are you still there?"
 WEEK_5_INACTIVE_EMAIL_PREVIEW = "Stop your account from being deactivated"
 WEEK_5_INACTIVE_EMAIL_TEMPLATE = """
-Hey {name},
+Hey {email_recipient_name},
 
 It's been 5 weeks since we last saw you on {BRAND_NAME}. Just checking in to see if you're still around—your AI crew misses you!
 
@@ -91,7 +91,7 @@ Let us know if there's anything we can do to make {BRAND_NAME} work better for y
 """  # noqa: E501
 
 WEEK_5_INACTIVE_EMAIL_TEMPLATE_HTML = """
-<p>Hey {name},</p>
+<p>Hey {email_recipient_name},</p>
 
 <p>It's been 5 weeks since we last saw you on {BRAND_NAME}. Just checking in to see if you're still around—your AI crew misses you!</p>
 
@@ -115,7 +115,7 @@ We really appreciate your trust and ask for your strict confidentiality.</p>
 WEEK_6_DEACTIVATION_EMAIL_TITLE = "Your {BRAND_NAME} account has been deactivated"
 WEEK_6_DEACTIVATION_EMAIL_PREVIEW = "Due to inactivity, we've deactivated your account—but you can always come back!"
 WEEK_6_DEACTIVATION_EMAIL_TEMPLATE = """
-Hey {name},
+Hey {email_recipient_name},
 
 Just a heads-up—your {BRAND_NAME} account has been deactivated after 6 weeks of inactivity. We had to free up space for others, but no worries, it's all good.
 
@@ -127,7 +127,7 @@ Until then, take care and keep doing your thing.
 """  # noqa: E501
 
 WEEK_6_DEACTIVATION_EMAIL_TEMPLATE_HTML = """
-<p>Hey {name},</p>
+<p>Hey {email_recipient_name},</p>
 
 <p>Just a heads-up—your {BRAND_NAME} account has been deactivated after 6 weeks of inactivity. We had to free up space for others, but no worries, it's all good.</p>
 
