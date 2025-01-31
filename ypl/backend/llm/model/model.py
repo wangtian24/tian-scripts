@@ -201,9 +201,9 @@ async def get_model_base_statistics(model_id: str) -> LanguageModelStatistics:
             raise ValueError(f"Language model with id {model_id} not found")
 
         return LanguageModelStatistics(
-            first_token_avg_latency_ms=llm.first_token_avg_latency_ms,
+            first_token_p50_latency_ms=llm.first_token_p50_latency_ms,
             first_token_p90_latency_ms=llm.first_token_p90_latency_ms,
-            output_avg_tps=llm.output_avg_tps,
+            output_p50_tps=llm.output_p50_tps,
             output_p90_tps=llm.output_p90_tps,
         )
 

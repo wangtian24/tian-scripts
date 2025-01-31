@@ -158,14 +158,14 @@ class LanguageModel(BaseModel, table=True):
         sa_column=Column(Numeric(precision=10, scale=6), nullable=True), default=None
     )
 
-    # Average time in milliseconds to emit the first token
-    first_token_avg_latency_ms: float | None = Field(default=None, nullable=True)
+    # Median time in milliseconds to emit the first token
+    first_token_p50_latency_ms: float | None = Field(default=None, nullable=True)
 
     # P90 time in milliseconds to emit the first token
     first_token_p90_latency_ms: float | None = Field(default=None, nullable=True)
 
-    # Average tokens per second to write the output tokens
-    output_avg_tps: float | None = Field(default=None, nullable=True)
+    # Median tokens per second to write the output tokens
+    output_p50_tps: float | None = Field(default=None, nullable=True)
 
     # P90 tokens per second to write the output tokens
     output_p90_tps: float | None = Field(default=None, nullable=True)
@@ -228,6 +228,12 @@ class LanguageModel(BaseModel, table=True):
     supported_attachment_mime_types: list[str] | None = Field(
         default=None, sa_column=Column(ARRAY(String), nullable=True)
     )
+
+    # Number of requests used to calculate the metrics. Included here mainly for debugging.
+    # This is not used for speed score calculation at runtime.
+    num_requests_in_metric_window: int | None = Field(default=None, nullable=True)
+    # Average number of tokens in requests used to calculate the metrics. Used for speed score calculation.
+    avg_token_count: float | None = Field(default=None, nullable=True)
 
     def supports_mime_type(self, mime_type: str) -> bool:
         import re

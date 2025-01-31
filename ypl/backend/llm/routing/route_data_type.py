@@ -11,9 +11,9 @@ class InstantaneousLanguageModelStatistics(BaseModel):
 
 
 class LanguageModelStatistics(BaseModel):
-    first_token_avg_latency_ms: float | None = None
+    first_token_p50_latency_ms: float | None = None
     first_token_p90_latency_ms: float | None = None
-    output_avg_tps: float | None = None
+    output_p50_tps: float | None = None
     output_p90_tps: float | None = None
 
 
@@ -64,11 +64,11 @@ class StatisticsHistory(BaseModel):
         stats = LanguageModelStatistics()
 
         if self.first_token_latencies_ms_history:
-            stats.first_token_avg_latency_ms = float(np.mean(self.first_token_latencies_ms_history))
+            stats.first_token_p50_latency_ms = float(np.median(self.first_token_latencies_ms_history))
             stats.first_token_p90_latency_ms = float(np.quantile(self.first_token_latencies_ms_history, 0.9))
 
         if self.output_tps_history:
-            stats.output_avg_tps = float(np.mean(self.output_tps_history))
+            stats.output_p50_tps = float(np.median(self.output_tps_history))
             stats.output_p90_tps = float(np.quantile(self.output_tps_history, 0.9))
 
         return stats
@@ -131,8 +131,8 @@ class StatisticsHistory(BaseModel):
 
         match statistics:
             case LanguageModelStatistics():
-                s.append_to_latency_history(statistics.first_token_avg_latency_ms)
-                s.append_to_tps_history(statistics.output_avg_tps)
+                s.append_to_latency_history(statistics.first_token_p50_latency_ms)
+                s.append_to_tps_history(statistics.output_p50_tps)
             case InstantaneousLanguageModelStatistics():
                 s.append_to_history(statistics)
             case _:
