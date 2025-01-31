@@ -129,7 +129,7 @@ jobs:
     - name: Check for DB or rules changes
       id: check_changes
       run: |
-        git fetch --tags
+        git fetch --tags --force
         TAG_NAME=latest-${{ github.event.inputs.environment || 'staging' }}
         if git diff --name-only $TAG_NAME | grep -q -E 'data/reward_rules|ypl/db/alembic/'; then
           echo "DB_OR_RULES_CHANGED=true" >> $GITHUB_ENV
@@ -365,7 +365,7 @@ jobs:
 
     - name: Tag commit
       run: |
-        git fetch --tags
+        git fetch --tags --force
         TAG_NAME=latest-${{ github.event.inputs.environment || 'staging' }}
         PR_TITLES=$(git log $TAG_NAME..HEAD --pretty=format:"* %s (%al)" | perl -pe 's/\n/  /g' )  # Get changes from last tag.
         echo "PR_TITLES=${PR_TITLES}" >> $GITHUB_ENV
