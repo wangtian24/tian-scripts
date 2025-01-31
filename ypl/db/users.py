@@ -10,6 +10,7 @@ from sqlalchemy.orm import joinedload, object_session
 from sqlmodel import Field, Relationship, select
 
 from ypl.db.base import BaseModel
+from ypl.db.memories import Memory
 from ypl.db.point_transactions import PointTransaction
 from ypl.db.rewards import Reward, RewardActionEnum, RewardActionLog, RewardStatusEnum
 
@@ -82,6 +83,7 @@ class User(BaseModel, table=True):
     chats: list["Chat"] = Relationship(back_populates="creator")
     turns: list["Turn"] = Relationship(back_populates="creator")
     evals: list["Eval"] = Relationship(back_populates="user")
+    memories: list["Memory"] = Relationship(back_populates="user")
 
     synthetic_attributes: "SyntheticUserAttributes" = Relationship(back_populates="user", cascade_delete=True)
     backfill_attributes: "SyntheticBackfillAttributes" = Relationship(back_populates="generated_users")

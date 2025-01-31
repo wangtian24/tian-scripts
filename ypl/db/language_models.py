@@ -244,6 +244,22 @@ class LanguageModel(BaseModel, table=True):
         return re.match(pattern, mime_type) is not None
 
 
+class EmbeddingModel(BaseModel, table=True):
+    """
+    Represents an embedding model. These models can be used to generate embeddings
+    for various data types (text, etc.). The `dimension` field helps ensure
+    that the vector field in related tables has the correct dimensionality.
+    """
+
+    __tablename__ = "embedding_models"
+
+    embedding_model_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
+    name: str = Field(sa_column=Column(sa.String, nullable=False))
+    dimension: int = Field(
+        sa_column=Column(sa.Integer, nullable=False), gt=0, le=1536
+    )  # We only support up to embedding size 1536
+
+
 # Provider is a service that can be used to access a model, e.g. OpenAI, Anthropic, Together AI, etc.
 class Provider(BaseModel, table=True):
     __tablename__ = "providers"

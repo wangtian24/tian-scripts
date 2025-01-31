@@ -14,6 +14,7 @@ from sqlmodel import Field, Relationship
 from ypl.backend.llm.moderation import ModerationReason
 from ypl.db.base import BaseModel
 from ypl.db.language_models import LanguageModel
+from ypl.db.memories import Memory
 from ypl.db.ratings import Category
 from ypl.db.users import User
 
@@ -260,6 +261,8 @@ class ChatMessage(BaseModel, table=True):
     annotations: dict[str, Any] = Field(default_factory=dict, sa_type=JSONB, nullable=True)
 
     attachments: list["Attachment"] = Relationship(back_populates="chat_message")
+
+    memories: list["Memory"] = Relationship(back_populates="source_message")
 
     # to track the status of the stream completion.
     completion_status: CompletionStatus = Field(sa_column=Column(SQLAlchemyEnum(CompletionStatus), nullable=True))
