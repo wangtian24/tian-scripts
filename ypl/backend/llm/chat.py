@@ -1228,7 +1228,8 @@ async def generate_quicktake(
         response_quicktake = QT_CANT_ANSWER
         response_model = ""
         found_response = False
-        for model, response in all_quicktakes.items():
+        for model in all_labelers.keys():
+            response = all_quicktakes.get(model)
             if response and not isinstance(response, Exception):
                 response_model = model
                 response_quicktake = response
@@ -1270,7 +1271,7 @@ async def generate_quicktake(
         "chat_id": request.chat_id,
         "turn_id": request.turn_id,
         "model": response_model,
-        "model_responses": {model: str(response) for model, response in all_quicktakes.items()},
+        "model_responses": [f"{model} -> {str(all_quicktakes[model])}" for model in all_labelers.keys()],
         "duration_secs": end_time - start_time,
         "content_length": len(response_quicktake),
         "old_attachments_ids": [attachment.attachment_id for attachment in old_attachments],
