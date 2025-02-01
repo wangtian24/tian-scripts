@@ -1,5 +1,4 @@
 import asyncio
-import json
 import logging
 import os
 import time
@@ -10,26 +9,15 @@ from typing import Any, Final
 import httpx
 from cdp import Cdp, Transfer, Wallet
 from cdp.address import Address
-from dotenv import load_dotenv
 from ypl.backend.config import settings
 from ypl.backend.llm.utils import post_to_slack
-from ypl.backend.utils.files import (
-    download_gcs_to_local_temp,
-    file_exists,
-    read_file,
-)
+from ypl.backend.payment.crypto.crypto_wallet import load_wallet_data
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import CurrencyEnum, PaymentTransactionStatusEnum
 from ypl.db.redis import get_upstash_redis_client
 
 POLL_INTERVAL_SECONDS = 5
 MAX_WAIT_TIME_SECONDS = 60
-
-SEED_FILE_NAME = "encrypted_seed.json"
-WALLET_FILE_NAME = "wallet.json"
-CRYPTO_WALLET_PATH = settings.CRYPTO_WALLET_PATH
-SEED_FILE_PATH = os.path.join(CRYPTO_WALLET_PATH, SEED_FILE_NAME)
-WALLET_FILE_PATH = os.path.join(CRYPTO_WALLET_PATH, WALLET_FILE_NAME)
 
 MIN_BALANCES: dict[CurrencyEnum, Decimal] = {
     CurrencyEnum.ETH: Decimal(0.25),
@@ -89,7 +77,6 @@ class CryptoRewardProcessor:
 
     async def _init_cdp(self) -> None:
         """Initialize CDP configuration"""
-        load_dotenv()
         api_key_name = settings.CDP_API_KEY_NAME
         api_key_private_key = settings.CDP_API_KEY_PRIVATE_KEY
 
@@ -107,16 +94,8 @@ class CryptoRewardProcessor:
     async def _init_wallet(self) -> None:
         """Initialize sending wallet"""
 
-        if not file_exists(SEED_FILE_PATH) or not file_exists(WALLET_FILE_PATH):
-            log_dict = {
-                "message": "Required wallet files not found",
-                "seed_file_path": SEED_FILE_PATH,
-                "wallet_file_path": WALLET_FILE_PATH,
-            }
-            logging.exception(json_dumps(log_dict))
-            return
-
-        self.wallet = self._import_existing_wallet()
+        wallet_data = await load_wallet_data(bytes.fromhex(settings.WALLET_ENCRYPTION_KEY))
+        self.wallet = Wallet.import_data(wallet_data)
         if not self.wallet:
             log_dict = {
                 "message": "Failed to import wallet",
@@ -124,27 +103,6 @@ class CryptoRewardProcessor:
             }
             logging.exception(json_dumps(log_dict))
             return
-
-    def _import_existing_wallet(self) -> Wallet | None:
-        """Import an existing wallet"""
-
-        try:
-            wallet_data = read_file(WALLET_FILE_PATH)
-            wallet_id = json.loads(wallet_data)
-
-            with download_gcs_to_local_temp(SEED_FILE_PATH) as local_seed_path:
-                wallet = Wallet.fetch(wallet_id)
-                wallet.load_seed(local_seed_path)
-                return wallet
-        except Exception as e:
-            log_dict = {
-                "message": "Failed to import wallet",
-                "error": str(e),
-                "wallet_file_path": WALLET_FILE_PATH,
-                "seed_file_path": SEED_FILE_PATH,
-            }
-            logging.exception(json_dumps(log_dict))
-            return None
 
     async def get_asset_balance(self, asset_id: str) -> Decimal:
         if not self.wallet:

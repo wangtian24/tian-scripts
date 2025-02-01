@@ -3,6 +3,7 @@ import concurrent.futures
 import functools
 import json
 import logging
+import os
 import random
 import re
 import sys
@@ -1310,7 +1311,7 @@ def process_crypto_rewards() -> None:
 @cli.command()
 def create_a_wallet() -> None:
     """Create a new wallet."""
-    create_wallet()
+    asyncio.run(create_wallet())
 
 
 @cli.command()
@@ -1626,6 +1627,50 @@ def send_marketing_emails(dry_run: bool) -> None:
 
     with Session(get_engine()) as session:
         asyncio.run(send_marketing_emails_async(session, dry_run))
+
+
+@cli.command()
+def migrate_wallet_credentials() -> None:
+    """Migrate wallet credentials."""
+    # This is a one time script to migrate wallet credentials from old to new
+    # and won't be needed in the future. This is just captured here for incident reference
+    from ypl.backend.payment.crypto.crypto_wallet import migrate_wallet_credentials_for_wallet_id
+
+    try:
+        old_api_key_name = os.getenv("OLD_CDP_API_KEY_NAME")
+        old_api_private_key = os.getenv("OLD_CDP_API_PRIVATE_KEY")
+        new_api_key_name = os.getenv("NEW_CDP_API_KEY_NAME")
+        new_api_private_key = os.getenv("NEW_CDP_API_PRIVATE_KEY")
+        wallet_id = os.getenv("CDP_WALLET_ID")
+
+        if (
+            not old_api_key_name
+            or not old_api_private_key
+            or not new_api_key_name
+            or not new_api_private_key
+            or not wallet_id
+        ):
+            raise ValueError("Missing required environment variables")
+
+        asyncio.run(
+            migrate_wallet_credentials_for_wallet_id(
+                old_api_key_name=old_api_key_name,
+                old_api_private_key=old_api_private_key,
+                new_api_key_name=new_api_key_name,
+                new_api_private_key=new_api_private_key,
+                wallet_id=wallet_id,
+            )
+        )
+
+        log_dict = {
+            "message": "Successfully migrated crypto wallet",
+        }
+        logging.info(json_dumps(log_dict))
+
+    except Exception as e:
+        log_dict = {"message": "Failed to migrate crypto wallet", "error": str(e)}
+        logging.error(json_dumps(log_dict))
+        raise
 
 
 if __name__ == "__main__":
