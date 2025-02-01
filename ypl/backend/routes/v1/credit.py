@@ -10,6 +10,16 @@ from sqlalchemy.exc import NoResultFound
 
 from ypl.backend.config import settings
 from ypl.backend.llm.credit import (
+    Amount,
+    CashoutPaymentTransaction,
+    RewardedCreditsPerActionTotals,
+    get_cashout_amounts_per_currency,
+    get_cashout_credit_stats,
+    get_cashout_transactions,
+    get_last_cashout_status,
+    get_rewarded_credits_per_action_totals,
+    get_total_credits_rank,
+    get_total_credits_spent,
     get_user_credit_balance,
 )
 from ypl.backend.payment.base_types import BaseFacilitator, PaymentResponse
@@ -29,11 +39,7 @@ from ypl.backend.payment.exchange_rates import get_exchange_rate
 from ypl.backend.payment.facilitator import get_supported_facilitators
 from ypl.backend.payment.validation import validate_destination_identifier_for_currency
 from ypl.backend.utils.json import json_dumps
-from ypl.db.payments import (
-    CurrencyEnum,
-    PaymentInstrumentFacilitatorEnum,
-    PaymentInstrumentIdentifierTypeEnum,
-)
+from ypl.db.payments import CurrencyEnum, PaymentInstrumentFacilitatorEnum, PaymentInstrumentIdentifierTypeEnum
 
 router = APIRouter()
 
@@ -322,3 +328,62 @@ async def fetch_cashout_options(request: CashoutOptionsRequest) -> CashoutOption
         supported_currencies=list(currencies),
         supported_facilitators=list(facilitators),
     )
+
+
+@dataclass
+class SummaryData:
+    total_credits_rank: int
+    rewarded_credits_per_action_totals: list[RewardedCreditsPerActionTotals]
+    total_credits_won: int
+    total_credits_spent: int
+    last_cashout_status: CashoutPaymentTransaction | None
+    number_of_cashout_transactions: int
+    total_credits_cashed_out: int
+    total_cashout_amounts_per_currency: list[Amount]
+
+
+@dataclass
+class CreditHistoryResponse:
+    summary_data: SummaryData
+    # Not adding server side pagination yet because we don't need it right now
+    # due to low volume of rows in cashout transactions.
+    cashout_transactions: list[CashoutPaymentTransaction]
+
+
+async def generate_summary_data(user_id: str) -> SummaryData:
+    [
+        total_credits_rank,
+        rewarded_credits_per_action_totals,
+        total_credits_spent,
+        last_cashout_status,
+        cashout_credit_stats,
+        cashout_amounts_per_currency,
+    ] = await asyncio.gather(
+        get_total_credits_rank(user_id),
+        get_rewarded_credits_per_action_totals(user_id),
+        get_total_credits_spent(user_id),
+        get_last_cashout_status(user_id),
+        get_cashout_credit_stats(user_id),
+        get_cashout_amounts_per_currency(user_id),
+    )
+    total_credits_won = sum(rc.total_credits for rc in rewarded_credits_per_action_totals)
+    number_of_cashout_transactions, total_credits_cashed_out = cashout_credit_stats
+    return SummaryData(
+        total_credits_rank=total_credits_rank,
+        rewarded_credits_per_action_totals=rewarded_credits_per_action_totals,
+        total_credits_won=total_credits_won,
+        total_credits_spent=total_credits_spent,
+        last_cashout_status=last_cashout_status,
+        number_of_cashout_transactions=number_of_cashout_transactions,
+        total_credits_cashed_out=total_credits_cashed_out,
+        total_cashout_amounts_per_currency=cashout_amounts_per_currency,
+    )
+
+
+@router.get("/credits/history")
+async def get_credit_history(user_id: str) -> CreditHistoryResponse:
+    [summary_data, cashout_transactions] = await asyncio.gather(
+        generate_summary_data(user_id),
+        get_cashout_transactions(user_id),
+    )
+    return CreditHistoryResponse(summary_data=summary_data, cashout_transactions=cashout_transactions)
