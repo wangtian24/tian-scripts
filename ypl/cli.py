@@ -1616,18 +1616,16 @@ def validate_ledger_balance() -> None:
 
 @cli.command()
 @click.option("--dry-run", is_flag=True, help="Print emails that would be sent without actually sending them")
-@click.option("--limit", type=int, help="Limit number of emails to send", default=None)
 @db_cmd
-def send_marketing_emails(dry_run: bool, limit: int | None) -> None:
+def send_marketing_emails(dry_run: bool) -> None:
     """Schedule and send email campaigns to users.
 
     Example usage:
         poetry run python -m ypl.cli send-marketing-emails --dry-run
-        poetry run python -m ypl.cli send-marketing-emails --limit=100
     """
 
     with Session(get_engine()) as session:
-        asyncio.run(send_marketing_emails_async(session, dry_run, limit))
+        asyncio.run(send_marketing_emails_async(session, dry_run))
 
 
 if __name__ == "__main__":

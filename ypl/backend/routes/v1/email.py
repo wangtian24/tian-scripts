@@ -4,7 +4,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from ypl.backend.email.send_email import send_email_async
+from ypl.backend.email.send_email import EmailConfig, send_email_async
 from ypl.backend.utils.json import json_dumps
 
 router = APIRouter()
@@ -20,9 +20,11 @@ class SendEmailRequest(BaseModel):
 async def send_email(request: SendEmailRequest) -> dict[str, Any]:
     try:
         email = await send_email_async(
-            campaign=request.campaign,
-            to_address=request.to_address,
-            template_params=request.params,
+            EmailConfig(
+                campaign=request.campaign,
+                to_address=request.to_address,
+                template_params=request.params,
+            )
         )
         return {"status": "success", "email": email}
     except ValueError as e:
