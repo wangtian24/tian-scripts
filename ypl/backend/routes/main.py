@@ -23,6 +23,7 @@ from ypl.backend.routes.v1 import points as points_route
 from ypl.backend.routes.v1 import profile as profile_route
 from ypl.backend.routes.v1 import provider as provider_route
 from ypl.backend.routes.v1 import route as llm_route
+from ypl.backend.routes.v1 import system as system_route
 from ypl.backend.routes.v1 import user as user_route
 from ypl.backend.routes.v1 import user_capability as user_capability_route
 from ypl.backend.utils.json import json_dumps
@@ -80,6 +81,7 @@ admin_router.include_router(user_route.admin_router, prefix="/v1", tags=["admin"
 admin_router.include_router(points_route.router, prefix="/v1", tags=["admin"])
 admin_router.include_router(user_capability_route.router, prefix="/v1", tags=["admin"])
 admin_router.include_router(message_route.router, prefix="/v1", tags=["admin"])
+admin_router.include_router(system_route.router, prefix="/v1", tags=["admin"])
 
 api_router.include_router(admin_router)
 

@@ -18,7 +18,6 @@ router = APIRouter()
 async def select_models(
     prompt: str = Query(..., description="Prompt"),
     num_models: int = Query(default=2, description="Number of different models to route to"),
-    budget: float = Query(default=float("inf"), description="Budget"),
     preference: None | RoutingPreference = Body(default=None, description="List of past outcomes"),  # noqa: B008
 ) -> list[str]:
     router = await get_simple_pro_router(

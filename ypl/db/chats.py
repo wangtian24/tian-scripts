@@ -3,7 +3,6 @@ import uuid
 from typing import TYPE_CHECKING, Any, TypeVar
 
 import yaml
-from cachetools.func import ttl_cache
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import ARRAY, JSON, Boolean, Column, Index, Text, UniqueConstraint, text
 from sqlalchemy import Enum as SQLAlchemyEnum
@@ -148,10 +147,15 @@ class LanguageCodeEnum(enum.Enum):
             return None
 
 
-@ttl_cache(ttl=3600)
+LANG_CODES: list[str] | None = None
+
+
 def load_language_codes() -> list[str]:
-    with open("data/language_codes.yml") as f:
-        return sorted(yaml.safe_load(f))
+    global LANG_CODES
+    if LANG_CODES is None:
+        with open("data/language_codes.yml") as f:
+            LANG_CODES = sorted(yaml.safe_load(f))
+    return LANG_CODES
 
 
 LanguageCode: type[LanguageCodeEnum] = enum.Enum(  # type: ignore
