@@ -126,6 +126,7 @@ class Delegator:
         delegates: dict[str, Any],
         timeout_secs: float | None = None,
         early_terminate_on: list[str] | None = None,
+        priority_groups: list[list[str]] | None = None,
     ) -> None:
         """
         Creates a delegator that fans out method calls to underlying named objects.
@@ -135,14 +136,51 @@ class Delegator:
             timeout: Timeout for method calls
             return_when: Whether to return the first result or all results
             early_terminate_on: List of delegate names that will trigger early termination
+            priority_groups: groups of delegates for finer early termination control. You should only set
+                either `early_terminate_on` or `priority_groups`, but not both.
         """
         self.delegates = delegates
         self.timeout_secs = timeout_secs
-        if early_terminate_on:
-            missing_names = set(early_terminate_on) - set(self.delegates.keys())
-            if missing_names:
-                raise ValueError(f"early_terminate_on contains names that are not in delegates: {missing_names}")
-        self.early_terminate_on = set(early_terminate_on or [])
+        assert not (
+            early_terminate_on and priority_groups
+        ), "Only one of early_terminate_on or priority_groups can be set"
+
+        self.priority_groups = priority_groups or list([list(early_terminate_on)] if early_terminate_on else [[]])
+
+        # do some sanity checks
+        self.priority_groups_set = {name for group in self.priority_groups for name in group}
+        missing_names = self.priority_groups_set - set(self.delegates.keys())
+        if missing_names:
+            raise ValueError(
+                f"early_terminate_on or priority_groups contains names that are not in delegates: {missing_names}"
+            )
+
+    def _can_early_terminate(self, name: str, results: dict[str, Result]) -> bool:
+        """
+        We can early terminate and cancel all pending tasks if:
+        1. this name is in the first priority group, OR
+        2. all tasks in all higher priority group's delegates have failed.
+        """
+        if len(self.priority_groups_set) == 0:
+            # No priority groups, no early termination.
+            return False
+
+        # Find which priority group this name belongs to
+        current_group_idx = next(i for i, group in enumerate(self.priority_groups) if name in group)
+        if current_group_idx == 0:
+            # First priority group - can terminate early
+            return True
+
+        # Check if all results from higher priority groups failed
+        all_failed = True  # whether all higher priority tasks have failed
+        for group_idx in range(current_group_idx):
+            for delegate_name in self.priority_groups[group_idx]:
+                if delegate_name not in results.keys() or not isinstance(results[delegate_name], Exception):
+                    all_failed = False
+                    break
+            if not all_failed:
+                break
+        return all_failed
 
     async def delegate(self, method_name: str, *args: Any, **kwargs: Any) -> dict[str, Result]:
         """
@@ -193,7 +231,11 @@ class Delegator:
                     name, result = await task
                     results[name] = result
                     # Check if this result should trigger early termination
-                    if name in self.early_terminate_on and not isinstance(result, Exception):
+                    if (
+                        name in self.priority_groups_set
+                        and not isinstance(result, Exception)
+                        and self._can_early_terminate(name, results)
+                    ):
                         # Cancel remaining tasks
                         for task in pending:
                             task.cancel()
@@ -205,11 +247,9 @@ class Delegator:
                                 name, result = await task
                                 results[name] = result
                         break
+
                     # TODO(Raghu): tweak: if all early_terminate_on models refuse, we wait for all of the remaining.
                     #              We only need one of the remaining to respond.
-
-                # Continue processing remaining tasks in next iteration
-                continue
 
         except Exception as e:
             # Handle any unexpected errors

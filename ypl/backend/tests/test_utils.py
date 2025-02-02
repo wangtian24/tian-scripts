@@ -117,7 +117,8 @@ async def test_multi_delegate() -> None:
     assert str(results["raise_if_3"]) == "input is 3"
 
     # First completed mode - everything except the fast-returning delegate should be cancelled
-    delegator.early_terminate_on = {"mul_by_2"}
+    delegator.priority_groups = [["mul_by_2"]]
+    delegator.priority_groups_set = {"mul_by_2"}
     delegator.delegates["add_3"].delay = 0.2
     results = await delegator.run(3)
     assert results["mul_by_2"] == 6
@@ -130,36 +131,59 @@ async def test_multi_delegate() -> None:
     assert isinstance(results["mul_by_2"], AttributeError)
 
     # Test timeouts
-    delegator = Delegator(
-        delegates={
-            "add_3_fast_1": Add3(delay=0.0),
-            "add_3_fast_2": Add3(delay=0.0),
-            "add_3_medium": Add3(delay=0.1),
-            "add_3_slow_1": Add3(delay=0.5),
-            "add_3_slow_2": Add3(delay=0.5),
-        },
-        timeout_secs=0.25,
-    )
+    def setup_delegator(**kwargs: Any) -> Delegator:
+        return Delegator(
+            delegates={
+                "add_3_fast_1": Add3(delay=0.0),
+                "add_3_fast_2": Add3(delay=0.0),
+                "add_3_medium": Add3(delay=0.3),
+                "add_3_slow_1": Add3(delay=0.7),
+                "add_3_slow_2": Add3(delay=0.7),
+            },
+            timeout_secs=0.5,
+            **kwargs,
+        )
+
+    delegator = setup_delegator()
     results = await delegator.run(1)
     assert results["add_3_fast_1"] == results["add_3_fast_2"] == results["add_3_medium"] == 4
     assert isinstance(results["add_3_slow_1"], TimeoutError)
     assert isinstance(results["add_3_slow_2"], TimeoutError)
 
     # Timeouts on first completed mode: at least one fast delegate should returned, others delegates should be cancelled
-    delegator.early_terminate_on = {"add_3_fast_1", "add_3_fast_2"}
+    delegator = setup_delegator(early_terminate_on=["add_3_fast_1", "add_3_fast_2"])
     results = await delegator.run(1)
     assert results["add_3_fast_1"] == 4 or results["add_3_fast_2"] == 4
     assert isinstance(results["add_3_medium"], EarlyTerminatedException)
     assert isinstance(results["add_3_slow_1"], EarlyTerminatedException)
     assert isinstance(results["add_3_slow_2"], EarlyTerminatedException)
 
-    delegator.early_terminate_on = {"add_3_medium"}
+    delegator = setup_delegator(early_terminate_on=["add_3_medium"])
     results = await delegator.run(1)
     assert results["add_3_fast_1"] == 4
     assert results["add_3_fast_2"] == 4
     assert results["add_3_medium"] == 4
     assert isinstance(results["add_3_slow_1"], EarlyTerminatedException)
     assert isinstance(results["add_3_slow_2"], EarlyTerminatedException)
+
+    # with multiple priority groups, the fast one will finish first but they need to wait for
+    # medium and slow ones.
+    delegator = setup_delegator(
+        priority_groups=[["add_3_slow_1", "add_3_medium"], ["add_3_fast_1"], ["add_3_fast_2", "add_3_slow_2"]]
+    )
+    results = await delegator.run(1)
+    assert isinstance(results["add_3_slow_1"], EarlyTerminatedException)
+    assert results["add_3_medium"] == 4
+    assert results["add_3_fast_1"] == 4 or results["add_3_fast_2"] == 4
+    assert isinstance(results["add_3_slow_2"], EarlyTerminatedException)
+
+    # another test where not all delegates are in the priority groups
+    delegator = setup_delegator(priority_groups=[["add_3_slow_1", "add_3_slow_2"], ["add_3_medium"]])
+    results = await delegator.run(1)
+    assert isinstance(results["add_3_slow_1"], TimeoutError) or isinstance(results["add_3_slow_2"], TimeoutError)
+    assert results["add_3_medium"] == 4
+    assert results["add_3_fast_1"] == 4
+    assert results["add_3_fast_2"] == 4
 
 
 class MockSession:

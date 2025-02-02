@@ -1141,12 +1141,12 @@ async def generate_quicktake(
         for model in MODELS_FOR_DEFAULT_QT
         if context_lengths.get(model, DEFAULT_QT_MAX_CONTEXT_LENGTH) > min_required_context_len
     ]
-    fallback_qt_models = [
+    fallback_models = [
         model
         for model in MODELS_FOR_FALLBACK
         if context_lengths.get(model, DEFAULT_QT_MAX_CONTEXT_LENGTH) > min_required_context_len
     ]
-    _model_max_context_lengths = {k: v for k, v in context_lengths.items() if k in qt_models + fallback_qt_models}
+    _model_max_context_lengths = {k: v for k, v in context_lengths.items() if k in qt_models + fallback_models}
 
     timeout_secs = (
         request.timeout_secs  # the timeout provided by the client will override the defaults
@@ -1184,6 +1184,8 @@ async def generate_quicktake(
             primary_models.append(preferred_model)
         else:
             raise ValueError(f"Unsupported model: {preferred_model}; supported: {','.join(get_qt_llms().keys())}")
+
+        secondary_models = [MODEL_FOR_PROMPT_ONLY_FULL_NAME, MODEL_FOR_FINETUNE_QT_FULL_NAME]
 
         # We have three tiers of QT models (labelers)
         # 1. primary - high quality but not the fastets, might have refusal as well. Can early terminate.
@@ -1224,9 +1226,10 @@ async def generate_quicktake(
                     user_prompt=USER_QUICKTAKE_FALLBACK_PROMPT,
                     system_prompt=SYSTEM_QUICKTAKE_FALLBACK_PROMPT,
                 )
-                for model in fallback_qt_models
+                for model in fallback_models
             }
         )
+        priority_groups = [primary_models, secondary_models, fallback_models]
 
         # -- Make all quicktake calls in parallel
         class LabelerTask:
@@ -1252,7 +1255,7 @@ async def generate_quicktake(
 
         labeler_tasks = {m: LabelerTask(m, labeler) for m, labeler in all_labelers.items()}
         all_quicktakes: dict[str, Any] = await Delegator(
-            labeler_tasks, timeout_secs=timeout_secs, early_terminate_on=primary_models
+            labeler_tasks, timeout_secs=timeout_secs, priority_groups=priority_groups
         ).async_run()
 
         # -- Post-processing
