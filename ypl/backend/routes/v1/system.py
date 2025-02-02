@@ -47,7 +47,7 @@ async def clear_cache(name: str) -> dict[str, str]:
                 status_code=400,
                 detail=f"Function {func.__name__} (from {name} cache) does not support cache_clear/cache_info",
             )
-        cache_infos[func.__name__] = func.cache_info()
+        cache_infos[func.__name__] = str(func.cache_info())
         func.cache_clear()
     logging.info(json_dumps({"message": f"Cleared {name} cache", "info": cache_infos}))
     return cache_infos

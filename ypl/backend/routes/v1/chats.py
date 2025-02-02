@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
@@ -22,10 +22,11 @@ from ypl.backend.llm.chat import (
     generate_quicktake,
     get_active_prompt_modifiers,
 )
+from ypl.backend.llm.search import search_chats, search_messages
 from ypl.backend.llm.turn_quality import label_turn_quality
 from ypl.backend.rw_cache import TurnQualityCache
 from ypl.backend.utils.json import json_dumps
-from ypl.db.chats import Chat, ChatMessage, SuggestedTurnPrompt, SuggestedUserPrompt, Turn, TurnQuality
+from ypl.db.chats import Chat, ChatMessage, MessageType, SuggestedTurnPrompt, SuggestedUserPrompt, Turn, TurnQuality
 
 # Maximum number of pinned chats for a user.
 MAX_PINNED_CHATS = 10
@@ -202,6 +203,13 @@ class ChatResponse(BaseModel):
     """Response model for chat listing."""
 
     chats: list[Chat]
+    has_more: bool
+
+
+class ChatMessagesResponse(BaseModel):
+    """Response model for chat messages listing."""
+
+    messages: list[ChatMessage]
     has_more: bool
 
 
@@ -451,3 +459,82 @@ async def get_conversation_starters(user_id: str) -> SuggestedPromptsResponse:
         log_dict = {"message": f"Error getting conversation starters for user {user_id}: {str(e)}"}
         logging.exception(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+class ChatSearchRequest(BaseModel):
+    query: str
+    limit: int = 20
+    offset: int = 0
+    order_by: Literal["relevance", "created_at"] = "created_at"
+    message_types: tuple[MessageType, ...] | None = None
+    creator_user_id: str | None = None
+    start_date: datetime | None = None
+    end_date: datetime | None = None
+    message_fields: tuple[str, ...] | None = None
+
+
+@router.get("/chats/search", response_model=ChatResponse)
+async def chat_search(request: Annotated[ChatSearchRequest, Depends()]) -> ChatResponse:
+    try:
+        if len(request.query.strip()) == 0:
+            raise ValueError("Query must not be empty")
+        if request.limit < 1 or request.limit > 100:
+            raise ValueError("Limit must be between 1 and 100")
+
+        async with get_async_session() as session:
+            results = await search_chats(
+                session,
+                request.query,
+                limit=request.limit,
+                offset=request.offset,
+                message_types=request.message_types,
+                creator_user_id=request.creator_user_id,
+                start_date=request.start_date,
+                end_date=request.end_date,
+                order_by=request.order_by,
+            )
+        return ChatResponse(chats=results, has_more=len(results) >= request.limit)
+
+    except Exception as e:
+        log_dict = {
+            "message": "Error searching chats",
+            "query": request.query,
+            "full_request": request.model_dump_json(),
+            "error": str(e),
+        }
+        logging.exception(json_dumps(log_dict))
+        raise HTTPException(status_code=500, detail=f"Error searching chats: {str(e)}") from e
+
+
+@router.get("/chat_messages/search", response_model=ChatMessagesResponse)
+async def chat_messages_search(request: Annotated[ChatSearchRequest, Depends()]) -> ChatMessagesResponse:
+    try:
+        if len(request.query.strip()) == 0:
+            raise ValueError("Query must not be empty")
+        if request.limit < 1 or request.limit > 100:
+            raise ValueError("Limit must be between 1 and 100")
+
+        async with get_async_session() as session:
+            results = await search_messages(
+                session,
+                request.query,
+                limit=request.limit,
+                offset=request.offset,
+                message_types=request.message_types,
+                creator_user_id=request.creator_user_id,
+                start_date=request.start_date,
+                end_date=request.end_date,
+                order_by=request.order_by,
+                message_fields=request.message_fields,
+            )
+        return ChatMessagesResponse(messages=results, has_more=len(results) >= request.limit)
+
+    except Exception as e:
+        log_dict = {
+            "message": "Error searching messages",
+            "query": request.query,
+            "full_request": request.model_dump_json(),
+            "error": str(e),
+        }
+        logging.exception(json_dumps(log_dict))
+        raise HTTPException(status_code=500, detail=f"Error searching messages: {str(e)}") from e
