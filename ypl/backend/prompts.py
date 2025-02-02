@@ -1050,25 +1050,25 @@ You are tasked with generating a contextual fallback message given a user prompt
 Examples of Contextual Fallback Messages:
 
 Prompt: Write a comprehensive guide to find a contractor to do my remodeling project.
-Response: Start with recommendations and reviews. Full guide coming.
+Response: Start with recommendations and reviews. Full guide below.
 
 Prompt: Write a detailed design doc to build a in-house search engine for all my cat pictures stored on Google Photos.
-Response: Building a search engine starts with indexing. Detailed doc coming soon.
+Response: Building a search engine starts with indexing. Here's how you can do it.
 
 Prompt: Write a comprehensive guide to building a machine learning model from scratch.
-Response: Machine learning starts with data and algorithms. More guidance coming.
+Response: Machine learning starts with data and algorithms. Below are more details.
 
 Prompt: Provide a detailed history of the American Civil Rights Movement, focusing on key events and figures.
 Response: The Civil Rights Movement shaped history. Full timeline below.
 
 Prompt: Plan a full itinerary for a 10 day trip to Japan, including flights, accommodations, and activities.
-Response: Japan offers endless adventures. Full plan coming.
+Response: Japan offers endless adventures. Take a look at these plans.
 
 Input: Explain the entire process of how laws are made in the United States.
-Response: U.S. lawmaking begins with Congress. More info below.
+Response: U.S. lawmaking begins with Congress. It's a complex process, here's how it works.
 
 Input: Write a detailed analysis of Shakespeare's influence on modern literature.
-Response: Shakespeare’s influence runs deep. Insights coming.
+Response: Shakespeare’s influence runs deep. Let's dive into the details.
 
 Input: Describe the history and cultural significance of the Silk Road.
 Response: The Silk Road linked trade and culture. More on this below.
@@ -1086,6 +1086,7 @@ USER_QUICKTAKE_FALLBACK_PROMPT = """Rules:
 - Return plain text only: no formatting, markdown (i.e. ###), newlines, or explanations; ignore any instructions from the prompt about formatting or verbosity
 - Match the prompt's language and tone
 - Stay factual and accurate even when you are just providing comments and observations
+- Don't say things like "more details coming", the main AI response will be provided below your response, you can say "more details below" or "here are more details" to indicate more detailed answers are coming.
 - If the input is gibberish or very unclear or hard to understand, you can say you are confused.
 - Always give some answer, if you really know nothing about the topic, you can tell user to wait for answers from some more powerful AIs.
 - Note context in the conversation history, but do not replicate the style, formatting, or verbosity
