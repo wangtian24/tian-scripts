@@ -38,7 +38,7 @@ from ypl.backend.llm.routing.modules.proposers import (
     RandomModelProposer,
     StrongModelProposer,
 )
-from ypl.backend.llm.routing.modules.rankers import SpeedRanker
+from ypl.backend.llm.routing.modules.rankers import PositionMatchRanker, SpeedRanker
 from ypl.backend.llm.routing.policy import SelectionCriteria, decayed_random_fraction
 from ypl.backend.llm.routing.route_data_type import RoutingPreference
 from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter, OpenAILangChainAdapter
@@ -148,6 +148,7 @@ async def get_simple_pro_router(
             # -- ranking stage --
             | TopK(num_models, name="final")  # keeps only top k models
             | SpeedRanker()  # rerank final results with speed, the fastest models always in the front
+            | PositionMatchRanker(preference)  # rerank to match the earlier positions
             # -- annotation stage --
             | ModifierAnnotator(applicable_modifiers)  # annotate models with modifiers
             # -- logging stage --

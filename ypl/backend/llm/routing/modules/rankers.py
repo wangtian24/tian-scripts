@@ -2,6 +2,7 @@ import logging
 
 from ypl.backend.llm.db_helpers import deduce_model_speed_scores
 from ypl.backend.llm.routing.modules.base import RouterModule
+from ypl.backend.llm.routing.route_data_type import RoutingPreference
 from ypl.backend.llm.routing.router_state import RouterState
 from ypl.backend.utils.json import json_dumps
 
@@ -67,6 +68,48 @@ class SpeedRanker(Ranker):
             key=lambda x: model_speed_scores.get(x, 0),  # sort by speed score
             reverse=True,
         )
+
+    async def _aselect_models(self, state: RouterState) -> RouterState:
+        return self._select_models(state)
+
+
+class PositionMatchRanker(Ranker):
+    """
+    Rank models so if a previous-turn reappears, make it match the position of the previous turn.
+    Note that this only re-ranks the first 2 models in the input!
+    """
+
+    def __init__(self, preference: RoutingPreference) -> None:
+        super().__init__(name="posMatch")
+        self.preference = preference
+
+    def rerank(self, model_names: list[str], state: RouterState) -> list[str]:
+        if not self.preference.turns:
+            return model_names
+
+        # Get last turn's models and preferred model
+        last_turn_models = self.preference.turns[-1].models
+
+        # Find any overlapping models between current models and previous turn
+        overlapping = [m for m in model_names if m in last_turn_models]
+        if not overlapping:
+            return model_names
+
+        # Get positions of overlapping models in previous turn
+        positions = {m: last_turn_models.index(m) for m in overlapping}
+
+        # Initialize reranked list with non-overlapping models
+        reranked = [m for m in model_names if m not in overlapping]
+
+        # Insert overlapping models at their previous positions
+        # If position is beyond list length, append to end
+        for model in sorted(overlapping, key=lambda m: positions[m]):
+            pos = positions[model]
+            if pos < len(reranked):
+                reranked.insert(pos, model)
+            else:
+                reranked.append(model)
+        return reranked
 
     async def _aselect_models(self, state: RouterState) -> RouterState:
         return self._select_models(state)
