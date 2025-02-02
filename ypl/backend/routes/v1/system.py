@@ -2,7 +2,13 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
-from ypl.backend.llm.db_helpers import get_active_models, get_image_attachment_models, get_pdf_attachment_models
+from ypl.backend.llm.db_helpers import (
+    deduce_original_provider,
+    deduce_original_providers,
+    get_active_models,
+    get_image_attachment_models,
+    get_pdf_attachment_models,
+)
 from ypl.backend.llm.provider.provider_clients import load_active_models_with_providers
 from ypl.backend.llm.routing.rule_router import get_routing_table
 from ypl.backend.utils.json import json_dumps
@@ -11,12 +17,18 @@ router = APIRouter()
 
 # Maps cache names that can be cleared to list of cached functions to clear.
 CACHED_FUNCS: dict[str, list] = {
-    "routing-table": [get_routing_table],
+    "routing-table": [
+        get_routing_table,
+        deduce_original_provider,
+        deduce_original_providers,
+    ],
     "active-models": [
         get_active_models,
         get_image_attachment_models,
         get_pdf_attachment_models,
         load_active_models_with_providers,
+        deduce_original_provider,
+        deduce_original_providers,
     ],
 }
 

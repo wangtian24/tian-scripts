@@ -669,7 +669,8 @@ PROVIDER_KEY_MAPPING = {
 }
 
 PROVIDER_MODEL_PATTERNS = {
-    re.compile(r"^(openai|chatgpt|gpt-[34]|o1).*$", re.IGNORECASE): "openai",
+    re.compile(r".*-sonar-.*$", re.IGNORECASE): "perplexity",
+    re.compile(r"^(openai|chatgpt|gpt-[34]|o1|o3).*$", re.IGNORECASE): "openai",
     re.compile(r"^(google|gemma|palm|gemini|models/gemini).*$", re.IGNORECASE): "google",
     re.compile(
         r"^(mistral|codestral|pixtral|mixtral|ministral|open-mistral|open-mixtral).*$", re.IGNORECASE
@@ -685,7 +686,6 @@ PROVIDER_MODEL_PATTERNS = {
     re.compile(r"^(amazon/).*$", re.IGNORECASE): "amazon",
     re.compile(r"^(cohere/).*$", re.IGNORECASE): "cohere",
     re.compile(r"^(nvidia).*$", re.IGNORECASE): "nvidia",
-    re.compile(r"-sonar-.*$", re.IGNORECASE): "perplexity",
     re.compile(r"^(x-ai).*$", re.IGNORECASE): "x-ai",
     re.compile(r"^(gryphe).*$", re.IGNORECASE): "gryphe",
 }

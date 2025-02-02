@@ -282,7 +282,8 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         case SelectIntent.NEW_CHAT | SelectIntent.NEW_TURN:
             assert request.prompt is not None, "prompt is required for NEW_CHAT or NEW_TURN intent"
             prompt = request.prompt
-            asyncio.create_task(label_turn_quality(UUID(request.turn_id), UUID(request.chat_id), prompt))
+            if request.turn_id and request.chat_id:
+                asyncio.create_task(label_turn_quality(UUID(request.turn_id), UUID(request.chat_id), prompt))
         case SelectIntent.SHOW_ME_MORE:
             assert request.turn_id is not None, "turn_id is required for SHOW_ME_MORE intent"
             prompt = get_user_message(request.turn_id)

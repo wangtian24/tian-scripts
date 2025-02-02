@@ -88,6 +88,7 @@ def deduce_original_providers(models: tuple[str, ...]) -> dict[str, str]:
             if pattern.match(model):
                 provider_map[model] = provider
                 models_left.remove(model)
+                break
 
     if not models_left:
         # We are done
