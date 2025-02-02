@@ -108,11 +108,29 @@ class SelectModelsV2Request(BaseModel):
     auto_select_prompt_modifiers: bool = False
 
 
+class SelectedModelType(str, Enum):
+    PRIMARY = "primary"
+    FALLBACK = "fallback"
+
+
+class SelectedModelInfo(BaseModel):
+    model: str  # the model name
+    provider: str  # the provider name
+    type: SelectedModelType
+    prompt_modfiers: list[tuple[str, str]]  # a list of (prompt modifier ID, prompt modifier)
+
+
 class SelectModelsV2Response(BaseModel):
+    # legacy model information
     models: list[tuple[str, list[tuple[str, str]]]]  # list of (model, list[(prompt modifier ID, prompt modifier)])
     provider_map: dict[str, str]  # map from model to provider
     fallback_models: list[tuple[str, list[tuple[str, str]]]]  # list of fallback models and modifiers
+
+    # new version of model information, added on 2/1/25, we shall migrate to this gradually
+    selected_models: list[SelectedModelInfo]
+
     routing_debug_info: RoutingDebugInfo | None = None
+    no_more_models: bool = False  # if true, the client should hide the 'Show More AIs' button
 
 
 async def has_image_attachments(chat_id: str) -> bool:
@@ -329,11 +347,24 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         }
         logging.info(json_dumps(dict))
 
+    no_more_models = len(selected_models) < request.num_models
+    providers_by_model = deduce_original_providers(tuple(selected_models + fallback_models))
+
     response = SelectModelsV2Response(
         models=[(model, prompt_modifiers.get(model, [])) for model in selected_models],
         fallback_models=[(model, prompt_modifiers.get(model, [])) for model in fallback_models],
-        provider_map=deduce_original_providers(tuple(selected_models + fallback_models)),
+        provider_map=providers_by_model,
+        selected_models=[
+            SelectedModelInfo(
+                model=model,
+                provider=providers_by_model[model],
+                type=SelectedModelType.PRIMARY if model in selected_models else SelectedModelType.FALLBACK,
+                prompt_modfiers=prompt_modifiers.get(model, []),
+            )
+            for model in selected_models + fallback_models
+        ],
         routing_debug_info=routing_debug_info if request.debug_level > 0 else None,
+        no_more_models=no_more_models,
     )
     logging.debug(json_dumps({"message": "select_models_plus response"} | response.model_dump(mode="json")))
 
