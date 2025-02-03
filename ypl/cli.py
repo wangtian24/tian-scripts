@@ -29,6 +29,7 @@ from tqdm.asyncio import tqdm_asyncio
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_session, get_engine
 from ypl.backend.email.marketing import send_marketing_emails_async
+from ypl.backend.email.send_email import EmailConfig, send_email_async
 from ypl.backend.llm.chat import (
     AIMessage,
     ChatProvider,
@@ -1674,6 +1675,28 @@ def send_marketing_emails(dry_run: bool) -> None:
 
     with Session(get_engine()) as session:
         asyncio.run(send_marketing_emails_async(session, dry_run))
+
+
+@cli.command()
+@click.option("--campaign", required=True, help="The campaign to send the email for")
+@click.option("--to-address", default="delivered@resend.dev", help="The email address to send the email to")
+@db_cmd
+def test_send_email(campaign: str, to_address: str) -> None:
+    """Test sending email campaign to test address.
+
+    Example usage:
+        poetry run python -m ypl.cli test-send-email --campaign signup
+    """
+
+    asyncio.run(
+        send_email_async(
+            EmailConfig(
+                campaign=campaign,
+                to_address=to_address,
+                template_params={"email_recipient_name": "Rumplestiltskin"},
+            )
+        )
+    )
 
 
 @cli.command()
