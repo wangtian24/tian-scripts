@@ -250,13 +250,13 @@ def chats_to_json(sql: str, output_path: str) -> None:
     "--output-file",
     type=str,
     default=None,
-    help="The JSON file to write the results to." " Defaults to the input file.",
+    help="The JSON file to write the results to. Defaults to the input file.",
 )
 @click.option(
     "-j",
     "--num-parallel",
     default=1,
-    help="The number of jobs to run in parallel. Optimal " "value depends on the rate limit and CPU cores.",
+    help="The number of jobs to run in parallel. Optimal value depends on the rate limit and CPU cores.",
 )
 def judge_yupp_prompt_difficulty(
     input_file: str,
@@ -600,13 +600,13 @@ def label_wildchat_realism(
     "--output-file",
     type=str,
     default=None,
-    help="The JSON file to write the results to." " Defaults to the input file.",
+    help="The JSON file to write the results to. Defaults to the input file.",
 )
 @click.option(
     "-j",
     "--num-parallel",
     default=4,
-    help="The number of jobs to run in parallel. Optimal " "value depends on the rate limit and CPU cores.",
+    help="The number of jobs to run in parallel. Optimal value depends on the rate limit and CPU cores.",
 )
 @click.option("--speed-aware", is_flag=True, help="Use speed-aware Yupp evaluation")
 @click.option("--no-exclude", is_flag=True, help="Do not exclude the two LLMs from the random selection")
@@ -1607,6 +1607,34 @@ def get_coinbase_retail_transaction_status(account_id: str, transaction_id: str)
 
     txn_status = asyncio.run(get_transaction_status(account_id, transaction_id))
     print(txn_status)
+
+
+@cli.command()
+@click.option("--metric-window-hours", default=24, help="Scan this many hours of chat messages for metrics")
+@click.option(
+    "--max-requests-in-metric-window",
+    default=100,
+    help="Consider up to this many most recent chat messages for metrics in the window",
+)
+@click.option(
+    "--min-requests-in-metric-window",
+    default=10,
+    help="Min threshold to set metrics just based on recent chat messages. Otherwise take "
+    + "average of new and existing metrics",
+)
+@click.option("--dry-run", is_flag=True, help="Do not update the table")
+def update_model_metrics(
+    metric_window_hours: int, max_requests_in_metric_window: int, min_requests_in_metric_window: int, dry_run: bool
+) -> None:
+    """Calculates performance metrics for all the models based on recent chat messages"""
+    from ypl.backend.llm.db_update_model_metrics import update_active_model_metrics
+
+    update_active_model_metrics(
+        metric_window_hours=metric_window_hours,
+        max_requests_in_metric_window=max_requests_in_metric_window,
+        min_requests_in_metric_window=min_requests_in_metric_window,
+        dry_run=dry_run,
+    )
 
 
 @cli.command()
