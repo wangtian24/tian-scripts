@@ -4,6 +4,7 @@ from datetime import datetime
 from enum import Enum
 
 from fastapi import APIRouter, HTTPException, Path, Query
+from sqlalchemy import String, cast
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, func, or_, select
 
@@ -11,7 +12,7 @@ from ypl.backend.db import get_async_session
 from ypl.backend.user.user import RegisterVendorRequest, VendorProfileResponse, register_user_with_vendor
 from ypl.backend.utils.json import json_dumps
 from ypl.db.invite_codes import SpecialInviteCode, SpecialInviteCodeClaimLog
-from ypl.db.payments import PaymentInstrument
+from ypl.db.payments import PaymentInstrument, PaymentTransaction
 from ypl.db.users import User, UserStatus, WaitlistedUser
 
 router = APIRouter()
@@ -149,21 +150,59 @@ async def get_users(query: str) -> UserSearchResponse:
             }
             logging.info(json_dumps(log_dict))
 
-            return UserSearchResponse(
-                users=[
-                    UserSearchResult(
-                        user_id=user.user_id,
-                        name=user.name,
-                        email=user.email,
-                        created_at=user.created_at,
-                        deleted_at=user.deleted_at,
-                        points=user.points,
-                        status=user.status,
-                    )
-                    for user in users
-                ]
-            )
+            if len(users) > 0:
+                return UserSearchResponse(
+                    users=[
+                        UserSearchResult(
+                            user_id=user.user_id,
+                            name=user.name,
+                            email=user.email,
+                            created_at=user.created_at,
+                            deleted_at=user.deleted_at,
+                            points=user.points,
+                            status=user.status,
+                        )
+                        for user in users
+                    ]
+                )
 
+            # if this is not a payment instrument then search for payment transaction id
+            stmt = (
+                select(User)
+                .join(PaymentInstrument, User.user_id == PaymentInstrument.user_id)  # type: ignore
+                .join(
+                    PaymentTransaction,
+                    PaymentInstrument.payment_instrument_id == PaymentTransaction.destination_instrument_id,  # type: ignore
+                )
+                .where(cast(PaymentTransaction.payment_transaction_id, String).ilike(search))
+            )
+            result = await session.execute(stmt)
+            users = result.scalars().all()
+
+            log_dict = {
+                "message": "Users found for search query in payment transactions",
+                "query": query,
+                "users_count": str(len(users)),
+            }
+            logging.info(json_dumps(log_dict))
+
+            if len(users) > 0:
+                return UserSearchResponse(
+                    users=[
+                        UserSearchResult(
+                            user_id=user.user_id,
+                            name=user.name,
+                            email=user.email,
+                            created_at=user.created_at,
+                            deleted_at=user.deleted_at,
+                            points=user.points,
+                            status=user.status,
+                        )
+                        for user in users
+                    ]
+                )
+
+            return UserSearchResponse(users=[])
     except Exception as e:
         log_dict = {
             "message": "Error searching for users",
