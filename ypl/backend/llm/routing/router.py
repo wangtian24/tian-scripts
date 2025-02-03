@@ -136,7 +136,7 @@ async def get_simple_pro_router(
             Exclude(name="-exSMM", providers=show_me_more_providers, models=exclude_models)
             # inject user selected model, even if they are already used before.
             # Also they are always treated with priority in the following dedup filters.
-            | Inject(user_selected_models or [], score=10000000)
+            | Inject(user_selected_models or [], score=50000000)
             # Don't apply semantic group filter for image turns, since we don't have many supporting models.
             | (
                 semantic_group_filter
