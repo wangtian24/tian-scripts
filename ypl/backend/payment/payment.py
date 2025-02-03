@@ -644,7 +644,7 @@ async def store_axis_upi_balance(balance: Decimal) -> None:
         async with get_async_session() as session:
             query = select(PaymentInstrument).where(
                 PaymentInstrument.user_id == "SYSTEM",  # type: ignore
-                PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.AXIS_UPI,  # type: ignore
+                PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.UPI,  # type: ignore
                 PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.UPI_ID,  # type: ignore
                 PaymentInstrument.deleted_at.is_(None),  # type: ignore
             )
