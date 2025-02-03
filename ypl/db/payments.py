@@ -78,6 +78,8 @@ class PaymentInstrument(BaseModel, table=True):
         sa_relationship_kwargs={"foreign_keys": "[PaymentTransaction.destination_instrument_id]"},
     )
 
+    daily_balances: list["DailyAccountBalanceHistory"] = Relationship(back_populates="payment_instrument")
+
 
 class PaymentTransactionStatusEnum(enum.Enum):
     # We just have the row in the database, nothing has been initiated yet.
@@ -147,3 +149,16 @@ class PaymentTransaction(BaseModel, table=True):
     # partner's system too.
     # E.g. for UPI this is the UTR number.
     customer_reference_id: str | None = Field(nullable=True)
+
+
+class DailyAccountBalanceHistory(BaseModel, table=True):
+    __tablename__ = "daily_account_balance_history"
+
+    daily_account_balance_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
+    payment_instrument_id: uuid.UUID = Field(
+        foreign_key="payment_instruments.payment_instrument_id", nullable=False, index=True
+    )
+    payment_instrument: "PaymentInstrument" = Relationship(back_populates="daily_balances")
+    account_id: str = Field(nullable=False)
+    currency: CurrencyEnum = Field(nullable=False)
+    balance: Decimal = Field(sa_column=Column(Numeric(precision=30, scale=18), nullable=False))
