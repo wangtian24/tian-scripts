@@ -22,7 +22,7 @@ from ypl.backend.llm.chat import (
     generate_quicktake,
     get_active_prompt_modifiers,
 )
-from ypl.backend.llm.search import search_chats, search_messages
+from ypl.backend.llm.search import search_chat_messages, search_chats
 from ypl.backend.llm.turn_quality import label_turn_quality
 from ypl.backend.rw_cache import TurnQualityCache
 from ypl.backend.utils.json import json_dumps
@@ -462,15 +462,38 @@ async def get_conversation_starters(user_id: str) -> SuggestedPromptsResponse:
 
 
 class ChatSearchRequest(BaseModel):
-    query: str
-    limit: int = 20
-    offset: int = 0
-    order_by: Literal["relevance", "created_at"] = "created_at"
-    message_types: tuple[MessageType, ...] | None = None
-    creator_user_id: str | None = None
-    start_date: datetime | None = None
-    end_date: datetime | None = None
-    message_fields: tuple[str, ...] | None = None
+    query: Annotated[str, Query(title="Search query", description="Text to search for in chats/messages")]
+    limit: Annotated[
+        int, Query(title="Result limit", description="Maximum number of results to return", ge=1, le=100)
+    ] = 20
+    offset: Annotated[int, Query(title="Result offset", description="Number of results to skip", ge=0)] = 0
+    order_by: Annotated[
+        Literal["relevance", "created_at"],
+        Query(title="Sort order", description="How to order the results"),
+    ] = "created_at"
+    message_types: Annotated[
+        tuple[MessageType, ...] | None,
+        Query(title="Message types", description="Match only messages of these types"),
+    ] = None
+    creator_user_id: Annotated[
+        str | None,
+        Query(title="Creator user ID", description="Filter results to a specific user"),
+    ] = None
+    start_date: Annotated[
+        datetime | None,
+        Query(title="Start date", description="Filter results to chats/messages after this date"),
+    ] = None
+    end_date: Annotated[
+        datetime | None,
+        Query(title="End date", description="Filter results to chats/messages before this date"),
+    ] = None
+    message_fields: Annotated[
+        tuple[str, ...] | None,
+        Query(
+            title="Message fields",
+            description="Which fields to include in the response (the actual search is done on the message content)",
+        ),
+    ] = None
 
 
 @router.get("/chats/search", response_model=ChatResponse)
@@ -515,7 +538,7 @@ async def chat_messages_search(request: Annotated[ChatSearchRequest, Depends()])
             raise ValueError("Limit must be between 1 and 100")
 
         async with get_async_session() as session:
-            results = await search_messages(
+            results = await search_chat_messages(
                 session,
                 request.query,
                 limit=request.limit,

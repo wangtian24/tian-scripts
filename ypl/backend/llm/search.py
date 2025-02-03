@@ -45,7 +45,7 @@ async def search_chats(
         filters.append(Chat.created_at <= end_date)  # type: ignore
 
     # Find messages that match at least one term by making an OR query with all terms.
-    tokens = query.split()
+    tokens = set(query.split())
     or_query_str = " | ".join(tokens) if tokens else ""
     ts_query_filter = func.to_tsquery(or_query_str) if or_query_str else None
 
@@ -88,7 +88,7 @@ async def search_chats(
     return results.scalars().all()  # type: ignore
 
 
-async def search_messages(
+async def search_chat_messages(
     session: AsyncSession,
     query: str,
     limit: int = 20,
