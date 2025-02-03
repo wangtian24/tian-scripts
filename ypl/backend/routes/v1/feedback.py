@@ -15,6 +15,7 @@ router = APIRouter()
 class AppFeedbackRequest(BaseModel):
     user_id: str
     chat_id: UUID | None = None
+    turn_id: UUID | None = None
     user_comment: str
 
 
@@ -24,6 +25,7 @@ async def log_app_feedback(request: AppFeedbackRequest) -> None:
         app_feedback = AppFeedback(
             user_id=request.user_id,
             chat_id=request.chat_id,
+            turn_id=request.turn_id,
             user_comment=request.user_comment,
         )
         # store into database
@@ -33,12 +35,17 @@ async def log_app_feedback(request: AppFeedbackRequest) -> None:
         comment_excerpt = request.user_comment[:100] if request.user_comment else None
         logging.info(
             json_dumps(
-                {"message": f"App feedback: {comment_excerpt}", "user_id": request.user_id, "chat_id": request.chat_id}
+                {
+                    "message": f"App feedback: {comment_excerpt}",
+                    "user_id": request.user_id,
+                    "chat_id": request.chat_id,
+                    "turn_id": request.turn_id,
+                }
             )
         )
 
     except Exception as e:
-        log_dict = {"message": f"Error storing app feedback - {str(e)}"}
+        log_dict = {"message": f"Error storing app feedback to database - {str(e)}"}
         logging.exception(json_dumps(log_dict))
 
         raise HTTPException(status_code=500, detail=str(e)) from e
