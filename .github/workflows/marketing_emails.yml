@@ -10,6 +10,6 @@ jobs:
     uses: ./.github/workflows/cronjob.yml
     with:
       # TODO(w): Remove dry-run once we want to start sending emails
-      command: send-marketing-emails --dry-run
+      command: "send-marketing-emails --dry-run"
       environment: production
     secrets: inherit
