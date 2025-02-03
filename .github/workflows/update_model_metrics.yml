@@ -1,0 +1,21 @@
+name: Update model metrics
+
+on:
+  schedule:
+    - cron: '12 * * * *'  # Every hour at the 12th minute
+  workflow_dispatch:
+
+jobs:
+  update_model_metrics_staging:
+    uses: ./.github/workflows/cronjob.yml
+    with:
+      command: update-model-metrics
+      environment: staging
+    secrets: inherit
+
+  update_model_metrics_production:
+    uses: ./.github/workflows/cronjob.yml
+    with:
+      command: update-model-metrics
+      environment: production
+    secrets: inherit

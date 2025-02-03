@@ -33,6 +33,7 @@ on:
           - reset-yuppster-points
           - refresh-conversation-starters
           - store-prompt-language
+          - update-model-metrics
           - update-ranking
           - update-ranking-all-categories
           - validate-active-models
