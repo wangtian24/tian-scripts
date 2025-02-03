@@ -33,6 +33,7 @@ from ypl.backend.payment.payment import (
     update_user_points,
 )
 from ypl.backend.utils.json import json_dumps
+from ypl.backend.utils.utils import fetch_user_names
 from ypl.db.payments import (
     CurrencyEnum,
     PaymentInstrument,
@@ -637,12 +638,13 @@ async def get_destination_instrument_id(
             user_instrument = next((i for i in existing_instruments if i.user_id == user_id), None)
 
             if not user_instrument:
-                # Log the reuse attempt with all user IDs involved
                 existing_user_ids = [i.user_id for i in existing_instruments]
+                existing_user_names = await fetch_user_names(existing_user_ids)
                 log_dict = {
                     "message": ":warning: - Payment instrument reuse attempt",
                     "new_user_id": user_id,
                     "existing_user_ids": existing_user_ids,
+                    "existing_user_names": list(existing_user_names.values()),
                     "identifier": destination_identifier,
                     "identifier_type": destination_identifier_type,
                     "facilitator": facilitator,
@@ -659,6 +661,7 @@ async def get_destination_instrument_id(
                         "facilitator": facilitator,
                         "user_id": user_id,
                         "existing_user_id": existing_user_ids[0],
+                        "existing_user_name": existing_user_names[existing_user_ids[0]],
                         "identifier": destination_identifier,
                         "instrument_metadata": instrument_metadata,
                     }
@@ -673,6 +676,19 @@ async def get_destination_instrument_id(
                     session.add(instrument)
                 else:
                     # If 2 or more users are already using this instrument, raise exception
+                    log_dict = {
+                        "message": ":x: Payment instrument reuse attempt for more than allowed users",
+                        "new_user_id": user_id,
+                        "existing_user_ids": existing_user_ids,
+                        "existing_user_names": list(existing_user_names.values()),
+                        "identifier": destination_identifier,
+                        "identifier_type": destination_identifier_type,
+                        "facilitator": facilitator,
+                    }
+                    logging.info(json_dumps(log_dict))
+                    asyncio.create_task(
+                        post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
+                    )
                     raise HTTPException(
                         status_code=400,
                         detail=(
