@@ -28,7 +28,10 @@ async def lifespan(app: FastAPI):  # type: ignore
         start_metrics_manager()
 
     # Initialize crypto processor at startup as it is a long running process
-    await get_processor()
+    try:
+        await get_processor()
+    except Exception as e:
+        logging.error(f"Error initializing crypto processor: {e}")
 
     # Run preload_gcp_secrets in the background
     asyncio.create_task(preload_gcp_secrets())
