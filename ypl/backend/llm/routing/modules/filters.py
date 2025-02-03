@@ -101,6 +101,10 @@ class TopK(ModelFilter):
         )
         excluded_models = {model for model, _ in selected_models[self.k :]}
 
+        # Every TopK in the chain may modify this information, but the last TopK will determine the final value.
+        state.has_more_models = len(selected_models) > self.k
+
+        # Trim the list to k
         state.selected_models = {model: x for model, x in state.selected_models.items() if model not in excluded_models}
 
         return state, excluded_models

@@ -130,7 +130,7 @@ class SelectModelsV2Response(BaseModel):
     selected_models: list[SelectedModelInfo]
 
     routing_debug_info: RoutingDebugInfo | None = None
-    no_more_models: bool = False  # if true, the client should hide the 'Show More AIs' button
+    has_more_models: bool = True  # if true, show "Show More AIs" button
 
 
 async def has_image_attachments(chat_id: str) -> bool:
@@ -348,7 +348,6 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         }
         logging.info(json_dumps(dict))
 
-    no_more_models = len(selected_models) < request.num_models
     providers_by_model = deduce_original_providers(tuple(selected_models + fallback_models))
 
     response = SelectModelsV2Response(
@@ -365,7 +364,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
             for model in selected_models + fallback_models
         ],
         routing_debug_info=routing_debug_info if request.debug_level > 0 else None,
-        no_more_models=no_more_models,
+        has_more_models=selected_models_rs.has_more_models,
     )
     logging.debug(json_dumps({"message": "select_models_plus response"} | response.model_dump(mode="json")))
 
