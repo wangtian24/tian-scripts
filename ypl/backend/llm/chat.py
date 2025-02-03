@@ -32,7 +32,7 @@ from ypl.backend.llm.db_helpers import (
     get_preferences,
     get_user_message,
 )
-from ypl.backend.llm.labeler import QT_CANT_ANSWER, CantAnswerException, QuickTakeGenerator
+from ypl.backend.llm.labeler import QT_CANT_ANSWER, QuickTakeGenerator
 from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.model_heuristics import ModelHeuristics
 from ypl.backend.llm.prompt_selector import (
@@ -1251,12 +1251,7 @@ async def generate_quicktake(
                         prompt=tiktoken_trim(request.prompt or "", int(max_context_length * 0.75), direction="right")
                     ),
                 )
-                try:
-                    return await self.labeler.alabel(trimmed_message)
-                except CantAnswerException as e:
-                    return e  # Exception returned as normal result to be handled by Delegator
-                except Exception:
-                    raise
+                return await self.labeler.alabel(trimmed_message)
 
         labeler_tasks = {m: LabelerTask(m, labeler) for m, labeler in all_labelers.items()}
         all_quicktakes: dict[str, Any] = await Delegator(
