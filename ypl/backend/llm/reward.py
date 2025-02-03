@@ -473,6 +473,19 @@ def get_reward(min_value: int, max_value: int) -> int:
     stop=stop_after_attempt(3),
     wait=wait_fixed(0.1),
     after=after_log(logging.getLogger(), logging.WARNING),
+    retry=retry_if_exception_type((TimeoutError,)),
+)
+async def _update_user_eval_quality_scores(user_id: str) -> None:
+    # In most cases, waiting a bit will result in the inclusion of the eval for the current turn.
+    # If not, it will be included in the next batch of evals.
+    await asyncio.sleep(5)
+    await update_user_eval_quality_scores(user_id)
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_fixed(0.1),
+    after=after_log(logging.getLogger(), logging.WARNING),
     retry=retry_if_exception_type((OperationalError, DatabaseError)),
 )
 async def turn_based_reward(
@@ -495,13 +508,7 @@ async def turn_based_reward(
             - RewardProbabilityRule | None: The reward probability rule used.
     """
 
-    async def update_quality_scores() -> None:
-        # In most cases, waiting a bit will result in the inclusion of the eval for the current turn.
-        # If not, it will be included in the next batch of evals.
-        await asyncio.sleep(5)
-        await update_user_eval_quality_scores(user_id)
-
-    asyncio.create_task(update_quality_scores())
+    asyncio.create_task(_update_user_eval_quality_scores(user_id))
     return _handle_turn_based_reward(UserTurnReward(user_id, turn_id))
 
 
