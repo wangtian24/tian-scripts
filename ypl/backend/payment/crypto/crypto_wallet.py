@@ -11,7 +11,6 @@ from cryptography.fernet import Fernet
 from sqlalchemy import select
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
-from ypl.backend.llm.utils import post_to_slack
 from ypl.backend.utils.files import download_gcs_to_local_temp
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import PaymentInstrument
@@ -92,15 +91,20 @@ async def import_existing_wallet() -> Wallet:
         raise ValueError("Failed to import wallet") from e
 
 
-async def get_wallet_balance() -> None:
+async def get_wallet_balance() -> dict:
     """
-    Get the balance of a specific asset in the wallet.
-
-    Args:
-        asset_id (str): The ID of the asset to check
+    Get the balance of assets in the wallet.
 
     Returns:
-        Decimal: The balance amount
+        dict: A dictionary containing wallet address and balances for different assets
+            Format:
+            {
+                'wallet_address': str,
+                'balances': [
+                    {'currency': str, 'balance': Decimal},
+                    ...
+                ]
+            }
 
     Raises:
         ValueError: If wallet import fails
@@ -112,26 +116,25 @@ async def get_wallet_balance() -> None:
         usdc_balance = wallet.balance("usdc")
         cbbtc_balance = wallet.balance("cbbtc")
 
+        wallet_data = {
+            "wallet_address": wallet.default_address.address_id if wallet.default_address else None,
+            "balances": [
+                {"currency": "ETH", "balance": eth_balance},
+                {"currency": "USDC", "balance": usdc_balance},
+                {"currency": "CBBTC", "balance": cbbtc_balance},
+            ],
+        }
+
         log_dict = {
             "message": "Retrieved wallet balance",
-            "wallet_address": wallet.default_address.address_id if wallet.default_address else None,
+            "wallet_address": wallet_data["wallet_address"],
             "eth_balance": str(eth_balance),
             "usdc_balance": str(usdc_balance),
             "cbbtc_balance": str(cbbtc_balance),
         }
         logging.info(json_dumps(log_dict))
 
-        message = (
-            "*Self Custodial Wallet Balance*\n"
-            "```\n"
-            "| Asset | Balance |\n"
-            "|-------|----------|\n"
-            f"| ETH   | {eth_balance:.8f} |\n"
-            f"| USDC  | {usdc_balance:.6f} |\n"
-            f"| CBBTC | {cbbtc_balance:.8f} |\n"
-            "```\n"
-        )
-        await post_to_slack(message, SLACK_WEBHOOK_CASHOUT)
+        return wallet_data
     except Exception as e:
         log_dict = {"message": "Failed to get wallet balance", "error": str(e)}
         logging.error(json_dumps(log_dict))

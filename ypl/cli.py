@@ -65,8 +65,12 @@ from ypl.backend.llm.ranking import get_default_ranker
 from ypl.backend.llm.synthesize import SQLChatIO, SynthesizerConfig, SyntheticUserGenerator, asynthesize_chats
 from ypl.backend.llm.utils import fetch_categories_with_descriptions_from_db
 from ypl.backend.payment.crypto.crypto_payout import process_pending_crypto_rewards
-from ypl.backend.payment.crypto.crypto_wallet import create_wallet, get_wallet_balance
-from ypl.backend.payment.payment import validate_ledger_balance_all_users
+from ypl.backend.payment.crypto.crypto_wallet import create_wallet
+from ypl.backend.payment.payment import (
+    store_coinbase_retail_wallet_balances,
+    store_wallet_balances,
+    validate_ledger_balance_all_users,
+)
 from ypl.backend.payment.payout_utils import validate_pending_cashouts_async
 from ypl.backend.payment.plaid.plaid_payout import PlaidPayout, process_plaid_payout
 from ypl.backend.utils.analytics import post_analytics_to_slack
@@ -1315,12 +1319,6 @@ def create_a_wallet() -> None:
 
 
 @cli.command()
-def post_onchain_details() -> None:
-    """Get the balance of a wallet."""
-    asyncio.run(get_wallet_balance())
-
-
-@cli.command()
 def process_a_plaid_payout() -> None:
     """Make a Plaid payment."""
     payout = PlaidPayout(
@@ -1411,22 +1409,43 @@ def post_source_account_balances() -> None:
     from ypl.backend.llm.utils import post_to_slack
     from ypl.backend.payment.coinbase.coinbase_payout import get_coinbase_retail_wallet_account_details
     from ypl.backend.payment.crypto.crypto_wallet import SLACK_WEBHOOK_CASHOUT, get_wallet_balance
+    from ypl.backend.payment.payment import store_axis_upi_balance
+    from ypl.backend.payment.upi.axis.facilitator import get_balance
 
     async def format_and_post_balances() -> None:
-        # Get onchain balance - the method itself posts to slack
-        await get_wallet_balance()
+        #  get self custodial wallet balance
+        wallet_data = await get_wallet_balance()
+        await store_wallet_balances(wallet_data)
+
+        message = "*Self Custodial Wallet Balance*\n"
+        message += "```\n"
+        message += "| Asset | Balance |\n"
+        message += "|-------|----------|\n"
+        for balance in wallet_data["balances"]:
+            currency = balance["currency"]
+            amount = balance["balance"]
+            message += f"| {currency:<5} | {amount:>9.8f} |\n"
+        message += "```\n\n"
 
         # Get offchain balance
         accounts = await get_coinbase_retail_wallet_account_details()
+        await store_coinbase_retail_wallet_balances(accounts)
 
-        # Add offchain balance section
-        message = "*Coinbase Retail Wallet Balance*\n"
+        message += "*Coinbase Retail Wallet Balance*\n"
         message += "```\n"
         message += "| Asset | Balance |\n"
         message += "|-------|----------|\n"
         for currency, details in accounts.items():
             balance = details.get("balance", 0)
             message += f"| {currency:<5} | {balance:>9.8f} |\n"
+        message += "```"
+
+        #  Get Axis UPI balance
+        balance = await get_balance()
+        await store_axis_upi_balance(balance)
+        message += "\n*Axis UPI Balance*\n"
+        message += "```\n"
+        message += f"| Balance | {balance:>9.8f} |\n"
         message += "```"
 
         await post_to_slack(message, SLACK_WEBHOOK_CASHOUT)

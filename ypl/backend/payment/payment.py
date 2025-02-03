@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -14,7 +15,10 @@ from ypl.backend.llm.utils import post_to_slack
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import (
     CurrencyEnum,
+    DailyAccountBalanceHistory,
     PaymentInstrument,
+    PaymentInstrumentFacilitatorEnum,
+    PaymentInstrumentIdentifierTypeEnum,
     PaymentTransaction,
     PaymentTransactionStatusEnum,
 )
@@ -499,3 +503,177 @@ async def update_payment_instrument(payment_instrument_id: UUID, request: Update
             payment_instrument_row.deleted_at = request.deleted_at
 
         await session.commit()
+
+
+async def store_wallet_balances(wallet_data: dict) -> None:
+    """
+    Store wallet balances in the daily_account_balances table.
+
+    Args:
+        wallet_data: Dictionary containing wallet address and balances
+            Format:
+            {
+                'wallet_address': str,
+                'balances': [
+                    {'currency': str, 'balance': Decimal},
+                    ...
+                ]
+            }
+    """
+    try:
+        async with get_async_session() as session:
+            query = select(PaymentInstrument).where(
+                PaymentInstrument.user_id == "SYSTEM",  # type: ignore
+                PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.ON_CHAIN,  # type: ignore
+                PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS,  # type: ignore
+                PaymentInstrument.deleted_at.is_(None),  # type: ignore
+            )
+            result = await session.execute(query)
+            payment_instrument = result.scalar_one()
+
+            # Create daily balance entries for each currency
+            for balance_entry in wallet_data["balances"]:
+                daily_balance = DailyAccountBalanceHistory(
+                    payment_instrument_id=payment_instrument.payment_instrument_id,
+                    account_id=wallet_data["wallet_address"],
+                    currency=CurrencyEnum[balance_entry["currency"]],
+                    balance=balance_entry["balance"],
+                )
+                session.add(daily_balance)
+
+            await session.commit()
+
+            log_dict = {
+                "message": "Successfully stored wallet balances",
+                "wallet_address": wallet_data["wallet_address"],
+                "balances": [
+                    {"currency": b["currency"], "balance": str(b["balance"])} for b in wallet_data["balances"]
+                ],
+            }
+            logging.info(json_dumps(log_dict))
+
+    except Exception as e:
+        #  incase of any exception just post to slack. No need to raise an error
+        #  as this is part of a daily cron job
+        log_dict = {
+            "message": "Failed to store wallet balances",
+            "wallet_address": wallet_data.get("wallet_address"),
+            "error": str(e),
+        }
+        logging.error(json_dumps(log_dict))
+        asyncio.create_task(post_to_slack(json_dumps(log_dict)))
+        return None
+
+
+async def store_coinbase_retail_wallet_balances(accounts: dict[str, dict[str, str | Decimal]]) -> None:
+    """
+    Store Coinbase retail wallet balances in the daily_account_balances table.
+    Only stores balances for currencies that exist in CurrencyEnum.
+
+    Args:
+        accounts: Dictionary mapping currency codes to their account IDs and balances
+            Format:
+            {
+                "currency_code": {
+                    "account_id": str,
+                    "balance": Decimal
+                }
+            }
+    """
+    try:
+        async with get_async_session() as session:
+            query = select(PaymentInstrument).where(
+                PaymentInstrument.user_id == "SYSTEM",  # type: ignore
+                PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.COINBASE,  # type: ignore
+                PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS,  # type: ignore
+                PaymentInstrument.deleted_at.is_(None),  # type: ignore
+            )
+            result = await session.execute(query)
+            payment_instrument = result.scalar_one()
+
+            stored_balances = []
+            skipped_currencies = []
+
+            # Create daily balance entries for each currency
+            for currency, details in accounts.items():
+                try:
+                    currency_enum = CurrencyEnum[currency]
+                    daily_balance = DailyAccountBalanceHistory(
+                        payment_instrument_id=payment_instrument.payment_instrument_id,
+                        account_id=str(details["account_id"]),
+                        currency=currency_enum,
+                        balance=Decimal(str(details["balance"])),
+                    )
+                    session.add(daily_balance)
+                    stored_balances.append({"currency": currency, "balance": str(details["balance"])})
+                except KeyError:
+                    skipped_currencies.append(currency)
+                    continue
+
+            await session.commit()
+
+            log_dict = {
+                "message": "Successfully stored Coinbase retail wallet balances",
+                "balances": stored_balances,
+            }
+            if skipped_currencies:
+                log_dict["skipped_currencies"] = skipped_currencies
+                log_dict["reason"] = "Currencies not found in CurrencyEnum"
+            logging.warning(json_dumps(log_dict))
+
+    except Exception as e:
+        #  incase of any exception just post to slack. No need to raise an error
+        #  as this is part of a daily cron job
+        log_dict = {
+            "message": "Failed to store Coinbase retail wallet balances",
+            "error": str(e),
+        }
+        logging.error(json_dumps(log_dict))
+        asyncio.create_task(post_to_slack(json_dumps(log_dict)))
+        return None
+
+
+async def store_axis_upi_balance(balance: Decimal) -> None:
+    """
+    Store Axis UPI balance in the daily_account_balances table.
+
+    Args:
+        balance: Current balance in INR from Axis UPI account
+    """
+    try:
+        async with get_async_session() as session:
+            query = select(PaymentInstrument).where(
+                PaymentInstrument.user_id == "SYSTEM",  # type: ignore
+                PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.AXIS_UPI,  # type: ignore
+                PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.UPI_ID,  # type: ignore
+                PaymentInstrument.deleted_at.is_(None),  # type: ignore
+            )
+            result = await session.execute(query)
+            payment_instrument = result.scalar_one()
+
+            daily_balance = DailyAccountBalanceHistory(
+                payment_instrument_id=payment_instrument.payment_instrument_id,
+                account_id=payment_instrument.identifier,
+                currency=CurrencyEnum.INR,
+                balance=balance,
+            )
+            session.add(daily_balance)
+
+            await session.commit()
+
+            log_dict = {
+                "message": "Successfully stored Axis UPI balance",
+                "balance": str(balance),
+            }
+            logging.info(json_dumps(log_dict))
+
+    except Exception as e:
+        # incase of any exception just post to slack. No need to raise an error
+        # as this is part of a daily cron job
+        log_dict = {
+            "message": "Failed to store Axis UPI balance",
+            "error": str(e),
+        }
+        logging.error(json_dumps(log_dict))
+        asyncio.create_task(post_to_slack(json_dumps(log_dict)))
+        return None
