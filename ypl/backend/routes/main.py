@@ -18,6 +18,7 @@ from ypl.backend.routes.v1 import email as email_route
 from ypl.backend.routes.v1 import event as event_route
 from ypl.backend.routes.v1 import feedback as feedback_route
 from ypl.backend.routes.v1 import files as files_route
+from ypl.backend.routes.v1 import invite as invite_route
 from ypl.backend.routes.v1 import message as message_route
 from ypl.backend.routes.v1 import points as points_route
 from ypl.backend.routes.v1 import profile as profile_route
@@ -82,6 +83,7 @@ admin_router.include_router(points_route.router, prefix="/v1", tags=["admin"])
 admin_router.include_router(user_capability_route.router, prefix="/v1", tags=["admin"])
 admin_router.include_router(message_route.router, prefix="/v1", tags=["admin"])
 admin_router.include_router(system_route.router, prefix="/v1", tags=["admin"])
+admin_router.include_router(invite_route.router, prefix="/v1", tags=["admin"])
 
 api_router.include_router(admin_router)
 
