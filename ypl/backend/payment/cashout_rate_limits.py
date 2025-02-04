@@ -249,11 +249,11 @@ async def get_cashout_stats(
     # this is what would be compared against the limits
     period_stats: list[PeriodStats] = [
         {
-            "count": daily_cashouts - daily_reversals,  # Net daily successful cashouts
-            "total": daily_total,
-            "max_count": MAX_DAILY_CASHOUT_COUNT,
-            "max_total": MAX_DAILY_CASHOUT_CREDITS,
-            "period": "daily",
+            "count": monthly_cashouts - monthly_reversals,  # Net monthly successful cashouts
+            "total": monthly_total,
+            "max_count": MAX_MONTHLY_CASHOUT_COUNT,
+            "max_total": MAX_MONTHLY_CASHOUT_CREDITS,
+            "period": "monthly",
         },
         {
             "count": weekly_cashouts - weekly_reversals,  # Net weekly successful cashouts
@@ -263,11 +263,11 @@ async def get_cashout_stats(
             "period": "weekly",
         },
         {
-            "count": monthly_cashouts - monthly_reversals,  # Net monthly successful cashouts
-            "total": monthly_total,
-            "max_count": MAX_MONTHLY_CASHOUT_COUNT,
-            "max_total": MAX_MONTHLY_CASHOUT_CREDITS,
-            "period": "monthly",
+            "count": daily_cashouts - daily_reversals,  # Net daily successful cashouts
+            "total": daily_total,
+            "max_count": MAX_DAILY_CASHOUT_COUNT,
+            "max_total": MAX_DAILY_CASHOUT_CREDITS,
+            "period": "daily",
         },
     ]
 
