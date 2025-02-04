@@ -58,6 +58,10 @@ class User(BaseModel, table=True):
     __table_args__ = (UniqueConstraint("email", name="users_email_key"),)
 
     email_verified: datetime | None = Field(default=None)
+    unsubscribed_from_marketing: bool = Field(
+        default=False,
+        sa_column=Column(sa.Boolean, nullable=False, server_default="false"),
+    )
     image: str | None = Field(default=None, sa_type=sa.Text)
     points: int = Field(
         default=SIGNUP_CREDITS, sa_column=Column(sa.Integer, server_default=str(SIGNUP_CREDITS), nullable=False)
