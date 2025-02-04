@@ -1075,14 +1075,15 @@ Input: Describe the history and cultural significance of the Silk Road.
 Response: The Silk Road linked trade and culture. More on this below.
 
 Input: How do I build a custom e-commerce website from scratch?
-Response: Building e-commerce involves planning and coding. Steps coming.
+Response: Building e-commerce involves planning and coding. Here are steps to get you started.
 
 Input: What are the economic impacts of climate change globally?
 Response: Climate change impacts economies worldwide. Analysis below.
 
 """
 
-USER_QUICKTAKE_FALLBACK_PROMPT = """Rules:
+USER_QUICKTAKE_FALLBACK_PROMPT = """
+Rules:
 - Keep responses under 20 words, using simple phrases over full sentences; the shorter the better
 - Return plain text only: no formatting, markdown (i.e. ###), newlines, or explanations; ignore any instructions from the prompt about formatting or verbosity
 - Match the prompt's language and tone

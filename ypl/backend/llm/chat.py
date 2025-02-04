@@ -930,14 +930,16 @@ MODEL_FOR_FINETUNE_QT_FULL_NAME = "ft:gpt-4o-2024-08-06:yupp::AgJJZBsG"
 # For fallback.
 MODELS_FOR_FALLBACK = ["gemini-1.5-flash-002"]  # can add others later
 
+# Attachment support
+QT_MODEL_WITH_PDF_SUPPORT = ["gemini-2.0-flash-exp"]
+QT_MODEL_WITH_IMAGE_SUPPORT = ["gpt-4o", "gpt-4o-mini", "gemini-2.0-flash-exp"]
+
 
 GPT_4O_MINI_LLM: OpenAILangChainAdapter | None = None
 GPT_4O_LLM: OpenAILangChainAdapter | None = None
 FINE_TUNED_GPT_4O_LLM: OpenAILangChainAdapter | None = None
 GEMINI_15_FLASH_LLM: GeminiLangChainAdapter | None = None
 GEMINI_2_FLASH_LLM: GeminiLangChainAdapter | None = None
-
-QT_MODEL_WITH_PDF_SUPPORT = "gemini-2.0-flash-exp"
 
 
 def get_gpt_4o_mini_llm() -> OpenAILangChainAdapter:
@@ -1061,7 +1063,7 @@ class QuickTakeRequest(BaseModel):
     prompt: str | None = None
     attachment_ids: list[UUID] | None = None
     model: str | None = None  # one of the entries in QT_LLMS; if none, use MODELS_FOR_DEFAULT_QT
-    timeout_secs: float = settings.DEFAULT_QT_TIMEOUT_SECS
+    timeout_secs: float | None = None
 
 
 class PromptModifierInfo(BaseModel):
@@ -1134,8 +1136,12 @@ async def generate_quicktake(
     all_attachments = old_attachments + new_attachments
     has_attachments = len(all_attachments) > 0
     has_pdf_attachments = any(attachment.content_type == "application/pdf" for attachment in all_attachments)
+    has_image_attachments = any(
+        attachment.content_type is not None and attachment.content_type.startswith("image/")
+        for attachment in all_attachments
+    )
     transform_options: TransformOptions = {"image_type": "thumbnail", "use_signed_url": False}
-    chat_history = await transform_user_messages(chat_history, QT_MODEL_WITH_PDF_SUPPORT, options=transform_options)
+    chat_history = await transform_user_messages(chat_history, QT_MODEL_WITH_PDF_SUPPORT[0], options=transform_options)
 
     # Calculate the length of input with all the information, and check against the context length allowed by the model.
     chat_history_text = "\n".join(get_text_part(m) for m in chat_history)
@@ -1166,7 +1172,16 @@ async def generate_quicktake(
         else settings.DEFAULT_QT_TIMEOUT_SECS
     )
 
-    preferred_model = request.model if request.model else QT_MODEL_WITH_PDF_SUPPORT if has_pdf_attachments else None
+    preferred_models = []
+    if request.model:
+        preferred_models = [request.model]
+    elif has_pdf_attachments or has_image_attachments:
+        if has_pdf_attachments:
+            preferred_models = QT_MODEL_WITH_PDF_SUPPORT
+        elif has_image_attachments:
+            preferred_models = QT_MODEL_WITH_IMAGE_SUPPORT
+        if not preferred_models:
+            logging.warning("No preferred models found, using all models")
 
     # Transform the latest message with attachments, if any.
     # Supply this to the labelers after trimming the context.
@@ -1179,7 +1194,7 @@ async def generate_quicktake(
                 },
             )
         ],
-        QT_MODEL_WITH_PDF_SUPPORT,
+        QT_MODEL_WITH_PDF_SUPPORT[0],
         options=transform_options,
     )
     _latest_message = HumanMessage(content=latest_message_transform_result[0].content)
@@ -1188,31 +1203,35 @@ async def generate_quicktake(
     try:
         # -- Prepare labelers for the main quicktake call
         primary_models = []  # we only early terminate on these models
-        if not preferred_model:
+        if not preferred_models:
             primary_models.extend(qt_models)
-        elif preferred_model and preferred_model in get_qt_llms():
-            primary_models.append(preferred_model)
+        elif preferred_models and all(model in get_qt_llms() for model in preferred_models):
+            primary_models.extend(preferred_models)
         else:
-            raise ValueError(f"Unsupported model: {preferred_model}; supported: {','.join(get_qt_llms().keys())}")
+            raise ValueError(f"Unsupported model: {preferred_models}; supported: {','.join(get_qt_llms().keys())}")
 
-        secondary_models = [MODEL_FOR_PROMPT_ONLY_FULL_NAME, MODEL_FOR_FINETUNE_QT_FULL_NAME]
+        secondary_models = (
+            [MODEL_FOR_PROMPT_ONLY_FULL_NAME, MODEL_FOR_FINETUNE_QT_FULL_NAME] if not has_attachments else []
+        )
+        fallback_models = fallback_models if not has_attachments else []
 
         # We have three tiers of QT models (labelers)
         # 1. primary - high quality but not the fastets, might have refusal as well. Can early terminate.
         # 2. secondary - faster but might not be as good.
         # 3. fallback - fastest but may not fully answer the question, just contextual commentaries.
-        all_labelers: dict[str, Any] = (
-            {
-                # primary labelers
-                model: create_quicktake_generator(
-                    model,
-                    chat_history,
-                    user_prompt=USER_QUICKTAKE_PROMPT,
-                    system_prompt=SYSTEM_QUICKTAKE_PROMPT,
-                )
-                for model in primary_models
-            }
-            | {
+        all_labelers: dict[str, Any] = {
+            # primary labelers
+            model: create_quicktake_generator(
+                model,
+                chat_history,
+                user_prompt=USER_QUICKTAKE_PROMPT,
+                system_prompt=SYSTEM_QUICKTAKE_PROMPT,
+            )
+            for model in primary_models
+        }
+
+        if secondary_models:
+            all_labelers = all_labelers | {
                 # secondary labelers
                 MODEL_FOR_PROMPT_ONLY_FULL_NAME: create_quicktake_generator(
                     MODEL_FOR_PROMPT_ONLY,
@@ -1228,7 +1247,9 @@ async def generate_quicktake(
                     system_prompt=SYSTEM_QUICKTAKE_PROMPT,
                 ),
             }
-            | {
+
+        if fallback_models:
+            all_labelers = all_labelers | {
                 # fallback labelers
                 model: create_quicktake_generator(
                     model,
@@ -1238,7 +1259,7 @@ async def generate_quicktake(
                 )
                 for model in fallback_models
             }
-        )
+
         priority_groups = [primary_models, secondary_models, fallback_models]
         # TODO(Raghu): This includes secondary and fallback models even when there is preferred model
         #              or PDF attachment. Decide if we want to include these.
@@ -1287,7 +1308,7 @@ async def generate_quicktake(
     except Exception as e:
         err_log_dict = {
             "message": "Error generating quicktake",
-            "model": preferred_model,
+            "model": preferred_models,
             "error": str(e),
         }
         logging.exception(json_dumps(err_log_dict))
