@@ -179,6 +179,23 @@ async def create_new_event(request: CreateEventRequest) -> EventResponse | None:
             )
 
     except Exception as e:
+        # Special handling for foreign key violations related to user_id
+        # as sometime users are on waitlist and their user_id is not present in the users table
+        if (
+            isinstance(e, SQLAlchemyError)
+            and "violates foreign key constraint" in str(e)
+            and "fk_events_user_id_users" in str(e)
+        ):
+            log_dict = {
+                "message": "Warning: Event creation failed due to non-existent user_id",
+                "user_id": request.user_id,
+                "event_name": request.event_name,
+                "event_category": request.event_category,
+                "error": str(e),
+            }
+            logging.warning(json_dumps(log_dict))
+            return None
+
         log_dict = {
             "message": "Unexpected error creating event",
             "user_id": request.user_id,
