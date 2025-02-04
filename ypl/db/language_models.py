@@ -15,6 +15,7 @@ from ypl.db.users import User
 
 if TYPE_CHECKING:
     from ypl.db.chats import ChatMessage, TurnQuality
+    from ypl.db.promotions import ModelPromotion
     from ypl.db.ratings import Rating, RatingHistory
 
 
@@ -236,6 +237,9 @@ class LanguageModel(BaseModel, table=True):
     num_requests_in_metric_window: int | None = Field(default=None, nullable=True)
     # Average number of tokens in requests used to calculate the metrics. Used for speed score calculation.
     avg_token_count: float | None = Field(default=None, nullable=True)
+
+    # --- Relationships ---
+    promotions: list["ModelPromotion"] = Relationship(back_populates="language_model")
 
     def supports_mime_type(self, mime_type: str) -> bool:
         import re
