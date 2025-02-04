@@ -628,25 +628,41 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
         FROM base_data b
         LEFT JOIN turn_data t ON b.date = t.date
         LEFT JOIN referral_data r ON b.date = r.date
+    ),
+    weekly_data AS (
+        SELECT
+            date_trunc('week', date)::date AS week_start,
+            SUM(total_credits) AS total_credits,
+            SUM(total_credits_from_india) AS total_credits_from_india,
+            SUM(total_credits_from_row) AS total_credits_from_row,
+            COUNT(DISTINCT CASE WHEN distinct_users_india > 0 THEN date END) as distinct_users_india,
+            COUNT(DISTINCT CASE WHEN distinct_users_row > 0 THEN date END) as distinct_users_row,
+            SUM(turn_count) AS turn_count,
+            SUM(referred_user_bonus_count) AS referred_user_bonus_count,
+            CASE
+                WHEN SUM(turn_count) > 0 THEN ROUND(SUM(total_credits)::numeric / SUM(turn_count))::integer
+                ELSE 0
+            END AS credits_per_turn
+        FROM
+            combined_data
+        GROUP BY
+            date_trunc('week', date)
     )
     SELECT
         'weekly' AS period,
-        date_trunc('week', date)::date AS period_start,
-        SUM(total_credits) AS total_credits,
-        SUM(total_credits_from_india) AS total_credits_from_india,
-        SUM(total_credits_from_row) AS total_credits_from_row,
-        COUNT(DISTINCT CASE WHEN distinct_users_india > 0 THEN date END) as distinct_users_india,
-        COUNT(DISTINCT CASE WHEN distinct_users_row > 0 THEN date END) as distinct_users_row,
-        SUM(turn_count) AS turn_count,
-        SUM(referred_user_bonus_count) AS referred_user_bonus_count,
-        CASE
-            WHEN SUM(turn_count) > 0 THEN ROUND(SUM(total_credits)::numeric / SUM(turn_count))::integer
-            ELSE 0
-        END AS credits_per_turn
+        week_start AS period_start,
+        total_credits,
+        total_credits_from_india,
+        total_credits_from_row,
+        distinct_users_india,
+        distinct_users_row,
+        turn_count,
+        referred_user_bonus_count,
+        credits_per_turn
     FROM
-        combined_data
-    GROUP BY
-        date_trunc('week', date)
+        weekly_data
+    WHERE
+        week_start < date_trunc('week', current_date)::date
     UNION ALL
     SELECT
         'monthly' AS period,
@@ -696,99 +712,247 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
 
             if len(daily_metrics) >= 1:
                 yesterday_metrics = daily_metrics[0]
-                message = f"*Database Credit Metrics for {yesterday_metrics.period_start}*\n"
+                message = f"*Database Credit Rewarded Metrics for {yesterday_metrics.period_start}*\n"
                 usd_credits_from_india = yesterday_metrics.total_credits_from_india
                 usd_credits_from_row = yesterday_metrics.total_credits_from_row
                 usd_amount_india = yesterday_metrics.total_credits_from_india * CREDITS_TO_INR_RATE / USD_TO_INR_RATE
                 usd_amount_row = yesterday_metrics.total_credits_from_row * CREDITS_TO_USD_RATE
                 usd_amount = usd_amount_india + usd_amount_row
                 message += (
-                    f"Credits Claimed Yesterday: {yesterday_metrics.total_credits:,.0f} "
+                    f"Credits Rewarded Yesterday: {yesterday_metrics.total_credits:,.0f} "
                     f"({yesterday_metrics.turn_count:,} turns, "
                     f"{yesterday_metrics.credits_per_turn:,d} credits/turn; "
-                    f"{yesterday_metrics.referred_user_bonus_count:,} referred users)\n"
-                    f"Corresponding USD: {usd_amount:,.2f}\n"
+                    f"{yesterday_metrics.referred_user_bonus_count:,} referred users) - "
+                    f"Corresponding USD: ${usd_amount:,.2f}\n"
                     f"(India: {yesterday_metrics.distinct_users_india:,} users; {usd_credits_from_india:,} Credits, "
                     f"${usd_amount_india:,.2f}; "
                     f"Rest of World: {yesterday_metrics.distinct_users_row:,} users; {usd_credits_from_row:,} Credits, "
-                    f"${usd_amount_row:,.2f}\n"
+                    f"${usd_amount_row:,.2f})\n"
                 )
-
-                if start_date.weekday() == 6:
-                    weekly_results = session.execute(text(weekly_query)).all()
-                    weekly_metrics = next((r for r in weekly_results if r.period == "weekly"), None)
-                    monthly_metrics = next((r for r in weekly_results if r.period == "monthly"), None)
-                    quarterly_metrics = next((r for r in weekly_results if r.period == "quarterly"), None)
-
-                    if weekly_metrics:
-                        usd_credits_from_india = weekly_metrics.total_credits_from_india
-                        usd_credits_from_row = weekly_metrics.total_credits_from_row
-                        usd_amount_india = (
-                            weekly_metrics.total_credits_from_india * CREDITS_TO_INR_RATE / USD_TO_INR_RATE
-                        )
-                        usd_amount_row = weekly_metrics.total_credits_from_row * CREDITS_TO_USD_RATE
-                        usd_amount = usd_amount_india + usd_amount_row
-                        message += (
-                            f"\nWeekly Credits (Week of {weekly_metrics.period_start}): "
-                            f"{weekly_metrics.total_credits:,.0f} "
-                            f"({weekly_metrics.turn_count:,} turns, "
-                            f"{weekly_metrics.credits_per_turn:,d} credits/turn; "
-                            f"{weekly_metrics.referred_user_bonus_count:,} referred users)\n"
-                            f"Corresponding USD: {usd_amount:,.2f}\n"
-                            f"(India: {weekly_metrics.distinct_users_india:,} users; {usd_credits_from_india:,} "
-                            f"Credits, ${usd_amount_india:,.2f}; "
-                            f"Rest of World: {weekly_metrics.distinct_users_row:,} users; {usd_credits_from_row:,} "
-                            f"Credits, ${usd_amount_row:,.2f})\n"
-                        )
-                    if monthly_metrics:
-                        usd_credits_from_india = monthly_metrics.total_credits_from_india
-                        usd_credits_from_row = monthly_metrics.total_credits_from_row
-                        usd_amount_india = (
-                            monthly_metrics.total_credits_from_india * CREDITS_TO_INR_RATE / USD_TO_INR_RATE
-                        )
-                        usd_amount_row = monthly_metrics.total_credits_from_row * CREDITS_TO_USD_RATE
-                        usd_amount = usd_amount_india + usd_amount_row
-                        message += (
-                            f"\nMonthly Credits ({monthly_metrics.period_start.strftime('%B %Y')}): "
-                            f"{monthly_metrics.total_credits:,.0f} "
-                            f"({monthly_metrics.turn_count:,} turns, "
-                            f"{monthly_metrics.credits_per_turn:,d} credits/turn; "
-                            f"{monthly_metrics.referred_user_bonus_count:,} referred users)\n"
-                            f"Corresponding USD: {usd_amount:,.2f}\n"
-                            f"(India: {monthly_metrics.distinct_users_india:,} users; {usd_credits_from_india:,} "
-                            f"Credits, ${usd_amount_india:,.2f}; "
-                            f"Rest of World: {monthly_metrics.distinct_users_row:,} users; {usd_credits_from_row:,} "
-                            f"${usd_amount_row:,.2f})\n"
-                        )
-                    if quarterly_metrics:
-                        quarter = (quarterly_metrics.period_start.month - 1) // 3 + 1
-                        usd_credits_from_india = quarterly_metrics.total_credits_from_india
-                        usd_credits_from_row = quarterly_metrics.total_credits_from_row
-                        usd_amount_india = (
-                            quarterly_metrics.total_credits_from_india * CREDITS_TO_INR_RATE / USD_TO_INR_RATE
-                        )
-                        usd_amount_row = quarterly_metrics.total_credits_from_row * CREDITS_TO_USD_RATE
-                        usd_amount = usd_amount_india + usd_amount_row
-                        message += (
-                            f"\nQuarterly Credits (Q{quarter} {quarterly_metrics.period_start.year}): "
-                            f"{quarterly_metrics.total_credits:,.0f} "
-                            f"({quarterly_metrics.turn_count:,} turns, "
-                            f"{quarterly_metrics.credits_per_turn:,d} credits/turn; "
-                            f"{quarterly_metrics.referred_user_bonus_count:,} referred users)\n"
-                            f"Corresponding USD: {usd_amount:,.2f}\n"
-                            f"(India: {quarterly_metrics.distinct_users_india:,} users; {usd_credits_from_india:,} "
-                            f"Credits, ${usd_amount_india:,.2f}; "
-                            f"Rest of World: {quarterly_metrics.distinct_users_row:,} users; {usd_credits_from_row:,} "
-                            f"${usd_amount_row:,.2f})\n"
-                        )
-
             else:
                 message = "⚠️ No credit metrics data available"
+
+            if start_date.weekday() == 6:
+                weekly_results = session.execute(text(weekly_query)).all()
+                weekly_metrics = next((r for r in weekly_results if r.period == "weekly"), None)
+                monthly_metrics = next((r for r in weekly_results if r.period == "monthly"), None)
+                quarterly_metrics = next((r for r in weekly_results if r.period == "quarterly"), None)
+
+                if weekly_metrics:
+                    usd_credits_from_india = weekly_metrics.total_credits_from_india
+                    usd_credits_from_row = weekly_metrics.total_credits_from_row
+                    usd_amount_india = weekly_metrics.total_credits_from_india * CREDITS_TO_INR_RATE / USD_TO_INR_RATE
+                    usd_amount_row = weekly_metrics.total_credits_from_row * CREDITS_TO_USD_RATE
+                    usd_amount = usd_amount_india + usd_amount_row
+                    message += (
+                        f"\nWeekly Credits (Week of {weekly_metrics.period_start}): "
+                        f"{weekly_metrics.total_credits:,.0f} "
+                        f"({weekly_metrics.turn_count:,} turns, "
+                        f"{weekly_metrics.credits_per_turn:,d} credits/turn; "
+                        f"{weekly_metrics.referred_user_bonus_count:,} referred users)\n"
+                        f"Corresponding USD: {usd_amount:,.2f}\n"
+                        f"(India: {weekly_metrics.distinct_users_india:,} users; {usd_credits_from_india:,} "
+                        f"Credits, ${usd_amount_india:,.2f}; "
+                        f"Rest of World: {weekly_metrics.distinct_users_row:,} users; {usd_credits_from_row:,} "
+                        f"Credits, ${usd_amount_row:,.2f})\n"
+                    )
+                if monthly_metrics:
+                    usd_credits_from_india = monthly_metrics.total_credits_from_india
+                    usd_credits_from_row = monthly_metrics.total_credits_from_row
+                    usd_amount_india = monthly_metrics.total_credits_from_india * CREDITS_TO_INR_RATE / USD_TO_INR_RATE
+                    usd_amount_row = monthly_metrics.total_credits_from_row * CREDITS_TO_USD_RATE
+                    usd_amount = usd_amount_india + usd_amount_row
+                    message += (
+                        f"\nMonthly Credits ({monthly_metrics.period_start.strftime('%B %Y')}): "
+                        f"{monthly_metrics.total_credits:,.0f} "
+                        f"({monthly_metrics.turn_count:,} turns, "
+                        f"{monthly_metrics.credits_per_turn:,d} credits/turn; "
+                        f"{monthly_metrics.referred_user_bonus_count:,} referred users)\n"
+                        f"Corresponding USD: {usd_amount:,.2f}\n"
+                        f"(India: {monthly_metrics.distinct_users_india:,} users; {usd_credits_from_india:,} "
+                        f"Credits, ${usd_amount_india:,.2f}; "
+                        f"Rest of World: {monthly_metrics.distinct_users_row:,} users; {usd_credits_from_row:,} "
+                        f"${usd_amount_row:,.2f})\n"
+                    )
+                if quarterly_metrics:
+                    quarter = (quarterly_metrics.period_start.month - 1) // 3 + 1
+                    usd_credits_from_india = quarterly_metrics.total_credits_from_india
+                    usd_credits_from_row = quarterly_metrics.total_credits_from_row
+                    usd_amount_india = (
+                        quarterly_metrics.total_credits_from_india * CREDITS_TO_INR_RATE / USD_TO_INR_RATE
+                    )
+                    usd_amount_row = quarterly_metrics.total_credits_from_row * CREDITS_TO_USD_RATE
+                    usd_amount = usd_amount_india + usd_amount_row
+                    message += (
+                        f"\nQuarterly Credits (Q{quarter} {quarterly_metrics.period_start.year}): "
+                        f"{quarterly_metrics.total_credits:,.0f} "
+                        f"({quarterly_metrics.turn_count:,} turns, "
+                        f"{quarterly_metrics.credits_per_turn:,d} credits/turn; "
+                        f"{quarterly_metrics.referred_user_bonus_count:,} referred users)\n"
+                        f"Corresponding USD: {usd_amount:,.2f}\n"
+                        f"(India: {quarterly_metrics.distinct_users_india:,} users; {usd_credits_from_india:,} "
+                        f"Credits, ${usd_amount_india:,.2f}; "
+                        f"Rest of World: {quarterly_metrics.distinct_users_row:,} users; {usd_credits_from_row:,} "
+                        f"${usd_amount_row:,.2f})\n"
+                    )
+
             analytics_webhook_url = os.environ.get("ANALYTICS_SLACK_WEBHOOK_URL")
             await post_to_slack(message, analytics_webhook_url)
 
     except Exception as e:
         error_message = f"⚠️ Failed to fetch credit metrics: {e}"
+        logging.error(error_message)
+        raise
+
+
+async def post_cashout_metrics(start_date: datetime, end_date: datetime) -> None:
+    """Fetch and post cashout metrics to Slack.
+
+    Posts daily metrics every day, and additional weekly metrics on Sundays.
+    Daily metrics only pull last 2 days of data, while weekly metrics pull last 90 days.
+
+    Args:
+        start_date: Start date for the query
+        end_date: End date for the query
+    """
+    daily_query = """
+    WITH base_data AS (
+        SELECT
+            date_trunc('day', pt.created_at AT TIME ZONE 'America/Los_Angeles')::date AS date,
+            pt.currency,
+            COUNT(*) as transaction_count,
+            SUM(pt.amount) as total_amount
+        FROM
+            payment_transactions pt
+        WHERE
+            pt.status = 'SUCCESS'
+            AND (pt.created_at AT TIME ZONE 'America/Los_Angeles')::date =
+            ((current_date - INTERVAL '1 day') AT TIME ZONE 'America/Los_Angeles')::date
+        GROUP BY
+            date_trunc('day', pt.created_at AT TIME ZONE 'America/Los_Angeles')::date,
+            pt.currency
+    )
+    SELECT
+        'daily' AS period,
+        date AS period_start,
+        currency,
+        transaction_count,
+        total_amount
+    FROM
+        base_data
+    ORDER BY
+        date DESC,
+        currency;
+    """
+
+    weekly_query = """
+    WITH base_data AS (
+        SELECT
+            date_trunc('day', pt.created_at AT TIME ZONE 'America/Los_Angeles')::date AS date,
+            pt.currency,
+            COUNT(*) as transaction_count,
+            SUM(pt.amount) as total_amount
+        FROM
+            payment_transactions pt
+        WHERE
+            pt.status = 'SUCCESS'
+            AND (pt.created_at AT TIME ZONE 'America/Los_Angeles')::date >=
+            ((current_date - INTERVAL '90 days') AT TIME ZONE 'America/Los_Angeles')::date
+        GROUP BY
+            date_trunc('day', pt.created_at AT TIME ZONE 'America/Los_Angeles')::date,
+            pt.currency
+    ),
+    weekly_data AS (
+        SELECT
+            date_trunc('week', date)::date AS week_start,
+            currency,
+            SUM(transaction_count) as transaction_count,
+            SUM(total_amount) as total_amount
+        FROM
+            base_data
+        GROUP BY
+            week_start,
+            currency
+    )
+    SELECT
+        'weekly' AS period,
+        week_start AS period_start,
+        currency,
+        transaction_count,
+        total_amount
+    FROM
+        weekly_data
+    WHERE
+        week_start < date_trunc('week', current_date)::date
+    UNION ALL
+    SELECT
+        'monthly' AS period,
+        date_trunc('month', date)::date AS period_start,
+        currency,
+        SUM(transaction_count) as transaction_count,
+        SUM(total_amount) as total_amount
+    FROM
+        base_data
+    GROUP BY
+        period_start,
+        currency
+    ORDER BY
+        period_start DESC,
+        currency;
+    """
+
+    try:
+        with Session(get_engine()) as session:
+            daily_results = session.execute(text(daily_query)).all()
+            daily_metrics = list(daily_results)
+
+            if len(daily_metrics) >= 1:
+                message = f"*Database Cashout Metrics for {daily_metrics[0].period_start}*\n"
+
+                # Group daily metrics by currency
+                daily_by_currency: dict[str, list[Any]] = {}
+                for metric in daily_metrics:
+                    if metric.currency not in daily_by_currency:
+                        daily_by_currency[metric.currency] = []
+                    daily_by_currency[metric.currency].append(metric)
+
+                # Display daily metrics by currency
+                message += "Daily Cashouts:\n"
+                for currency, metrics in daily_by_currency.items():
+                    total_amount = sum(m.total_amount for m in metrics)
+                    total_transactions = sum(m.transaction_count for m in metrics)
+                    message += (
+                        f"• {currency}: {total_transactions:,} transactions, " f"{total_amount:,.2f} {currency}\n"
+                    )
+            else:
+                message = "⚠️ No cashout metrics data available"
+
+            if start_date.weekday() == 6:  # Only show weekly metrics on Sundays
+                weekly_results = session.execute(text(weekly_query)).all()
+                weekly_metrics = [r for r in weekly_results if r.period == "weekly"]
+                monthly_metrics = [r for r in weekly_results if r.period == "monthly"]
+
+                if weekly_metrics:
+                    message += "\nWeekly Cashouts:\n"
+                    for metric in weekly_metrics:
+                        message += (
+                            f"• {metric.currency}: {metric.transaction_count:,} transactions, "
+                            f"{metric.total_amount:,.2f} {metric.currency}\n"
+                        )
+
+                if monthly_metrics:
+                    message += f"\nMonthly Cashouts ({monthly_metrics[0].period_start.strftime('%B %Y')}):\n"
+                    for metric in monthly_metrics:
+                        message += (
+                            f"• {metric.currency}: {metric.transaction_count:,} transactions, "
+                            f"{metric.total_amount:,.2f} {metric.currency}\n"
+                        )
+
+            analytics_webhook_url = os.environ.get("ANALYTICS_SLACK_WEBHOOK_URL")
+            await post_to_slack(message, analytics_webhook_url)
+
+    except Exception as e:
+        error_message = f"⚠️ Failed to fetch cashout metrics: {e}"
         logging.error(error_message)
         raise
 
@@ -814,6 +978,7 @@ async def post_analytics_to_slack() -> None:
         await post_data_from_charts(auth=auth, start_date=start_date, end_date=end_date)
         await post_data_from_cohorts(auth=auth, start_date=start_date, end_date=end_date)
         await post_credit_metrics(start_date=start_date, end_date=end_date)
+        await post_cashout_metrics(start_date=start_date, end_date=end_date)
         await post_user_base_metrics(report_date=start_date)
     except Exception as e:
         error_message = f"⚠️ Failed to fetch Amplitude metrics: {e}"
