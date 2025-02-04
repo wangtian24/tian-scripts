@@ -3,17 +3,17 @@ import logging
 from fastapi import APIRouter, HTTPException, Query
 
 from ypl.backend.llm.profile import (
+    UserProfileResponse,
     get_user_profile,
 )
-from ypl.db.users import UserProfile
 
 router = APIRouter()
 
 
-@router.get("/profile", response_model=UserProfile)
-async def get_profile(user_id: str = Query(..., description="User ID")) -> UserProfile:
+@router.get("/profile", response_model=UserProfileResponse)
+async def get_profile(user_id: str = Query(..., description="User ID")) -> UserProfileResponse:
     try:
-        profile: UserProfile | None = await get_user_profile(user_id)
+        profile: UserProfileResponse | None = await get_user_profile(user_id)
     except Exception as e:
         logging.error(f"Error fetching profile for user {user_id}: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error") from e
