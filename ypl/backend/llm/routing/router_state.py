@@ -23,7 +23,7 @@ class RouterState(BaseModel):
     always_include_models: set[str] = set()
     applicable_modifiers: list[str] = []  # Currently, modifiers are applicable to all selected models.
 
-    has_more_models: bool = True
+    num_models_remaining: int | None = None
 
     # debug information for various models
     model_scores: dict[str, float] = defaultdict(float)
