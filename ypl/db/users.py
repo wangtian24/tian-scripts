@@ -1,6 +1,6 @@
 import enum
 import uuid
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import sqlalchemy as sa
@@ -98,8 +98,6 @@ class User(BaseModel, table=True):
     )
     special_invite_code_claim_log: "SpecialInviteCodeClaimLog" = Relationship(back_populates="user")
 
-    # User profile relationship
-    profile: "UserProfile" = Relationship(back_populates="user", cascade_delete=True)
     user_vendor_profile: list["UserVendorProfile"] = Relationship(back_populates="user", cascade_delete=True)
 
     status: UserStatus = Field(
@@ -225,55 +223,6 @@ class SyntheticUserAttributes(BaseModel, table=True):
     style: str = Field(nullable=False, sa_type=sa.Text, default="")
 
     user: "User" = Relationship(back_populates="synthetic_attributes")
-
-
-class ProfileTypeEnum(enum.Enum):
-    """Represents the type of user profile."""
-
-    INDIVIDUAL = "INDIVIDUAL"
-    BUSINESS = "BUSINESS"
-
-
-# deprecated, use User directly.
-class UserProfile(BaseModel, table=True):
-    """Represents additional profile information for a user."""
-
-    __tablename__ = "user_profiles"
-
-    user_id: str = Field(foreign_key="users.user_id", primary_key=True, nullable=False)
-    educational_institution: str | None = Field(default=None, sa_type=sa.String)
-    city: str | None = Field(default=None, sa_type=sa.String)
-
-    # ISO 3166-1 alpha-2 format
-    country: str | None = Field(
-        sa_column=Column(
-            "country",
-            sa.String(2),
-            nullable=True,
-            index=True,
-        ),
-        default=None,
-    )
-    discord_username: str | None = Field(default=None, sa_type=sa.String)
-
-    profile_type: ProfileTypeEnum | None = Field(
-        sa_column=Column(
-            "profile_type",
-            sa.Enum(ProfileTypeEnum),
-            nullable=True,
-        ),
-        default=None,
-    )
-    first_name: str | None = Field(default=None, sa_type=sa.String)
-    last_name: str | None = Field(default=None, sa_type=sa.String)
-    date_of_birth: date | None = Field(default=None, sa_type=sa.Date)
-    address_line1: str | None = Field(default=None, sa_type=sa.String)
-    address_line2: str | None = Field(default=None, sa_type=sa.String)
-    state_province: str | None = Field(default=None, sa_type=sa.String)
-    postal_code: str | None = Field(default=None, sa_type=sa.String)
-
-    # Relationship to User model
-    user: "User" = Relationship(back_populates="profile")
 
 
 class SyntheticBackfillAttributes(BaseModel, table=True):
