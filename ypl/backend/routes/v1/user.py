@@ -55,6 +55,9 @@ class UserSearchResult:
     deleted_at: datetime | None
     points: int
     status: UserStatus
+    discord_id: str | None
+    discord_username: str | None
+    image_url: str | None
 
 
 @dataclass
@@ -132,6 +135,9 @@ async def get_users(query: str) -> UserSearchResponse:
                             deleted_at=user.deleted_at,
                             points=user.points,
                             status=user.status,
+                            discord_id=user.discord_id,
+                            discord_username=user.discord_username,
+                            image_url=user.image,
                         )
                         for user in users
                     ]
@@ -161,6 +167,9 @@ async def get_users(query: str) -> UserSearchResponse:
                             deleted_at=user.deleted_at,
                             points=user.points,
                             status=user.status,
+                            discord_id=user.discord_id,
+                            discord_username=user.discord_username,
+                            image_url=user.image,
                         )
                         for user in users
                     ]
@@ -197,6 +206,9 @@ async def get_users(query: str) -> UserSearchResponse:
                             deleted_at=user.deleted_at,
                             points=user.points,
                             status=user.status,
+                            discord_id=user.discord_id,
+                            discord_username=user.discord_username,
+                            image_url=user.image,
                         )
                         for user in users
                     ]
