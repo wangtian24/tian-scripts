@@ -1,3 +1,5 @@
+from ypl.backend.email.campaigns.utils import load_html_template
+
 ################################################################################
 
 
@@ -8,11 +10,11 @@ Hey {email_recipient_name},
 We just gifted you with your own referral code!
 
 Now you can invite your friends to try {BRAND_NAME}:
-From your profile picture on the top right corner, click “Refer your friends” to see your special invite code.
+From your profile picture on the top right corner, click "Refer your friends" to see your special invite code.
 Ask your friends to visit https://gg.yupp.ai, login using their Google account, and enter your invite code when prompted. Note: You can currently invite up to 3 friends per week.
 
 
-For each friend you refer, you’ll get 10,000 YUPP credits and your friend will get 1,000. Please don’t refer to journalists, investors, competitors, etc and continue to keep the product confidential. We want to remain in stealth for now.
+For each friend you refer, you’ll get 10,000 YUPP credits and your friend will get 1,000. Please don’t refer to journalists, investors, competitors, etc, and continue to keep the product confidential. We want to remain in stealth for now.
 
 Thanks for actively using Yupp, we hope you’re enjoying your experience and finding Yupp useful.
 
@@ -27,11 +29,11 @@ SIC_AVAILABILITY_EMAIL_TEMPLATE_HTML = """
 <p>Now you can invite your friends to try {BRAND_NAME}:</p>
 
 <ol>
-<li>From your profile picture on the top right corner, click “Refer your friends” to see your special invite code.</li>
+<li>From your profile picture on the top right corner, click "Refer your friends" to see your special invite code.</li>
 <li>Ask your friends to visit <a href="https://gg.yupp.ai">https://gg.yupp.ai</a>, login using their Google account, and enter your invite code when prompted. <em>Note: You can currently invite up to 3 friends per week.</em></li>
 </ol>
 
-<p>For each friend you refer, you’ll get 10,000 YUPP credits and your friend will get 1,000. Please don’t refer to journalists, investors, competitors, etc and continue to keep the product confidential. We want to remain in stealth for now.</p>
+<p>For each friend you refer, you’ll get 10,000 YUPP credits and your friend will get 1,000. Please don’t refer to journalists, investors, competitors, etc, and continue to keep the product confidential. We want to remain in stealth for now.</p>
 
 <p>Thanks for actively using Yupp, we hope you’re enjoying your experience and finding Yupp useful.</p>
 
@@ -65,6 +67,8 @@ Your feedback plays a crucial role in refining the product, we can’t wait to h
 {CONFIDENTIALITY_FOOTER}
 """  # noqa: E501
 
+SIGN_UP_EMAIL_TEMPLATE_HTML = load_html_template("signup_email_content.html", SIGN_UP_EMAIL_TEMPLATE)
+
 ################################################################################
 # TODO: Add "Please continue to refer more of your friends by sharing <this URL with promo code> with them!"
 
@@ -75,7 +79,7 @@ Hey {email_recipient_name}:
 
 {referee_name} just joined you on {BRAND_NAME} with your invite code.
 
-Once they finish writing their first prompt and doing their first “I prefer this” feedback, you’ll be eligible to earn the referral bonus of {credits} YUPP credits.
+Once they finish writing their first prompt and doing their first "I prefer this" feedback, you’ll be eligible to earn the referral bonus of {credits} YUPP credits.
 
 - Mouli, product team
 

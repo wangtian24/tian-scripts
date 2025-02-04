@@ -25,10 +25,12 @@ from ypl.backend.email.campaigns.signup import (
     SIC_AVAILABILITY_EMAIL_TEMPLATE_HTML,
     SIC_AVAILABILITY_EMAIL_TITLE,
     SIGN_UP_EMAIL_TEMPLATE,
+    SIGN_UP_EMAIL_TEMPLATE_HTML,
     SIGN_UP_EMAIL_TITLE,
     YOUR_FRIEND_JOINED_EMAIL_TEMPLATE,
     YOUR_FRIEND_JOINED_EMAIL_TITLE,
 )
+from ypl.backend.email.campaigns.utils import load_html_wrapper
 from ypl.backend.utils.json import json_dumps
 from ypl.db.emails import EmailLogs
 
@@ -36,6 +38,7 @@ EMAIL_CAMPAIGNS = {
     "signup": {
         "title": SIGN_UP_EMAIL_TITLE,
         "template": SIGN_UP_EMAIL_TEMPLATE,
+        "template_html": SIGN_UP_EMAIL_TEMPLATE_HTML,
     },
     "sic_availability": {
         "title": SIC_AVAILABILITY_EMAIL_TITLE,
@@ -113,9 +116,11 @@ async def _prepare_email_content(campaign: str, template_params: dict[str, Any])
     try:
         email_title = campaign_data["title"].format(**template_params)
         email_body = campaign_data["template"].format(**template_params)
-        email_body_html = (
-            campaign_data["template_html"].format(**template_params) if "template_html" in campaign_data else None
-        )
+        email_body_html = None
+        if "template_html" in campaign_data:
+            content = campaign_data["template_html"].format(**template_params)
+            html_template = load_html_wrapper()
+            email_body_html = html_template.replace("{{content}}", content)
         return email_title, email_body, email_body_html
     except KeyError as e:
         raise ValueError(f"Missing required parameter: {e}") from e

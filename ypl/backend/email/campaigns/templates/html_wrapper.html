@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Welcome to Yupp</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        font-family: Arial, sans-serif;
+        background-color: #f6f6f6;
+      }
+      .container {
+        max-width: 600px;
+        margin: 0 auto;
+        background-color: #ffffff;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+      .header {
+        margin-bottom: 20px;
+        text-align: center;
+        display: flex;
+        align-items: flex-end;
+        gap: 8px;
+      }
+      .header img {
+        display: block;
+      }
+      h1 {
+        font-size: 24px;
+        margin-bottom: 20px;
+        color: #333333;
+      }
+      .content {
+        font-size: 16px;
+        line-height: 1.5;
+        color: #333333;
+        margin-bottom: 20px;
+      }
+      .content p {
+        margin-bottom: 15px;
+      }
+      .content ul {
+        margin: 0;
+        padding-left: 20px;
+      }
+      .content ul li {
+        margin-bottom: 10px;
+      }
+      .discord-box {
+        background: rgba(88, 101, 242, 0.1);
+        border: 1px solid #5865f2;
+        border-radius: 10px;
+        padding: 12px;
+        margin-bottom: 20px;
+      }
+      .discord-box a {
+        text-decoration: none;
+        color: #5865f2;
+        font-size: 14px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .discord-box img {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <img
+          src="https://7s8qtap8fabg3zyw.public.blob.vercel-storage.com/assets/yupp-alpha-MvzSFPFZxAPhfev2tEGNBqO5oU2jUN.png"
+          height="46"
+          alt="Yupp Logo"
+        />
+      </div>
+      {{content}}
+    </div>
+  </body>
+</html>
