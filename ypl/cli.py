@@ -1680,12 +1680,14 @@ def send_marketing_emails(dry_run: bool) -> None:
 @cli.command()
 @click.option("--campaign", required=True, help="The campaign to send the email for")
 @click.option("--to-address", default="delivered@resend.dev", help="The email address to send the email to")
+@click.option("--print-only", is_flag=True, help="Print emails that would be sent without actually sending them")
 @db_cmd
-def test_send_email(campaign: str, to_address: str) -> None:
+def test_send_email(campaign: str, to_address: str, print_only: bool) -> None:
     """Test sending email campaign to test address.
 
     Example usage:
         poetry run python -m ypl.cli test-send-email --campaign signup
+        poetry run python -m ypl.cli test-send-email --campaign sic_availability --print-only
     """
 
     asyncio.run(
@@ -1693,8 +1695,13 @@ def test_send_email(campaign: str, to_address: str) -> None:
             EmailConfig(
                 campaign=campaign,
                 to_address=to_address,
-                template_params={"email_recipient_name": "Rumplestiltskin"},
-            )
+                template_params={
+                    "email_recipient_name": "Rumplestiltskin",
+                    "referee_name": "Friend of Rumpy",
+                    "credits": 100,
+                },
+            ),
+            print_only=print_only,
         )
     )
 

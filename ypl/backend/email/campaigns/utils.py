@@ -1,8 +1,10 @@
 import logging
 import os
 
+from html2text import HTML2Text
 
-def load_html_template(filename: str, fallback_template: str) -> str:
+
+def load_html_template(filename: str) -> str:
     """Load an email template from a file.
 
     Args:
@@ -20,8 +22,8 @@ def load_html_template(filename: str, fallback_template: str) -> str:
         with open(template_path, encoding="utf-8") as f:
             content = f.read()
             return content
-    except FileNotFoundError:
-        return fallback_template
+    except FileNotFoundError as e:
+        raise ValueError(f"Template file not found: {template_path}") from e
 
 
 def load_html_wrapper() -> str:
@@ -29,3 +31,19 @@ def load_html_wrapper() -> str:
     template_path = os.path.join(os.path.dirname(__file__), "templates", "html_wrapper.html")
     with open(template_path, encoding="utf-8") as f:
         return f.read()
+
+
+def html_to_plaintext(html_content: str) -> str:
+    converter = HTML2Text()
+    # Prevent markdown conversion
+    converter.ignore_emphasis = True
+    converter.ignore_links = True
+    converter.ignore_images = True
+    converter.ignore_tables = True
+
+    # Keep basic text structure
+    converter.single_line_break = False
+    converter.body_width = 0  # Disable wrapping to let email client handle it
+    converter.wrap_list_items = True
+
+    return str(converter.handle(html_content)).strip()

@@ -18,8 +18,10 @@ from ypl.backend.email.campaigns.nudge import (
 )
 from ypl.backend.email.campaigns.signup import (
     FIRST_PREF_BONUS_EMAIL_TEMPLATE,
+    FIRST_PREF_BONUS_EMAIL_TEMPLATE_HTML,
     FIRST_PREF_BONUS_EMAIL_TITLE,
     REFFERAL_BONUS_EMAIL_TEMPLATE,
+    REFFERAL_BONUS_EMAIL_TEMPLATE_HTML,
     REFFERAL_BONUS_EMAIL_TITLE,
     SIC_AVAILABILITY_EMAIL_TEMPLATE,
     SIC_AVAILABILITY_EMAIL_TEMPLATE_HTML,
@@ -28,6 +30,7 @@ from ypl.backend.email.campaigns.signup import (
     SIGN_UP_EMAIL_TEMPLATE_HTML,
     SIGN_UP_EMAIL_TITLE,
     YOUR_FRIEND_JOINED_EMAIL_TEMPLATE,
+    YOUR_FRIEND_JOINED_EMAIL_TEMPLATE_HTML,
     YOUR_FRIEND_JOINED_EMAIL_TITLE,
 )
 from ypl.backend.email.campaigns.utils import load_html_wrapper
@@ -48,18 +51,22 @@ EMAIL_CAMPAIGNS = {
     "referral_bonus": {
         "title": REFFERAL_BONUS_EMAIL_TITLE,
         "template": REFFERAL_BONUS_EMAIL_TEMPLATE,
+        "template_html": REFFERAL_BONUS_EMAIL_TEMPLATE_HTML,
     },
     "referred_user": {  # deprecated, use first_pref_bonus
         "title": FIRST_PREF_BONUS_EMAIL_TITLE,
         "template": FIRST_PREF_BONUS_EMAIL_TEMPLATE,
+        "template_html": FIRST_PREF_BONUS_EMAIL_TEMPLATE_HTML,
     },
     "first_pref_bonus": {
         "title": FIRST_PREF_BONUS_EMAIL_TITLE,
         "template": FIRST_PREF_BONUS_EMAIL_TEMPLATE,
+        "template_html": FIRST_PREF_BONUS_EMAIL_TEMPLATE_HTML,
     },
     "your_friend_joined": {
         "title": YOUR_FRIEND_JOINED_EMAIL_TITLE,
         "template": YOUR_FRIEND_JOINED_EMAIL_TEMPLATE,
+        "template_html": YOUR_FRIEND_JOINED_EMAIL_TEMPLATE_HTML,
     },
     "week_1_checkin": {
         "title": WEEK_1_CHECKIN_EMAIL_TITLE,
@@ -82,10 +89,11 @@ EMAIL_CAMPAIGNS = {
 REPLY_TO_ADDRESS = "gcmouli+yupp@yupp.ai"
 
 BRAND_NAME = "Yupp (Alpha)"
-CONFIDENTIALITY_FOOTER = """----
+CONFIDENTIALITY_FOOTER = """
 Thanks for being a part of our small, invite-only alpha.
 We really appreciate your trust and ask for your strict confidentiality.
 """
+SIGNATURE = "Mouli - product team"
 INVITE_FRIEND_BONUS_CREDITS = "10,000"
 
 
@@ -109,6 +117,7 @@ async def _prepare_email_content(campaign: str, template_params: dict[str, Any])
         **template_params,
         "BRAND_NAME": BRAND_NAME,
         "CONFIDENTIALITY_FOOTER": CONFIDENTIALITY_FOOTER,
+        "SIGNATURE": SIGNATURE,
         "credits": template_params.get("credits", INVITE_FRIEND_BONUS_CREDITS),
     }
 
@@ -159,16 +168,18 @@ def _create_email_params(
     return params
 
 
-async def send_email_async(email_config: EmailConfig) -> Email | None:
+async def send_email_async(email_config: EmailConfig, print_only: bool = False) -> Email | None:
     """Send an email to a single recipient using the specified campaign template."""
     email_title, email_body, email_body_html = await _prepare_email_content(
         email_config.campaign, email_config.template_params
     )
     resend_params = _create_email_params(email_config.to_address, email_title, email_body, email_body_html)
 
-    logging.info(f"Email composed: {json_dumps(resend_params)}")
+    if print_only:
+        logging.info(f"Email composed: {json_dumps(resend_params)}")
+        return None
 
-    if settings.resend_api_key:
+    if settings.resend_api_key and not print_only:
         resend.api_key = settings.resend_api_key
         email = resend.Emails.send(resend_params)
         await _log_emails_to_db([email_config])

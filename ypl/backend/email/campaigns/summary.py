@@ -26,7 +26,8 @@ Cashed out: {credits_spent} credits
 
 Keep up the great work, and here's to another month of smarter chats and better AIs. Let us know if you have any questions or feedback!
 
-- Mouli, product team
+
+{SIGNATURE}
 
 {CONFIDENTIALITY_FOOTER}
 """  # noqa: E501
@@ -57,7 +58,7 @@ Cashed out: {credits_spent} credits</p>
 
 <p>Keep up the great work, and here's to another month of smarter chats and better AIs. Let us know if you have any questions or feedback!</p>
 
-<p>- Mouli, product team</p>
+<p>{SIGNATURE}</p>
 
 {CONFIDENTIALITY_FOOTER}
 """  # noqa: E501

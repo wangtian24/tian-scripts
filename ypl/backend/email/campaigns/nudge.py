@@ -14,7 +14,8 @@ Also just a friendly reminder, {BRAND_NAME} is still in stealth mode. This means
 
 Thanks for your cooperation!
 
-- Mouli, product team
+
+{SIGNATURE}
 
 """  # noqa: E501
 
@@ -29,7 +30,8 @@ WEEK_1_CHECKIN_EMAIL_TEMPLATE_HTML = """
 
 <p>Thanks for your cooperation!</p>
 
-- Mouli, product team
+
+{SIGNATURE}
 """  # noqa: E501
 
 
@@ -47,7 +49,8 @@ We'd love to learn what your first impression of {BRAND_NAME} is, what do you th
 
 Anyways, using {BRAND_NAME} is easy! If you want a walkthrough, we're more than happy to show you.
 
-- Mouli, product team
+
+{SIGNATURE}
 
 {CONFIDENTIALITY_FOOTER}
 """  # noqa: E501
@@ -61,12 +64,9 @@ WEEK_1_INACTIVE_EMAIL_TEMPLATE_HTML = """
 
 <p>Anyways, using {BRAND_NAME} is easy! If you want a walkthrough, we're more than happy to show you.</p>
 
-<p>- Mouli, product team</p>
+<p>{SIGNATURE}</p>
 
-<hr>
-
-<p>Thanks for being a part of our small, invite-only alpha.<br>
-We really appreciate your trust and ask for your strict confidentiality.</p>
+{CONFIDENTIALITY_FOOTER}
 """  # noqa: E501
 
 
@@ -85,7 +85,8 @@ We do this to minimize the surface area while we are in the early alpha phase of
 
 Let us know if there's anything we can do to make {BRAND_NAME} work better for you.
 
-- Mouli, product team
+
+{SIGNATURE}
 
 {CONFIDENTIALITY_FOOTER}
 """  # noqa: E501
@@ -100,12 +101,9 @@ WEEK_5_INACTIVE_EMAIL_TEMPLATE_HTML = """
 
 <p>Let us know if there's anything we can do to make {BRAND_NAME} work better for you.</p>
 
-<p>- Mouli, product team</p>
+<p>{SIGNATURE}</p>
 
-<hr>
-
-<p>Thanks for being a part of our small, invite-only alpha.<br>
-We really appreciate your trust and ask for your strict confidentiality.</p>
+{CONFIDENTIALITY_FOOTER}
 """  # noqa: E501
 
 
@@ -123,7 +121,8 @@ If you'd like to come back, please contact support@yupp.ai and we'll help you ge
 
 Until then, take care and keep doing your thing.
 
-- Mouli, product team
+
+{SIGNATURE}
 """  # noqa: E501
 
 WEEK_6_DEACTIVATION_EMAIL_TEMPLATE_HTML = """
@@ -135,7 +134,7 @@ WEEK_6_DEACTIVATION_EMAIL_TEMPLATE_HTML = """
 
 <p>Until then, take care and keep doing your thing.</p>
 
-<p>- Mouli, product team</p>
+<p>{SIGNATURE}</p>
 """  # noqa: E501
 
 
