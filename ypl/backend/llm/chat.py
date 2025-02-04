@@ -28,6 +28,7 @@ from ypl.backend.llm.constants import ACTIVE_MODELS_BY_PROVIDER, ChatProvider
 from ypl.backend.llm.db_helpers import (
     deduce_original_providers,
     get_chat_model,
+    get_chat_required_models,
     get_model_context_lengths,
     get_preferences,
     get_user_message,
@@ -278,6 +279,12 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
     metric_inc(f"routing/intent_{request.intent}")
     start_time = time.time()
 
+    if not request.required_models or len(request.required_models) == 0:
+        # try to read it from the database
+        required_models = get_chat_required_models(UUID(request.chat_id))
+        if required_models:
+            request.required_models = list(required_models)
+
     match request.intent:
         case SelectIntent.NEW_CHAT | SelectIntent.NEW_TURN:
             assert request.prompt is not None, "prompt is required for NEW_CHAT or NEW_TURN intent"
@@ -295,6 +302,9 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
                 request.chat_id is not None and request.turn_id is not None
             ), "chat_id is required for SHOW_ME_MORE and NEW_TURN intent"
             preference = get_preferences(request.user_id, request.chat_id, request.turn_id)
+            if request.required_models:
+                # overwrite what we inferred from the chat_messages
+                preference.user_selected_models = request.required_models
         case _:
             # NEW_CHAT or any other situation, no previous turn information needed.
             preference = RoutingPreference(

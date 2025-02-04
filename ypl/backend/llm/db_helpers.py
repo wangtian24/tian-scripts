@@ -27,7 +27,7 @@ from ypl.backend.llm.constants import (
 from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.routing.route_data_type import PreferredModel, RoutingPreference
 from ypl.backend.utils.json import json_dumps
-from ypl.db.chats import Chat, ChatMessage, MessageType
+from ypl.db.chats import Chat, ChatMessage, MessageType, Turn
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
 from ypl.utils import async_timed_cache
 
@@ -567,3 +567,15 @@ def deduce_single_model_speed_score(model: str) -> float:
     )
 
     return speed_score
+
+
+def get_chat_required_models(chat_id: UUID) -> Sequence[str]:
+    """
+    Retrieves the required models for a chat from the database.
+    We always only read from the first turn (sequence_id == 0)
+    """
+    # TODO(Tian): later we can read it from later turns as well, but from offline discussion the FE will
+    # always pass them in.
+    query = select(Turn.required_models).where(Turn.chat_id == chat_id, Turn.sequence_id == 0)
+    with Session(get_engine()) as session:
+        return session.exec(query).first() or ()

@@ -78,6 +78,9 @@ class Turn(BaseModel, table=True):
 
     suggested_followup_prompts: list["SuggestedTurnPrompt"] = Relationship(back_populates="turn")
 
+    # List of model names that the user has explicitly selected for this turn
+    required_models: list[str] | None = Field(sa_column=Column(ARRAY(Text), nullable=True))
+
     __table_args__ = (UniqueConstraint("chat_id", "sequence_id", name="uq_chat_sequence"),)
 
 
