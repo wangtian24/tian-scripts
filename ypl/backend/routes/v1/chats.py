@@ -430,9 +430,15 @@ async def get_suggested_followups(turn_id: UUID) -> SuggestedPromptsResponse:
             )
             result = await session.execute(stmt)
             suggested_followups = result.scalars().all()
-            return SuggestedPromptsResponse(
-                prompts=[SuggestedPrompt(prompt=sf.prompt, summary=sf.summary) for sf in suggested_followups]
-            )
+
+            seen_summaries = set()
+            unique_suggestions = []
+            for sf in suggested_followups:
+                if sf.summary not in seen_summaries:
+                    seen_summaries.add(sf.summary)
+                    unique_suggestions.append(SuggestedPrompt(prompt=sf.prompt, summary=sf.summary))
+
+            return SuggestedPromptsResponse(prompts=unique_suggestions)
     except Exception as e:
         log_dict = {"message": f"Error getting suggested followups for turn {turn_id}: {str(e)}"}
         logging.exception(json_dumps(log_dict))
