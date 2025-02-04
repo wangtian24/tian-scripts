@@ -275,7 +275,8 @@ When presented with a prompt and optional responses to it from language models, 
 on a scale of 1 to 10, where 1 is very easy and 10 is extremely challenging.
 
 Additionally, provide a brief, positive comment on what makes this prompt challenging (or easy).
-The comment should be a single sentence, ideally under 12 words.
+The comment should be a single sentence, ideally under 12 words, and should not contain quotes or other
+special characters that may cause problems with JSON parsing.
 
 Lastly, provide 1-4 words with emojis that can be used by a user to mark a response for this particular prompt as good or bad, such as:
 
