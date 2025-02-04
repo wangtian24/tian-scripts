@@ -217,6 +217,7 @@ class LLMLabeler(Generic[InputType, OutputType]):
             start_time = time.time()
             prepared_input = self._prepare_input(input)
             output = self.llm.invoke(prepared_input)  # type: ignore
+            self._validate_output(output)
             self._log_success(input, output, start_time)
             return self._parse_output(output), self._clean_output(output)
         except Exception as e:

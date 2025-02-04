@@ -1230,6 +1230,8 @@ async def generate_quicktake(
             }
         )
         priority_groups = [primary_models, secondary_models, fallback_models]
+        # TODO(Raghu): This includes secondary and fallback models even when there is preferred model
+        #              or PDF attachment. Decide if we want to include these.
 
         # -- Make all quicktake calls in parallel
         class LabelerTask:
