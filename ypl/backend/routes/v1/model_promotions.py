@@ -24,7 +24,7 @@ class ModelPromotionCreationRequest(BaseModel):
     promo_strength: float
 
 
-@router.post("/model_promotions/create")
+@router.post("/admin/model_promotions/create")
 async def model_promotion_create(request: ModelPromotionCreationRequest) -> ModelPromotion:
     try:
         # Create the model promotion
@@ -55,7 +55,7 @@ async def model_promotion_create(request: ModelPromotionCreationRequest) -> Mode
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.get("/model_promotions/active_promotions")
+@router.get("/admin/model_promotions/active_promotions")
 async def model_promotions_active_promotions() -> list[tuple[str, ModelPromotion]]:
     """Get all currently active model promotions."""
     try:
@@ -66,7 +66,7 @@ async def model_promotions_active_promotions() -> list[tuple[str, ModelPromotion
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/model_promotions/activate")
+@router.post("/admin/model_promotions/activate")
 async def model_promotion_activate(promotion_id: UUID) -> str:
     try:
         await activate_promotion(promotion_id)
@@ -82,7 +82,7 @@ async def model_promotion_activate(promotion_id: UUID) -> str:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/model_promotions/deactivate")
+@router.post("/admin/model_promotions/deactivate")
 async def model_promotion_deactivate(promotion_id: UUID) -> str:
     try:
         await deactivate_promotion(promotion_id)

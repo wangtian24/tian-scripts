@@ -63,7 +63,6 @@ admin_router = APIRouter(dependencies=[Depends(validate_admin_api_key)])
 
 api_router.include_router(credit.router, prefix="/v1", tags=["credit"])
 api_router.include_router(feedback_route.router, prefix="/v1", tags=["feedback"])
-api_router.include_router(model_promotions_route.router, prefix="/v1", tags=["model_promotions"])
 api_router.include_router(health.router, prefix="/v1", tags=["health"])
 api_router.include_router(llm_route.router, prefix="/v1", tags=["route"])
 api_router.include_router(rank.router, prefix="/v1", tags=["leaderboard"])
@@ -86,6 +85,7 @@ admin_router.include_router(user_capability_route.router, prefix="/v1", tags=["a
 admin_router.include_router(message_route.router, prefix="/v1", tags=["admin"])
 admin_router.include_router(system_route.router, prefix="/v1", tags=["admin"])
 admin_router.include_router(invite_route.router, prefix="/v1", tags=["admin"])
+admin_router.include_router(model_promotions_route.router, prefix="/v1", tags=["model_promotions"])
 
 api_router.include_router(admin_router)
 
