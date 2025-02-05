@@ -111,7 +111,11 @@ async def send_marketing_emails_async(
                     EmailConfig(
                         campaign=active_campaign,
                         to_address=user.email,
-                        template_params={"email_recipient_name": user.name},
+                        template_params={
+                            "email_recipient_name": user.name,
+                            # TODO(w): Enable unsub link once UI is ready
+                            # "unsubscribe_link": f"https://gg.yupp.ai/unsubscribe?user_id={user.user_id}",
+                        },
                     )
                 )
 
@@ -126,7 +130,11 @@ async def send_marketing_emails_async(
                     EmailConfig(
                         campaign=inactive_campaign,
                         to_address=user.email,
-                        template_params={"email_recipient_name": user.name},
+                        template_params={
+                            "email_recipient_name": user.name,
+                            # TODO(w): Enable unsub link once UI is ready
+                            # "unsubscribe_link": f"https://gg.yupp.ai/unsubscribe?user_id={user.user_id}",
+                        },
                     )
                 )
 

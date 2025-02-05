@@ -3,6 +3,7 @@ from typing import Any
 
 import resend
 from resend.emails._email import Email
+from sqlalchemy import select
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
 from ypl.backend.email.campaigns.nudge import (
@@ -22,6 +23,7 @@ from ypl.backend.email.campaigns.utils import html_to_plaintext, load_html_wrapp
 from ypl.backend.email.email_types import EmailConfig, EmailContent
 from ypl.backend.utils.json import json_dumps
 from ypl.db.emails import EmailLogs
+from ypl.db.users import User
 
 EMAIL_CAMPAIGNS = {
     "signup": SIGN_UP_EMAIL_CONTENT,
@@ -44,6 +46,19 @@ CONFIDENTIALITY_FOOTER = """
 Thanks for being a part of our small, invite-only alpha.
 We really appreciate your trust and ask for your strict confidentiality.
 """
+UNSUBSCRIBE_LINK = """
+  <p>
+    <a href="{unsubscribe_link}">Unsubscribe</a>
+  </p>
+"""
+
+
+async def _get_user_id_from_email(email: str) -> str | None:
+    """Get user ID from email address."""
+    async with get_async_session() as session:
+        result = await session.exec(select(User).where(User.email == email))  # type: ignore
+        user = result.scalar_one_or_none()
+        return user.user_id if user else None
 
 
 async def _prepare_email_content(campaign: str, template_params: dict[str, Any]) -> EmailContent:
@@ -67,8 +82,15 @@ async def _prepare_email_content(campaign: str, template_params: dict[str, Any])
     try:
         subject = campaign_data.subject.format(**template_params)
         preview_text = campaign_data.preview.format(**template_params) if campaign_data.preview else None
-        body_html = load_html_wrapper().replace(
-            "{{content}}", campaign_data.body_html.format(**template_params) if campaign_data.body_html else ""
+        body_html = (
+            load_html_wrapper()
+            .replace(
+                "{{content}}", campaign_data.body_html.format(**template_params) if campaign_data.body_html else ""
+            )
+            .replace(
+                "{{unsubscribe_link}}",
+                UNSUBSCRIBE_LINK.format(**template_params) if "unsubscribe_link" in template_params else "",
+            )
         )
         return EmailContent(
             subject=subject,
@@ -95,9 +117,12 @@ async def _log_emails_to_db(email_configs: list[EmailConfig]) -> None:
         logging.error(f"Failed to log emails to database: {str(e)}")
 
 
-def _create_email_params(
+async def _create_email_params(
     to_address: str, email_title: str, email_body: str, email_body_html: str | None
 ) -> resend.Emails.SendParams:
+    # TODO(w): pass this in as a param
+    # user_id = await _get_user_id_from_email(to_address)
+
     """Create email parameters for Resend API."""
     params: resend.Emails.SendParams = {
         "from": "Mouli <mouli@updates.yupp.ai>",
@@ -109,6 +134,9 @@ def _create_email_params(
     }
     if email_body_html:
         params["html"] = email_body_html
+    # TODO(w): Enable unsub link once UI is ready
+    # if user_id:
+    #     params["headers"] = {"List-Unsubscribe": f"https://gg.yupp.ai/unsubscribe/{user_id}"}
     return params
 
 
@@ -116,7 +144,7 @@ async def send_email_async(email_config: EmailConfig, print_only: bool = False) 
     """Send an email to a single recipient using the specified campaign template."""
     email_content = await _prepare_email_content(email_config.campaign, email_config.template_params)
     email_plaintext = html_to_plaintext(email_content.body_html)
-    resend_params = _create_email_params(
+    resend_params = await _create_email_params(
         email_config.to_address, email_content.subject, email_plaintext, email_content.body_html
     )
 
@@ -148,7 +176,7 @@ async def batch_send_emails_async(
         email_content = await _prepare_email_content(email_config.campaign, email_config.template_params)
         email_plaintext = html_to_plaintext(email_content.body_html)
         batch_params.append(
-            _create_email_params(
+            await _create_email_params(
                 email_config.to_address,
                 email_content.subject,
                 email_plaintext,

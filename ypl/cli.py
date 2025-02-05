@@ -1688,6 +1688,7 @@ def test_send_email(campaign: str, to_address: str, print_only: bool) -> None:
     Example usage:
         poetry run python -m ypl.cli test-send-email --campaign signup
         poetry run python -m ypl.cli test-send-email --campaign sic_availability --print-only
+        poetry run python -m ypl.cli test-send-email --campaign sic_availability --to-address spherecollider@gmail.com
     """
 
     asyncio.run(
@@ -1699,6 +1700,7 @@ def test_send_email(campaign: str, to_address: str, print_only: bool) -> None:
                     "email_recipient_name": "Rumplestiltskin",
                     "referee_name": "Friend of Rumpy",
                     "credits": 100,
+                    "unsubscribe_link": "https://gg.yupp.ai/unsubscribe?user_id=asdfzxcv",
                 },
             ),
             print_only=print_only,
