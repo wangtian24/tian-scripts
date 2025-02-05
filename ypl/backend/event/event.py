@@ -1,14 +1,84 @@
 import logging
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Final
 
 from fastapi import HTTPException, status
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import desc, select
+from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
+from ypl.backend.llm.utils import post_to_slack_with_user_name
 from ypl.backend.utils.json import json_dumps
 from ypl.db.events import Event
+from ypl.db.redis import get_upstash_redis_client
 from ypl.db.users import User
+
+EVENT_RATE_LIMIT_SKIP_CHECK_KEY = "event:rate_limit:skip_checking"
+EVENT_RATE_LIMIT_WINDOW_SECONDS: Final[int] = 10
+
+RATE_LIMITED_EVENTS = {
+    "send_feedback": {"max_requests": 5, "window_seconds": 10},
+    "start_chat": {"max_requests": 3, "window_seconds": 10},
+    "initiated_cashout": {"max_requests": 3, "window_seconds": 10},
+    "eval_qt": {"max_requests": 3, "window_seconds": 10},
+}
+
+SLACK_WEBHOOK_EVENT_RATE_LIMIT = settings.SLACK_WEBHOOK_URL
+
+
+async def skip_event_rate_limit_check() -> bool:
+    """Check if event rate limit checking should be skipped."""
+
+    if settings.ENVIRONMENT != "production":
+        return True
+
+    redis = await get_upstash_redis_client()
+    skip_checking = await redis.get(EVENT_RATE_LIMIT_SKIP_CHECK_KEY)
+    if skip_checking or skip_checking is None:
+        return True
+    return False
+
+
+async def check_event_rate_limit(user_id: str, event_name: str) -> None:
+    """Check if the user has exceeded the rate limit for a specific event."""
+    if event_name not in RATE_LIMITED_EVENTS or await skip_event_rate_limit_check():
+        return
+
+    event_config = RATE_LIMITED_EVENTS[event_name]
+    max_requests = event_config["max_requests"]
+    window_seconds = event_config["window_seconds"]
+
+    redis = await get_upstash_redis_client()
+    key = f"event:rate_limit:{event_name}:{user_id}"
+
+    try:
+        count_str = await redis.get(key)
+        count = int(count_str) if count_str is not None else 0
+
+        if count >= max_requests:
+            log_dict = {
+                "message": f":warning: Repetitive activity detected for event {event_name} by user {user_id}",
+                "current_count": count,
+                "max_requests": max_requests,
+                "window_seconds": window_seconds,
+            }
+            logging.warning(json_dumps(log_dict))
+            await post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_EVENT_RATE_LIMIT)
+
+        await redis.incr(key)
+        if count == 0:
+            await redis.expire(key, window_seconds)
+
+    except Exception as e:
+        log_dict = {
+            "message": "Error checking event rate limit",
+            "user_id": user_id,
+            "event_name": event_name,
+            "error": str(e),
+        }
+        logging.warning(json_dumps(log_dict))
+        return
 
 
 @dataclass
@@ -166,6 +236,9 @@ async def create_new_event(request: CreateEventRequest) -> EventResponse | None:
                     logging.info(json_dumps(log_dict))
                     user.country_code = event.event_params["country_code"]
                     await session.commit()
+
+            #  check potential bot activity
+            await check_event_rate_limit(request.user_id, request.event_name)
 
             return EventResponse(
                 event_id=str(event.event_id),

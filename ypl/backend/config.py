@@ -123,6 +123,7 @@ class Settings(BaseSettings):
     CRYPTO_EXCHANGE_PRICE_API_URL_COINGECKO: str = os.getenv("CRYPTO_EXCHANGE_PRICE_API_URL_COINGECKO", "")
 
     SLACK_WEBHOOK_CASHOUT: str = os.getenv("SLACK_WEBHOOK_CASHOUT", "")
+    SLACK_WEBHOOK_URL: str = os.getenv("SLACK_WEBHOOK_URL", "")
 
     DEFAULT_QT_TIMEOUT_SECS: float = 1.5
 
