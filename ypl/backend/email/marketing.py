@@ -47,8 +47,9 @@ def _users_for_timeframe_query(
     end_date: datetime,
     campaign: str,
 ) -> Any:
-    """Get users who were created within the given date range, along with their eval status
-    and whether they've received the campaign email.
+    """Get users who were created within the given date range, along with their
+    eval status, whether they unsubscribed, and whether they've received the
+    campaign email.
 
     Args:
         start_date: Start of the date range (inclusive)
@@ -70,6 +71,7 @@ def _users_for_timeframe_query(
         User.created_at.is_not(None),  # type: ignore
         User.created_at >= start_date,  # type: ignore
         User.created_at <= end_date,  # type: ignore
+        User.unsubscribed_from_marketing.is_(False),  # type: ignore
     ]
 
     return select(User, has_evals, already_sent).where(*conditions)
