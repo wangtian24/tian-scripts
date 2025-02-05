@@ -1415,39 +1415,48 @@ def post_source_account_balances() -> None:
 
     async def format_and_post_balances() -> None:
         #  get self custodial wallet balance
-        wallet_data = await get_wallet_balance()
-        await store_wallet_balances(wallet_data)
+        try:
+            wallet_data = await get_wallet_balance()
+            await store_wallet_balances(wallet_data)
 
-        message = "*Self Custodial Wallet Balance*\n"
-        message += "```\n"
-        message += "| Asset | Balance |\n"
-        message += "|-------|----------|\n"
-        for balance in wallet_data["balances"]:
-            currency = balance["currency"]
-            amount = balance["balance"]
-            message += f"| {currency:<5} | {amount:>9.8f} |\n"
-        message += "```\n\n"
+            message = "*Self Custodial Wallet Balance*\n"
+            message += "```\n"
+            message += "| Asset | Balance |\n"
+            message += "|-------|----------|\n"
+            for balance in wallet_data["balances"]:
+                currency = balance["currency"]
+                amount = balance["balance"]
+                message += f"| {currency:<5} | {amount:>9.8f} |\n"
+            message += "```\n\n"
+        except Exception as e:
+            logging.error(f"Error getting wallet balance for daily posting: {e}")
 
         # Get offchain balance
-        accounts = await get_coinbase_retail_wallet_account_details()
-        await store_coinbase_retail_wallet_balances(accounts)
+        try:
+            accounts = await get_coinbase_retail_wallet_account_details()
+            await store_coinbase_retail_wallet_balances(accounts)
 
-        message += "*Coinbase Retail Wallet Balance*\n"
-        message += "```\n"
-        message += "| Asset | Balance |\n"
-        message += "|-------|----------|\n"
-        for currency, details in accounts.items():
-            balance = details.get("balance", 0)
-            message += f"| {currency:<5} | {balance:>9.8f} |\n"
-        message += "```"
+            message += "*Coinbase Retail Wallet Balance*\n"
+            message += "```\n"
+            message += "| Asset | Balance |\n"
+            message += "|-------|----------|\n"
+            for currency, details in accounts.items():
+                balance = details.get("balance", 0)
+                message += f"| {currency:<5} | {balance:>9.8f} |\n"
+            message += "```"
+        except Exception as e:
+            logging.error(f"Error getting coinbase retail wallet balance for daily posting: {e}")
 
         #  Get Axis UPI balance
-        balance = await get_balance()
-        await store_axis_upi_balance(balance)
-        message += "\n*Axis UPI Balance*\n"
-        message += "```\n"
-        message += f"| Balance | {balance:>9.8f} |\n"
-        message += "```"
+        try:
+            balance = await get_balance()
+            await store_axis_upi_balance(balance)
+            message += "\n*Axis UPI Balance*\n"
+            message += "```\n"
+            message += f"| Balance | {balance:>9.8f} |\n"
+            message += "```"
+        except Exception as e:
+            logging.error(f"Error getting axis upi balance for daily posting: {e}")
 
         await post_to_slack(message, SLACK_WEBHOOK_CASHOUT)
 
