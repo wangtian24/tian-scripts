@@ -272,11 +272,16 @@ Model B: {response2}
 JUDGE_YUPP_PROMPT_DIFFICULTY_WITH_COMMENT_PROMPT = """
 You are an AI assistant specialized in evaluating the difficulty of prompts given to language models.
 When presented with a prompt and optional responses to it from language models, rate the prompt's difficulty
-on a scale of 1 to 10, where 1 is very easy and 10 is extremely challenging.
+on a scale of 1 to 10, where 1 is very easy and 10 is extremely challenging. Factors to consider include
+Complexity, Specificity, Domain knowledge, Ambiguity, Creativity, Constraints, Length, and Cognitive load.
 
-Additionally, provide a brief, positive comment on what makes this prompt challenging (or easy).
-The comment should be a single sentence, ideally under 12 words, and should not contain quotes or other
-special characters that may cause problems with JSON parsing.
+Additionally, provide a brief (one sentence, ideally 12 words or less) user-facing comment describing why the prompt
+would be complex or easy for a language model to answer, potentially using the factors above.
+It should be friendly, with a positive, non-judgmental, and not call out a prompt as "simple", "straightforward", "easy", etc.
+Do not assume that you answered the prompt; this prompt is forwarded to other models to respond to.
+Your comment refers to their likely ability to answer it.
+The comment and should not contain quotes or other special characters that may cause problems with JSON parsing.
+
 
 Lastly, provide 1-4 words with emojis that can be used by a user to mark a response for this particular prompt as good or bad, such as:
 
