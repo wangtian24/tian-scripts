@@ -196,8 +196,10 @@ async def get_simple_pro_router(
                 & (StrongModelProposer() | error_filter | TopK(1, name="strong")).with_flags(
                     always_include=True, offset=50000
                 )
-                # propose young models
-                & (PromotionModelProposer() | error_filter).with_flags(always_include=True)
+                # propose promoted models
+                & ((PromotionModelProposer() if not for_fallback else Passthrough()) | error_filter).with_flags(
+                    always_include=True
+                )
                 # propose models with image or pdf capabilities, strong offset
                 & (attachment_proposer | error_filter).with_flags(always_include=True, offset=200000)
                 # propose reputable models

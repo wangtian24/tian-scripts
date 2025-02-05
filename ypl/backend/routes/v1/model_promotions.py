@@ -69,7 +69,7 @@ async def model_promotions_active_promotions() -> list[tuple[str, ModelPromotion
 @router.post("/model_promotions/activate")
 async def model_promotion_activate(promotion_id: UUID) -> str:
     try:
-        activate_promotion(promotion_id)
+        await activate_promotion(promotion_id)
         logging.info(
             json_dumps({"message": f"Activated model promotion {promotion_id}", "promotion_id": str(promotion_id)})
         )
@@ -85,7 +85,7 @@ async def model_promotion_activate(promotion_id: UUID) -> str:
 @router.post("/model_promotions/deactivate")
 async def model_promotion_deactivate(promotion_id: UUID) -> str:
     try:
-        deactivate_promotion(promotion_id)
+        await deactivate_promotion(promotion_id)
         logging.info(
             json_dumps({"message": f"Deactivated model promotion {promotion_id}", "promotion_id": str(promotion_id)})
         )

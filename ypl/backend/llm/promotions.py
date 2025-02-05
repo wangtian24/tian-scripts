@@ -3,10 +3,11 @@ import math
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import select, text, update
+from sqlalchemy import func, select, update
 from sqlmodel import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
-from ypl.backend.db import get_engine
+from ypl.backend.db import get_async_engine, get_engine
 from ypl.backend.llm.db_helpers import get_model_creation_dates
 from ypl.backend.llm.routing.modules.proposers import (
     ModelProposer,
@@ -18,7 +19,7 @@ from ypl.db.language_models import LanguageModel
 from ypl.db.model_promotions import ModelPromotion, ModelPromotionStatus
 from ypl.utils import RNGMixin
 
-MODEL_PROMO_DEFAULT_RANGE_HRS = 7 * 24  # 7 days
+MODEL_PROMO_DEFAULT_RANGE_HRS = 7 * 24  # hours in 7 days
 MODEL_PROMO_HALF_LIFE_RATIO = 0.5  # the boost strength drops 50% at promo_days * half_life_ratio days
 
 # The probability a promoted model will show up if it's proposed and it has full promo_strength (1.0).
@@ -27,43 +28,33 @@ MODEL_PROMO_MAX_SHOW_PROB = 0.2
 
 
 def get_active_model_promotions() -> list[tuple[str, ModelPromotion]]:
-    sql_query = text(
-        """
-        SELECT lm.internal_name, mp.promo_status, mp.promo_start_date, mp.promo_end_date, mp.promo_strength
-        FROM model_promotions mp
-            JOIN language_models lm ON mp.language_model_id = lm.language_model_id
-        WHERE mp.promo_status = 'ACTIVE'
-            AND mp.deleted_at IS NULL
-            AND (mp.promo_start_date IS NULL OR mp.promo_start_date <= CURRENT_TIMESTAMP)
-            AND (mp.promo_end_date IS NULL OR mp.promo_end_date >= CURRENT_TIMESTAMP)
-        ORDER BY mp.promo_start_date DESC
-    """
+    query = (
+        select(LanguageModel.internal_name, ModelPromotion)  # type: ignore
+        .join(ModelPromotion, ModelPromotion.language_model_id == LanguageModel.language_model_id)
+        .where(
+            ModelPromotion.promo_status == ModelPromotionStatus.ACTIVE,
+            ModelPromotion.deleted_at.is_(None),  # type: ignore
+            (ModelPromotion.promo_start_date.is_(None) | (ModelPromotion.promo_start_date <= func.current_timestamp())),  # type: ignore
+            (ModelPromotion.promo_end_date.is_(None) | (ModelPromotion.promo_end_date >= func.current_timestamp())),  # type: ignore
+        )
+        .order_by(ModelPromotion.promo_start_date.desc())  # type: ignore
     )
     with Session(get_engine()) as session:
-        results = session.exec(sql_query).all()  # type: ignore
+        results = session.exec(query).all()
         if not results:
             return []
-        return [
-            (
-                row.internal_name,
-                ModelPromotion(
-                    promo_status=row.promo_status,
-                    promo_start_date=row.promo_start_date,
-                    promo_end_date=row.promo_end_date,
-                    promo_strength=row.promo_strength,
-                ),
-            )
-            for row in results
-        ]
+        return [(row[0], row[1]) for row in results]
 
 
 async def create_promotion(
     model_name: str, start_date: datetime | None = None, end_date: datetime | None = None, promo_strength: float = 1.0
 ) -> ModelPromotion:
     """Create a new promotion entry"""
-    with Session(get_engine()) as session:
-        rows = session.exec(
-            select(LanguageModel.language_model_id).where(LanguageModel.internal_name == model_name)  # type: ignore
+    async with AsyncSession(get_async_engine()) as session:
+        rows = (
+            await session.exec(
+                select(LanguageModel.language_model_id).where(LanguageModel.internal_name == model_name)  # type: ignore
+            )
         ).first()
         if not rows or not rows[0]:
             raise ValueError(f"Model {model_name} not found")
@@ -77,34 +68,34 @@ async def create_promotion(
             promo_status=ModelPromotionStatus.INACTIVE,
         )
 
-    with Session(get_engine()) as session:
+    async with AsyncSession(get_async_engine()) as session:
         session.add(promotion)
-        session.commit()
-        session.refresh(promotion)
+        await session.commit()
+        await session.refresh(promotion)
 
     return promotion
 
 
-def activate_promotion(promotion_id: UUID) -> None:
+async def activate_promotion(promotion_id: UUID) -> None:
     """Activate a promotion entry"""
-    with Session(get_engine()) as session:
-        session.exec(  # type: ignore
+    async with AsyncSession(get_async_engine()) as session:
+        await session.exec(  # type: ignore
             update(ModelPromotion)
             .where(ModelPromotion.promotion_id == promotion_id)  # type: ignore
             .values(promo_status=ModelPromotionStatus.ACTIVE)
         )
-        session.commit()
+        await session.commit()
 
 
-def deactivate_promotion(promotion_id: UUID) -> None:
+async def deactivate_promotion(promotion_id: UUID) -> None:
     """Deactivate a promotion entry"""
-    with Session(get_engine()) as session:
+    async with AsyncSession(get_async_engine()) as session:
         session.exec(  # type: ignore
             update(ModelPromotion)
             .where(ModelPromotion.promotion_id == promotion_id)  # type: ignore
             .values(promo_status=ModelPromotionStatus.INACTIVE)
         )
-        session.commit()
+        await session.commit()
 
 
 class PromotionModelProposer(RNGMixin, ModelProposer):
@@ -112,8 +103,9 @@ class PromotionModelProposer(RNGMixin, ModelProposer):
     Proposes models that are under active promotion and decide their show probability.
     """
 
-    def _calc_damping(self, age: int, promo_range: int) -> float:
-        return float(1.0 / (1.0 + math.exp((age - promo_range * MODEL_PROMO_HALF_LIFE_RATIO) / 2.0)))
+    def _calc_damping(self, age_in_window: int, window_size: int) -> float:
+        effective_age = min(age_in_window, window_size)  # the age cannot be larger than window size
+        return float(1.0 / (1.0 + math.exp((effective_age - window_size * MODEL_PROMO_HALF_LIFE_RATIO) / 25.0)))
 
     def _propose_models(self, models_to_select: set[str], state: RouterState) -> RouterState:
         if not models_to_select:
@@ -134,6 +126,19 @@ class PromotionModelProposer(RNGMixin, ModelProposer):
         models_creation_dates: dict[str, datetime] = (
             get_model_creation_dates(tuple(models_without_start_end)) if models_without_start_end else {}
         )
+
+        ld = {
+            "message": f"Model Promotion: evaluating {len(promoted_models)} active promotions",
+            "promotions": {
+                model: {
+                    "promo_start_date": promo.promo_start_date.isoformat() if promo.promo_start_date else None,
+                    "promo_end_date": promo.promo_end_date.isoformat() if promo.promo_end_date else None,
+                    "promo_strength": promo.promo_strength,
+                }
+                for model, promo in promoted_models
+            },
+        }
+        logging.info(json_dumps(ld))
 
         # Calculate the age-in-window dependent dampings for all eligible models
         dampings: dict[str, float] = {}  # time-window dependent damping factor
@@ -169,7 +174,7 @@ class PromotionModelProposer(RNGMixin, ModelProposer):
             return state
 
         log_dict = {
-            "message": f"Picked model for promotion: {chosen_model} with probability = {show_probability:.3f}",
+            "message": f"Model Promotion: picked {chosen_model} with probability = {show_probability:.3f}",
             "promo_id": promotion.promotion_id,
             "promo_start_date": promotion.promo_start_date.isoformat() if promotion.promo_start_date else None,
             "promo_end_date": promotion.promo_end_date.isoformat() if promotion.promo_end_date else None,

@@ -30,6 +30,7 @@ from ypl.backend.llm.routing.route_data_type import PreferredModel, RoutingPrefe
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import Chat, ChatMessage, MessageType, Turn
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
+from ypl.db.model_promotions import ModelPromotionStatus
 from ypl.utils import async_timed_cache
 
 IMAGE_ATTACHMENT_MIME_TYPE = "image/*"
@@ -202,25 +203,18 @@ def get_all_strong_models() -> Sequence[str]:
 
 @ttl_cache(ttl=600)  # 10-min cache
 def get_model_creation_dates(model_names: tuple[str, ...]) -> dict[str, datetime]:
-    sql_query = text(
-        """
-            SELECT
-                internal_name,
-                created_at
-            FROM language_models
-            WHERE
-                internal_name IN :model_names
-                AND status = 'ACTIVE'
-            order by created_at ASC
-        """
+    statement = (
+        select(LanguageModel.internal_name, LanguageModel.created_at)
+        .where(LanguageModel.internal_name.in_(model_names), LanguageModel.status == ModelPromotionStatus.ACTIVE)  # type: ignore
+        .order_by(LanguageModel.created_at.asc())  # type: ignore
     )
-    with get_engine().connect() as conn:
-        c = conn.execute(sql_query, dict(model_names=model_names))
-        rows = c.fetchall()
 
-    if not rows or not rows[0]:
+    with Session(get_engine()) as session:
+        rows = session.exec(statement).all()
+    if not rows:
         return {}
-    return {row[0]: row[1] for row in rows}
+
+    return {row[0]: row[1] for row in rows}  # type: ignore
 
 
 @ttl_cache(ttl=600)  # 10-min cache
