@@ -1,4 +1,4 @@
-name: Marketing emails
+name: Send marketing emails
 
 on:
   schedule:

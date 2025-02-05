@@ -158,3 +158,8 @@ async def send_marketing_emails_async(
                 logging.error(f"Error sending batch emails {i + 1}: {str(e)}")
                 raise
         logging.info("✓ All emails batched successfully")
+
+
+async def send_monthly_summary_emails_async(session: Session, dry_run: bool = False) -> None:
+    logging.info("Sending monthly summary emails dry run")
+    pass

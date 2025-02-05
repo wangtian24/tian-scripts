@@ -28,7 +28,7 @@ from tqdm.asyncio import tqdm_asyncio
 
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_session, get_engine
-from ypl.backend.email.marketing import send_marketing_emails_async
+from ypl.backend.email.marketing import send_marketing_emails_async, send_monthly_summary_emails_async
 from ypl.backend.email.send_email import EmailConfig, send_email_async
 from ypl.backend.llm.chat import (
     AIMessage,
@@ -1661,6 +1661,21 @@ def update_model_metrics(
 def validate_ledger_balance() -> None:
     """Validate ledger balance for all users."""
     asyncio.run(validate_ledger_balance_all_users())
+
+
+@cli.command()
+@click.option("--dry-run", is_flag=True, help="Print emails that would be sent without actually sending them")
+@db_cmd
+def send_monthly_summary_emails(dry_run: bool) -> None:
+    """Schedule and send monthly summary emails to users.
+
+    Example usage:
+        poetry run python -m ypl.cli send-monthly-summary-emails
+        poetry run python -m ypl.cli send-monthly-summary-emails --dry-run
+    """
+
+    with Session(get_engine()) as session:
+        asyncio.run(send_monthly_summary_emails_async(session, dry_run))
 
 
 @cli.command()
