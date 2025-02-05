@@ -397,7 +397,7 @@ class AxisUpiFacilitator(BaseFacilitator):
                 "end_time": time.time(),
             }
             logging.error(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+            asyncio.create_task(self._post_to_slack_with_destination_details(user_id, log_dict, payment_transaction_id))
             raise PaymentProcessingError("Payment failed. Finishing payment monitoring")
         elif status.transaction_status == PaymentTransactionStatusEnum.SUCCESS:
             db_update_start_time = time.time()
@@ -443,8 +443,23 @@ class AxisUpiFacilitator(BaseFacilitator):
                 "end_time": time.time(),
             }
             logging.info(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+            asyncio.create_task(self._post_to_slack_with_destination_details(user_id, log_dict, payment_transaction_id))
             return
+
+    async def _post_to_slack_with_destination_details(
+        self, user_id: str, log_dict: dict, payment_transaction_id: uuid.UUID
+    ) -> None:
+        async with get_async_session() as session:
+            payment_transaction = (
+                await session.exec(
+                    select(PaymentTransaction)
+                    .options(selectinload(PaymentTransaction.destination_instrument))  # type: ignore
+                    .where(PaymentTransaction.payment_transaction_id == payment_transaction_id)
+                )
+            ).one()
+        log_dict["destination_identifier"] = payment_transaction.destination_instrument.identifier
+        log_dict["destination_identifier_type"] = payment_transaction.destination_instrument.identifier_type
+        asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
 
     # TODO: Make this generic, and resilient
     async def monitor_payment_status(
@@ -573,6 +588,8 @@ class AxisUpiFacilitator(BaseFacilitator):
                     "payment_transaction_id": str(payment_transaction_id),
                     "processing_time": time.time() - start_time,
                     "elapsed_time": time.time() - start_time,
+                    "destination_identifier": destination_identifier,
+                    "destination_identifier_type": destination_identifier_type,
                 }
                 logging.error(json_dumps(log_dict))
                 asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
@@ -592,6 +609,8 @@ class AxisUpiFacilitator(BaseFacilitator):
                 "currency": self.currency,
                 "processing_time": time.time() - start_time,
                 "elapsed_time": time.time() - start_time,
+                "destination_identifier": destination_identifier,
+                "destination_identifier_type": destination_identifier_type,
             }
             logging.exception(json_dumps(log_dict))
             raise PaymentInstrumentError("Failed to get payment instruments") from e
@@ -606,6 +625,8 @@ class AxisUpiFacilitator(BaseFacilitator):
             "amount": str(amount),
             "currency": self.currency,
             "facilitator": self.facilitator,
+            "destination_identifier": destination_identifier,
+            "destination_identifier_type": destination_identifier_type,
         }
         logging.info(json_dumps(log_dict))
 
@@ -664,6 +685,8 @@ class AxisUpiFacilitator(BaseFacilitator):
                 "amount": str(amount),
                 "currency": self.currency,
                 "elapsed_time": time.time() - start_time,
+                "destination_identifier": destination_identifier,
+                "destination_identifier_type": destination_identifier_type,
             }
             logging.exception(json_dumps(log_dict))
             raise PaymentProcessingError("Failed to initiate db for payment") from e
@@ -679,6 +702,8 @@ class AxisUpiFacilitator(BaseFacilitator):
             "payment_transaction_id": str(payment_transaction_id),
             "facilitator": self.facilitator,
             "elapsed_time": time.time() - start_time,
+            "destination_identifier": destination_identifier,
+            "destination_identifier_type": destination_identifier_type,
         }
         logging.info(json_dumps(log_dict))
 
@@ -714,6 +739,8 @@ class AxisUpiFacilitator(BaseFacilitator):
                 "credits_to_cashout": credits_to_cashout,
                 "amount": str(amount),
                 "currency": self.currency,
+                "destination_identifier": destination_identifier,
+                "destination_identifier_type": destination_identifier_type,
             }
             asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
             logging.info(json_dumps(log_dict))
@@ -734,6 +761,8 @@ class AxisUpiFacilitator(BaseFacilitator):
                 "credits_to_cashout": credits_to_cashout,
                 "amount": str(amount),
                 "currency": self.currency,
+                "destination_identifier": destination_identifier,
+                "destination_identifier_type": destination_identifier_type,
             }
             logging.exception(json_dumps(log_dict))
             await self.undo_payment_transaction(payment_transaction_id)
@@ -769,6 +798,8 @@ class AxisUpiFacilitator(BaseFacilitator):
             "credits_to_cashout": credits_to_cashout,
             "amount": str(amount),
             "currency": self.currency,
+            "destination_identifier": destination_identifier,
+            "destination_identifier_type": destination_identifier_type,
         }
         logging.info(json_dumps(log_dict))
 
@@ -795,6 +826,8 @@ class AxisUpiFacilitator(BaseFacilitator):
             "credits_to_cashout": credits_to_cashout,
             "amount": str(amount),
             "currency": self.currency,
+            "destination_identifier": destination_identifier,
+            "destination_identifier_type": destination_identifier_type,
         }
         logging.info(json_dumps(log_dict))
 
