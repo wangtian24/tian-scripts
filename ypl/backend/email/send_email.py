@@ -1,5 +1,4 @@
 import logging
-from dataclasses import dataclass
 from typing import Any
 
 import resend
@@ -7,130 +6,77 @@ from resend.emails._email import Email
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
 from ypl.backend.email.campaigns.nudge import (
-    WEEK_1_CHECKIN_EMAIL_TEMPLATE,
-    WEEK_1_CHECKIN_EMAIL_TITLE,
-    WEEK_1_INACTIVE_EMAIL_TEMPLATE,
-    WEEK_1_INACTIVE_EMAIL_TITLE,
-    WEEK_5_INACTIVE_EMAIL_TEMPLATE,
-    WEEK_5_INACTIVE_EMAIL_TITLE,
-    WEEK_6_DEACTIVATION_EMAIL_TEMPLATE,
-    WEEK_6_DEACTIVATION_EMAIL_TITLE,
+    WEEK_1_CHECKIN_EMAIL_CONTENT,
+    WEEK_1_INACTIVE_EMAIL_CONTENT,
+    WEEK_5_INACTIVE_EMAIL_CONTENT,
+    WEEK_6_DEACTIVATION_EMAIL_CONTENT,
 )
 from ypl.backend.email.campaigns.signup import (
-    FIRST_PREF_BONUS_EMAIL_TEMPLATE,
-    FIRST_PREF_BONUS_EMAIL_TEMPLATE_HTML,
-    FIRST_PREF_BONUS_EMAIL_TITLE,
-    REFFERAL_BONUS_EMAIL_TEMPLATE,
-    REFFERAL_BONUS_EMAIL_TEMPLATE_HTML,
-    REFFERAL_BONUS_EMAIL_TITLE,
-    SIC_AVAILABILITY_EMAIL_TEMPLATE,
-    SIC_AVAILABILITY_EMAIL_TEMPLATE_HTML,
-    SIC_AVAILABILITY_EMAIL_TITLE,
-    SIGN_UP_EMAIL_TEMPLATE,
-    SIGN_UP_EMAIL_TEMPLATE_HTML,
-    SIGN_UP_EMAIL_TITLE,
-    YOUR_FRIEND_JOINED_EMAIL_TEMPLATE,
-    YOUR_FRIEND_JOINED_EMAIL_TEMPLATE_HTML,
-    YOUR_FRIEND_JOINED_EMAIL_TITLE,
+    FIRST_PREF_BONUS_EMAIL_CONTENT,
+    REFFERAL_BONUS_EMAIL_CONTENT,
+    SIC_AVAILABILITY_EMAIL_CONTENT,
+    SIGN_UP_EMAIL_CONTENT,
+    YOUR_FRIEND_JOINED_EMAIL_CONTENT,
 )
 from ypl.backend.email.campaigns.utils import load_html_wrapper
+from ypl.backend.email.email_types import EmailConfig, EmailContent
 from ypl.backend.utils.json import json_dumps
 from ypl.db.emails import EmailLogs
 
 EMAIL_CAMPAIGNS = {
-    "signup": {
-        "title": SIGN_UP_EMAIL_TITLE,
-        "template": SIGN_UP_EMAIL_TEMPLATE,
-        "template_html": SIGN_UP_EMAIL_TEMPLATE_HTML,
-    },
-    "sic_availability": {
-        "title": SIC_AVAILABILITY_EMAIL_TITLE,
-        "template": SIC_AVAILABILITY_EMAIL_TEMPLATE,
-        "template_html": SIC_AVAILABILITY_EMAIL_TEMPLATE_HTML,
-    },
-    "referral_bonus": {
-        "title": REFFERAL_BONUS_EMAIL_TITLE,
-        "template": REFFERAL_BONUS_EMAIL_TEMPLATE,
-        "template_html": REFFERAL_BONUS_EMAIL_TEMPLATE_HTML,
-    },
-    "referred_user": {  # deprecated, use first_pref_bonus
-        "title": FIRST_PREF_BONUS_EMAIL_TITLE,
-        "template": FIRST_PREF_BONUS_EMAIL_TEMPLATE,
-        "template_html": FIRST_PREF_BONUS_EMAIL_TEMPLATE_HTML,
-    },
-    "first_pref_bonus": {
-        "title": FIRST_PREF_BONUS_EMAIL_TITLE,
-        "template": FIRST_PREF_BONUS_EMAIL_TEMPLATE,
-        "template_html": FIRST_PREF_BONUS_EMAIL_TEMPLATE_HTML,
-    },
-    "your_friend_joined": {
-        "title": YOUR_FRIEND_JOINED_EMAIL_TITLE,
-        "template": YOUR_FRIEND_JOINED_EMAIL_TEMPLATE,
-        "template_html": YOUR_FRIEND_JOINED_EMAIL_TEMPLATE_HTML,
-    },
-    "week_1_checkin": {
-        "title": WEEK_1_CHECKIN_EMAIL_TITLE,
-        "template": WEEK_1_CHECKIN_EMAIL_TEMPLATE,
-    },
-    "week_1_inactive": {
-        "title": WEEK_1_INACTIVE_EMAIL_TITLE,
-        "template": WEEK_1_INACTIVE_EMAIL_TEMPLATE,
-    },
-    "week_5_inactive": {
-        "title": WEEK_5_INACTIVE_EMAIL_TITLE,
-        "template": WEEK_5_INACTIVE_EMAIL_TEMPLATE,
-    },
-    "week_6_deactivation": {
-        "title": WEEK_6_DEACTIVATION_EMAIL_TITLE,
-        "template": WEEK_6_DEACTIVATION_EMAIL_TEMPLATE,
-    },
+    "signup": SIGN_UP_EMAIL_CONTENT,
+    "sic_availability": SIC_AVAILABILITY_EMAIL_CONTENT,
+    "referral_bonus": REFFERAL_BONUS_EMAIL_CONTENT,
+    "referred_user": FIRST_PREF_BONUS_EMAIL_CONTENT,  # deprecated, use first_pref_bonus instead
+    "first_pref_bonus": FIRST_PREF_BONUS_EMAIL_CONTENT,
+    "your_friend_joined": YOUR_FRIEND_JOINED_EMAIL_CONTENT,
+    "week_1_checkin": WEEK_1_CHECKIN_EMAIL_CONTENT,
+    "week_1_inactive": WEEK_1_INACTIVE_EMAIL_CONTENT,
+    "week_5_inactive": WEEK_5_INACTIVE_EMAIL_CONTENT,
+    "week_6_deactivation": WEEK_6_DEACTIVATION_EMAIL_CONTENT,
 }
 
 REPLY_TO_ADDRESS = "gcmouli+yupp@yupp.ai"
-
 BRAND_NAME = "Yupp (Alpha)"
+SIGNATURE = "Mouli - product team"
+INVITE_FRIEND_BONUS_CREDITS = "10,000"
 CONFIDENTIALITY_FOOTER = """
 Thanks for being a part of our small, invite-only alpha.
 We really appreciate your trust and ask for your strict confidentiality.
 """
-SIGNATURE = "Mouli - product team"
-INVITE_FRIEND_BONUS_CREDITS = "10,000"
 
 
-@dataclass
-class EmailConfig:
-    campaign: str
-    to_address: str
-    template_params: dict[str, Any]
-
-
-async def _prepare_email_content(campaign: str, template_params: dict[str, Any]) -> tuple[str, str, str | None]:
+async def _prepare_email_content(campaign: str, template_params: dict[str, Any]) -> EmailContent:
     """Prepare email content for a campaign.
 
     Returns:
-        Tuple of (email_title, email_body, email_body_html)
+        EmailContent object with subject, preview, body, and body_html
     """
     if campaign not in EMAIL_CAMPAIGNS:
         raise ValueError(f"Campaign '{campaign}' not found")
 
     template_params = {
         **template_params,
-        "BRAND_NAME": BRAND_NAME,
-        "CONFIDENTIALITY_FOOTER": CONFIDENTIALITY_FOOTER,
-        "SIGNATURE": SIGNATURE,
+        "brand_name": BRAND_NAME,
+        "confidentiality_footer": CONFIDENTIALITY_FOOTER,
+        "signature": SIGNATURE,
         "credits": template_params.get("credits", INVITE_FRIEND_BONUS_CREDITS),
     }
 
     campaign_data = EMAIL_CAMPAIGNS[campaign]
     try:
-        email_title = campaign_data["title"].format(**template_params)
-        email_body = campaign_data["template"].format(**template_params)
-        email_body_html = None
-        if "template_html" in campaign_data:
-            content = campaign_data["template_html"].format(**template_params)
-            html_template = load_html_wrapper()
-            email_body_html = html_template.replace("{{content}}", content)
-        return email_title, email_body, email_body_html
+        subject = campaign_data.subject.format(**template_params)
+        preview_text = campaign_data.preview.format(**template_params) if campaign_data.preview else None
+        body_html = load_html_wrapper().replace(
+            "{{content}}", campaign_data.body_html.format(**template_params) if campaign_data.body_html else ""
+        )
+        body = campaign_data.body.format(**template_params) if campaign_data.body else None
+        return EmailContent(
+            subject=subject,
+            preview=preview_text,
+            body_html=body_html,
+            body=body,
+        )
     except KeyError as e:
         raise ValueError(f"Missing required parameter: {e}") from e
 
@@ -170,10 +116,10 @@ def _create_email_params(
 
 async def send_email_async(email_config: EmailConfig, print_only: bool = False) -> Email | None:
     """Send an email to a single recipient using the specified campaign template."""
-    email_title, email_body, email_body_html = await _prepare_email_content(
-        email_config.campaign, email_config.template_params
+    email_content = await _prepare_email_content(email_config.campaign, email_config.template_params)
+    resend_params = _create_email_params(
+        email_config.to_address, email_content.subject, email_content.body or "", email_content.body_html or None
     )
-    resend_params = _create_email_params(email_config.to_address, email_title, email_body, email_body_html)
 
     if print_only:
         logging.info(f"Email composed: {json_dumps(resend_params)}")
@@ -200,10 +146,15 @@ async def batch_send_emails_async(
 
     # Prepare email parameters for each recipient
     for email_config in email_configs:
-        email_title, email_body, email_body_html = await _prepare_email_content(
-            email_config.campaign, email_config.template_params
+        email_content = await _prepare_email_content(email_config.campaign, email_config.template_params)
+        batch_params.append(
+            _create_email_params(
+                email_config.to_address,
+                email_content.subject,
+                email_content.body or "",
+                email_content.body_html,
+            )
         )
-        batch_params.append(_create_email_params(email_config.to_address, email_title, email_body, email_body_html))
 
     if settings.resend_api_key:
         resend.api_key = settings.resend_api_key
