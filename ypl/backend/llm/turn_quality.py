@@ -1,11 +1,16 @@
 import asyncio
+import json
 import logging
 import time
+import uuid
+from collections import defaultdict
 from typing import Any
 from uuid import UUID
 
 import numpy as np
 from cachetools.func import ttl_cache
+from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 from sqlmodel import Session, select
@@ -20,7 +25,8 @@ from ypl.backend.llm.moderation import DEFAULT_MODERATION_RESULT, amoderate
 from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter
 from ypl.backend.rw_cache import TurnQualityCache
 from ypl.backend.utils.json import json_dumps
-from ypl.db.chats import ChatMessage, Eval, EvalType, MessageType, Turn, TurnQuality
+from ypl.db.chats import ChatMessage, CompletionStatus, Eval, EvalType, MessageEval, MessageType, Turn, TurnQuality
+from ypl.db.language_models import LanguageModel
 
 LLM: GeminiLangChainAdapter | None = None
 
@@ -36,6 +42,9 @@ NUM_RECENT_EVALS = 5000
 # Any eval submitted within this time (counting from turn creation) is considered low-quality,
 # regardless of the length of the responses it references.
 MIN_RESPONSE_TIME_SECS = 2.5
+
+# The score assigned to a "selected" model in a battle.
+SELECTED_MODEL_SCORE = 100
 
 
 def get_llm() -> GeminiLangChainAdapter:
@@ -314,3 +323,137 @@ async def update_user_eval_quality_scores(user_id: str) -> None:
             eval.quality_score_notes = quality_score_notes
 
         await session.commit()
+
+
+class TurnEvalCount(BaseModel):
+    """Counts the number of evals and wins for a given language model."""
+
+    language_model_id: uuid.UUID
+    language_model_name: str
+    count: int
+    wins: int
+
+
+class EvalScore(BaseModel):
+    """The score for a given language model in a given eval."""
+
+    eval_id: uuid.UUID
+    score: float
+    assistant_language_model_id: uuid.UUID
+
+
+class TurnAnnotations(BaseModel):
+    """Annotations for a given turn."""
+
+    # The LLM_judge comment on the turn.
+    comment: str | None = None
+    # Positive eval notes.
+    positive_notes: list[tuple[str, str]] | None = None
+    # Negative eval notes.
+    negative_notes: list[tuple[str, str]] | None = None
+    # The number of past evals and wins for each language model in the turn, by the same user as the turn's creator.
+    user_eval_counts: list[TurnEvalCount] | None = None
+    # The number of evals and wins for all language models in the turn by any user.
+    overall_eval_counts: list[TurnEvalCount] | None = None
+
+
+async def _get_evals_with_same_language_models(
+    session: AsyncSession, current_turn_id: UUID, limit_to_same_user: bool = True
+) -> list[EvalScore]:
+    # Temp table for the language models used in the turn.
+    ordered_models = (
+        select(ChatMessage.turn_id, ChatMessage.assistant_language_model_id)
+        .where(
+            ChatMessage.message_type == MessageType.ASSISTANT_MESSAGE,
+            ChatMessage.deleted_at.is_(None),  # type: ignore
+            ChatMessage.completion_status == CompletionStatus.SUCCESS,
+            ChatMessage.assistant_language_model_id.is_not(None),  # type: ignore
+        )
+        .distinct()
+        .order_by(ChatMessage.turn_id, ChatMessage.assistant_language_model_id)  # type: ignore
+    ).cte("ordered_models")
+
+    models_by_turn = (
+        select(
+            ordered_models.c.turn_id, func.array_agg(ordered_models.c.assistant_language_model_id).label("models")
+        ).group_by(ordered_models.c.turn_id)
+    ).cte("models_by_turn")
+
+    # The actual query.
+    query = (
+        select(MessageEval.eval_id, MessageEval.score, ChatMessage.assistant_language_model_id)
+        .join(Eval)
+        .join(ChatMessage)
+        .join(models_by_turn, models_by_turn.c.turn_id == Eval.turn_id)
+        .where(
+            Eval.eval_type == EvalType.SELECTION,
+            ChatMessage.completion_status == CompletionStatus.SUCCESS,
+            models_by_turn.c.models
+            == (select(models_by_turn.c.models).where(models_by_turn.c.turn_id == current_turn_id).scalar_subquery()),
+        )
+    )
+    if limit_to_same_user:
+        query = query.where(
+            Eval.user_id == (select(Turn.creator_user_id).where(Turn.turn_id == current_turn_id).scalar_subquery())
+        )
+
+    result = await session.execute(query)
+    rows = result.fetchall()
+
+    return [
+        EvalScore(eval_id=e.eval_id, score=e.score, assistant_language_model_id=e.assistant_language_model_id)
+        for e in rows
+    ]
+
+
+async def _aggregate_evals(session: AsyncSession, evals: list[EvalScore]) -> list[TurnEvalCount]:
+    unique_evals = set()
+    grouped_by_model_id = defaultdict(list)
+    for e in evals:
+        unique_evals.add(e.eval_id)
+        grouped_by_model_id[e.assistant_language_model_id].append(e.score)
+    total_evals = len(unique_evals)
+    wins_by_model = {
+        model_id: sum(model_scores) / SELECTED_MODEL_SCORE for model_id, model_scores in grouped_by_model_id.items()
+    }
+
+    # Get all model names in a single query
+    result = await session.execute(
+        select(LanguageModel.language_model_id, LanguageModel.name).where(
+            LanguageModel.language_model_id.in_(grouped_by_model_id.keys())  # type: ignore
+        )
+    )
+    model_names: dict[uuid.UUID, str] = dict((row[0], row[1]) for row in result.fetchall())
+
+    return [
+        TurnEvalCount(
+            language_model_id=model_id,
+            language_model_name=model_names[model_id],
+            count=total_evals,
+            wins=int(wins_by_model[model_id]),
+        )
+        for model_id in wins_by_model
+    ]
+
+
+async def get_turn_annotations(turn_id: UUID) -> TurnAnnotations:
+    async with get_async_session() as session:
+        annotations = TurnAnnotations()
+        stmt = select(TurnQuality.prompt_difficulty_details).where(TurnQuality.turn_id == turn_id)
+        result = await session.execute(stmt)
+        details = result.scalar_one_or_none()
+        if details:
+            details_dict = json.loads(details)
+            annotations.comment = details_dict.get("comment")
+            if "positive_notes" in details_dict:
+                annotations.positive_notes = [tuple(n.rsplit(maxsplit=1)) for n in details_dict["positive_notes"]]
+            if "negative_notes" in details_dict:
+                annotations.negative_notes = [tuple(n.rsplit(maxsplit=1)) for n in details_dict["negative_notes"]]
+
+        # Add past battle results for the same user and for all users.
+        same_user_evals = await _get_evals_with_same_language_models(session, turn_id, limit_to_same_user=True)
+        annotations.user_eval_counts = await _aggregate_evals(session, same_user_evals)
+        all_evals = await _get_evals_with_same_language_models(session, turn_id, limit_to_same_user=False)
+        annotations.overall_eval_counts = await _aggregate_evals(session, all_evals)
+
+        return annotations

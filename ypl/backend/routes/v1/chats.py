@@ -23,7 +23,7 @@ from ypl.backend.llm.chat import (
     get_active_prompt_modifiers,
 )
 from ypl.backend.llm.search import search_chat_messages, search_chats
-from ypl.backend.llm.turn_quality import label_turn_quality
+from ypl.backend.llm.turn_quality import TurnAnnotations, get_turn_annotations, label_turn_quality
 from ypl.backend.rw_cache import TurnQualityCache
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import Chat, ChatMessage, MessageType, SuggestedTurnPrompt, SuggestedUserPrompt, Turn, TurnQuality
@@ -380,34 +380,16 @@ async def get_prompt_modifiers() -> list[PromptModifierInfo]:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-class TurnAnnotationsResponse(BaseModel):
-    comment: str | None = None
-    positive_notes: list[tuple[str, str]] | None = None
-    negative_notes: list[tuple[str, str]] | None = None
-
-
-@router.get("/turns/{turn_id}/turn_annotations", response_model=TurnAnnotationsResponse)
-async def get_turn_annotations(
+@router.get("/turns/{turn_id}/turn_annotations", response_model=TurnAnnotations)
+async def get_turn_annotations_response(
     turn_id: str = Path(..., description="The ID of the turn"),
-) -> TurnAnnotationsResponse:
-    response = TurnAnnotationsResponse()
+) -> TurnAnnotations:
     try:
-        async with get_async_session() as session:
-            stmt = select(TurnQuality.prompt_difficulty_details).where(TurnQuality.turn_id == turn_id)  # type: ignore
-            result = await session.execute(stmt)
-            details = result.scalar_one_or_none()
-            if details:
-                details_dict = json.loads(details)
-                response.comment = details_dict.get("comment")
-                if "positive_notes" in details_dict:
-                    response.positive_notes = [tuple(n.rsplit(maxsplit=1)) for n in details_dict["positive_notes"]]
-                if "negative_notes" in details_dict:
-                    response.negative_notes = [tuple(n.rsplit(maxsplit=1)) for n in details_dict["negative_notes"]]
+        return await get_turn_annotations(UUID(turn_id))
     except Exception as e:
         log_dict = {"message": f"Error getting annotations for turn {turn_id}: {str(e)}"}
         logging.exception(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
-    return response
 
 
 class SuggestedPrompt(BaseModel):
