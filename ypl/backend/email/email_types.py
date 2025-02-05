@@ -14,4 +14,3 @@ class EmailContent:
     subject: str
     preview: str | None
     body_html: str
-    body: str | None

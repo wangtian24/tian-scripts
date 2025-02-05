@@ -18,7 +18,7 @@ from ypl.backend.email.campaigns.signup import (
     SIGN_UP_EMAIL_CONTENT,
     YOUR_FRIEND_JOINED_EMAIL_CONTENT,
 )
-from ypl.backend.email.campaigns.utils import load_html_wrapper
+from ypl.backend.email.campaigns.utils import html_to_plaintext, load_html_wrapper
 from ypl.backend.email.email_types import EmailConfig, EmailContent
 from ypl.backend.utils.json import json_dumps
 from ypl.db.emails import EmailLogs
@@ -70,12 +70,10 @@ async def _prepare_email_content(campaign: str, template_params: dict[str, Any])
         body_html = load_html_wrapper().replace(
             "{{content}}", campaign_data.body_html.format(**template_params) if campaign_data.body_html else ""
         )
-        body = campaign_data.body.format(**template_params) if campaign_data.body else None
         return EmailContent(
             subject=subject,
             preview=preview_text,
             body_html=body_html,
-            body=body,
         )
     except KeyError as e:
         raise ValueError(f"Missing required parameter: {e}") from e
@@ -117,8 +115,9 @@ def _create_email_params(
 async def send_email_async(email_config: EmailConfig, print_only: bool = False) -> Email | None:
     """Send an email to a single recipient using the specified campaign template."""
     email_content = await _prepare_email_content(email_config.campaign, email_config.template_params)
+    email_plaintext = html_to_plaintext(email_content.body_html)
     resend_params = _create_email_params(
-        email_config.to_address, email_content.subject, email_content.body or "", email_content.body_html or None
+        email_config.to_address, email_content.subject, email_plaintext, email_content.body_html
     )
 
     if print_only:
@@ -147,11 +146,12 @@ async def batch_send_emails_async(
     # Prepare email parameters for each recipient
     for email_config in email_configs:
         email_content = await _prepare_email_content(email_config.campaign, email_config.template_params)
+        email_plaintext = html_to_plaintext(email_content.body_html)
         batch_params.append(
             _create_email_params(
                 email_config.to_address,
                 email_content.subject,
-                email_content.body or "",
+                email_plaintext,
                 email_content.body_html,
             )
         )
