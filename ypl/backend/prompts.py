@@ -1176,6 +1176,7 @@ Below is the conversation history between a user and an LLM.
 Based on the the discussion, suggest up to 4 thoughtful follow-up questions the user can ask to deepen their understanding,
 explore related ideas, or address unresolved aspects of the conversation.
 Make the suggestions short, specific, directly relevant to the provided conversation, and different from one another.
+The suggestions should be in the same language as the user's prompt.
 Focus on the most recent user prompt in the conversation.
 Return the list of follow-up questions as a JSON array, where each item contains the suggestion and a short 2-5 word label for it.
 
