@@ -101,7 +101,7 @@ class TopK(ModelFilter):
         )
         excluded_models = {model for model, _ in selected_models[self.k :]}
 
-        # Every TopK in the chain may modify this information, but the last TopK will determine the final value.
+        # Every TopK/FirstK in the chain will be setting this, the last one will be the final value.
         state.num_models_remaining = max(0, len(selected_models) - self.k)
 
         # Trim the list to k
@@ -126,6 +126,10 @@ class FirstK(ModelFilter):
     def _filter(self, state: RouterState) -> tuple[RouterState, set[str]]:
         prev_selected_models = list(state.selected_models.keys())
         excluded_models = set(prev_selected_models[self.k :])
+
+        # Every TopK/FirstK in the chain will be setting this, the last one will be the final value.
+        state.num_models_remaining = max(0, len(prev_selected_models) - self.k)
+
         state.selected_models = {model: x for model, x in state.selected_models.items() if model not in excluded_models}
 
         return state, excluded_models
