@@ -247,8 +247,8 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
             user_selected_models=user_selected_models,
             show_me_more_models=preference.same_turn_shown_models or [],
             provided_categories=provided_categories,
-            extra_prefix="PRIMARY-",
             chat_id=request.chat_id,
+            for_fallback=False,
         )
         all_models_state = RouterState.new_all_models_state()
         selected_models_rs = router.select_models(state=all_models_state)
@@ -265,7 +265,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
             user_selected_models=updated_user_selected_models,
             show_me_more_models=preference.same_turn_shown_models or [],
             provided_categories=provided_categories,
-            extra_prefix="FALLBACK-",
+            for_fallback=True,
         )
         all_fallback_models = RouterState.new_all_models_state()
         all_fallback_models = all_fallback_models.emplaced(
@@ -346,7 +346,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
     if logging.root.getEffectiveLevel() == logging.DEBUG:
         for model, model_debug in routing_debug_info.model_debug.items():
             is_selected = " S => " if model in selected_models else ""
-            logging.debug(f"> {model:<50}{is_selected:<8}{model_debug.score:-10.1f}{model_debug.journey}")
+            print(f"> {model:<50}{is_selected:<8}{model_debug.score:-10.1f}{model_debug.journey}")
 
     # if the number of returned models is different from what the requests asked, log more information
     if len(selected_models) != request.num_models:

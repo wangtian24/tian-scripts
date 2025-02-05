@@ -20,6 +20,7 @@ from ypl.backend.routes.v1 import feedback as feedback_route
 from ypl.backend.routes.v1 import files as files_route
 from ypl.backend.routes.v1 import invite as invite_route
 from ypl.backend.routes.v1 import message as message_route
+from ypl.backend.routes.v1 import model_promotions as model_promotions_route
 from ypl.backend.routes.v1 import points as points_route
 from ypl.backend.routes.v1 import profile as profile_route
 from ypl.backend.routes.v1 import provider as provider_route
@@ -62,6 +63,7 @@ admin_router = APIRouter(dependencies=[Depends(validate_admin_api_key)])
 
 api_router.include_router(credit.router, prefix="/v1", tags=["credit"])
 api_router.include_router(feedback_route.router, prefix="/v1", tags=["feedback"])
+api_router.include_router(model_promotions_route.router, prefix="/v1", tags=["model_promotions"])
 api_router.include_router(health.router, prefix="/v1", tags=["health"])
 api_router.include_router(llm_route.router, prefix="/v1", tags=["route"])
 api_router.include_router(rank.router, prefix="/v1", tags=["leaderboard"])

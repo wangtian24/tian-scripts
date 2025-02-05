@@ -1,13 +1,16 @@
 import logging
+from collections import OrderedDict
 
 from ypl.backend.llm.db_helpers import deduce_model_speed_scores
 from ypl.backend.llm.routing.modules.base import RouterModule
+from ypl.backend.llm.routing.policy import SelectionCriteria
 from ypl.backend.llm.routing.route_data_type import RoutingPreference
 from ypl.backend.llm.routing.router_state import RouterState
 from ypl.backend.utils.json import json_dumps
+from ypl.utils import RNGMixin
 
 
-class Ranker(RouterModule):
+class Reranker(RouterModule):
     """
     Base reranker class that just provides a name property.
     """
@@ -31,7 +34,7 @@ class Ranker(RouterModule):
             state.model_journey[model] += f" {self.name}({before_idx}->{after_idx})"
 
         selected_models = [(name, state.selected_models[name]) for name in reranked_models]
-        return state.emplaced(selected_models=dict(selected_models))
+        return state.emplaced(selected_models=OrderedDict(selected_models))  # store using an ordered dict
 
     def rerank(self, model_names: list[str], state: RouterState) -> list[str]:
         """
@@ -43,13 +46,43 @@ class Ranker(RouterModule):
         return self._select_models(state)
 
 
-class SpeedRanker(Ranker):
+class ScoreReranker(Reranker):
+    """
+    Rank models based on a score computed from SelectionCriteria and potentially other factors.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(name="scoreRanker")
+
+    def rerank(self, model_names: list[str], state: RouterState) -> list[str]:
+        # Compute the score for all models.
+        # NOTE(Tian) This is intentionally kept as a loop so we can add
+        # other scoring factors in the futurs.
+
+        model_scores = []
+        for model in model_names:
+            selection_criteria_score = sum(state.selected_models[model].values())
+
+            score = selection_criteria_score
+            model_scores.append((model, score))
+
+        # update debug info, store the score in journey
+        for model, score in model_scores:
+            if model not in state.model_journey:
+                state.model_journey[model] = ""
+            state.model_journey[model] += f" score={score:.3f}"
+
+        # sort by scores and return
+        return [model for model, score in sorted(model_scores, key=lambda x: x[1], reverse=True)]
+
+
+class SpeedReranker(Reranker):
     """
     Rank faster speed models to the front to the list.
     """
 
     def __init__(self) -> None:
-        super().__init__(name="speedReranker")
+        super().__init__(name="speedRanker")
 
     def rerank(self, model_names: list[str], state: RouterState) -> list[str]:
         # get all model speed scores
@@ -73,7 +106,7 @@ class SpeedRanker(Ranker):
         return self._select_models(state)
 
 
-class PositionMatchRanker(Ranker):
+class PositionMatchReranker(Reranker):
     """
     Rank models so if a previous-turn reappears, make it match the position of the previous turn.
     Note that this only re-ranks the first 2 models in the input!
@@ -110,6 +143,41 @@ class PositionMatchRanker(Ranker):
             else:
                 reranked.append(model)
         return reranked
+
+    async def _aselect_models(self, state: RouterState) -> RouterState:
+        return self._select_models(state)
+
+
+class PromotionModelReranker(Reranker, RNGMixin):
+    """
+    Ranks models based on the promotion probability.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(name="promoRanker")
+
+    def rerank(self, model_names: list[str], state: RouterState) -> list[str]:
+        promoted_models = []
+        injected_models = []
+        regular_models = []
+
+        for model in model_names:
+            if model in state.selected_models:
+                criteria_map = state.selected_models[model]
+                if SelectionCriteria.INJECT in criteria_map:
+                    injected_models.append(model)
+                elif SelectionCriteria.PROMOTED_MODELS in criteria_map:
+                    promoted_models.append(model)
+                else:
+                    regular_models.append(model)
+            else:
+                regular_models.append(model)
+        # If no promoted models, return original order
+        if not promoted_models:
+            return model_names
+
+        # Reorder with injected first, then promoted, then rest
+        return injected_models + promoted_models + regular_models
 
     async def _aselect_models(self, state: RouterState) -> RouterState:
         return self._select_models(state)

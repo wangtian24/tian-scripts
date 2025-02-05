@@ -2,6 +2,7 @@ import logging
 import math
 import re
 from collections.abc import Sequence
+from datetime import datetime
 from functools import lru_cache
 from typing import Any
 from uuid import UUID
@@ -197,6 +198,29 @@ def get_all_strong_models() -> Sequence[str]:
 
     with Session(get_engine()) as session:
         return session.exec(query).all()
+
+
+@ttl_cache(ttl=600)  # 10-min cache
+def get_model_creation_dates(model_names: tuple[str, ...]) -> dict[str, datetime]:
+    sql_query = text(
+        """
+            SELECT
+                internal_name,
+                created_at
+            FROM language_models
+            WHERE
+                internal_name IN :model_names
+                AND status = 'ACTIVE'
+            order by created_at ASC
+        """
+    )
+    with get_engine().connect() as conn:
+        c = conn.execute(sql_query, dict(model_names=model_names))
+        rows = c.fetchall()
+
+    if not rows or not rows[0]:
+        return {}
+    return {row[0]: row[1] for row in rows}
 
 
 @ttl_cache(ttl=600)  # 10-min cache

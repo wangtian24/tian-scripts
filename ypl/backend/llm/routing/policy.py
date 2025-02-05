@@ -73,6 +73,9 @@ class SelectionCriteria(Enum):
     # Select the strong models
     STRONG_MODELS = "strong_models"
 
+    # Select the promoted models
+    PROMOTED_MODELS = "promoted_models"
+
     # Select the models routed by the routing rules
     ROUTING_RULES = "routing_rules"
 

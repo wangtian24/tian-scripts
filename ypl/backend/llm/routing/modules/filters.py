@@ -110,6 +110,27 @@ class TopK(ModelFilter):
         return state, excluded_models
 
 
+class FirstK(ModelFilter):
+    """
+    Keep the first k models in the selected_models dict keys, whatever order they are in.
+    """
+
+    def __init__(self, k: int, name: str | None = None, persist: bool = True) -> None:
+        """
+        Args:
+            k: The number of models to keep.
+        """
+        super().__init__(name=f"-firstK-{name}({k})" if name else f"-firstK{k}", persist=persist)
+        self.k = k
+
+    def _filter(self, state: RouterState) -> tuple[RouterState, set[str]]:
+        prev_selected_models = list(state.selected_models.keys())
+        excluded_models = set(prev_selected_models[self.k :])
+        state.selected_models = {model: x for model, x in state.selected_models.items() if model not in excluded_models}
+
+        return state, excluded_models
+
+
 class RandomJitter(RNGMixin, ModelFilter):
     """Randomly jitters the sum of scores for each selected model."""
 
@@ -319,12 +340,27 @@ class ProviderFilter(ModelFilter):
                     keep_models.update(models)  # every models get to stay
                 else:
                     added = False
+                    # Add all priority models first
                     for model in models:
-                        if self.priority_models and model in self.priority_models or not added:
+                        if self.priority_models and model in self.priority_models:
                             keep_models.add(model)
                             added = True
-                        else:
-                            break
+
+                    # Add all promoted models
+                    for model in models:
+                        if SelectionCriteria.PROMOTED_MODELS in state.selected_models[model]:
+                            keep_models.add(model)
+                            added = True
+
+                    # If nothing added yet, add first non-priority non-promoted model
+                    if not added:
+                        for model in models:
+                            if (not self.priority_models or model not in self.priority_models) and (
+                                SelectionCriteria.PROMOTED_MODELS not in state.selected_models[model]
+                            ):
+                                keep_models.add(model)
+                                added = True
+                                break
 
         excluded_models = state.selected_models.keys() - keep_models
 
@@ -353,12 +389,27 @@ class OnePerSemanticGroupFilter(ModelFilter):
                 keep_models.update(models)  # add all models with no semantic group
             else:
                 added = False
+                # Add all priority models first
                 for model in models:
-                    if (self.priority_models and model in self.priority_models) or not added:
+                    if self.priority_models and model in self.priority_models:
                         keep_models.add(model)
                         added = True
-                    else:
-                        break
+
+                # Add all promoted models
+                for model in models:
+                    if SelectionCriteria.PROMOTED_MODELS in state.selected_models[model]:
+                        keep_models.add(model)
+                        added = True
+
+                # If nothing added yet, add first non-priority non-promoted model
+                if not added:
+                    for model in models:
+                        if (not self.priority_models or model not in self.priority_models) and (
+                            SelectionCriteria.PROMOTED_MODELS not in state.selected_models[model]
+                        ):
+                            keep_models.add(model)
+                            added = True
+                            break
 
         excluded_models = state.selected_models.keys() - keep_models
 

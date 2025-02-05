@@ -10,12 +10,14 @@ from ypl.backend.llm.constants import IMAGE_CATEGORY, OFFLINE_CATEGORY, ONLINE_C
 from ypl.backend.llm.db_helpers import deduce_original_providers
 from ypl.backend.llm.judge import PromptModifierLabeler, YuppMultilabelClassifier, YuppOnlinePromptLabeler
 from ypl.backend.llm.model_data_type import ModelInfo
+from ypl.backend.llm.promotions import PromotionModelProposer
 from ypl.backend.llm.ranking import Ranker, get_ranker
 from ypl.backend.llm.routing.modules.base import RouterModule
 from ypl.backend.llm.routing.modules.decision import RoutingDecisionLogger
 from ypl.backend.llm.routing.modules.filters import (
     ContextLengthFilter,
     Exclude,
+    FirstK,
     HighErrorRateFilter,
     Inject,
     OnePerSemanticGroupFilter,
@@ -38,7 +40,12 @@ from ypl.backend.llm.routing.modules.proposers import (
     RandomModelProposer,
     StrongModelProposer,
 )
-from ypl.backend.llm.routing.modules.rankers import PositionMatchRanker, SpeedRanker
+from ypl.backend.llm.routing.modules.rankers import (
+    PositionMatchReranker,
+    PromotionModelReranker,
+    ScoreReranker,
+    SpeedReranker,
+)
 from ypl.backend.llm.routing.policy import SelectionCriteria, decayed_random_fraction
 from ypl.backend.llm.routing.route_data_type import RoutingPreference
 from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter, OpenAILangChainAdapter
@@ -61,14 +68,15 @@ async def get_simple_pro_router(
     user_selected_models: list[str] | None = None,
     show_me_more_models: list[str] | None = None,
     provided_categories: list[str] | None = None,
-    extra_prefix: str | None = None,
     chat_id: str | None = None,
+    for_fallback: bool = False,
 ) -> RouterModule:
     """
     The main routing function.
     """
     from ypl.backend.llm.routing.rule_router import RoutingRuleFilter, RoutingRuleProposer
 
+    extra_prefix = "FALLBACK " if for_fallback else "PRIMARY "
     reputable_proposer = RandomModelProposer(
         for_criteria=SelectionCriteria.RANDOM_REPUTABLE,
         providers=reputable_providers or set(settings.ROUTING_REPUTABLE_PROVIDERS),
@@ -146,9 +154,11 @@ async def get_simple_pro_router(
             | attachment_filter
             | ProviderFilter(one_per_provider=True, priority_models=user_selected_models)  # dedupe by provider
             # -- ranking stage --
-            | TopK(num_models, name="final")  # keeps only top k models
-            | SpeedRanker()  # rerank final results with speed, the fastest models always in the front
-            | PositionMatchRanker(preference)  # rerank to match the earlier positions
+            | ScoreReranker()
+            | PromotionModelReranker()
+            | FirstK(num_models, name="final")
+            | SpeedReranker()  # rerank final results with speed, the fastest models always in the front
+            | PositionMatchReranker(preference)  # rerank to match the earlier positions
             # -- annotation stage --
             | ModifierAnnotator(applicable_modifiers)  # annotate models with modifiers
             # -- logging stage --
@@ -186,6 +196,8 @@ async def get_simple_pro_router(
                 & (StrongModelProposer() | error_filter | TopK(1, name="strong")).with_flags(
                     always_include=True, offset=50000
                 )
+                # propose young models
+                & (PromotionModelProposer() | error_filter).with_flags(always_include=True)
                 # propose models with image or pdf capabilities, strong offset
                 & (attachment_proposer | error_filter).with_flags(always_include=True, offset=200000)
                 # propose reputable models
@@ -249,8 +261,8 @@ async def get_simple_pro_router(
                     ^ RandomModelProposer().with_flags(offset=10000, always_include=True)
                 ).with_probs(
                     settings.ROUTING_WEIGHTS.get("pro", 0.5),
-                    settings.ROUTING_WEIGHTS.get("reputable", 0.25),
-                    settings.ROUTING_WEIGHTS.get("random", 0.25),
+                    settings.ROUTING_WEIGHTS.get("reputable", 0.3),
+                    settings.ROUTING_WEIGHTS.get("random", 0.2),
                 )
                 # propose even more random models but low score
                 & RandomModelProposer().with_flags(offset=-1000, always_include=True)
