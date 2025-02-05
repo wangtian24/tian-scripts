@@ -4,7 +4,7 @@ from datetime import datetime
 from urllib.parse import urlparse
 
 import httpx
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 FETCH_HTML_TIMEOUT = 10.0
 
@@ -77,9 +77,11 @@ async def get_title_and_description_from_html(html: str) -> tuple[str, str]:
             meta_title = soup.find("meta", attrs={"property": title_tag}) or soup.find(
                 "meta", attrs={"name": title_tag}
             )
-            if meta_title and meta_title.get("content"):
-                title = meta_title["content"].strip()
-                break
+            if isinstance(meta_title, Tag):
+                content = meta_title.get("content")
+                if isinstance(content, str):
+                    title = content.strip()
+                    break
 
         if not title and soup.title and soup.title.string:
             title = soup.title.string.strip()
@@ -87,9 +89,11 @@ async def get_title_and_description_from_html(html: str) -> tuple[str, str]:
         description = None
         for desc_tag in ["twitter:description", "og:description", "description"]:
             meta_desc = soup.find("meta", attrs={"property": desc_tag}) or soup.find("meta", attrs={"name": desc_tag})
-            if meta_desc and meta_desc.get("content"):
-                description = meta_desc["content"].strip()
-                break
+            if isinstance(meta_desc, Tag):
+                content = meta_desc.get("content")
+                if isinstance(content, str):
+                    description = content.strip()
+                    break
 
         return title or "", description or ""
     except Exception as e:
