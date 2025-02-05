@@ -12,7 +12,7 @@ from ypl.backend.llm.utils import post_to_slack_with_user_name
 from ypl.backend.utils.json import json_dumps
 from ypl.db.events import Event
 from ypl.db.redis import get_upstash_redis_client
-from ypl.db.users import User
+from ypl.db.users import SYSTEM_USER_ID, User
 
 EVENT_RATE_LIMIT_SKIP_CHECK_KEY = "event:rate_limit:skip_checking"
 EVENT_RATE_LIMIT_WINDOW_SECONDS: Final[int] = 10
@@ -107,8 +107,8 @@ class EventsResponse:
 class CreateEventRequest:
     """Request model for creating a new event."""
 
-    user_id: str
-    event_name: str
+    user_id: str | None = None
+    event_name: str = "UNKNOWN"
     event_category: str = "UNKNOWN"
     event_params: dict | None = None
     event_guestivity_details: dict | None = None
@@ -200,6 +200,22 @@ async def create_new_event(request: CreateEventRequest) -> EventResponse | None:
     }
     logging.info(json_dumps(log_dict))
     try:
+        #  check if user_id is blank in which case check if creator_user_email is present
+        # and pull the user_id from the users table based on the creator_user_email
+        if not request.user_id:
+            #  check if creator_user_email is present in the event_params
+            if request.event_params and request.event_params.get("creator_user_email"):
+                async with get_async_session() as session:
+                    users = await session.execute(
+                        select(User).where(User.email == request.event_params["creator_user_email"])
+                    )
+                    user = users.scalar_one_or_none()
+                    if user:
+                        request.user_id = user.user_id
+
+        if not request.user_id:
+            request.user_id = SYSTEM_USER_ID
+
         async with get_async_session() as session:
             event = Event(
                 user_id=request.user_id,

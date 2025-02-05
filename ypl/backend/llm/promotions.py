@@ -105,7 +105,7 @@ async def activate_promotion(promotion_id: UUID) -> None:
 async def deactivate_promotion(promotion_id: UUID) -> None:
     """Deactivate a promotion entry"""
     async with AsyncSession(get_async_engine()) as session:
-        session.exec(  # type: ignore
+        await session.exec(  # type: ignore
             update(ModelPromotion)
             .where(ModelPromotion.promotion_id == promotion_id)  # type: ignore
             .values(promo_status=ModelPromotionStatus.INACTIVE)
