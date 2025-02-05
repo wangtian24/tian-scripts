@@ -101,4 +101,5 @@ jobs:
         fi
 
         gcloud run jobs execute $JOB_NAME \
-          --region ${{ env.REGION }}
+          --region ${{ env.REGION }} \
+          --args="$COMMAND,$ARGS"
