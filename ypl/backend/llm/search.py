@@ -9,6 +9,7 @@ from ypl.db.chats import Chat, ChatMessage, MessageType, Turn
 
 DEFAULT_MESSAGE_TYPES = (MessageType.ASSISTANT_MESSAGE, MessageType.USER_MESSAGE, MessageType.QUICK_RESPONSE_MESSAGE)
 DEFAULT_MESSAGE_FIELDS = ("created_at", "content", "message_type")
+EPSILON = 1e-9
 
 
 async def search_chats(
@@ -31,6 +32,10 @@ async def search_chats(
       2. Aggregate the content_tsvectors for all messages in the chat and ranks using the full vector.
     """
     message_types = message_types or DEFAULT_MESSAGE_TYPES
+
+    # We con't yet support full boolean format.
+    cleaned_query = query.translate(str.maketrans("", "", ":()&|!\"'"))
+    query = cleaned_query.strip()
 
     # Filters that will be reused in the second step.
     filters = [
@@ -74,7 +79,7 @@ async def search_chats(
         .join(candidates, candidates.c.chat_id == Chat.chat_id)
         .filter(*filters)
         .group_by(Chat.chat_id)  # type: ignore
-        .having(score > 0)
+        .having(score > EPSILON)
         .limit(limit)
         .offset(offset)
         .options(selectinload(Chat.turns))  # type: ignore
