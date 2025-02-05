@@ -10,6 +10,7 @@ from ypl.backend.llm.promotions import (
     create_promotion,
     deactivate_promotion,
     get_active_model_promotions,
+    get_all_model_promotions,
 )
 from ypl.backend.utils.json import json_dumps
 from ypl.db.model_promotions import ModelPromotion
@@ -51,6 +52,17 @@ async def model_promotion_create(request: ModelPromotionCreationRequest) -> Mode
         return promotion
     except Exception as e:
         log_dict = {"message": f"Error creating model promotion - {str(e)}"}
+        logging.exception(json_dumps(log_dict))
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/admin/model_promotions/all_promotions")
+async def model_promotions_all_promotions() -> list[tuple[str, ModelPromotion]]:
+    """Get all model promotions."""
+    try:
+        return await get_all_model_promotions()
+    except Exception as e:
+        log_dict = {"message": f"Error getting all model promotions - {str(e)}"}
         logging.exception(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
 

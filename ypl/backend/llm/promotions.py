@@ -7,7 +7,7 @@ from sqlalchemy import func, select, update
 from sqlmodel import Session
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from ypl.backend.db import get_async_engine, get_engine
+from ypl.backend.db import get_async_engine, get_async_session, get_engine
 from ypl.backend.llm.db_helpers import get_model_creation_dates
 from ypl.backend.llm.routing.modules.proposers import (
     ModelProposer,
@@ -25,6 +25,21 @@ MODEL_PROMO_HALF_LIFE_RATIO = 0.5  # the boost strength drops 50% at promo_days 
 # The probability a promoted model will show up if it's proposed and it has full promo_strength (1.0).
 # Technically you can set promo_strength > 1.0 to reach even higher show probability, but it's not recommended.
 MODEL_PROMO_MAX_SHOW_PROB = 0.2
+
+
+async def get_all_model_promotions() -> list[tuple[str, ModelPromotion]]:
+    query = (
+        select(LanguageModel.internal_name, ModelPromotion)  # type: ignore
+        .join(ModelPromotion, ModelPromotion.language_model_id == LanguageModel.language_model_id)
+        .where(ModelPromotion.deleted_at.is_(None))  # type: ignore
+        .order_by(ModelPromotion.promo_start_date.desc())  # type: ignore
+    )
+
+    async with get_async_session() as session:
+        results = await session.exec(query)
+        if not results:
+            return []
+        return [(row[0], row[1]) for row in results]
 
 
 def get_active_model_promotions() -> list[tuple[str, ModelPromotion]]:
