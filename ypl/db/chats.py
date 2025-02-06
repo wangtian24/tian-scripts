@@ -81,6 +81,11 @@ class Turn(BaseModel, table=True):
     # List of model names that the user has explicitly selected for this turn
     required_models: list[str] | None = Field(sa_column=Column(ARRAY(Text), nullable=True))
 
+    # Router selected models, including both primary and fallback for the NEW_TURN.
+    # This is for performance optimization so we don't need to regenerating unused fallback models in new turns.
+    # This shouldn't be updated for SHOW_ME_MORE rounds though.
+    router_selected_models: list[str] | None = Field(sa_column=Column(ARRAY(Text), nullable=True))
+
     __table_args__ = (UniqueConstraint("chat_id", "sequence_id", name="uq_chat_sequence"),)
 
 
