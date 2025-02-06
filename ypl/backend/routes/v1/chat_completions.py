@@ -29,6 +29,7 @@ from ypl.backend.llm.chat import (
     update_failed_message_status,
     upsert_chat_message,
 )
+from ypl.backend.llm.chat_title import maybe_set_chat_title
 from ypl.backend.llm.crawl import enhance_citations
 from ypl.backend.llm.model.model import ModelResponseTelemetry
 from ypl.backend.llm.model_heuristics import ModelHeuristics
@@ -105,6 +106,14 @@ STOPPED_STREAMING: str = "\n\n*You stopped this response*"
 router = APIRouter()
 
 model_heuristics = ModelHeuristics(tokenizer_type="tiktoken")
+
+
+async def _message_completed(chat_request: ChatRequest) -> None:
+    """Called when a message is completed successfully."""
+    asyncio.create_task(maybe_add_suggested_followups(chat_request.chat_id, chat_request.turn_id))
+    # Wait a bit before the title update to allow cache hits on the chat history.
+    asyncio.create_task(maybe_set_chat_title(chat_request.chat_id, chat_request.turn_id, sleep_secs=1.5))
+    # asyncio.create_task(maybe_update_user_memory(chat_request.chat_id, chat_request.turn_id))
 
 
 @router.post("/chat/completions")
@@ -425,7 +434,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                 # and check status later.
                 await link_attachments(chat_request.user_message_id, chat_request.attachment_ids)
             if stream_completion_status == CompletionStatus.SUCCESS:
-                asyncio.create_task(maybe_add_suggested_followups(chat_request.chat_id, chat_request.turn_id))
+                await _message_completed(chat_request)
             # Send persistence success status
             yield StreamResponse(
                 {"status": "message_persisted", "timestamp": datetime.now().isoformat(), "model": chat_request.model},

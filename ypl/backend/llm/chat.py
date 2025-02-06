@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Generic, TypeVar
 from uuid import UUID
 
+from cachetools.func import ttl_cache
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
@@ -721,6 +722,7 @@ def _get_enhanced_user_message(messages: list[ChatMessage], max_message_length: 
     )
 
 
+@ttl_cache(ttl=10)  # Don't cache for long - chat history can change. This is for rapid subsequent lookups.
 async def get_curated_chat_context(
     chat_id: UUID,
     use_all_models_in_chat_history: bool,

@@ -1217,3 +1217,19 @@ Conversation history:
 JUDGE_CONVERSATION_STARTERS_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages(
     [("human", JUDGE_CONVERSATION_STARTERS_PROMPT)]
 )
+
+
+JUDGE_CHAT_TITLE_PROMPT = """
+You are an assistant skilled at creating titles of a conversation between a user and one or more LLMs.
+Below is such a conversation; based on this conversation, generate a brieftitle for the chat.
+The title should be:
+- Brief, ideally less than 6 words
+- Informative, capturing the essence of the conversation
+- In the same language as the user's prompt
+Do not prefix the title or include any formatting - just return the title directly.
+
+Conversation:
+{chat_history}
+"""
+
+JUDGE_CHAT_TITLE_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([("human", JUDGE_CHAT_TITLE_PROMPT)])

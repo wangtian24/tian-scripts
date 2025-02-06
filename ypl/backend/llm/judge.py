@@ -20,6 +20,7 @@ from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.prompt_classifiers import CategorizerResponse, PromptCategorizer
 from ypl.backend.prompts import (
     FEEDBACK_QUALITY_PROMPT_TEMPLATE,
+    JUDGE_CHAT_TITLE_PROMPT_TEMPLATE,
     JUDGE_CONVERSATION_STARTERS_PROMPT_TEMPLATE,
     JUDGE_PROMPT_MODIFIER_PROMPT,
     JUDGE_QUICK_RESPONSE_QUALITY_PROMPT_TEMPLATE,
@@ -517,3 +518,18 @@ class ConversationStartersLabeler(LLMLabeler[list[list[BaseMessage]], list[dict[
     @property
     def error_value(self) -> list[dict[str, str]]:
         return []
+
+
+class ChatTitleLabeler(LLMLabeler[list[BaseMessage], str]):
+    def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
+        return JUDGE_CHAT_TITLE_PROMPT_TEMPLATE | llm  # type: ignore
+
+    def _prepare_input(self, input: list[BaseMessage]) -> dict[str, str]:
+        return dict(chat_history=_format_message_history(input))
+
+    def _parse_output(self, output: BaseMessage) -> str:
+        return str(output.content)
+
+    @property
+    def error_value(self) -> str:
+        return ""
