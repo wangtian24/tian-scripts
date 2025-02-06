@@ -754,6 +754,7 @@ async def get_curated_chat_context(
             Chat.chat_id == chat_id,
             ChatMessage.deleted_at.is_(None),  # type: ignore[union-attr]
             Turn.deleted_at.is_(None),  # type: ignore[union-attr]
+            ChatMessage.completion_status == CompletionStatus.SUCCESS,
             Chat.deleted_at.is_(None),  # type: ignore[union-attr]
             Turn.turn_id.in_(  # type: ignore[attr-defined]
                 select(Turn.turn_id)
