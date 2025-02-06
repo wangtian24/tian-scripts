@@ -22,6 +22,7 @@ from ypl.backend.llm.credit import (
     get_total_credits_spent,
     get_user_credit_balance,
 )
+from ypl.backend.llm.utils import post_to_slack_with_user_name
 from ypl.backend.payment.base_types import BaseFacilitator, PaymentResponse
 from ypl.backend.payment.cashout_rate_limits import (
     CashoutKillswitchError,
@@ -38,6 +39,7 @@ from ypl.backend.payment.currency import get_supported_currencies
 from ypl.backend.payment.exchange_rates import get_exchange_rate
 from ypl.backend.payment.facilitator import get_supported_facilitators
 from ypl.backend.payment.validation import validate_destination_identifier_for_currency
+from ypl.backend.user.user import get_user
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import CurrencyEnum, PaymentInstrumentFacilitatorEnum, PaymentInstrumentIdentifierTypeEnum
 
@@ -113,8 +115,10 @@ async def validate_cashout_request(request: CashoutCreditsRequest) -> None:
     except CashoutKillswitchError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
+    user = await get_user(request.user_id)
+
     if (
-        (request.country_code is None or request.country_code == "IN")
+        (request.country_code is None or request.country_code == "IN" or user.country_code == "IN")
         and settings.ENVIRONMENT == "production"
         and request.cashout_currency.is_crypto()
     ):
@@ -123,9 +127,14 @@ async def validate_cashout_request(request: CashoutCreditsRequest) -> None:
             "user_id": request.user_id,
             "credits_to_cashout": request.credits_to_cashout,
             "cashout_currency": request.cashout_currency,
-            "country_code": request.country_code,
+            "passed_country_code": request.country_code,
+            "user_country_code": user.country_code,
         }
         logging.warning(json_dumps(log_dict))
+
+        if request.country_code != user.country_code:
+            log_dict["VPN_detected"] = True
+            asyncio.create_task(post_to_slack_with_user_name(json_dumps(log_dict)))
         raise HTTPException(status_code=400, detail="Cashout to crypto is not supported in India")
 
     if (

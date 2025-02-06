@@ -2,7 +2,7 @@ import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from sqlalchemy import select
@@ -169,3 +169,15 @@ async def register_user_with_vendor(request: RegisterVendorRequest) -> VendorPro
         }
         logging.error(json_dumps(log_dict))
         raise VendorRegistrationError(str(e)) from e
+
+
+async def get_user(user_id: str) -> User:
+    async with get_async_session() as session:
+        stmt = select(User).where(
+            User.user_id == user_id,  # type: ignore
+        )
+        user = (await session.execute(stmt)).scalar_one_or_none()
+        if not user:
+            raise ValueError("User not found")
+
+        return cast(User, user)
