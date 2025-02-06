@@ -207,6 +207,11 @@ class Settings(BaseSettings):
         return self._get_gcp_secret(f"checkout-com-entity-id-{self.ENVIRONMENT}")
 
     @computed_field  # type: ignore[misc]
+    @cached_property
+    def vpnapi_api_key(self) -> str:
+        return self._get_gcp_secret("vpnapi-api-key")
+
+    @computed_field  # type: ignore[misc]
     @property
     def server_host(self) -> str:
         # Use HTTPS for anything other than local development
@@ -322,4 +327,5 @@ async def preload_gcp_secrets() -> None:
         asyncio.to_thread(lambda: settings.checkout_com_secret),
         asyncio.to_thread(lambda: settings.checkout_com_processing_channel),
         asyncio.to_thread(lambda: settings.checkout_com_entity_id),
+        asyncio.to_thread(lambda: settings.vpnapi_api_key),
     )

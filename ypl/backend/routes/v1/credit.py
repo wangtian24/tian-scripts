@@ -41,6 +41,7 @@ from ypl.backend.payment.facilitator import get_supported_facilitators
 from ypl.backend.payment.validation import validate_destination_identifier_for_currency
 from ypl.backend.user.user import get_user
 from ypl.backend.utils.json import json_dumps
+from ypl.backend.utils.vpn_utils import get_ip_details
 from ypl.db.payments import CurrencyEnum, PaymentInstrumentFacilitatorEnum, PaymentInstrumentIdentifierTypeEnum
 
 router = APIRouter()
@@ -80,6 +81,7 @@ class CashoutCreditsRequest:
     destination_additional_details: dict | None = None
     # Not all facilitators will need the validated destination details.
     validated_destination_details: str | None = None
+    ip_address: str | None = None
 
 
 async def convert_credits_to_currency(credits: int, currency: CurrencyEnum) -> Decimal:
@@ -137,6 +139,23 @@ async def validate_cashout_request(request: CashoutCreditsRequest) -> None:
             asyncio.create_task(post_to_slack_with_user_name(json_dumps(log_dict)))
         raise HTTPException(status_code=400, detail="Cashout to crypto is not supported in India")
 
+    if request.cashout_currency.is_crypto() and request.ip_address:
+        ip_details = await get_ip_details(request.ip_address)
+        if ip_details and ip_details["security"]["vpn"]:
+            log_dict = {
+                "message": "VPN detected. Blocking cashout to crypto.",
+                "user_id": request.user_id,
+                "ip_address": request.ip_address,
+                "ip_details": ip_details,
+                "credits_to_cashout": request.credits_to_cashout,
+                "cashout_currency": request.cashout_currency,
+                "passed_country_code": request.country_code,
+                "user_country_code": user.country_code,
+            }
+            logging.warning(json_dumps(log_dict))
+            asyncio.create_task(post_to_slack_with_user_name(json_dumps(log_dict)))
+            raise HTTPException(status_code=400, detail="Cashout to crypto is not supported from a VPN")
+
     if (
         request.cashout_currency == CurrencyEnum.USD
         and request.facilitator == PaymentInstrumentFacilitatorEnum.CHECKOUT_COM
@@ -185,6 +204,7 @@ async def cashout_credits(request: CashoutCreditsRequest) -> str | None | Paymen
         "country_code": request.country_code,
         "destination_additional_details": request.destination_additional_details,
         "validated_destination_details_is_set": request.validated_destination_details is not None,
+        "ip_address": request.ip_address,
     }
     logging.info(json_dumps(log_dict))
 
