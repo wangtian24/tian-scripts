@@ -14,6 +14,8 @@ from sqlmodel import Session, text
 from typing_extensions import TypedDict
 from ypl.backend.db import get_engine
 from ypl.backend.llm.utils import post_to_slack
+from ypl.backend.payment.currency import CurrencyEnum
+from ypl.backend.payment.exchange_rates import get_exchange_rate
 from ypl.backend.routes.v1.credit import CREDITS_TO_INR_RATE, CREDITS_TO_USD_RATE, USD_TO_INR_RATE
 from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.utils import fetch_user_names
@@ -920,9 +922,17 @@ async def post_cashout_metrics(start_date: datetime, end_date: datetime) -> None
                 message += "Daily Cashouts:\n"
                 for currency, metrics in daily_by_currency.items():
                     total_amount = sum(m.total_amount for m in metrics)
+                    total_amount_usd = (
+                        await get_exchange_rate(
+                            source_currency=CurrencyEnum(currency),
+                            destination_currency=CurrencyEnum.USD,
+                        )
+                        * total_amount
+                    )
                     total_transactions = sum(m.transaction_count for m in metrics)
                     message += (
-                        f"• {currency}: {total_transactions:,} transactions, " f"{total_amount:,.2f} {currency}\n"
+                        f"• {currency}: {total_transactions:,} transactions, "
+                        f"{total_amount:,.2f} {currency} ({total_amount_usd:,.2f} USD)\n"
                     )
             else:
                 message = "⚠️ No cashout metrics data available"
@@ -935,17 +945,33 @@ async def post_cashout_metrics(start_date: datetime, end_date: datetime) -> None
                 if weekly_metrics:
                     message += "\nWeekly Cashouts:\n"
                     for metric in weekly_metrics:
+                        total_amount = metric.total_amount
+                        total_amount_usd = (
+                            await get_exchange_rate(
+                                source_currency=CurrencyEnum(metric.currency),
+                                destination_currency=CurrencyEnum.USD,
+                            )
+                            * metric.total_amount
+                        )
                         message += (
                             f"• {metric.currency}: {metric.transaction_count:,} transactions, "
-                            f"{metric.total_amount:,.2f} {metric.currency}\n"
+                            f"{metric.total_amount:,.2f} {metric.currency} ({total_amount_usd:,.2f} USD)\n"
                         )
 
                 if monthly_metrics:
                     message += f"\nMonthly Cashouts ({monthly_metrics[0].period_start.strftime('%B %Y')}):\n"
                     for metric in monthly_metrics:
+                        total_amount = metric.total_amount
+                        total_amount_usd = (
+                            await get_exchange_rate(
+                                source_currency=CurrencyEnum(metric.currency),
+                                destination_currency=CurrencyEnum.USD,
+                            )
+                            * metric.total_amount
+                        )
                         message += (
                             f"• {metric.currency}: {metric.transaction_count:,} transactions, "
-                            f"{metric.total_amount:,.2f} {metric.currency}\n"
+                            f"{metric.total_amount:,.2f} {metric.currency} ({total_amount_usd:,.2f} USD)\n"
                         )
 
             analytics_webhook_url = os.environ.get("ANALYTICS_SLACK_WEBHOOK_URL")
