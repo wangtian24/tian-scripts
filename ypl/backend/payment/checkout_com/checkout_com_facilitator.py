@@ -46,7 +46,7 @@ from ypl.backend.payment.payment import (
 from ypl.backend.payment.payout_utils import (
     CASHOUT_TXN_COST,
     get_destination_instrument_id,
-    get_instrument_identifier,
+    get_instrument_details,
     handle_failed_transaction,
 )
 from ypl.backend.payment.payout_utils import (
@@ -204,8 +204,12 @@ class CheckoutFacilitator(BaseFacilitator):
 
             #  we need to get the account details for the source and destination instruments
             #  and pass it to the payout request for checkout.com
-            source_instrument_identifier = await get_instrument_identifier(source_instrument_id)
-            destination_instrument_identifier = await get_instrument_identifier(destination_instrument_id)
+            source_instrument = await get_instrument_details(source_instrument_id)
+            destination_instrument = await get_instrument_details(destination_instrument_id)
+
+            source_instrument_identifier = source_instrument.identifier if source_instrument else None
+            destination_instrument_identifier = destination_instrument.identifier if destination_instrument else None
+
             try:
                 payment_transaction_request = PaymentTransactionRequest(
                     currency=self.currency,
