@@ -184,6 +184,7 @@ def get_eval_response_times_by_content_length() -> dict[int | float, tuple[float
             select(Eval)
             .join(Turn, Turn.turn_id == Eval.turn_id)  # type: ignore
             .join(ChatMessage, ChatMessage.turn_id == Turn.turn_id)  # type: ignore
+            .options(joinedload(Eval.turn).joinedload(Turn.chat_messages))  # type: ignore
             .where(
                 ChatMessage.message_type == MessageType.ASSISTANT_MESSAGE,
                 ChatMessage.deleted_at.is_(None),  # type: ignore
@@ -366,7 +367,7 @@ async def _get_evals_with_same_language_models(
         .where(
             ChatMessage.message_type == MessageType.ASSISTANT_MESSAGE,
             ChatMessage.deleted_at.is_(None),  # type: ignore
-            ChatMessage.completion_status == CompletionStatus.SUCCESS,
+            (ChatMessage.completion_status == CompletionStatus.SUCCESS) | (ChatMessage.completion_status.is_(None)),  # type: ignore
             ChatMessage.assistant_language_model_id.is_not(None),  # type: ignore
         )
         .distinct()
@@ -379,17 +380,21 @@ async def _get_evals_with_same_language_models(
         ).group_by(ordered_models.c.turn_id)
     ).cte("models_by_turn")
 
+    current_turn_models = (
+        select(models_by_turn.c.models).where(models_by_turn.c.turn_id == current_turn_id).scalar_subquery()
+    )
+
     # The actual query.
     query = (
         select(MessageEval.eval_id, MessageEval.score, ChatMessage.assistant_language_model_id)
-        .join(Eval)
-        .join(ChatMessage)
+        .join(Eval, Eval.eval_id == MessageEval.eval_id)  # type: ignore
+        .join(ChatMessage, ChatMessage.message_id == MessageEval.message_id)  # type: ignore
         .join(models_by_turn, models_by_turn.c.turn_id == Eval.turn_id)
         .where(
             Eval.eval_type == EvalType.SELECTION,
-            ChatMessage.completion_status == CompletionStatus.SUCCESS,
-            models_by_turn.c.models
-            == (select(models_by_turn.c.models).where(models_by_turn.c.turn_id == current_turn_id).scalar_subquery()),
+            ChatMessage.assistant_language_model_id.is_not(None),  # type: ignore
+            (ChatMessage.completion_status == CompletionStatus.SUCCESS) | (ChatMessage.completion_status.is_(None)),  # type: ignore
+            models_by_turn.c.models == current_turn_models,
         )
     )
     if limit_to_same_user:
