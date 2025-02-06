@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import Insert as pg_insert
 from sqlalchemy.orm import joinedload
-from sqlmodel import Session, select, update
+from sqlmodel import Session, or_, select, update
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ypl.backend.config import settings
@@ -756,7 +756,11 @@ async def get_curated_chat_context(
             Chat.chat_id == chat_id,
             ChatMessage.deleted_at.is_(None),  # type: ignore[union-attr]
             Turn.deleted_at.is_(None),  # type: ignore[union-attr]
-            ChatMessage.completion_status == CompletionStatus.SUCCESS,
+            or_(
+                # Do not include errored responses.
+                ChatMessage.completion_status == CompletionStatus.SUCCESS,
+                ChatMessage.completion_status.is_(None),  # type: ignore[attr-defined]
+            ),
             Chat.deleted_at.is_(None),  # type: ignore[union-attr]
             Turn.turn_id.in_(  # type: ignore[attr-defined]
                 select(Turn.turn_id)
