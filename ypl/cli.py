@@ -1725,6 +1725,7 @@ def test_send_email(campaign: str, to_address: str, print_only: bool) -> None:
                     "referee_name": "Friend of Rumpy",
                     "credits": 100,
                     "unsubscribe_link": "https://gg.yupp.ai/unsubscribe?user_id=asdfzxcv",
+                    "invite_code_link": "https://gg.yupp.ai/join/special-invite-code",
                 },
             ),
             print_only=print_only,

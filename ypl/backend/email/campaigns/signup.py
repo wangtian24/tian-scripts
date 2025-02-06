@@ -14,7 +14,6 @@ SIGN_UP_EMAIL_CONTENT = EmailContent(
 )
 
 
-# TODO: Add "Please continue to refer more of your friends by sharing <this URL with promo code> with them!"
 YOUR_FRIEND_JOINED_EMAIL_CONTENT = EmailContent(
     subject="{referee_name} is now on {brand_name}",
     preview=None,
@@ -22,7 +21,6 @@ YOUR_FRIEND_JOINED_EMAIL_CONTENT = EmailContent(
 )
 
 
-# TODO: Add "Please continue to refer more of your friends by sharing <this URL with promo code> with them!"
 REFFERAL_BONUS_EMAIL_CONTENT = EmailContent(
     subject="You just scored a referral bonus of {credits} YUPP credits!",
     preview=None,
