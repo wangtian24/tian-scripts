@@ -425,7 +425,7 @@ async def post_user_base_metrics(report_date: datetime) -> None:
         WHERE
             ((siclog.created_at at TIME zone 'America/Los_Angeles')::date = :report_date)
         GROUP BY u.user_id, name
-        ORDER BY referred_user_count DESC
+        ORDER BY referred_user_count DESC, u.name ASC
     """
 
     try:
