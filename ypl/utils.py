@@ -333,3 +333,11 @@ def replace_text_part(message: BaseMessage, new_text: str) -> HumanMessage:
             continue
         new_content.append({"type": "text", "text": new_text})
     return HumanMessage(content=new_content)
+
+
+def ifnull(value: Any, default_value: T) -> T:
+    """
+    Similar to ifnull() in SQL. Returns the value if it is not None, otherwise returns the default value.
+    This is useful for avoiding type check errors while accessing ORM fields which are often defined as 'type | None'.
+    """
+    return default_value if value is None else value  # type: ignore[no-any-return]

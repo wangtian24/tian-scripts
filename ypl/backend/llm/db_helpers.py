@@ -31,7 +31,7 @@ from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import Chat, ChatMessage, MessageType, Turn
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
 from ypl.db.model_promotions import ModelPromotionStatus
-from ypl.utils import async_timed_cache
+from ypl.utils import async_timed_cache, ifnull
 
 IMAGE_ATTACHMENT_MIME_TYPE = "image/*"
 PDF_ATTACHMENT_MIME_TYPE = "application/pdf"
@@ -457,93 +457,49 @@ def get_chat_model(
 
 
 def deduce_model_speed_scores(models: tuple[str, ...]) -> dict[str, float]:
+    # NOTE: Makes blocking DB selects when there is cache miss.
     return {model: deduce_single_model_speed_score(model) for model in models}
 
 
-@ttl_cache(ttl=7200)  # 2-hr cache, this doesn't change that fast
-def deduce_single_model_speed_score(model: str) -> float:
+@ttl_cache(ttl=300)  # 5 minute cache. The metrics are updated hourly in a cron job.
+def deduce_single_model_speed_score(model_name: str) -> float:
     """
     Deduces the speed of a single model, which is more cache friendly.
     Returns an abstract speed score (0.0 - 1.0), which is computed based on model's
     time-to-first-token and tokens-per-second stats from the past X days.
     """
 
-    # TODO(Tian): we are taking past 1000 requests for each model to estimate the speed, but it would be
-    # better to estimate a short-term speed and long-term speed separately, so we can be responsive to some
-    # temporary performance issues (like a certain API was having a bad day). Also this speed score is currently
-    # only used to rank last 2 models displayed, not to rank all models proposals in routing, which we should
-    # eventually do.
-    sql_query = text(
-        """
-            select
-                COUNT(1) as requests,
-                PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY ttft) AS ttft_p90,
-                PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ttft) AS ttft_p50,
-                PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY tps) AS tps_p90,
-                PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY tps) AS tps_p50,
-                AVG(tokenCount) AS avg_token_count
-            FROM (
-                SELECT
-                    message_type,
-                    assistant_language_model_id,
-                    created_at,
-                    firstToken,
-                    (firsttoken - requesttimestamp) AS ttft,
-                    CASE
-                        WHEN tokenCount IS NULL OR tokenCount = 0 THEN 0
-                        ELSE tokenCount / (lasttoken - requesttimestamp) * 1000
-                    END as tps,
-                    tokenCount
-                FROM (
-                    SELECT
-                        (streaming_metrics->>'requestTimestamp')::DECIMAL AS requestTimestamp,
-                        (streaming_metrics->>'firstTokenTimestamp')::DECIMAL AS firstToken,
-                        (streaming_metrics->>'lastTokenTimestamp')::DECIMAL AS lastToken,
-                        (streaming_metrics->>'completionTokens')::DECIMAL AS tokenCount,
-                        message_type,
-                        assistant_language_model_id,
-                        cm.created_at
-                    FROM chat_messages cm
-                        JOIN language_models lm ON cm.assistant_model_name = lm.internal_name
-                    WHERE message_type IN ('ASSISTANT_MESSAGE')
-                        AND streaming_metrics IS NOT NULL
-                        AND lm.internal_name = :model_name
-                    ORDER BY cm.created_at DESC
-                    LIMIT 1000
-                ) AS subquery
-            ) AS metrics
-            WHERE ttft > 0 and tps > 0
-        """
-    )
-
     # We estimate the 95% confidence interval for time-to-first-token p90 and tokens-per-sec p90, given the number of
     # model requests in the past X days. then we use the upper bound (a conservative value) of TTFT_p90 and TPS_p90
     # to compute the speed score.
 
-    with get_engine().connect() as conn:
-        c = conn.execute(sql_query, dict(model_name=model))
-        rows = c.fetchall()
+    with Session(get_engine()) as session:
+        # NOTE: Blocking DB call.
+        model_info = session.exec(select(LanguageModel).where(LanguageModel.internal_name == model_name)).first()
 
     DEFAULT_SPEED_SCORE = 0.1
-    if not rows:
+    if not model_info:
+        # Unexpected. Model should be present.
         logging.info(
-            json_dumps(
-                {"message": f"Model speed: calculating for {model}, no stats, using default {DEFAULT_SPEED_SCORE}"}
-            )
+            json_dumps({"message": f"Model speed: {model_name} is not found, using default {DEFAULT_SPEED_SCORE}"})
         )
         return DEFAULT_SPEED_SCORE
 
-    row = rows[0]
-    if any(x is None for x in row):
+    num_reqs = ifnull(model_info.num_requests_in_metric_window, 0)
+    ttft_p90 = ifnull(model_info.first_token_p90_latency_ms, 0.0)
+    ttft_p50 = ifnull(model_info.first_token_p50_latency_ms, 0.0)
+
+    tps_p90 = ifnull(model_info.output_p90_tps, 0.0)
+    tps_p50 = ifnull(model_info.output_p50_tps, 0.0)
+    avg_token_count = ifnull(model_info.avg_token_count, 0.0)
+
+    if any([num_reqs <= 0, ttft_p90 <= 0, ttft_p50 <= 0, tps_p90 <= 0, tps_p50 <= 0, avg_token_count <= 0]):
+        # If any of these is zero, return default. In practice either all of them are set or none of them is set.
+        # This should be rare, mainly for new models.
         logging.info(
-            json_dumps(
-                {"message": f"Model speed: calculating for {model}, bad stats, using default {DEFAULT_SPEED_SCORE}"}
-            )
+            json_dumps({"message": f"Model speed for {model_name}: metrics are not set, using {DEFAULT_SPEED_SCORE}"})
         )
         return DEFAULT_SPEED_SCORE
-
-    num_reqs, ttft_p90, ttft_p50 = row[0], float(row[1]), float(row[2])
-    tps_p90, tps_p50, avg_token_count = float(row[3]), float(row[4]), float(row[5])
 
     Z95 = 1.96  # z-score for 95% confidence interval
 
@@ -570,8 +526,8 @@ def deduce_single_model_speed_score(model: str) -> float:
     logging.info(
         json_dumps(
             {
-                "message": f"Model speed: calculating for {model}, score = {speed_score:.3f}",
-                "model": model,
+                "message": f"Model speed: calculating for {model_name}, score = {speed_score:.3f}",
+                "model": model_name,
                 "num_requests": num_reqs,
                 "ttft_p90_ms": round(ttft_p90, 2),
                 "ttft_p90_ub_ms": round(ttft_p90_ub, 2),
