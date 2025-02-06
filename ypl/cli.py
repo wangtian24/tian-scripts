@@ -1426,7 +1426,9 @@ def post_source_account_balances() -> None:
             for balance in wallet_data["balances"]:
                 currency = balance["currency"]
                 amount = balance["balance"]
-                message += f"| {currency:<5} | {amount:>9.8f} |\n"
+                # Remove trailing zeros but keep decimal point if needed
+                formatted_amount = f"{amount:.8f}".rstrip("0").rstrip(".")
+                message += f"| {currency:<5} | {formatted_amount:>9} |\n"
             message += "```\n\n"
         except Exception as e:
             logging.error(f"Error getting wallet balance for daily posting: {e}")
@@ -1442,7 +1444,9 @@ def post_source_account_balances() -> None:
             message += "|-------|----------|\n"
             for currency, details in accounts.items():
                 balance = details.get("balance", 0)
-                message += f"| {currency:<5} | {balance:>9.8f} |\n"
+                # Remove trailing zeros but keep decimal point if needed
+                formatted_balance = f"{balance:.8f}".rstrip("0").rstrip(".")
+                message += f"| {currency:<5} | {formatted_balance:>9} |\n"
             message += "```"
         except Exception as e:
             logging.error(f"Error getting coinbase retail wallet balance for daily posting: {e}")
@@ -1453,7 +1457,9 @@ def post_source_account_balances() -> None:
             await store_axis_upi_balance(balance)
             message += "\n*Axis UPI Balance*\n"
             message += "```\n"
-            message += f"| Balance | {balance:>9.8f} |\n"
+            # Remove trailing zeros but keep decimal point if needed
+            formatted_balance = f"{balance:.8f}".rstrip("0").rstrip(".")
+            message += f"| Balance | {formatted_balance:>9} |\n"
             message += "```"
         except Exception as e:
             logging.error(f"Error getting axis upi balance for daily posting: {e}")
