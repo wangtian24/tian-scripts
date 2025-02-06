@@ -22,7 +22,7 @@ from ypl.backend.llm.chat import (
     generate_quicktake,
     get_active_prompt_modifiers,
 )
-from ypl.backend.llm.search import search_chat_messages, search_chats
+from ypl.backend.llm.search import ChatMessageSearchResult, search_chat_messages, search_chats
 from ypl.backend.llm.turn_quality import TurnAnnotations, get_turn_annotations, label_turn_quality
 from ypl.backend.rw_cache import TurnQualityCache
 from ypl.backend.utils.json import json_dumps
@@ -517,8 +517,13 @@ async def chat_search(request: Annotated[ChatSearchRequest, Depends()]) -> ChatR
         raise HTTPException(status_code=500, detail=f"Error searching chats: {str(e)}") from e
 
 
-@router.get("/chat_messages/search", response_model=ChatMessagesResponse)
-async def chat_messages_search(request: Annotated[ChatSearchRequest, Depends()]) -> ChatMessagesResponse:
+class ChatMessageSearchResponse(BaseModel):
+    messages: list[ChatMessageSearchResult]
+    has_more: bool
+
+
+@router.get("/chat_messages/search", response_model=ChatMessageSearchResponse)
+async def chat_messages_search(request: Annotated[ChatSearchRequest, Depends()]) -> ChatMessageSearchResponse:
     try:
         if len(request.query.strip()) == 0:
             raise ValueError("Query must not be empty")
@@ -536,9 +541,8 @@ async def chat_messages_search(request: Annotated[ChatSearchRequest, Depends()])
                 start_date=request.start_date,
                 end_date=request.end_date,
                 order_by=request.order_by,
-                message_fields=request.message_fields,
             )
-        return ChatMessagesResponse(messages=results, has_more=len(results) >= request.limit)
+        return ChatMessageSearchResponse(messages=results, has_more=len(results) >= request.limit)
 
     except Exception as e:
         log_dict = {
