@@ -5,7 +5,7 @@ import uuid
 from sqlalchemy import update
 
 from ypl.backend.db import get_async_session
-from ypl.backend.llm.chat import get_curated_chat_context, get_gemini_2_flash_llm
+from ypl.backend.llm.chat import get_curated_chat_context, get_gpt_4o_mini_llm
 from ypl.backend.llm.judge import ChatTitleLabeler
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import Chat
@@ -27,7 +27,7 @@ async def maybe_set_chat_title(chat_id: uuid.UUID, turn_id: uuid.UUID, sleep_sec
             context_for_logging="set_chat_title",
         )
 
-        labeler = ChatTitleLabeler(get_gemini_2_flash_llm(), timeout_secs=4)
+        labeler = ChatTitleLabeler(get_gpt_4o_mini_llm(), timeout_secs=4)
         title = await labeler.alabel(chat_context)
 
         logging.info(
