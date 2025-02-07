@@ -11,6 +11,7 @@ from ypl.db import (
     point_transactions,
     ratings,
     rewards,
+    soul_rbac,
     users,
     webhooks,
 )
@@ -29,6 +30,7 @@ all_models = [
     model_promotions,
     ratings,
     rewards,
+    soul_rbac,
     users,
     webhooks,
 ]

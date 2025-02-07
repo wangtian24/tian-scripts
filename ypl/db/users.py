@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from ypl.db.invite_codes import SpecialInviteCode, SpecialInviteCodeClaimLog
     from ypl.db.language_models import LanguageModel
     from ypl.db.payments import PaymentInstrument
+    from ypl.db.soul_rbac import SoulRole
 
 # The threshold for considering a user as "new" based on the number of chats
 NEW_USER_CHAT_THRESHOLD = 10
@@ -143,6 +144,11 @@ class User(BaseModel, table=True):
     )
     city: str | None = Field(default=None, sa_type=sa.String)
     discord_username: str | None = Field(default=None, sa_type=sa.String)
+
+    # RBAC relationships
+    soul_roles: list["SoulRole"] = Relationship(
+        sa_relationship_kwargs={"secondary": "soul_user_roles"}, back_populates="users"
+    )
 
     def is_new_user(self) -> bool:
         return len(self.chats) < NEW_USER_CHAT_THRESHOLD
