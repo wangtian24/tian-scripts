@@ -161,7 +161,7 @@ async def refresh_conversation_starters(
                 SuggestedUserPrompt(
                     user_id=user_id,
                     prompt=starter["suggestion"],
-                    summary=starter["label"],
+                    summary=starter["label"].capitalize(),
                     explanation=starter.get("explanation"),
                 )
                 for starter in conversation_starters
