@@ -111,11 +111,19 @@ class MetricsRegistry:
         self.metric = metric
 
     def get_series(self) -> list[monitoring_v3.TimeSeries]:
-        """
-        Get timeseries for all data points this metric has cached so far. GCP only allows one point per series, argh.
-        """
         all_series = []
-        for timestamp, value in self.metric.flush_values():
+        values = self.metric.flush_values()
+        # Sort values by timestamp first
+        values.sort()
+
+        last_timestamp = 0.0
+        min_gap = 0.001  # 1ms minimum gap
+
+        for timestamp, value in values:
+            # Ensure minimum gap between timestamps
+            if timestamp <= last_timestamp:
+                timestamp = last_timestamp + min_gap
+
             series = self._create_series()
             series.points = [
                 monitoring_v3.Point(
@@ -126,6 +134,8 @@ class MetricsRegistry:
                 )
             ]
             all_series.append(series)
+            last_timestamp = timestamp
+
         return all_series
 
     def _create_series(self) -> monitoring_v3.TimeSeries:
@@ -184,16 +194,19 @@ class MetricManager:
             input_list[i : i + GCP_EXPORT_BATCH_SIZE] for i in range(0, len(input_list), GCP_EXPORT_BATCH_SIZE)
         ]
 
-        for batch in batches:
+        for i, batch in enumerate(batches):
             time_series = [s for reg in batch for s in reg.get_series()]
-            logging.debug(f"-- MetricManager exporting batch: {[ts.metric.type for ts in time_series]}")
+            logging.debug(f"-- MetricManager exporting batch {i}: {[ts.metric.type for ts in time_series]}")
             try:
                 assert self.client is not None
                 self.client.create_time_series(name=self.project_name, time_series=time_series)
                 metric_inc("general/metric_manager_export_success")
             except Exception as e:
                 # we will lost all ValueMetrics in the past time interval if this fails
-                logging.warning(f"MetricManager error exporting counters to GCP: {e}")
+                logging.warning(
+                    f"MetricManager error exporting batch {i} of {len(batches)} "
+                    f"with {len(time_series)} counters to GCP: {e}"
+                )
 
     async def _periodic_export(self) -> None:
         """Internal method to export metrics periodically."""
