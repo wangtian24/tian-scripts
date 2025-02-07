@@ -97,6 +97,8 @@ async def search_chats(
 class ChatMessageSearchResult(BaseModel):
     message_id: str
     message_type: MessageType
+    turn_id: str
+    chat_id: str
     created_at: datetime
     user_id: str
     assistant_language_model_id: str | None
@@ -137,6 +139,8 @@ async def search_chat_messages(
             ChatMessage.message_id,
             ChatMessage.message_type,
             ChatMessage.created_at,
+            Turn.turn_id,
+            Turn.chat_id,
             Turn.creator_user_id,
             ChatMessage.assistant_language_model_id,
             ChatMessage.content,
@@ -158,9 +162,11 @@ async def search_chat_messages(
             message_id=str(result[0]),
             message_type=result[1],
             created_at=result[2],
-            user_id=result[3],
-            assistant_language_model_id=str(result[4]) if result[4] else None,
-            content=result[5],
+            turn_id=str(result[3]),
+            chat_id=str(result[4]),
+            user_id=result[5],
+            assistant_language_model_id=str(result[6]) if result[6] else None,
+            content=result[7],
         )
         for result in results.unique().all()
     ]
