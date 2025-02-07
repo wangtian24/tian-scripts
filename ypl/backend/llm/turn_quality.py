@@ -195,7 +195,7 @@ def get_eval_response_times_by_content_length() -> dict[int | float, tuple[float
             .order_by(Eval.created_at.desc())  # type: ignore
             .limit(NUM_RECENT_EVALS)
         )
-        evals = result.all()
+        evals = result.unique().all()
 
         # Group evals by content length buckets
         buckets: dict[int | float, list[float]] = {k: [] for k in CONTENT_LENGTH_BUCKETS}
