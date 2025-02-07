@@ -29,6 +29,9 @@ class Chat(BaseModel, table=True):
 
     chat_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
     title: str = Field(sa_column=Column(Text, nullable=False))
+    title_set_by_user: bool = Field(
+        sa_column=Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    )
     # URL segment for the chat.
     # This field is world visible, do not leak information in this field.
     path: str = Field(sa_column=Column(Text, nullable=False, unique=True, index=True))

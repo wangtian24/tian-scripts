@@ -3,6 +3,7 @@ import logging
 import uuid
 
 from sqlalchemy import update
+from sqlalchemy.orm import load_only
 
 from ypl.backend.db import get_async_session
 from ypl.backend.llm.chat import get_curated_chat_context, get_gpt_4o_mini_llm
@@ -14,6 +15,11 @@ from ypl.db.chats import Chat
 async def maybe_set_chat_title(chat_id: uuid.UUID, turn_id: uuid.UUID, sleep_secs: float = 0.0) -> None:
     if sleep_secs > 0.0:
         await asyncio.sleep(sleep_secs)
+
+    async with get_async_session() as session:
+        result = await session.get(Chat, chat_id, options=[load_only(Chat.title_set_by_user)])  # type: ignore
+        if not result or result.title_set_by_user:
+            return
 
     try:
         chat_context = await get_curated_chat_context(
