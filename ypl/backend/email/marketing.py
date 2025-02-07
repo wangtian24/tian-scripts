@@ -5,7 +5,7 @@ from typing import Any
 
 from sqlmodel import Session, select
 from ypl.backend.email.send_email import EmailConfig, batch_send_emails_async
-from ypl.db.chats import Eval
+from ypl.db.chats import Chat
 from ypl.db.emails import EmailLogs
 from ypl.db.users import User
 
@@ -48,7 +48,7 @@ def _users_for_timeframe_query(
     campaign: str,
 ) -> Any:
     """Get users who were created within the given date range, along with their
-    eval status, whether they unsubscribed, and whether they've received the
+    chat status, whether they unsubscribed, and whether they've received the
     campaign email.
 
     Args:
@@ -56,7 +56,7 @@ def _users_for_timeframe_query(
         end_date: End of the date range (inclusive)
         campaign: Campaign name to check for previous sends
     """
-    has_evals = select(1).where(Eval.user_id == User.user_id).exists().label("has_evals")
+    has_chats = select(1).where(Chat.creator_user_id == User.user_id).exists().label("has_chats")
     already_sent = (
         select(1)
         .where(
@@ -74,7 +74,7 @@ def _users_for_timeframe_query(
         User.unsubscribed_from_marketing.is_(False),  # type: ignore
     ]
 
-    return select(User, has_evals, already_sent).where(*conditions)
+    return select(User, has_chats, already_sent).where(*conditions)
 
 
 async def send_marketing_emails_async(
@@ -106,8 +106,8 @@ async def send_marketing_emails_async(
         if active_campaign:
             query = _users_for_timeframe_query(start_date, end_date, active_campaign)
             results = session.exec(query).all()
-            for user, has_evals, already_sent in results:
-                if already_sent or not has_evals:
+            for user, has_chats, already_sent in results:
+                if already_sent or not has_chats:
                     continue
                 all_email_configs.append(
                     EmailConfig(
@@ -125,8 +125,8 @@ async def send_marketing_emails_async(
         if inactive_campaign:
             query = _users_for_timeframe_query(start_date, end_date, inactive_campaign)
             results = session.exec(query).all()
-            for user, has_evals, already_sent in results:
-                if already_sent or has_evals:
+            for user, has_chats, already_sent in results:
+                if already_sent or has_chats:
                     continue
                 all_email_configs.append(
                     EmailConfig(
