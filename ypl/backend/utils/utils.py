@@ -1,6 +1,7 @@
 import logging
+import uuid
 from enum import Enum
-from typing import TypedDict
+from typing import TypedDict, cast
 
 from sqlalchemy import func, or_
 from sqlmodel import select
@@ -37,7 +38,7 @@ async def fetch_user_names(user_ids: list[str]) -> dict[str, str]:
             remaining_ids = [uid for uid in user_ids if name_dict[uid] == uid]
             if remaining_ids:
                 waitlist_query = select(WaitlistedUser).where(
-                    WaitlistedUser.waitlisted_user_id.in_(remaining_ids),  # type: ignore
+                    WaitlistedUser.waitlisted_user_id.in_([cast(uuid.UUID, uid) for uid in remaining_ids]),  # type: ignore
                 )
                 waitlisted_users = (await session.exec(waitlist_query)).all()
 
@@ -73,7 +74,7 @@ async def fetch_user_name(user_id: str) -> str:
 
             # If not found or no name, check waitlisted_users table
             waitlist_query = select(WaitlistedUser).where(
-                WaitlistedUser.waitlisted_user_id == user_id,
+                WaitlistedUser.waitlisted_user_id == cast(uuid.UUID, user_id),
             )
             waitlisted_user = (await session.exec(waitlist_query)).first()
 
