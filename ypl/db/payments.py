@@ -123,6 +123,9 @@ class PaymentTransaction(BaseModel, table=True):
     # Amount is always positive.
     amount: Decimal = Field(sa_column=Column(Numeric(precision=38, scale=18), nullable=False))
 
+    # The USD equivalent amount of the transaction at the time it was created
+    usd_amount: Decimal = Field(sa_column=Column(Numeric(precision=12, scale=2), nullable=True))
+
     status: PaymentTransactionStatusEnum = Field(
         sa_column=Column(
             SQLAlchemyEnum(PaymentTransactionStatusEnum),
