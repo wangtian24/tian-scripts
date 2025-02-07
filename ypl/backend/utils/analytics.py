@@ -987,6 +987,40 @@ async def post_cashout_metrics(start_date: datetime, end_date: datetime) -> None
         raise
 
 
+async def post_weekly_transacting_users(start_date: datetime, end_date: datetime) -> None:
+    """Fetch weekly transacting users from Amplitude and post them to Slack.
+
+    Args:
+        start_date: Start date for the query
+        end_date: End date for the query
+    """
+    if start_date.weekday() == 6:  # Only show weekly metrics on Sundays
+        try:
+            with Session(get_engine()) as session:
+                query = """
+                SELECT
+                    DISTINCT creator_user_id
+                FROM
+                    chats
+                WHERE
+                    created_at >=
+                    ((current_date - INTERVAL '7 days') AT TIME ZONE 'America/Los_Angeles')::date
+                """
+                results = session.execute(text(query)).all()
+                weekly_transacting_users = [row[0] for row in results]
+
+                message = f"*Weekly Transacting Guests {len(weekly_transacting_users)}*\n"
+                user_names_dict = await fetch_user_names(weekly_transacting_users)
+                message += f"\n{', '.join(sorted(user_names_dict.values(), key=lambda name: name.lower()))}"
+
+                analytics_webhook_url = os.environ.get("ANALYTICS_SLACK_WEBHOOK_URL")
+                await post_to_slack(message, analytics_webhook_url)
+
+        except Exception as e:
+            error_message = f"⚠️ Failed to fetch weekly transacting users: {e}"
+            logging.error(error_message)
+
+
 async def post_analytics_to_slack() -> None:
     """Fetch metrics from multiple Amplitude charts and post them to Slack.
 
@@ -1007,6 +1041,7 @@ async def post_analytics_to_slack() -> None:
     try:
         await post_data_from_charts(auth=auth, start_date=start_date, end_date=end_date)
         await post_data_from_cohorts(auth=auth, start_date=start_date, end_date=end_date)
+        await post_weekly_transacting_users(start_date=start_date, end_date=end_date)
         await post_credit_metrics(start_date=start_date, end_date=end_date)
         await post_cashout_metrics(start_date=start_date, end_date=end_date)
         await post_user_base_metrics(report_date=start_date)
