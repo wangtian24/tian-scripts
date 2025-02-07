@@ -10,6 +10,8 @@ from ypl.backend.llm.judge import ConversationStartersLabeler, SuggestedFollowup
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import Chat, SuggestedTurnPrompt, SuggestedUserPrompt
 
+MAX_TOKENS = 100
+
 
 async def maybe_add_suggested_followups(chat_id: uuid.UUID, turn_id: uuid.UUID) -> None:
     try:
@@ -24,7 +26,7 @@ async def maybe_add_suggested_followups(chat_id: uuid.UUID, turn_id: uuid.UUID) 
             context_for_logging="add_suggested_followups",
         )
 
-        labeler = SuggestedFollowupsLabeler(get_gpt_4o_mini_llm(), timeout_secs=3)
+        labeler = SuggestedFollowupsLabeler(get_gpt_4o_mini_llm(MAX_TOKENS), timeout_secs=3)
         suggested_followups = await labeler.alabel(chat_context.messages)
 
         logging.info(
@@ -132,7 +134,7 @@ async def refresh_conversation_starters(
                 full_chat_context.append(chat_context.messages)
 
             # Actually get conversation starters.
-            labeler = ConversationStartersLabeler(get_gpt_4o_mini_llm())
+            labeler = ConversationStartersLabeler(get_gpt_4o_mini_llm(MAX_TOKENS))
             conversation_starters = labeler.label(full_chat_context)
 
             if not conversation_starters:

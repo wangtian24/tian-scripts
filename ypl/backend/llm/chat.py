@@ -1005,55 +1005,33 @@ GEMINI_15_FLASH_LLM: GeminiLangChainAdapter | None = None
 GEMINI_2_FLASH_LLM: GeminiLangChainAdapter | None = None
 
 
-def get_gpt_4o_mini_llm() -> OpenAILangChainAdapter:
-    global GPT_4O_MINI_LLM
-    if GPT_4O_MINI_LLM is None:
-        GPT_4O_MINI_LLM = OpenAILangChainAdapter(
-            model_info=ModelInfo(
-                provider=ChatProvider.OPENAI,
-                model="gpt-4o-mini",
-                api_key=settings.OPENAI_API_KEY,
-            ),
-            model_config_=dict(
-                temperature=0.0,
-                max_tokens=40,
-            ),
-        )
-    return GPT_4O_MINI_LLM
+MAX_TOKENS = 40
 
 
-def get_gpt_4o_llm() -> OpenAILangChainAdapter:
-    global GPT_4O_LLM
-    if GPT_4O_LLM is None:
-        GPT_4O_LLM = OpenAILangChainAdapter(
-            model_info=ModelInfo(
-                provider=ChatProvider.OPENAI,
-                model="gpt-4o",
-                api_key=settings.OPENAI_API_KEY,
-            ),
-            model_config_=dict(
-                temperature=0.0,
-                max_tokens=40,
-            ),
-        )
-    return GPT_4O_LLM
+def get_gpt_llm(model: str, max_tokens: int) -> OpenAILangChainAdapter:
+    return OpenAILangChainAdapter(
+        model_info=ModelInfo(
+            provider=ChatProvider.OPENAI,
+            model=model,
+            api_key=settings.OPENAI_API_KEY,
+        ),
+        model_config_=dict(
+            temperature=0.0,
+            max_tokens=max_tokens,
+        ),
+    )
 
 
-def get_fine_tuned_gpt_4o_llm() -> OpenAILangChainAdapter:
-    global FINE_TUNED_GPT_4O_LLM
-    if FINE_TUNED_GPT_4O_LLM is None:
-        FINE_TUNED_GPT_4O_LLM = OpenAILangChainAdapter(
-            model_info=ModelInfo(
-                provider=ChatProvider.OPENAI,
-                model=MODEL_FOR_FINETUNE_QT_FULL_NAME,
-                api_key=settings.OPENAI_API_KEY,
-            ),
-            model_config_=dict(
-                temperature=0.0,
-                max_tokens=40,
-            ),
-        )
-    return FINE_TUNED_GPT_4O_LLM
+def get_gpt_4o_mini_llm(max_tokens: int) -> OpenAILangChainAdapter:
+    return get_gpt_llm("gpt-4o-mini", max_tokens)
+
+
+def get_gpt_4o_llm(max_tokens: int) -> OpenAILangChainAdapter:
+    return get_gpt_llm("gpt-4o", max_tokens)
+
+
+def get_fine_tuned_gpt_4o_llm(max_tokens: int) -> OpenAILangChainAdapter:
+    return get_gpt_llm(MODEL_FOR_FINETUNE_QT_FULL_NAME, max_tokens)
 
 
 def get_gemini_15_flash_llm() -> GeminiLangChainAdapter:
@@ -1069,7 +1047,7 @@ def get_gemini_15_flash_llm() -> GeminiLangChainAdapter:
                 project_id=settings.GCP_PROJECT_ID,
                 region=settings.GCP_REGION,
                 temperature=0.0,
-                max_output_tokens=64,
+                max_output_tokens=MAX_TOKENS,
                 top_k=1,
             ),
         )
@@ -1089,7 +1067,7 @@ def get_gemini_2_flash_llm() -> GeminiLangChainAdapter:
                 project_id=settings.GCP_PROJECT_ID,
                 region=settings.GCP_REGION_GEMINI_2,
                 temperature=0.0,
-                max_output_tokens=40,
+                max_output_tokens=MAX_TOKENS,
                 top_k=1,
             ),
         )
@@ -1104,9 +1082,9 @@ def get_qt_llms() -> Mapping[str, BaseChatModel]:
     global QT_LLMS
     if QT_LLMS is None:
         QT_LLMS = {
-            "gpt-4o": get_gpt_4o_llm(),
-            "gpt-4o-mini": get_gpt_4o_mini_llm(),
-            MODEL_FOR_FINETUNE_QT_FULL_NAME: get_fine_tuned_gpt_4o_llm(),
+            "gpt-4o": get_gpt_4o_llm(MAX_TOKENS),
+            "gpt-4o-mini": get_gpt_4o_mini_llm(MAX_TOKENS),
+            MODEL_FOR_FINETUNE_QT_FULL_NAME: get_fine_tuned_gpt_4o_llm(MAX_TOKENS),
             "gemini-1.5-flash-002": get_gemini_15_flash_llm(),
             "gemini-2.0-flash-exp": get_gemini_2_flash_llm(),
         }

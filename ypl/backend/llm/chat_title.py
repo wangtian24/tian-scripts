@@ -11,6 +11,8 @@ from ypl.backend.llm.judge import ChatTitleLabeler
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import Chat
 
+MAX_TOKENS = 64
+
 
 async def maybe_set_chat_title(chat_id: uuid.UUID, turn_id: uuid.UUID, sleep_secs: float = 0.0) -> None:
     if sleep_secs > 0.0:
@@ -33,7 +35,7 @@ async def maybe_set_chat_title(chat_id: uuid.UUID, turn_id: uuid.UUID, sleep_sec
             context_for_logging="set_chat_title",
         )
 
-        labeler = ChatTitleLabeler(get_gpt_4o_mini_llm(), timeout_secs=4)
+        labeler = ChatTitleLabeler(get_gpt_4o_mini_llm(MAX_TOKENS), timeout_secs=4)
         title = await labeler.alabel(chat_context.messages)
 
         logging.info(
