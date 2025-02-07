@@ -21,7 +21,7 @@ async def send_referral_bonus_emails(
                 to_address=new_user_model.email,
                 template_params={
                     "email_recipient_name": new_user_model.name,
-                    "credits": new_user_credit_delta,
+                    "credits": f"{new_user_credit_delta:,}",
                 },
             )
         )
@@ -37,7 +37,7 @@ async def send_referral_bonus_emails(
                 template_params={
                     "email_recipient_name": referrer_model.name,
                     "referee_name": new_user_model.name,
-                    "credits": referrer_credit_delta,
+                    "credits": f"{referrer_credit_delta:,}",
                     "invite_code_link": invite_code_link,
                 },
             )
