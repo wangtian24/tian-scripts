@@ -46,7 +46,6 @@ from ypl.backend.payment.payout_utils import (
 from ypl.backend.payment.payout_utils import (
     get_source_instrument_id as get_generic_source_instrument_id,
 )
-from ypl.backend.routes.v1.credit import convert_credits_to_currency
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import (
     CurrencyEnum,
@@ -119,6 +118,7 @@ class CoinbaseFacilitator(BaseFacilitator):
         user_id: str,
         credits_to_cashout: int,
         amount: Decimal,
+        usd_amount: Decimal,
         destination_identifier: str,
         destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
         destination_additional_details: dict | None = None,
@@ -128,12 +128,11 @@ class CoinbaseFacilitator(BaseFacilitator):
     ) -> PaymentResponse:
         start_time = time.time()
         # coinbase requires a minimum of 1 USD
-        amount_cashout_in_usd = await convert_credits_to_currency(credits_to_cashout, CurrencyEnum.USD)
-        if amount_cashout_in_usd < 1:
+        if usd_amount < 1:
             log_dict = {
                 "message": "Minimum amount of 1 USD is required",
                 "user_id": user_id,
-                "amount_requested": str(amount_cashout_in_usd),
+                "amount_requested": str(usd_amount),
                 "credits_to_cashout": str(credits_to_cashout),
             }
             logging.warning(json_dumps(log_dict))
@@ -175,6 +174,7 @@ class CoinbaseFacilitator(BaseFacilitator):
                 payment_transaction_request = PaymentTransactionRequest(
                     currency=self.currency,
                     amount=amount,
+                    usd_amount=usd_amount,
                     source_instrument_id=source_instrument_id,
                     destination_instrument_id=destination_instrument_id,
                     status=PaymentTransactionStatusEnum.NOT_STARTED,
@@ -216,6 +216,7 @@ class CoinbaseFacilitator(BaseFacilitator):
                     user_id,
                     credits_to_cashout,
                     amount,
+                    usd_amount,
                     source_instrument_id,
                     destination_instrument_id,
                     destination_identifier,
@@ -241,6 +242,7 @@ class CoinbaseFacilitator(BaseFacilitator):
                     user_id,
                     credits_to_cashout,
                     amount,
+                    usd_amount,
                     source_instrument_id,
                     destination_instrument_id,
                     destination_identifier,
@@ -278,6 +280,7 @@ class CoinbaseFacilitator(BaseFacilitator):
                             user_id=user_id,
                             credits_to_cashout=credits_to_cashout,
                             amount=amount,
+                            usd_amount=usd_amount,
                             source_instrument_id=source_instrument_id,
                             destination_instrument_id=destination_instrument_id,
                             destination_identifier=destination_identifier,
@@ -292,6 +295,7 @@ class CoinbaseFacilitator(BaseFacilitator):
                     "duration": str(end_time - start_time),
                     "user_id": user_id,
                     "amount": str(amount),
+                    "usd_amount": str(usd_amount),
                     "credits_to_cashout": str(credits_to_cashout),
                     "source_instrument_id": str(source_instrument_id),
                     "destination_instrument_id": str(destination_instrument_id),
@@ -325,6 +329,7 @@ class CoinbaseFacilitator(BaseFacilitator):
                     user_id,
                     credits_to_cashout,
                     amount,
+                    usd_amount,
                     source_instrument_id,
                     destination_instrument_id,
                     destination_identifier,
@@ -348,6 +353,7 @@ class CoinbaseFacilitator(BaseFacilitator):
                     user_id,
                     credits_to_cashout,
                     amount,
+                    usd_amount,
                     source_instrument_id,
                     destination_instrument_id,
                     destination_identifier,
@@ -446,6 +452,7 @@ class CoinbaseFacilitator(BaseFacilitator):
         user_id: str,
         credits_to_cashout: int,
         amount: Decimal,
+        usd_amount: Decimal,
         source_instrument_id: uuid.UUID,
         destination_instrument_id: uuid.UUID,
         destination_identifier: str,
@@ -505,6 +512,7 @@ class CoinbaseFacilitator(BaseFacilitator):
                         user_id=user_id,
                         credits_to_cashout=credits_to_cashout,
                         amount=amount,
+                        usd_amount=usd_amount,
                         source_instrument_id=source_instrument_id,
                         destination_instrument_id=destination_instrument_id,
                         destination_identifier=destination_identifier,
@@ -527,6 +535,7 @@ class CoinbaseFacilitator(BaseFacilitator):
                 f"user_id: {user_id}\n"
                 f"credits_to_cashout: {credits_to_cashout}\n"
                 f"amount: {amount}\n"
+                f"usd_amount: {usd_amount}\n"
                 f"source_instrument_id: {source_instrument_id}\n"
                 f"destination_instrument_id: {destination_instrument_id}\n"
                 f"destination_identifier: {destination_identifier}\n"

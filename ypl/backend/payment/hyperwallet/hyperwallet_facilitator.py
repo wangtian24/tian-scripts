@@ -112,6 +112,7 @@ class HyperwalletFacilitator(BaseFacilitator):
         user_id: str,
         credits_to_cashout: int,
         amount: Decimal,
+        usd_amount: Decimal,
         destination_identifier: str,
         destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
         destination_additional_details: dict | None = None,
@@ -184,6 +185,7 @@ class HyperwalletFacilitator(BaseFacilitator):
                 payment_transaction_request = PaymentTransactionRequest(
                     currency=self.currency,
                     amount=amount,
+                    usd_amount=usd_amount,
                     source_instrument_id=source_instrument_id,
                     destination_instrument_id=destination_instrument_id,
                     status=PaymentTransactionStatusEnum.NOT_STARTED,
@@ -199,6 +201,7 @@ class HyperwalletFacilitator(BaseFacilitator):
                     "message": "Hyperwallet: Failed to create payment transaction",
                     "user_id": user_id,
                     "amount": str(amount),
+                    "usd_amount": str(usd_amount),
                     "error": str(e),
                 }
                 logging.exception(json_dumps(log_dict))
@@ -225,6 +228,7 @@ class HyperwalletFacilitator(BaseFacilitator):
                     user_id,
                     credits_to_cashout,
                     amount,
+                    usd_amount,
                     source_instrument_id,
                     destination_instrument_id,
                     destination_identifier,
@@ -250,6 +254,7 @@ class HyperwalletFacilitator(BaseFacilitator):
                     user_id,
                     credits_to_cashout,
                     amount,
+                    usd_amount,
                     source_instrument_id,
                     destination_instrument_id,
                     destination_identifier,
@@ -285,6 +290,7 @@ class HyperwalletFacilitator(BaseFacilitator):
                             user_id=user_id,
                             credits_to_cashout=credits_to_cashout,
                             amount=amount,
+                            usd_amount=usd_amount,
                             source_instrument_id=source_instrument_id,
                             destination_instrument_id=destination_instrument_id,
                             destination_identifier=destination_identifier,
@@ -331,6 +337,7 @@ class HyperwalletFacilitator(BaseFacilitator):
                     user_id,
                     credits_to_cashout,
                     amount,
+                    usd_amount,
                     source_instrument_id,
                     destination_instrument_id,
                     destination_identifier,
@@ -354,6 +361,7 @@ class HyperwalletFacilitator(BaseFacilitator):
                     user_id,
                     credits_to_cashout,
                     amount,
+                    usd_amount,
                     source_instrument_id,
                     destination_instrument_id,
                     destination_identifier,
@@ -459,6 +467,7 @@ class HyperwalletFacilitator(BaseFacilitator):
         user_id: str,
         credits_to_cashout: int,
         amount: Decimal,
+        usd_amount: Decimal,
         source_instrument_id: uuid.UUID,
         destination_instrument_id: uuid.UUID,
         destination_identifier: str,
@@ -523,6 +532,7 @@ class HyperwalletFacilitator(BaseFacilitator):
                         user_id=user_id,
                         credits_to_cashout=credits_to_cashout,
                         amount=amount,
+                        usd_amount=usd_amount,
                         source_instrument_id=source_instrument_id,
                         destination_instrument_id=destination_instrument_id,
                         destination_identifier=destination_identifier,
@@ -544,6 +554,7 @@ class HyperwalletFacilitator(BaseFacilitator):
                 f"user_id: {user_id}\n"
                 f"credits_to_cashout: {credits_to_cashout}\n"
                 f"amount: {amount}\n"
+                f"usd_amount: {usd_amount}\n"
                 f"source_instrument_id: {source_instrument_id}\n"
                 f"destination_instrument_id: {destination_instrument_id}\n"
                 f"destination_identifier: {destination_identifier}\n"

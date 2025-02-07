@@ -163,6 +163,7 @@ class CheckoutFacilitator(BaseFacilitator):
         user_id: str,
         credits_to_cashout: int,
         amount: Decimal,
+        usd_amount: Decimal,
         destination_identifier: str,
         destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
         destination_additional_details: dict | None = None,
@@ -214,6 +215,7 @@ class CheckoutFacilitator(BaseFacilitator):
                 payment_transaction_request = PaymentTransactionRequest(
                     currency=self.currency,
                     amount=amount,
+                    usd_amount=usd_amount,
                     source_instrument_id=source_instrument_id,
                     destination_instrument_id=destination_instrument_id,
                     status=PaymentTransactionStatusEnum.NOT_STARTED,
@@ -229,6 +231,7 @@ class CheckoutFacilitator(BaseFacilitator):
                     "message": "Checkout.com: Failed to create payment transaction",
                     "user_id": user_id,
                     "amount": str(amount),
+                    "usd_amount": str(usd_amount),
                     "error": str(e),
                 }
                 logging.exception(json_dumps(log_dict))
@@ -246,6 +249,8 @@ class CheckoutFacilitator(BaseFacilitator):
                 log_dict = {
                     "message": "Checkout.com: Failed to create point transaction",
                     "user_id": user_id,
+                    "amount": str(amount),
+                    "usd_amount": str(usd_amount),
                     "error": str(e),
                 }
                 logging.exception(json_dumps(log_dict))
@@ -255,6 +260,7 @@ class CheckoutFacilitator(BaseFacilitator):
                     user_id,
                     credits_to_cashout,
                     amount,
+                    usd_amount,
                     source_instrument_id,
                     destination_instrument_id,
                     destination_identifier,
@@ -280,6 +286,7 @@ class CheckoutFacilitator(BaseFacilitator):
                     user_id,
                     credits_to_cashout,
                     amount,
+                    usd_amount,
                     source_instrument_id,
                     destination_instrument_id,
                     destination_identifier,
@@ -332,6 +339,7 @@ class CheckoutFacilitator(BaseFacilitator):
                             user_id=user_id,
                             credits_to_cashout=credits_to_cashout,
                             amount=amount,
+                            usd_amount=usd_amount,
                             source_instrument_id=source_instrument_id,
                             destination_instrument_id=destination_instrument_id,
                             destination_identifier=destination_identifier,
@@ -346,6 +354,7 @@ class CheckoutFacilitator(BaseFacilitator):
                     "duration": str(end_time - start_time),
                     "user_id": user_id,
                     "amount": str(amount),
+                    "usd_amount": str(usd_amount),
                     "credits_to_cashout": str(credits_to_cashout),
                     "source_instrument_id": str(source_instrument_id),
                     "destination_instrument_id": str(destination_instrument_id),
@@ -378,6 +387,7 @@ class CheckoutFacilitator(BaseFacilitator):
                     user_id,
                     credits_to_cashout,
                     amount,
+                    usd_amount,
                     source_instrument_id,
                     destination_instrument_id,
                     destination_identifier,
@@ -401,6 +411,7 @@ class CheckoutFacilitator(BaseFacilitator):
                     user_id,
                     credits_to_cashout,
                     amount,
+                    usd_amount,
                     source_instrument_id,
                     destination_instrument_id,
                     destination_identifier,
@@ -491,6 +502,7 @@ class CheckoutFacilitator(BaseFacilitator):
         user_id: str,
         credits_to_cashout: int,
         amount: Decimal,
+        usd_amount: Decimal,
         source_instrument_id: uuid.UUID,
         destination_instrument_id: uuid.UUID,
         destination_identifier: str,
@@ -549,6 +561,7 @@ class CheckoutFacilitator(BaseFacilitator):
                         user_id=user_id,
                         credits_to_cashout=credits_to_cashout,
                         amount=amount,
+                        usd_amount=usd_amount,
                         source_instrument_id=source_instrument_id,
                         destination_instrument_id=destination_instrument_id,
                         destination_identifier=destination_identifier,
@@ -570,6 +583,7 @@ class CheckoutFacilitator(BaseFacilitator):
                 f"user_id: {user_id}\n"
                 f"credits_to_cashout: {credits_to_cashout}\n"
                 f"amount: {amount}\n"
+                f"usd_amount: {usd_amount}\n"
                 f"source_instrument_id: {source_instrument_id}\n"
                 f"destination_instrument_id: {destination_instrument_id}\n"
                 f"destination_identifier: {destination_identifier}\n"

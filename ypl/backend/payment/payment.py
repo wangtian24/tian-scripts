@@ -30,6 +30,7 @@ from ypl.db.users import User
 class PaymentTransactionRequest:
     currency: CurrencyEnum
     amount: Decimal
+    usd_amount: Decimal
     source_instrument_id: UUID
     destination_instrument_id: UUID
     status: PaymentTransactionStatusEnum

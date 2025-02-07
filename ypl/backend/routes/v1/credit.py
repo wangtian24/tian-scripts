@@ -86,7 +86,14 @@ class CashoutCreditsRequest:
     ip_address: str | None = None
 
 
-async def convert_credits_to_currency(credits: int, currency: CurrencyEnum) -> Decimal:
+@dataclass
+class CurrencyConversionResult:
+    currency_amount: Decimal
+    usd_amount: Decimal
+    currency: CurrencyEnum
+
+
+async def convert_credits_to_currency(credits: int, currency: CurrencyEnum) -> CurrencyConversionResult:
     # TODO: Put them in a config somewhere.
 
     credits_decimal: Decimal = Decimal(credits)
@@ -99,15 +106,21 @@ async def convert_credits_to_currency(credits: int, currency: CurrencyEnum) -> D
     }
     logging.info(json_dumps(log_dict))
 
+    usd_amount = credits_decimal * CREDITS_TO_USD_RATE
+
     if currency == CurrencyEnum.INR:
-        return credits_decimal * CREDITS_TO_INR_RATE
+        return CurrencyConversionResult(
+            currency_amount=credits_decimal * CREDITS_TO_INR_RATE, usd_amount=usd_amount, currency=currency
+        )
     elif currency == CurrencyEnum.USD:
-        return credits_decimal * CREDITS_TO_USD_RATE
+        return CurrencyConversionResult(currency_amount=usd_amount, usd_amount=usd_amount, currency=currency)
     elif currency == CurrencyEnum.USDC:
-        return credits_decimal * CREDITS_TO_USD_RATE
+        return CurrencyConversionResult(currency_amount=usd_amount, usd_amount=usd_amount, currency=currency)
     else:
         exchange_rate = await get_exchange_rate(CurrencyEnum.USD, currency)
-        return credits_decimal * CREDITS_TO_USD_RATE * exchange_rate
+        return CurrencyConversionResult(
+            currency_amount=usd_amount * exchange_rate, usd_amount=usd_amount, currency=currency
+        )
 
 
 async def validate_cashout_request(request: CashoutCreditsRequest) -> None:
@@ -231,7 +244,7 @@ async def cashout_credits(request: CashoutCreditsRequest) -> str | None | Paymen
         raise HTTPException(status_code=500, detail="Oops! Something went wrong. Please try again later.") from e
 
     try:
-        amount_in_currency = await convert_credits_to_currency(request.credits_to_cashout, request.cashout_currency)
+        conversion_result = await convert_credits_to_currency(request.credits_to_cashout, request.cashout_currency)
     except Exception as e:
         log_dict = {
             "message": "Error converting credits to currency",
@@ -255,7 +268,8 @@ async def cashout_credits(request: CashoutCreditsRequest) -> str | None | Paymen
         payment_response = await facilitator.make_payment(
             request.user_id,
             request.credits_to_cashout,
-            amount_in_currency,
+            conversion_result.currency_amount,
+            conversion_result.usd_amount,
             request.destination_identifier,
             request.destination_identifier_type,
             request.destination_additional_details,
