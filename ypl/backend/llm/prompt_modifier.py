@@ -20,17 +20,24 @@ class ModifierAnnotator(RouterModule):
         return state.emplaced(applicable_modifiers=self.modifiers)
 
 
-async def run_prompt_modifier_on_models(
+async def get_prompt_modifiers(
     prompt: str,
+) -> list[str]:
+    """
+    Get the prompt modifier from the prompt
+    """
+    modifier_labeler = _get_modifier_labeler()
+    return await modifier_labeler.alabel(prompt)
+
+
+async def attach_prompt_modifiers_to_models(
+    modifier_labels: list[str],
     selected_models: list[str],
 ) -> RouterState:
     """
-    Get the prompt modifier results for the selected models, run this as a one-step router chain.
+    Attach prompt modifiers to selected models, run a one-step router chain.
     """
-    modifier_labeler = _get_modifier_labeler()
-    modifier_labels = await modifier_labeler.alabel(prompt)
     router: RouterModule = ModifierAnnotator(modifier_labels)
-
     start_state = RouterState.new_chosen_models_state(selected_models)
     return router.select_models(state=start_state)
 

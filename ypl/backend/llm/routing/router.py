@@ -1,14 +1,10 @@
-import asyncio
-import logging
-
 from google.auth import default
 from google.cloud import run_v2
 from langchain_core.language_models.chat_models import BaseChatModel
 
 from ypl.backend.config import settings
-from ypl.backend.llm.constants import IMAGE_CATEGORY, OFFLINE_CATEGORY, ONLINE_CATEGORY, PDF_CATEGORY, ChatProvider
+from ypl.backend.llm.constants import IMAGE_CATEGORY, ONLINE_CATEGORY, PDF_CATEGORY, ChatProvider
 from ypl.backend.llm.db_helpers import deduce_original_providers
-from ypl.backend.llm.judge import YuppMultilabelClassifier, YuppOnlinePromptLabeler
 from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.promotions import PromotionModelProposer
 from ypl.backend.llm.ranking import Ranker, get_ranker
@@ -48,15 +44,23 @@ from ypl.backend.llm.routing.modules.rankers import (
 )
 from ypl.backend.llm.routing.policy import SelectionCriteria, decayed_random_fraction
 from ypl.backend.llm.routing.route_data_type import RoutingPreference
+from ypl.backend.llm.routing.rule_router import RoutingRuleFilter, RoutingRuleProposer
 from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter, OpenAILangChainAdapter
-from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.monitoring import metric_inc_by
 
 # Begin pro router logic and routine
 ROUTING_LLM: BaseChatModel | None = None
-ONLINE_LABELER: YuppOnlinePromptLabeler | None = None
-TOPIC_LABELER: YuppMultilabelClassifier | None = None
 USE_GEMINI_FOR_ROUTING = False
+
+
+def needs_attachment(categories: list[str]) -> bool:
+    return IMAGE_CATEGORY in categories or PDF_CATEGORY in categories
+
+
+def needs_special_ability(categories: list[str]) -> bool:
+    # TODO(tian) - this might be a bit hacky, here we manually maintain a list we know that the routing chain is using.
+    # we will change this to a more proper model ability check in the future.
+    return needs_attachment(categories) or categories in ["coding", ONLINE_CATEGORY]
 
 
 async def get_simple_pro_router(
@@ -69,57 +73,33 @@ async def get_simple_pro_router(
     provided_categories: list[str] | None = None,
     chat_id: str | None = None,
     is_new_turn: bool = False,
-    for_fallback: bool = False,
+    with_fallback: bool = False,
 ) -> RouterModule:
     """
     The main routing function.
     """
-    from ypl.backend.llm.routing.rule_router import RoutingRuleFilter, RoutingRuleProposer
+    num_models_to_return = num_models * 2 if with_fallback else num_models
+
+    categories = provided_categories or []
+    show_me_more_providers = (
+        set(deduce_original_providers(tuple(show_me_more_models)).values()) if show_me_more_models else set()
+    )
 
     reputable_proposer = RandomModelProposer(
         for_criteria=SelectionCriteria.RANDOM_REPUTABLE,
         providers=reputable_providers or set(settings.ROUTING_REPUTABLE_PROVIDERS),
     )
-    online_labeler = _get_online_labeler()
-    topic_labeler = _get_topic_labeler()
-    online_label, topic_labels = await asyncio.gather(
-        online_labeler.alabel(prompt),
-        topic_labeler.alabel(prompt),
-    )
 
-    short_prompt = (prompt[:60] + "...") if len(prompt) > 60 else prompt
-    short_prompt = short_prompt.replace("\n", " ")
-    logging.info(
-        json_dumps(
-            {
-                "message": f"Model routing input - user prompt = [{short_prompt}]",
-                "chat_id": chat_id,
-                "online_label": online_label,
-                "topic_labels": topic_labels,
-                "preference": preference,
-                "provided_categories": provided_categories,
-            }
-        )
-    )
+    has_image = IMAGE_CATEGORY in categories
+    has_pdf = PDF_CATEGORY in categories
+    has_attachment = has_image or has_pdf
 
-    online_category = ONLINE_CATEGORY if online_label else OFFLINE_CATEGORY
-    categories = [online_category] + topic_labels + (provided_categories or [])
-    categories = list(dict.fromkeys(categories))
+    pro_proposer = ImageProModelProposer() if has_image else PdfProModelProposer() if has_pdf else ProModelProposer()
 
     rule_proposer = RoutingRuleProposer(*categories)
     rule_filter = RoutingRuleFilter(*categories)
     error_filter = HighErrorRateFilter()
-    pro_proposer = ProModelProposer()
     num_pro = int(pro_proposer.get_rng().random() * 2 + 1)
-
-    show_me_more_providers = (
-        set(deduce_original_providers(tuple(show_me_more_models)).values()) if show_me_more_models else set()
-    )
-
-    if IMAGE_CATEGORY in categories:
-        pro_proposer = ImageProModelProposer()
-    if PDF_CATEGORY in categories:
-        pro_proposer = PdfProModelProposer()
 
     image_proposer = ImageProModelProposer() if IMAGE_CATEGORY in categories else Passthrough()
     pdf_proposer = PdfProModelProposer() if PDF_CATEGORY in categories else Passthrough()
@@ -137,21 +117,21 @@ async def get_simple_pro_router(
         return (
             # -- filter stage --
             Exclude(name="-exSMM", providers=show_me_more_providers, models=exclude_models)
-            # inject user selected model, even if they are already used before.
-            # Also they are always treated with priority in the following dedup filters.
+            # Inject required models, even if they don't have attachment capabilities.
             | Inject(required_models or [], score=50000000)
-            # Don't apply semantic group filter for image turns, since we don't have many supporting models.
-            | (
-                semantic_group_filter
-                if IMAGE_CATEGORY not in categories and PDF_CATEGORY not in categories
-                else Passthrough()
-            )
+            # remove models that don't support needed attachment
             | attachment_filter
-            | ProviderFilter(one_per_provider=True, priority_models=required_models)  # dedupe by provider
+            # Don't apply semantic group filter for image turns, since we don't have many supporting models.
+            | (semantic_group_filter if not has_attachment else Passthrough())
+            | (
+                ProviderFilter(one_per_provider=True, priority_models=required_models)
+                if not has_attachment
+                else Passthrough()
+            )  # dedupe by provider, relax for image/pdf needs
             # -- ranking stage --
             | ScoreReranker()
             | PromotionModelReranker()
-            | FirstK(num_models, name="final")
+            | FirstK(num_models_to_return, name="final")
             | SpeedReranker(num_models)  # rerank final results with speed, the fastest models always in the front
             | (PositionMatchReranker(preference, num_models) if is_new_turn else Passthrough())
             # -- logging stage --
@@ -192,7 +172,7 @@ async def get_simple_pro_router(
                 # propose promoted models
                 & (
                     (PromotionModelProposer() | error_filter).with_flags(always_include=True)
-                    if not for_fallback
+                    if not with_fallback
                     else Passthrough()
                 )
                 # propose models with image or pdf capabilities, strong offset
@@ -270,20 +250,6 @@ async def get_simple_pro_router(
         )
 
     return router
-
-
-def _get_online_labeler() -> YuppOnlinePromptLabeler:
-    global ONLINE_LABELER
-    if ONLINE_LABELER is None:
-        ONLINE_LABELER = YuppOnlinePromptLabeler(_get_routing_llm(), timeout_secs=settings.ROUTING_TIMEOUT_SECS)
-    return ONLINE_LABELER
-
-
-def _get_topic_labeler() -> YuppMultilabelClassifier:
-    global TOPIC_LABELER
-    if TOPIC_LABELER is None:
-        TOPIC_LABELER = YuppMultilabelClassifier(_get_routing_llm(), timeout_secs=settings.ROUTING_TIMEOUT_SECS)
-    return TOPIC_LABELER
 
 
 def _get_good_and_bad_models(preference: RoutingPreference) -> tuple[set[str], set[str]]:

@@ -163,7 +163,7 @@ class StopWatch:
         """Record final split and total time."""
         if not self.ended:
             self.record_split(name)
-            self.splits["total_time"] = int(time.time() * 1000 - self.stopwatch_start_time)
+            self.splits["TOTAL"] = int(time.time() * 1000 - self.stopwatch_start_time)
             self.ended = True
 
     # Recording time for specific laps with its own start and end
@@ -192,10 +192,13 @@ class StopWatch:
         """Return dictionary of all recorded splits."""
         return self.splits.copy()
 
-    def pretty_print(self) -> None:
+    def pretty_print(self, print_total: bool = True) -> None:
         """Print splits one per row with millisecond suffix."""
+        print("StopWatch results:")
         for name, duration in self.splits.items():
-            print(f"{name:40} {int(duration):8} ms")
+            if not print_total and name == "total_time":
+                continue
+            print(f"-- {name:40} {int(duration):8} ms")
 
     def export_metrics(self, prefix: str) -> None:
         """Export all splits as metrics with the given prefix."""

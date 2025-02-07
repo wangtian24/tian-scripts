@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 from ypl.backend.llm.routing.router_state import RouterState
+from ypl.backend.utils.utils import StopWatch
 from ypl.utils import RNGMixin
 
 
@@ -55,9 +56,16 @@ class RouterModule(ABC):
     _offset: float | None = None
 
     def select_models(self, state: RouterState | None = None) -> RouterState:
+        stopwatch = StopWatch()
+
         start_state = state or RouterState()
         end_state = self._select_models(start_state)
-        return self._finish_merge(end_state)
+        merged_state = self._finish_merge(end_state)
+
+        stopwatch.end(self.__class__.__name__)
+        # stopwatch.pretty_print(print_total=False)  # uncomment this to print time spent in each step
+
+        return merged_state
 
     async def aselect_models(self, state: RouterState | None = None) -> RouterState:
         start_state = state or RouterState()

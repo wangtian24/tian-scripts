@@ -2,7 +2,12 @@ from typing import Any
 
 import pytest
 
-from ypl.backend.llm.routing.router import OFFLINE_CATEGORY, ONLINE_CATEGORY, _get_online_labeler, _get_topic_labeler
+from ypl.backend.llm.category_labeler import (
+    OFFLINE_CATEGORY,
+    ONLINE_CATEGORY,
+    _get_online_labeler,
+    _get_topic_labeler,
+)
 
 regression_examples = [
     dict(

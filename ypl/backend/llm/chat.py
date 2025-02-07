@@ -25,6 +25,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine, get_async_session, get_engine
 from ypl.backend.llm.attachment import get_attachments
+from ypl.backend.llm.category_labeler import get_prompt_categories
 from ypl.backend.llm.constants import ACTIVE_MODELS_BY_PROVIDER, ChatProvider
 from ypl.backend.llm.db_helpers import (
     deduce_original_providers,
@@ -38,7 +39,7 @@ from ypl.backend.llm.db_helpers import (
 from ypl.backend.llm.labeler import QT_CANT_ANSWER, QuickTakeGenerator
 from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.model_heuristics import ModelHeuristics
-from ypl.backend.llm.prompt_modifier import run_prompt_modifier_on_models
+from ypl.backend.llm.prompt_modifier import attach_prompt_modifiers_to_models, get_prompt_modifiers
 from ypl.backend.llm.prompt_selector import (
     CategorizedPromptModifierSelector,
     get_modifiers_by_model_and_position,
@@ -47,6 +48,7 @@ from ypl.backend.llm.prompt_selector import (
 from ypl.backend.llm.provider.provider_clients import get_model_provider_tuple
 from ypl.backend.llm.routing.debug import RoutingDebugInfo, build_routing_debug_info
 from ypl.backend.llm.routing.route_data_type import RoutingPreference
+from ypl.backend.llm.routing.router import needs_special_ability
 from ypl.backend.llm.routing.router_state import RouterState
 from ypl.backend.llm.transform_messages import TransformOptions, transform_user_messages
 from ypl.backend.llm.turn_quality import label_turn_quality
@@ -221,12 +223,17 @@ def kick_off_label_turn_quality(prompt: str, chat_id: str, turn_id: str) -> str:
 
 
 async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Response:
+    """
+    The main model routing function. It labels the prompt, extracts historic chat turn information
+    to decide what model we should route to.
+    """
     from ypl.backend.llm.routing.router import get_simple_pro_router
 
     logging.debug(json_dumps({"message": "select_models_plus request"} | request.model_dump(mode="json")))
     metric_inc(f"routing/intent_{request.intent}")
     stopwatch = StopWatch()
 
+    # Prepare the prompt and past turn information
     prompt = None
     match request.intent:
         case SelectIntent.NEW_CHAT:
@@ -245,10 +252,8 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
             preference = get_preferences(request.user_id, request.chat_id, request.turn_id)
         case _:
             raise ValueError(f"Unsupported intent {request.intent} for select_models_plus()")
-
-    stopwatch.record_split("get_preference")
-
     preference.debug_level = request.debug_level
+    stopwatch.record_split("prepare_prompt_and_preference")
 
     # Figure out what models are required for routing (must appear)
     # 1. get it from request, if none, from DB, if none, from preference (inferred from history messages in the chat)
@@ -269,15 +274,34 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         else required_models_for_routing
     )
     required_models_for_routing = list(dict.fromkeys(required_models_for_routing))  # just dedupe
-
     stopwatch.record_split("infer_required_models")
 
-    # only run the routing chain if we don't have enough models to serve.
+    # Prompt labeling, generate categories and modifiers based on the prompt.
+    prompt_categories, prompt_modifiers = await asyncio.gather(
+        get_prompt_categories(prompt), get_prompt_modifiers(prompt)
+    )
+    log_dict = {
+        "message": f"Model routing: prompt classification for [{prompt[:100]}]",
+        "chat_id": request.chat_id,
+        "turn_id": request.turn_id,
+        "user_id": request.user_id,
+        "preference": preference,
+        "prompt_categories": ", ".join(prompt_categories) if prompt_categories else "None",
+        "prompt_modifiers": ", ".join(prompt_modifiers) if prompt_modifiers else "None",
+    }
+    logging.info(json_dumps(log_dict))
+    stopwatch.record_split("prompt_classification")
+
+    # Run the routing chain if we don't have enough models to serve.
     primary_models = []
-    primary_models_rs = None
-    if len(required_models_for_routing) >= request.num_models:
+    fallback_models = []
+    models_rs = None
+
+    if len(required_models_for_routing) > request.num_models * 2 and not needs_special_ability(prompt_categories):
+        # Allow routing to be short-circuited if we don't need any spacial abilities.
         primary_models = required_models_for_routing[: request.num_models]
-        num_models_remaining = request.num_models
+        fallback_models = required_models_for_routing[request.num_models : request.num_models * 2]
+        num_models_remaining = request.num_models  # since we didn't run the chain, we just always assume there's enough
     else:
         # create a router
         router = await get_simple_pro_router(
@@ -286,71 +310,41 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
             preference,
             required_models=required_models_for_routing,
             show_me_more_models=preference.same_turn_shown_models or [],
-            provided_categories=request.provided_categories or [],
+            provided_categories=(prompt_categories or []) + (request.provided_categories or []),
             chat_id=request.chat_id,
             is_new_turn=(request.intent == SelectIntent.NEW_TURN),
-            for_fallback=True,
+            with_fallback=True,
         )
+        stopwatch.record_split("routing_create_chain")
         # actually run the router chain
         all_models_state = RouterState.new_all_models_state()
-        primary_models_rs = router.select_models(state=all_models_state)
+        models_rs = router.select_models(state=all_models_state)
         # extract results
-        selected_models = primary_models_rs.get_selected_models()
+        selected_models = models_rs.get_selected_models()
         primary_models = selected_models[: request.num_models]
         fallback_models = selected_models[request.num_models : request.num_models * 2]
-        num_models_remaining = primary_models_rs.num_models_remaining or request.num_models
+        num_models_remaining = models_rs.num_models_remaining or request.num_models
+    stopwatch.record_split("routing_total")
 
-    stopwatch.record_split("routing_primary")
+    # Attach prompt modifiers to the models we selected
+    prompt_modifiers_rs = await attach_prompt_modifiers_to_models(prompt_modifiers, primary_models + fallback_models)
+    prompt_modifiers_by_model = _set_prompt_modifiers(request, prompt_modifiers_rs)
+    stopwatch.record_split("set_prompt_modifiers")
 
-    # Update the required models, remove models already chosen in the primary routing
-    required_models_for_routing = [m for m in required_models_for_routing if m not in primary_models]
+    # Deduce the provider information for models
+    providers_by_model = deduce_original_providers(tuple(primary_models + fallback_models))
 
-    fallback_models = []
-    fallback_models_rs = None
-    if len(required_models_for_routing) >= request.num_models:
-        fallback_models = required_models_for_routing[request.num_models :]
-    else:
-        router = await get_simple_pro_router(
-            prompt,
-            request.num_models,
-            preference,
-            # exclude the user selected models already used in the primary selection
-            required_models=required_models_for_routing,
-            show_me_more_models=preference.same_turn_shown_models or [],
-            provided_categories=request.provided_categories or [],
-            is_new_turn=(request.intent == SelectIntent.NEW_TURN),
-            for_fallback=True,
-        )
-        all_fallback_models = RouterState.new_all_models_state()
-        all_fallback_models = all_fallback_models.emplaced(
-            # just keep the models not already in the return models (any remainders), select within them
-            all_models=all_fallback_models.all_models.difference(primary_models)
-        )
-        fallback_models_rs = router.select_models(state=all_fallback_models)
-        fallback_models = fallback_models_rs.get_selected_models()
-
-    stopwatch.record_split("routing_fallback")
-
-    # Generate modifier labels for the models we selected
-    prompt_modifiers_rs = await run_prompt_modifier_on_models(prompt, primary_models + fallback_models)
-    prompt_modifiers = _set_prompt_modifiers(request, prompt_modifiers_rs)
-
-    stopwatch.record_split("prompt_modifiers")
-
+    # Create debugging info and logging
     routing_debug_info: RoutingDebugInfo = build_routing_debug_info(
         primary_models=primary_models,
         fallback_models=fallback_models,
-        router_state=primary_models_rs,
+        router_state=models_rs,
         required_models=request.required_models,
     )
-
-    # Debug logging
     if logging.root.getEffectiveLevel() == logging.DEBUG:
         for model, model_debug in routing_debug_info.model_debug.items():
             is_selected = " S => " if model in primary_models else ""
             logging.debug(f"> {model:<50}{is_selected:<8}{model_debug.score:-10.1f}{model_debug.journey}")
-
-    # if the number of returned models is different from what the requests asked, log more information
     if len(primary_models) != request.num_models:
         log_dict = {
             "message": f"Model routing: requested {request.num_models} models, but returned {len(primary_models)}.",
@@ -360,9 +354,27 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         }
         logging.info(json_dumps(log_dict))
 
-    providers_by_model = deduce_original_providers(tuple(primary_models + fallback_models))
+    # Prepare the response
+    response = SelectModelsV2Response(
+        models=[(model, prompt_modifiers_by_model.get(model, [])) for model in primary_models],
+        fallback_models=[(model, prompt_modifiers_by_model.get(model, [])) for model in fallback_models],
+        provider_map=providers_by_model,
+        selected_models=[
+            SelectedModelInfo(
+                model=model,
+                provider=providers_by_model[model],
+                type=SelectedModelType.PRIMARY if model in primary_models else SelectedModelType.FALLBACK,
+                prompt_modfiers=prompt_modifiers_by_model.get(model, []),
+            )
+            for model in primary_models + fallback_models
+        ],
+        routing_debug_info=routing_debug_info if request.debug_level > 0 else None,
+        num_models_remaining=num_models_remaining,
+    )
+    stopwatch.end("prepare_response")
 
-    # metric counters and logging
+    # Export metrics
+    stopwatch.export_metrics("routing/latency/")
     metric_inc_by("routing/count_models_served", len(primary_models))
     if len(primary_models) > 0:
         metric_inc(f"routing/count_first_{primary_models[0]}")
@@ -370,27 +382,6 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         metric_inc(f"routing/count_second_{primary_models[1]}")
     for model in primary_models:
         metric_inc(f"routing/count_chosen_{model}")
-    stopwatch.record_split("prepare_response")
-    stopwatch.export_metrics("routing/latency/")
-
-    response = SelectModelsV2Response(
-        models=[(model, prompt_modifiers.get(model, [])) for model in primary_models],
-        fallback_models=[(model, prompt_modifiers.get(model, [])) for model in fallback_models],
-        provider_map=providers_by_model,
-        # another convenient version
-        selected_models=[
-            SelectedModelInfo(
-                model=model,
-                provider=providers_by_model[model],
-                type=SelectedModelType.PRIMARY if model in primary_models else SelectedModelType.FALLBACK,
-                prompt_modfiers=prompt_modifiers.get(model, []),
-            )
-            for model in primary_models + fallback_models
-        ],
-        routing_debug_info=routing_debug_info if request.debug_level > 0 else None,
-        num_models_remaining=num_models_remaining,
-    )
-    logging.debug(json_dumps({"message": "select_models_plus response"} | response.model_dump(mode="json")))
 
     return response
 

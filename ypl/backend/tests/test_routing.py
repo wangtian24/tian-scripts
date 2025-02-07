@@ -10,7 +10,6 @@ from pytest import approx, mark
 
 from ypl.backend.config import settings
 from ypl.backend.llm.chat import SelectIntent, SelectModelsV2Request, select_models_plus
-from ypl.backend.llm.prompt_selector import CategorizedPromptModifierSelector
 from ypl.backend.llm.ranking import Battle, ChoixRanker, ChoixRankerConfIntervals, EloRanker
 from ypl.backend.llm.routing.modules.filters import ContextLengthFilter, SupportsImageAttachmentModelFilter, TopK
 from ypl.backend.llm.routing.modules.proposers import (
@@ -492,9 +491,6 @@ def test_fast_compute_all_conf_overlap_diffs() -> None:
 
 # These patches must be in the resverse order of the argument list below,
 # and the path is where they are called rather than where they are defined.
-@patch("ypl.backend.llm.prompt_modifier.PromptModifierLabeler")
-@patch("ypl.backend.llm.routing.router.YuppMultilabelClassifier")
-@patch("ypl.backend.llm.routing.router.YuppOnlinePromptLabeler")
 @patch("ypl.backend.llm.promotions.get_model_creation_dates", return_value={})
 @patch("ypl.backend.llm.promotions.get_active_model_promotions", return_value=[])
 @patch("ypl.backend.llm.routing.router.HighErrorRateFilter.select_models")
@@ -527,14 +523,7 @@ async def test_simple_pro_router(
     mock_error_filter: Mock,
     mock_get_active_model_promotions: Mock,
     mock_get_model_creation_dates: Mock,
-    MockOnlineYupp: Mock,
-    MockTopicCategorizer: Mock,
-    MockModifierLabeler: Mock,
 ) -> None:
-    MockOnlineYupp.return_value.alabel = mock_online_yupp_fn
-    MockTopicCategorizer.return_value.alabel = mock_topic_categorizer_fn
-    MockModifierLabeler.return_value.alabel = mock_modifier_labeler_fn
-
     mock_table = Mock()
     mock_table.apply.return_value = ({}, set())  # empty accept_map and rejected_models
     mock_routing_table.return_value = mock_table
@@ -759,9 +748,11 @@ def test_context_length_filter(mock_context_lengths: Mock) -> None:
 
 @pytest.mark.asyncio
 @patch("ypl.backend.llm.prompt_modifier.PromptModifierLabeler")
-@patch("ypl.backend.llm.routing.router.YuppMultilabelClassifier")
-@patch("ypl.backend.llm.routing.router.YuppOnlinePromptLabeler")
-@patch("ypl.backend.llm.chat.run_prompt_modifier_on_models")
+@patch("ypl.backend.llm.category_labeler.YuppMultilabelClassifier")
+@patch("ypl.backend.llm.category_labeler.YuppOnlinePromptLabeler")
+@patch("ypl.backend.llm.chat.get_prompt_categories", return_value=[])
+@patch("ypl.backend.llm.chat.get_prompt_modifiers", return_value=[])
+@patch("ypl.backend.llm.chat.attach_prompt_modifiers_to_models")
 @patch("ypl.backend.llm.chat.label_turn_quality", return_value=None)
 @patch("ypl.backend.llm.chat.get_chat_required_models", return_value=[])
 @patch("ypl.backend.llm.routing.modules.filters.get_active_models", return_value=ACTIVE_MODELS)
@@ -784,6 +775,7 @@ def test_context_length_filter(mock_context_lengths: Mock) -> None:
 @patch("ypl.backend.llm.routing.modules.filters.deduce_original_providers", return_value=PROVIDER_MAP)
 @patch("ypl.backend.llm.routing.modules.proposers.deduce_original_providers", return_value=PROVIDER_MAP)
 @patch("ypl.backend.llm.routing.rule_router.deduce_original_providers", return_value=PROVIDER_MAP)
+@patch("ypl.backend.llm.chat.deduce_original_providers", return_value=PROVIDER_MAP)
 @patch("ypl.backend.llm.routing.modules.filters.HighErrorRateFilter._get_error_rates", return_value={})
 @patch("ypl.backend.llm.prompt_selector.CategorizedPromptModifierSelector.make_default_from_db")
 @patch("ypl.backend.llm.chat.get_user_message", return_value="hi")
@@ -796,6 +788,7 @@ async def test_select_models_plus(
     mock_deduce_original_providers1: Mock,
     mock_deduce_original_providers2: Mock,
     mock_deduce_original_providers3: Mock,
+    mock_deduce_original_providers4: Mock,
     mock_deduce_model_speed_scores: Mock,
     mock_get_active_model_promotions: Mock,
     mock_get_model_creation_dates: Mock,
@@ -812,7 +805,9 @@ async def test_select_models_plus(
     mock_active_models: Mock,
     mock_get_chat_required_models: Mock,
     mock_label_turn_quality: Mock,
-    mock_run_prompt_modifier_on_models: Mock,
+    mock_attach_prompt_modifiers_to_models: Mock,
+    mock_get_prompt_modifiers: Mock,
+    mock_get_prompt_categories: Mock,
     MockOnlineYupp: Mock,
     MockTopicCategorizer: Mock,
     MockModifierLabeler: Mock,
@@ -820,7 +815,7 @@ async def test_select_models_plus(
     mock_get_preferences.side_effect = lambda *args, **kwargs: RoutingPreference(
         turns=[], user_id="user", user_selected_models=[], same_turn_shown_models=[]
     )
-    mock_make_default_from_db.return_value = CategorizedPromptModifierSelector.make_default()
+    # mock_make_default_from_db.return_value = CategorizedPromptModifierSelector.make_default()
     show_me_more_models = random.sample(IMAGE_ATTACHMENT_MODELS, 3)
 
     def make_image_request(intent: SelectIntent) -> SelectModelsV2Request:
@@ -843,7 +838,7 @@ async def test_select_models_plus(
             chat_id=str(uuid.uuid4()),
             turn_id=str(uuid.uuid4()),
             provided_categories=["image"],
-            debug_level=1,
+            debug_level=0,
             prompt_modifier_id=None,
             user_id="user",
         )
@@ -852,8 +847,9 @@ async def test_select_models_plus(
     MockTopicCategorizer.return_value.alabel = mock_topic_categorizer_fn
     MockModifierLabeler.return_value.alabel = mock_modifier_labeler_fn
 
-    for _ in range(30):
+    for i in range(30):
         for intent in (SelectIntent.NEW_TURN, SelectIntent.SHOW_ME_MORE, SelectIntent.NEW_CHAT):
+            print(f"------------------------------- loop {i} intent {intent}")
             request = make_image_request(intent)
             response = await select_models_plus(request)
             assert len(response.models) == 2
