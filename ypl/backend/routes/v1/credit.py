@@ -50,6 +50,8 @@ CREDITS_TO_INR_RATE = Decimal("0.05")
 CREDITS_TO_USD_RATE = Decimal("0.002")
 USD_TO_INR_RATE = Decimal("85")  # TODO: Get this from the exchange rate API. Hardcoded to match superset
 
+SLACK_WEBHOOK_CASHOUT = settings.SLACK_WEBHOOK_CASHOUT
+
 
 @router.get("/credits/balance")
 async def get_credits_balance(user_id: str = Query(..., description="User ID")) -> int:
@@ -136,7 +138,9 @@ async def validate_cashout_request(request: CashoutCreditsRequest) -> None:
 
         if request.country_code != user.country_code:
             log_dict["VPN_detected"] = True
-            asyncio.create_task(post_to_slack_with_user_name(json_dumps(log_dict)))
+            asyncio.create_task(
+                post_to_slack_with_user_name(request.user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
+            )
         raise HTTPException(status_code=400, detail="Cashout to crypto is not supported in India")
 
     if request.cashout_currency.is_crypto() and request.ip_address:
@@ -153,7 +157,9 @@ async def validate_cashout_request(request: CashoutCreditsRequest) -> None:
                 "user_country_code": user.country_code,
             }
             logging.warning(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack_with_user_name(json_dumps(log_dict)))
+            asyncio.create_task(
+                post_to_slack_with_user_name(request.user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
+            )
             raise HTTPException(status_code=400, detail="Cashout to crypto is not supported from a VPN")
 
     if (
