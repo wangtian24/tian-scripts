@@ -330,8 +330,12 @@ def get_preferences(user_id: str | None, chat_id: str, turn_id: str) -> RoutingP
 
     # go through turns from oldest to newest and extract their preferred models if any.
     for cur_turn_id, messages in turns_row_list:
-        shown_models = [msg.assistant_model_name for msg in messages if msg.completion_status.is_shown()]
-        failed_models = [msg.assistant_model_name for msg in messages if msg.completion_status.is_failure()]
+        shown_models = [
+            msg.assistant_model_name for msg in messages if msg.completion_status and msg.completion_status.is_shown()
+        ]
+        failed_models = [
+            msg.assistant_model_name for msg in messages if msg.completion_status and msg.completion_status.is_failure()
+        ]
         preferred_models = [
             msg.assistant_model_name
             for msg in messages
