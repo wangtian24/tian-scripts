@@ -1,4 +1,5 @@
 import logging
+import time
 import uuid
 from enum import Enum
 from typing import TypedDict, cast
@@ -7,6 +8,7 @@ from sqlalchemy import func, or_
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from ypl.backend.db import get_async_engine
+from ypl.backend.utils.monitoring import metric_record
 from ypl.db.users import (
     Capability,
     CapabilityStatus,
@@ -139,3 +141,64 @@ async def get_capability_override_details(
         return None
 
     return {"status": override.status, "override_config": override.override_config}
+
+
+class StopWatch:
+    def __init__(self) -> None:
+        self.split_start_time = time.time() * 1000
+        self.stopwatch_start_time = self.split_start_time  # the overall start time
+        self.splits: dict[str, int] = {}
+        self.lap_starts: dict[str, float] = {}
+        self.ended = False
+
+    # Recording time for specific laps with its own start and end
+
+    def record_split(self, name: str) -> None:
+        """Record time since last split and update start time."""
+        current = time.time() * 1000
+        self.splits[name] = int(current - self.split_start_time)
+        self.split_start_time = current
+
+    def end(self, name: str) -> None:
+        """Record final split and total time."""
+        if not self.ended:
+            self.record_split(name)
+            self.splits["total_time"] = int(time.time() * 1000 - self.stopwatch_start_time)
+            self.ended = True
+
+    # Recording time for specific laps with its own start and end
+
+    def start_lap(self, name: str) -> None:
+        """Start a new lap with the given name."""
+        self.lap_starts[name] = time.time() * 1000
+
+    def end_lap(self, name: str) -> None:
+        """End a lap and record its duration."""
+        if name not in self.lap_starts:
+            raise ValueError(f"No lap named '{name}' was started")
+        current = time.time() * 1000
+        self.splits[name] = int(current - self.lap_starts[name])
+        del self.lap_starts[name]
+
+    # Getting results
+
+    def get_total_time(self) -> int:
+        """Return total time in milliseconds."""
+        if not self.ended:
+            return int(time.time() * 1000 - self.stopwatch_start_time)
+        return self.splits["total_time"]
+
+    def get_splits(self) -> dict[str, int]:
+        """Return dictionary of all recorded splits."""
+        return self.splits.copy()
+
+    def pretty_print(self) -> None:
+        """Print splits one per row with millisecond suffix."""
+        for name, duration in self.splits.items():
+            print(f"{name:40} {int(duration):8} ms")
+
+    def export_metrics(self, prefix: str) -> None:
+        """Export all splits as metrics with the given prefix."""
+
+        for name, duration in self.splits.items():
+            metric_record(f"{prefix}{name}_ms", duration)

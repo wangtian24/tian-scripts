@@ -61,6 +61,7 @@ from ypl.backend.prompts import (
 )
 from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.monitoring import metric_inc, metric_inc_by, metric_record
+from ypl.backend.utils.utils import StopWatch
 from ypl.db.attachments import Attachment
 from ypl.db.chats import (
     AssistantSelectionSource,
@@ -224,7 +225,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
 
     logging.debug(json_dumps({"message": "select_models_plus request"} | request.model_dump(mode="json")))
     metric_inc(f"routing/intent_{request.intent}")
-    start_time = time.time()
+    stopwatch = StopWatch()
 
     prompt = None
     match request.intent:
@@ -244,6 +245,8 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
             preference = get_preferences(request.user_id, request.chat_id, request.turn_id)
         case _:
             raise ValueError(f"Unsupported intent {request.intent} for select_models_plus()")
+
+    stopwatch.record_split("get_preference")
 
     preference.debug_level = request.debug_level
 
@@ -266,6 +269,8 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         else required_models_for_routing
     )
     required_models_for_routing = list(dict.fromkeys(required_models_for_routing))  # just dedupe
+
+    stopwatch.record_split("infer_required_models")
 
     # only run the routing chain if we don't have enough models to serve.
     primary_models = []
@@ -295,6 +300,8 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         fallback_models = selected_models[request.num_models : request.num_models * 2]
         num_models_remaining = primary_models_rs.num_models_remaining or request.num_models
 
+    stopwatch.record_split("routing_primary")
+
     # Update the required models, remove models already chosen in the primary routing
     required_models_for_routing = [m for m in required_models_for_routing if m not in primary_models]
 
@@ -322,10 +329,13 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         fallback_models_rs = router.select_models(state=all_fallback_models)
         fallback_models = fallback_models_rs.get_selected_models()
 
+    stopwatch.record_split("routing_fallback")
+
     # Generate modifier labels for the models we selected
     prompt_modifiers_rs = await run_prompt_modifier_on_models(prompt, primary_models + fallback_models)
-
     prompt_modifiers = _set_prompt_modifiers(request, prompt_modifiers_rs)
+
+    stopwatch.record_split("prompt_modifiers")
 
     routing_debug_info: RoutingDebugInfo = build_routing_debug_info(
         primary_models=primary_models,
@@ -333,16 +343,6 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         router_state=primary_models_rs,
         required_models=request.required_models,
     )
-
-    # metric counters and logging
-    metric_inc_by("routing/count_models_served", len(primary_models))
-    if len(primary_models) > 0:
-        metric_inc(f"routing/count_first_{primary_models[0]}")
-    if len(primary_models) > 1:
-        metric_inc(f"routing/count_second_{primary_models[1]}")
-    for model in primary_models:
-        metric_inc(f"routing/count_chosen_{model}")
-    metric_record(f"routing/latency_{request.intent}_ms", int((time.time() - start_time) * 1000))
 
     # Debug logging
     if logging.root.getEffectiveLevel() == logging.DEBUG:
@@ -361,6 +361,18 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         logging.info(json_dumps(log_dict))
 
     providers_by_model = deduce_original_providers(tuple(primary_models + fallback_models))
+
+    # metric counters and logging
+    metric_inc_by("routing/count_models_served", len(primary_models))
+    if len(primary_models) > 0:
+        metric_inc(f"routing/count_first_{primary_models[0]}")
+    if len(primary_models) > 1:
+        metric_inc(f"routing/count_second_{primary_models[1]}")
+    for model in primary_models:
+        metric_inc(f"routing/count_chosen_{model}")
+    stopwatch.record_split("prepare_response")
+    stopwatch.export_metrics("routing/latency/")
+
     response = SelectModelsV2Response(
         models=[(model, prompt_modifiers.get(model, [])) for model in primary_models],
         fallback_models=[(model, prompt_modifiers.get(model, [])) for model in fallback_models],
