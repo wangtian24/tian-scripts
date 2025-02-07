@@ -7,7 +7,7 @@ from sqlmodel import Session, select
 from ypl.backend.email.send_email import EmailConfig, batch_send_emails_async
 from ypl.db.chats import Chat
 from ypl.db.emails import EmailLogs
-from ypl.db.users import User
+from ypl.db.users import User, UserStatus
 
 # In case cron job fails, we retry again every day for RETRY_DAYS days.
 RETRY_DAYS = 3
@@ -71,6 +71,8 @@ def _users_for_timeframe_query(
         User.created_at.is_not(None),  # type: ignore
         User.created_at >= start_date,  # type: ignore
         User.created_at <= end_date,  # type: ignore
+        User.deleted_at.is_(None),  # type: ignore
+        User.status != UserStatus.DEACTIVATED,
         User.unsubscribed_from_marketing.is_(False),  # type: ignore
     ]
 

@@ -40,7 +40,13 @@ EMAIL_CAMPAIGNS = {
 
 REPLY_TO_ADDRESS = "gcmouli+yupp@yupp.ai"
 BRAND_NAME = "Yupp (Alpha)"
-SIGNATURE = "Mouli - product team"
+SIGNATURE = """
+<p>
+  Mouli
+  <br />
+  Product Team
+</p>
+"""
 INVITE_FRIEND_BONUS_CREDITS = "10,000"
 CONFIDENTIALITY_FOOTER = """
 <p>Thanks for being a part of our small, invite-only alpha.</p>
