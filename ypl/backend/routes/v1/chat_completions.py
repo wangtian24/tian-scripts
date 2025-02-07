@@ -238,7 +238,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
             )
             language_model = await get_language_model(chat_request.model)
             chat_context = sanitize_messages(
-                chat_history, system_prompt, language_model.context_window_tokens or DEFAULT_MAX_TOKENS
+                chat_history.messages, system_prompt, language_model.context_window_tokens or DEFAULT_MAX_TOKENS
             )
             messages.extend(chat_context)
             # defensive check for race condition that user message is inserted by FE and loaded as part of history

@@ -1233,3 +1233,19 @@ Conversation:
 """
 
 JUDGE_CHAT_TITLE_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([("human", JUDGE_CHAT_TITLE_PROMPT)])
+
+BINARY_REVIEW_PROMPT = """You are an expert at evaluating if AI responses accurately address user queries in a conversation context.
+
+Your task is to determine if the AI's response appropriately and accurately addresses the user's needs based on:
+1. Relevance: Does the response directly address the latest user message while maintaining relevant context from earlier turns?
+2. Accuracy: For time-dependent conversations that are about current events, is the information provided factually correct and up-to-date as of {cur_datetime}?
+For time-independent conversations and time-dependent conversations that are not about current events, just verify if the information is factually correct.
+
+The input will contain a conversation history ending with the user's latest message, followed by the AI's response to evaluate.
+
+Respond with 'true' for responses that meet all these criteria or 'false' for responses that fail any relevant criterion.
+Your review does not have to be strict, unless the response is provably or blatantly false, do not respond with a 'false'.
+For math problems, coding requests and puzzles, you need to be strict and only respond with 'true' if the response is fully correct.
+For responses that are jokes, riddles, or conditional on a user's request for fictional information, do not verify the accuracy of the information, just see if the form is adhered to.
+It is not required for a response to be complete or super coherent, as long as it is factually correct and relevant to the user's query, respond with 'true'.
+Do not provide any other text or explanation."""

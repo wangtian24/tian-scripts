@@ -22,6 +22,11 @@ from ypl.backend.llm.chat import (
     generate_quicktake,
     get_active_prompt_modifiers,
 )
+from ypl.backend.llm.review import (
+    ReviewRequest,
+    ReviewResponse,
+    generate_reviews,
+)
 from ypl.backend.llm.search import ChatMessageSearchResult, search_chat_messages, search_chats
 from ypl.backend.llm.turn_quality import TurnAnnotations, get_turn_annotations, label_turn_quality
 from ypl.backend.rw_cache import TurnQualityCache
@@ -553,3 +558,16 @@ async def chat_messages_search(request: Annotated[ChatSearchRequest, Depends()])
         }
         logging.exception(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=f"Error searching messages: {str(e)}") from e
+
+
+@router.post("/turns/{turn_id}/reviews", response_model=ReviewResponse)
+async def generate_reviews_turn_id(
+    request: ReviewRequest,
+    turn_id: str = Path(..., description="The ID of the turn"),
+) -> ReviewResponse:
+    """Get all types of reviews for a turn's messages."""
+    try:
+        request.turn_id = turn_id if turn_id else request.turn_id
+        return await generate_reviews(request)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e

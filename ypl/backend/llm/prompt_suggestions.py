@@ -25,7 +25,7 @@ async def maybe_add_suggested_followups(chat_id: uuid.UUID, turn_id: uuid.UUID) 
         )
 
         labeler = SuggestedFollowupsLabeler(get_gpt_4o_mini_llm(), timeout_secs=3)
-        suggested_followups = await labeler.alabel(chat_context)
+        suggested_followups = await labeler.alabel(chat_context.messages)
 
         logging.info(
             json_dumps(
@@ -129,7 +129,7 @@ async def refresh_conversation_starters(
                     max_message_length=max_message_length,
                     context_for_logging="refresh_conversation_starters",
                 )
-                full_chat_context.append(chat_context)
+                full_chat_context.append(chat_context.messages)
 
             # Actually get conversation starters.
             labeler = ConversationStartersLabeler(get_gpt_4o_mini_llm())

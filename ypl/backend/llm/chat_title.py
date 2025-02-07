@@ -34,7 +34,7 @@ async def maybe_set_chat_title(chat_id: uuid.UUID, turn_id: uuid.UUID, sleep_sec
         )
 
         labeler = ChatTitleLabeler(get_gpt_4o_mini_llm(), timeout_secs=4)
-        title = await labeler.alabel(chat_context)
+        title = await labeler.alabel(chat_context.messages)
 
         logging.info(
             json_dumps(
@@ -42,7 +42,7 @@ async def maybe_set_chat_title(chat_id: uuid.UUID, turn_id: uuid.UUID, sleep_sec
                     "message": "Updated chat title",
                     "turn_id": turn_id,
                     "title": title,
-                    "chat_context_length": len(chat_context),
+                    "chat_context_length": len(chat_context.messages),
                 }
             )
         )

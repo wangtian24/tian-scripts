@@ -735,6 +735,19 @@ def _get_enhanced_user_message(messages: list[ChatMessage], max_message_length: 
     )
 
 
+class ChatContext(BaseModel):
+    """Represents the chat context with formatted messages and optional current turn responses.
+
+    Attributes:
+        messages: List of formatted messages (HumanMessage, AIMessage, SystemMessage) representing the chat history.
+        current_turn_responses: Optional mapping of model names to their responses for the current turn.
+            The responses are raw text content from each model's message in the current turn.
+    """
+
+    messages: list[BaseMessage]
+    current_turn_responses: dict[str, str] | None = None
+
+
 @ttl_cache(ttl=10)  # Don't cache for long - chat history can change. This is for rapid subsequent lookups.
 async def get_curated_chat_context(
     chat_id: UUID,
@@ -745,7 +758,8 @@ async def get_curated_chat_context(
     max_turns: int = 20,
     max_message_length: int | None = None,
     context_for_logging: str | None = None,
-) -> list[BaseMessage]:
+    return_all_current_turn_responses: bool = False,
+) -> ChatContext:
     """Fetch chat history and format it for OpenAI context.
 
     Args:
@@ -753,9 +767,20 @@ async def get_curated_chat_context(
         use_all_models_in_chat_history: Whether to include all models in the chat history.
         model: The model to fetch history for.
         current_turn_id: The current turn ID.
-        include_current_turn: Whether to include the current turn in the chat history.
-    """
+        include_current_turn: Whether to include the current turn and all turns up to it in the chat history.
+                            When False, excludes the current turn and any turns after it.
+        max_turns: Maximum number of turns to include in history.
+        max_message_length: Maximum length of each message.
+        context_for_logging: Context string for logging.
+        return_all_current_turn_responses: If True and include_current_turn is True, returns all model
+            responses for the current turn separately as a dictionary in ChatContext.current_turn_responses.
 
+    Returns:
+        ChatContext containing formatted messages and optionally current turn responses.
+    """
+    assert not (
+        return_all_current_turn_responses and not include_current_turn
+    ), "Cannot return all current turn responses if current turn is not included"
     query = (
         select(ChatMessage)
         .join(Turn, Turn.turn_id == ChatMessage.turn_id)  # type: ignore[arg-type]
@@ -787,8 +812,13 @@ async def get_curated_chat_context(
             ChatMessage.turn_sequence_number.asc(),  # type: ignore[union-attr]
         )
     )
-    if not include_current_turn:
-        query = query.where(Turn.turn_id != current_turn_id)
+
+    if current_turn_id:
+        subquery = select(Turn.sequence_id).where(Turn.turn_id == current_turn_id).scalar_subquery()
+        if not include_current_turn:
+            query = query.where(Turn.sequence_id < subquery)
+        else:
+            query = query.where(Turn.sequence_id <= subquery)
 
     formatted_messages: list[BaseMessage] = []
     # An async session is 2-3X slower.
@@ -834,7 +864,20 @@ async def get_curated_chat_context(
         )
     logging.info(json_dumps(info))
 
-    return formatted_messages
+    if return_all_current_turn_responses:
+        current_turn_responses = {}
+        for m in messages[::-1]:
+            if (
+                m.message_type == MessageType.ASSISTANT_MESSAGE
+                and m.turn_id == current_turn_id
+                and m.assistant_model_name
+            ):
+                current_turn_responses[m.assistant_model_name] = m.content
+            else:
+                break
+        return ChatContext(messages=formatted_messages, current_turn_responses=current_turn_responses)
+
+    return ChatContext(messages=formatted_messages)
 
 
 class Intent(Enum):
@@ -1138,13 +1181,14 @@ async def generate_quicktake(
         case _, _, None:
             assert request.chat_id is not None  # because mypy cannot infer this
             turn_id = uuid.UUID(request.turn_id) if request.turn_id else None
-            chat_history = await get_curated_chat_context(
+            chat_context = await get_curated_chat_context(
                 chat_id=uuid.UUID(request.chat_id),
                 use_all_models_in_chat_history=False,
                 model=request.model or "",
                 current_turn_id=turn_id,
                 context_for_logging="quicktake",
             )
+            chat_history = chat_context.messages
 
     assert chat_history is not None, "chat_history is null"
 
