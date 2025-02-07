@@ -50,6 +50,8 @@ class PaymentInstrumentIdentifierTypeEnum(enum.Enum):
     CRYPTO_ADDRESS = "crypto_address"
     BANK_ACCOUNT_NUMBER = "bank_account_number"
     PARTNER_IDENTIFIER = "partner_identifier"
+    PAYPAL_ID = "paypal_id"
+    VENMO_ID = "venmo_id"
 
 
 class PaymentInstrument(BaseModel, table=True):
