@@ -8,7 +8,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from ypl.backend.config import settings
 from ypl.backend.llm.constants import IMAGE_CATEGORY, OFFLINE_CATEGORY, ONLINE_CATEGORY, PDF_CATEGORY, ChatProvider
 from ypl.backend.llm.db_helpers import deduce_original_providers
-from ypl.backend.llm.judge import PromptModifierLabeler, YuppMultilabelClassifier, YuppOnlinePromptLabeler
+from ypl.backend.llm.judge import YuppMultilabelClassifier, YuppOnlinePromptLabeler
 from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.promotions import PromotionModelProposer
 from ypl.backend.llm.ranking import Ranker, get_ranker
@@ -28,7 +28,7 @@ from ypl.backend.llm.routing.modules.filters import (
     SupportsPdfAttachmentModelFilter,
     TopK,
 )
-from ypl.backend.llm.routing.modules.misc import ModifierAnnotator, Passthrough
+from ypl.backend.llm.routing.modules.misc import Passthrough
 from ypl.backend.llm.routing.modules.proposers import (
     AlwaysGoodModelMetaRouter,
     CostModelProposer,
@@ -56,7 +56,6 @@ from ypl.backend.utils.monitoring import metric_inc_by
 ROUTING_LLM: BaseChatModel | None = None
 ONLINE_LABELER: YuppOnlinePromptLabeler | None = None
 TOPIC_LABELER: YuppMultilabelClassifier | None = None
-MODIFIER_LABELER: PromptModifierLabeler | None = None
 USE_GEMINI_FOR_ROUTING = False
 
 
@@ -65,10 +64,11 @@ async def get_simple_pro_router(
     num_models: int,
     preference: RoutingPreference,
     reputable_providers: set[str] | None = None,
-    user_selected_models: list[str] | None = None,
+    required_models: list[str] | None = None,
     show_me_more_models: list[str] | None = None,
     provided_categories: list[str] | None = None,
     chat_id: str | None = None,
+    is_new_turn: bool = False,
     for_fallback: bool = False,
 ) -> RouterModule:
     """
@@ -76,18 +76,15 @@ async def get_simple_pro_router(
     """
     from ypl.backend.llm.routing.rule_router import RoutingRuleFilter, RoutingRuleProposer
 
-    extra_prefix = "FALLBACK " if for_fallback else "PRIMARY "
     reputable_proposer = RandomModelProposer(
         for_criteria=SelectionCriteria.RANDOM_REPUTABLE,
         providers=reputable_providers or set(settings.ROUTING_REPUTABLE_PROVIDERS),
     )
     online_labeler = _get_online_labeler()
     topic_labeler = _get_topic_labeler()
-    modifier_labeler = _get_modifier_labeler()
-    online_label, topic_labels, modifier_labels = await asyncio.gather(
+    online_label, topic_labels = await asyncio.gather(
         online_labeler.alabel(prompt),
         topic_labeler.alabel(prompt),
-        modifier_labeler.alabel(prompt),
     )
 
     short_prompt = (prompt[:60] + "...") if len(prompt) > 60 else prompt
@@ -99,7 +96,6 @@ async def get_simple_pro_router(
                 "chat_id": chat_id,
                 "online_label": online_label,
                 "topic_labels": topic_labels,
-                "modifier_labels": modifier_labels,
                 "preference": preference,
                 "provided_categories": provided_categories,
             }
@@ -109,7 +105,6 @@ async def get_simple_pro_router(
     online_category = ONLINE_CATEGORY if online_label else OFFLINE_CATEGORY
     categories = [online_category] + topic_labels + (provided_categories or [])
     categories = list(dict.fromkeys(categories))
-    applicable_modifiers = modifier_labels
 
     rule_proposer = RoutingRuleProposer(*categories)
     rule_filter = RoutingRuleFilter(*categories)
@@ -138,13 +133,13 @@ async def get_simple_pro_router(
         """
         Common post-processing stages that's shared in first-turn and non-first-turn routers
         """
-        semantic_group_filter = OnePerSemanticGroupFilter(priority_models=user_selected_models)
+        semantic_group_filter = OnePerSemanticGroupFilter(priority_models=required_models)
         return (
             # -- filter stage --
             Exclude(name="-exSMM", providers=show_me_more_providers, models=exclude_models)
             # inject user selected model, even if they are already used before.
             # Also they are always treated with priority in the following dedup filters.
-            | Inject(user_selected_models or [], score=50000000)
+            | Inject(required_models or [], score=50000000)
             # Don't apply semantic group filter for image turns, since we don't have many supporting models.
             | (
                 semantic_group_filter
@@ -152,21 +147,19 @@ async def get_simple_pro_router(
                 else Passthrough()
             )
             | attachment_filter
-            | ProviderFilter(one_per_provider=True, priority_models=user_selected_models)  # dedupe by provider
+            | ProviderFilter(one_per_provider=True, priority_models=required_models)  # dedupe by provider
             # -- ranking stage --
             | ScoreReranker()
             | PromotionModelReranker()
             | FirstK(num_models, name="final")
-            | SpeedReranker()  # rerank final results with speed, the fastest models always in the front
-            | PositionMatchReranker(preference)  # rerank to match the earlier positions
-            # -- annotation stage --
-            | ModifierAnnotator(applicable_modifiers)  # annotate models with modifiers
+            | SpeedReranker(num_models)  # rerank final results with speed, the fastest models always in the front
+            | (PositionMatchReranker(preference, num_models) if is_new_turn else Passthrough())
             # -- logging stage --
             | RoutingDecisionLogger(
                 enabled=settings.ROUTING_DO_LOGGING,
-                prefix=f"{extra_prefix}{prefix}-prompt-simple-pro-router",
+                prefix=f"{prefix}-prompt-simple-pro-router",
                 preference=preference,
-                required_models=user_selected_models,
+                required_models=required_models,
                 metadata={
                     "user_id": preference.user_id,
                     "chat_id": chat_id,
@@ -175,11 +168,11 @@ async def get_simple_pro_router(
             )
         )
 
-    if user_selected_models is not None and len(user_selected_models) > 0:
-        metric_inc_by("routing/num_user_selected_models", len(user_selected_models))
+    if required_models is not None and len(required_models) > 0:
+        metric_inc_by("routing/num_user_selected_models", len(required_models))
 
     if not preference.turns:
-        # --- First Turn Router ---
+        # --- First Turn (NEW_TURN) ---
         # Construct a first-turn router guaranteeing at least one pro model and one reputable model.
         router: RouterModule = (
             # -- candidate prep stage --
@@ -197,8 +190,10 @@ async def get_simple_pro_router(
                     always_include=True, offset=50000
                 )
                 # propose promoted models
-                & ((PromotionModelProposer() if not for_fallback else Passthrough()) | error_filter).with_flags(
-                    always_include=True
+                & (
+                    (PromotionModelProposer() | error_filter).with_flags(always_include=True)
+                    if not for_fallback
+                    else Passthrough()
                 )
                 # propose models with image or pdf capabilities, strong offset
                 & (attachment_proposer | error_filter).with_flags(always_include=True, offset=200000)
@@ -218,7 +213,7 @@ async def get_simple_pro_router(
             | get_postprocessing_stage(exclude_models=None, prefix="first")
         )
     else:
-        # --- Non-First Turn Router (including Show Me More) ---
+        # --- Non-First Turn (NEW_TURN or SHOW_ME_MORE) ---
         all_good_models, all_bad_models = _get_good_and_bad_models(preference)
         rule_filter.exempt_models = all_good_models
         no_proposal_prob = 1.0 / (len(all_good_models) + 1)
@@ -291,28 +286,21 @@ def _get_topic_labeler() -> YuppMultilabelClassifier:
     return TOPIC_LABELER
 
 
-def _get_modifier_labeler() -> PromptModifierLabeler:
-    global MODIFIER_LABELER
-    if MODIFIER_LABELER is None:
-        MODIFIER_LABELER = PromptModifierLabeler(_get_routing_llm(), timeout_secs=settings.ROUTING_TIMEOUT_SECS)
-    return MODIFIER_LABELER
-
-
 def _get_good_and_bad_models(preference: RoutingPreference) -> tuple[set[str], set[str]]:
     """
     Go through all previous turns and split models into a good set and a bad set based on their user evaluation.
+    good = preferred
+    bad = downvoted or failed or user-stopped
     """
     all_good_models = set()
     all_bad_models = set()
-    # Go through all previous turns, add preferred models to all_good_models and others to all_bad_models
     for turn in preference.turns or []:
-        if not turn.has_evaluation:
-            continue
         if turn.preferred:
             all_good_models.add(turn.preferred)
-            all_bad_models.update([m for m in turn.models if m != turn.preferred])
-        else:
-            all_bad_models.update(turn.models)
+        if turn.failed_models:
+            all_bad_models.update(turn.failed_models)
+        if turn.downvoted:
+            all_bad_models.update(turn.downvoted)
     all_good_models = all_good_models - all_bad_models
     return all_good_models, all_bad_models
 

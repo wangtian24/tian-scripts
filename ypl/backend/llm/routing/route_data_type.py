@@ -142,8 +142,13 @@ class StatisticsHistory(BaseModel):
 
 
 class PreferredModel(BaseModel):
-    models: list[str] = Field(description="List of models presented to the user for a given turn.")
-    preferred: str | None = Field(description="Which model was preferred by the user, or None if all are bad")
+    shown_models: list[str] = Field(
+        description="List of models actually shown on the screen, note that they might be successful or "
+        "have streaming error or have been stopped by user"
+    )
+    failed_models: list[str] = Field(description="List of all failed models, may overlap with shown_models")
+    preferred: str | None = Field(description="Which model was preferred by the user")
+    downvoted: list[str] | None = Field(description="List of models that received downvote")
     has_evaluation: bool = True
 
 
@@ -163,3 +168,22 @@ class RoutingPreference(BaseModel):
     )
     user_id: str | None = Field(description="The user ID of the user who is being routed.")
     debug_level: int = 1
+
+    def get_inherited_models(self, is_show_me_more: bool) -> list[str]:
+        """
+        Get all models that must show in the new turn.
+        - If there is a preferred model in the last turn, just return that.
+        - Otherwise, return allnon-downvoted in the first 2 shown models of last turn.
+        """
+        if not self.turns:
+            return []
+        if is_show_me_more and len(self.turns) < 2:
+            return []
+
+        last_turn = self.turns[-2] if is_show_me_more else self.turns[-1]
+        if last_turn.preferred:
+            return [last_turn.preferred]
+        else:
+            # only inherit from the first two (first row) successful models.
+            # this is coupled with UI and needs change if FE implements a different UI.
+            return [model for model in last_turn.shown_models[:2] if model not in (last_turn.downvoted or [])]

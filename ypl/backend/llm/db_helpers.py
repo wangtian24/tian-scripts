@@ -1,13 +1,13 @@
 import logging
 import math
 import re
+from collections import defaultdict
 from collections.abc import Sequence
 from datetime import datetime
 from functools import lru_cache
 from typing import Any
 from uuid import UUID
 
-import pandas as pd
 from cachetools.func import ttl_cache
 from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -28,7 +28,16 @@ from ypl.backend.llm.constants import (
 from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.routing.route_data_type import PreferredModel, RoutingPreference
 from ypl.backend.utils.json import json_dumps
-from ypl.db.chats import Chat, ChatMessage, MessageType, Turn
+from ypl.db.chats import (
+    AssistantSelectionSource,
+    Chat,
+    ChatMessage,
+    Eval,
+    EvalType,
+    MessageEval,
+    MessageType,
+    Turn,
+)
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
 from ypl.db.model_promotions import ModelPromotionStatus
 from ypl.utils import async_timed_cache, ifnull
@@ -285,74 +294,87 @@ def get_preferences(user_id: str | None, chat_id: str, turn_id: str) -> RoutingP
     """Returns the preferences and user-selected models for the given chat ID."""
 
     # Use chat id to get all turns happened previously in this chat, oldest first.
-    sql_query = text(
-        """
-        SELECT cm.assistant_model_name, t.turn_id, t.creator_user_id,
-               e.eval_type, me.score, cm.assistant_selection_source
-        FROM turns t
-            JOIN chat_messages cm ON cm.turn_id = t.turn_id
-            LEFT JOIN message_evals me ON me.message_id = cm.message_id
-            LEFT JOIN evals e ON e.eval_id = me.eval_id
-        WHERE t.chat_id = :chat_id AND cm.message_type = 'ASSISTANT_MESSAGE'
-        ORDER BY cm.created_at ASC
-        LIMIT 100
-        """
-    )
-
-    with get_engine().connect() as conn:
-        c = conn.execute(sql_query, dict(chat_id=chat_id))
-        rows = c.fetchall()
-
-    df_rows = []
-
-    for row in rows:
-        model_name, db_turn_id, creator_user_id, eval_type, score, selection_src = row
-        df_rows.append(
-            dict(
-                model_name=model_name,
-                turn_id=str(db_turn_id),
-                creator_user_id=str(creator_user_id),
-                eval_type=eval_type,
-                score=score,
-                selection_src=selection_src,
-            )
+    query = (
+        select(  # type: ignore
+            ChatMessage.assistant_model_name,
+            ChatMessage.turn_sequence_number,
+            Turn.turn_id,
+            Turn.creator_user_id,
+            Eval.eval_type,
+            MessageEval.score,
+            ChatMessage.assistant_selection_source,
+            ChatMessage.completion_status,
         )
+        .join(ChatMessage, ChatMessage.turn_id == Turn.turn_id)
+        .outerjoin(MessageEval, MessageEval.message_id == ChatMessage.message_id)
+        .outerjoin(Eval, Eval.eval_id == MessageEval.eval_id)
+        .where(Turn.chat_id == chat_id, ChatMessage.message_type == MessageType.ASSISTANT_MESSAGE)
+        .order_by(Turn.sequence_id.asc(), ChatMessage.turn_sequence_number.asc())  # type: ignore
+        .limit(100)
+    )
+    with Session(get_engine()) as session:
+        rows = session.exec(query).all()
 
-    if not df_rows:
+    if not rows or len(rows) == 0:
         return RoutingPreference(turns=[], user_selected_models=[], user_id=user_id, same_turn_shown_models=[])
 
-    df = pd.DataFrame(df_rows)
+    # Group rows by turn_id and collect info for each turn
+    turns_by_id: dict[str, Any] = defaultdict(list)
+    for row in rows:
+        turns_by_id[str(row.turn_id)].append(row)
+    turns_row_list = [(turn_id, messages) for turn_id, messages in turns_by_id.items()]
+
     turns_list = []
     same_turn_shown_models = []
+    user_id = None
 
     # go through turns from oldest to newest and extract their preferred models if any.
-    for _, gdf in df.groupby("turn_id", sort=False):
-        cur_turn_id = str(gdf["turn_id"].tolist()[0])
-        all_models = gdf["model_name"].tolist()
-
-        evaluated_models = gdf[gdf["eval_type"].isin(["SELECTION", "DOWNVOTE", "ALL_BAD"])]["model_name"].tolist()
-        has_eval = len(evaluated_models) > 0
-
-        preferred_models = gdf[(gdf["eval_type"] == "SELECTION") & (gdf["score"] == 100.0)]["model_name"].tolist()
-        preferred_model = preferred_models[0] if preferred_models else None
+    for cur_turn_id, messages in turns_row_list:
+        shown_models = [msg.assistant_model_name for msg in messages if msg.completion_status.is_shown()]
+        failed_models = [msg.assistant_model_name for msg in messages if msg.completion_status.is_failure()]
+        preferred_models = [
+            msg.assistant_model_name
+            for msg in messages
+            if msg.eval_type == EvalType.SELECTION and (msg.score is not None and msg.score > 99.9)
+        ]
+        preferred_model = preferred_models[0] if preferred_models else None  # there should be at most one
+        downvoted_models = [
+            msg.assistant_model_name
+            for msg in messages
+            if msg.eval_type == EvalType.DOWNVOTE and (msg.score is not None and msg.score < 0.1)
+        ]
+        has_eval = any(msg.eval_type in [EvalType.SELECTION, EvalType.DOWNVOTE, EvalType.ALL_BAD] for msg in messages)
 
         # store information for this turn
-        turns_list.append(PreferredModel(models=all_models, preferred=preferred_model, has_evaluation=has_eval))
-
+        turns_list.append(
+            PreferredModel(
+                shown_models=shown_models,
+                failed_models=failed_models,
+                preferred=preferred_model,
+                downvoted=downvoted_models,
+                has_evaluation=has_eval,
+            )
+        )
         # check if we are in "Show Me More" mode, where the turn_id will be the same.
         if turn_id == cur_turn_id:
-            same_turn_shown_models = list(all_models)
+            same_turn_shown_models = list(shown_models)
+
+        if user_id is None:
+            user_id = messages[0].creator_user_id
 
     # Collect user-selected models from all turns. this way to infer the user-selected models is not ideal, as
     # not all user-selected models are necessarily shown before (if we allow more user selected models than we display).
-    user_selected_models = list(dict.fromkeys(df[df["selection_src"] == "USER_SELECTED"]["model_name"].tolist()))
-
-    # NOTE(Tian): this is a bit hacky, but it guarantees the last-turn preferred model will be shown,
-    # if there's space for it, it can show up in SMM, but will it be recorded as a USER_SELECTED model in db?
-    if len(turns_list) > 0 and turns_list[-1].preferred:
-        user_selected_models.append(turns_list[-1].preferred)
-
-    user_id = df["creator_user_id"].tolist()[0]
+    # TODO(Tian): this will be deprecated once FE starts to write user selected models to DB.
+    user_selected_models = list(
+        dict.fromkeys(  # dedupe and preserve order
+            [
+                msg.assistant_model_name
+                for _, messages in turns_row_list
+                for msg in messages
+                if msg.assistant_selection_source == AssistantSelectionSource.USER_SELECTED
+            ]
+        )
+    )
 
     return RoutingPreference(
         turns=turns_list,
@@ -553,3 +575,8 @@ def get_chat_required_models(chat_id: UUID) -> Sequence[str]:
     query = select(Turn.required_models).where(Turn.chat_id == chat_id, Turn.sequence_id == 0)
     with Session(get_engine()) as session:
         return session.exec(query).first() or ()
+
+
+def notnull(value: str | None) -> str:
+    assert value is not None, "value is required"
+    return value

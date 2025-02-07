@@ -81,8 +81,9 @@ class SpeedReranker(Reranker):
     Rank faster speed models to the front to the list.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, only_first_n: int) -> None:
         super().__init__(name="speedRanker")
+        self.only_first_n = only_first_n  # only rerank the first n results.
 
     def rerank(self, model_names: list[str], state: RouterState) -> list[str]:
         # get all model speed scores
@@ -96,11 +97,15 @@ class SpeedReranker(Reranker):
         logging.info(json_dumps({"message": f"Model speed reranker: {model_speed_scores}"}))
 
         # sort models by speed score
-        return sorted(
-            model_names,
+
+        first_part = model_names[: self.only_first_n]
+        second_part = model_names[self.only_first_n :]
+        sorted_first = sorted(
+            first_part,
             key=lambda x: model_speed_scores.get(x, 0),  # sort by speed score
             reverse=True,
         )
+        return sorted_first + second_part
 
     async def _aselect_models(self, state: RouterState) -> RouterState:
         return self._select_models(state)
@@ -109,30 +114,35 @@ class SpeedReranker(Reranker):
 class PositionMatchReranker(Reranker):
     """
     Rank models so if a previous-turn reappears, make it match the position of the previous turn.
-    Note that this only re-ranks the first 2 models in the input!
+    If there was a preferred model from last turn, it will be moved to the front (even if it breaks other order).
     """
 
-    def __init__(self, preference: RoutingPreference) -> None:
+    def __init__(self, preference: RoutingPreference, only_first_n: int) -> None:
         super().__init__(name="posMatch")
         self.preference = preference
+        self.only_first_n = only_first_n
 
     def rerank(self, model_names: list[str], state: RouterState) -> list[str]:
         if not self.preference.turns:
             return model_names
 
         # Get last turn's models and preferred model
-        last_turn_models = self.preference.turns[-1].models
+        last_turn = self.preference.turns[-1]
+
+        # split the models into ranking part and non-ranking part
+        ranking_part = model_names[: self.only_first_n]
+        non_ranking_part = model_names[self.only_first_n :]
 
         # Find any overlapping models between current models and previous turn
-        overlapping = [m for m in model_names if m in last_turn_models]
+        overlapping = [m for m in ranking_part if m in last_turn.shown_models]
         if not overlapping:
             return model_names
 
         # Get positions of overlapping models in previous turn
-        positions = {m: last_turn_models.index(m) for m in overlapping}
+        positions = {m: last_turn.shown_models.index(m) for m in overlapping}
 
         # Initialize reranked list with non-overlapping models
-        reranked = [m for m in model_names if m not in overlapping]
+        reranked = [m for m in ranking_part if m not in overlapping]
 
         # Insert overlapping models at their previous positions
         # If position is beyond list length, append to end
@@ -142,7 +152,14 @@ class PositionMatchReranker(Reranker):
                 reranked.insert(pos, model)
             else:
                 reranked.append(model)
-        return reranked
+
+        if last_turn.preferred is not None and last_turn.preferred in reranked:
+            # If there was a preferred model from last turn and it's in the current selection,
+            # move it to the front
+            reranked.remove(last_turn.preferred)
+            reranked.insert(0, last_turn.preferred)
+
+        return reranked + non_ranking_part
 
     async def _aselect_models(self, state: RouterState) -> RouterState:
         return self._select_models(state)

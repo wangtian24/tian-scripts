@@ -492,7 +492,7 @@ def test_fast_compute_all_conf_overlap_diffs() -> None:
 
 # These patches must be in the resverse order of the argument list below,
 # and the path is where they are called rather than where they are defined.
-@patch("ypl.backend.llm.routing.router.PromptModifierLabeler")
+@patch("ypl.backend.llm.prompt_modifier.PromptModifierLabeler")
 @patch("ypl.backend.llm.routing.router.YuppMultilabelClassifier")
 @patch("ypl.backend.llm.routing.router.YuppOnlinePromptLabeler")
 @patch("ypl.backend.llm.promotions.get_model_creation_dates", return_value={})
@@ -586,7 +586,7 @@ async def test_simple_pro_router(
             preference=RoutingPreference(
                 turns=[], user_id="123", user_selected_models=["model1", "model2"], same_turn_shown_models=[]
             ),
-            user_selected_models=["model1", "model2"],
+            required_models=["model1", "model2"],
         )
         selected_models = router.select_models(state=state).get_sorted_selected_models()
         assert selected_models == ["model1", "model2"]
@@ -599,7 +599,7 @@ async def test_simple_pro_router(
             preference=RoutingPreference(
                 turns=[], user_id="123", user_selected_models=["model1"], same_turn_shown_models=[]
             ),
-            user_selected_models=["model1"],
+            required_models=["model1"],
         )
         selected_models = router.select_models(state=state).get_sorted_selected_models()
         assert "model1" in selected_models
@@ -625,7 +625,7 @@ async def test_simple_pro_router(
         preference=RoutingPreference(
             turns=[], user_id="123", user_selected_models=["model2"], same_turn_shown_models=[]
         ),
-        user_selected_models=["model2"],
+        required_models=["model2"],
     )
 
     for _ in range(15):
@@ -640,7 +640,7 @@ async def test_simple_pro_router(
         preference=RoutingPreference(
             turns=[], user_id="123", user_selected_models=["model2", "model1"], same_turn_shown_models=[]
         ),
-        user_selected_models=["model2", "model1"],
+        required_models=["model2", "model1"],
     )
     for _ in range(5):
         state = RouterState(all_models=models)
@@ -758,9 +758,10 @@ def test_context_length_filter(mock_context_lengths: Mock) -> None:
 
 
 @pytest.mark.asyncio
-@patch("ypl.backend.llm.routing.router.PromptModifierLabeler")
+@patch("ypl.backend.llm.prompt_modifier.PromptModifierLabeler")
 @patch("ypl.backend.llm.routing.router.YuppMultilabelClassifier")
 @patch("ypl.backend.llm.routing.router.YuppOnlinePromptLabeler")
+@patch("ypl.backend.llm.chat.run_prompt_modifier_on_models")
 @patch("ypl.backend.llm.chat.label_turn_quality", return_value=None)
 @patch("ypl.backend.llm.chat.get_chat_required_models", return_value=[])
 @patch("ypl.backend.llm.routing.modules.filters.get_active_models", return_value=ACTIVE_MODELS)
@@ -811,6 +812,7 @@ async def test_select_models_plus(
     mock_active_models: Mock,
     mock_get_chat_required_models: Mock,
     mock_label_turn_quality: Mock,
+    mock_run_prompt_modifier_on_models: Mock,
     MockOnlineYupp: Mock,
     MockTopicCategorizer: Mock,
     MockModifierLabeler: Mock,

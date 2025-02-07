@@ -1,4 +1,5 @@
 from collections import defaultdict
+from collections.abc import Sequence
 from itertools import chain
 from typing import Any
 
@@ -178,6 +179,17 @@ class RouterState(BaseModel):
             selected_models={},
             excluded_models=set(),
             all_models=cls.get_all_models(),
+        )
+        rs.model_journey = {model: "" for model in rs.all_models}
+        return rs
+
+    @classmethod
+    def new_chosen_models_state(cls, models: Sequence[str]) -> "RouterState":
+        """create a new router state with all models injected."""
+        rs = RouterState(
+            selected_models={model: {SelectionCriteria.INJECT: 1.0} for model in models},
+            excluded_models=set(),
+            all_models=set(models),
         )
         rs.model_journey = {model: "" for model in rs.all_models}
         return rs

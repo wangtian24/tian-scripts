@@ -47,8 +47,9 @@ class RoutingDecisionLogger(RouterModule):
 
             # create full routing debug info
             routing_debug_info: RoutingDebugInfo = build_routing_debug_info(
-                selected_models_rs=state,
-                fallback_models_rs=None,
+                primary_models=list(state.selected_models.keys()),
+                fallback_models=[],
+                router_state=state,
                 required_models=self.required_models,
             )
 

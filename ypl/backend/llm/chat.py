@@ -33,10 +33,12 @@ from ypl.backend.llm.db_helpers import (
     get_model_context_lengths,
     get_preferences,
     get_user_message,
+    notnull,
 )
 from ypl.backend.llm.labeler import QT_CANT_ANSWER, QuickTakeGenerator
 from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.model_heuristics import ModelHeuristics
+from ypl.backend.llm.prompt_modifier import run_prompt_modifier_on_models
 from ypl.backend.llm.prompt_selector import (
     CategorizedPromptModifierSelector,
     get_modifiers_by_model_and_position,
@@ -101,8 +103,8 @@ class SelectModelsV2Request(BaseModel):
     prompt: str | None = None  # prompt to use for routing
     num_models: int = 2  # number of models to select
     required_models: list[str] | None = None  # models selected explicitly by the user
-    chat_id: str | None = None  # chat ID to use for routing
-    turn_id: str | None = None  # turn ID to use for routing
+    chat_id: str  # chat ID to use for routing
+    turn_id: str  # turn ID to use for routing
     provided_categories: list[str] | None = None  # categories provided by the user
     debug_level: int = 0  # 0: return no debug info, log only, 1: return debug
     prompt_modifier_id: uuid.UUID | None = None  # prompt modifier ID to apply to all models
@@ -155,7 +157,6 @@ async def has_image_attachments(chat_id: str) -> bool:
 def _set_prompt_modifiers(
     request: SelectModelsV2Request,
     selected_models_rs: RouterState,
-    fallback_models_rs: RouterState,
 ) -> dict[str, list[tuple[str, str]]]:
     """
     Sets prompt modifiers for the selected models.
@@ -171,16 +172,13 @@ def _set_prompt_modifiers(
     prompt_modifiers: dict[str, list[tuple[str, str]]] = {}
 
     selected_models = selected_models_rs.get_sorted_selected_models()
-    fallback_models = fallback_models_rs.get_sorted_selected_models()
 
     modifier_selector = CategorizedPromptModifierSelector.make_default_from_db()
     if request.intent == SelectIntent.NEW_CHAT:
         if request.prompt_modifier_id:
             modifier = modifier_selector.modifiers_by_id.get(str(request.prompt_modifier_id))
             if modifier:
-                prompt_modifiers = {
-                    m: [(str(request.prompt_modifier_id), modifier.text)] for m in (selected_models + fallback_models)
-                }
+                prompt_modifiers = {m: [(str(request.prompt_modifier_id), modifier.text)] for m in (selected_models)}
             else:
                 logging.warning(f"Ignoring unknown modifier ID: {request.prompt_modifier_id}")
         else:
@@ -198,7 +196,7 @@ def _set_prompt_modifiers(
                 SelectIntent.SHOW_MORE_WITH_SAME_TURN,
             )
 
-            base_prompt_modifiers = modifier_selector.select_modifiers(
+            prompt_modifiers = modifier_selector.select_modifiers(
                 selected_models,
                 modifier_history,
                 selected_models_rs.applicable_modifiers,
@@ -206,15 +204,6 @@ def _set_prompt_modifiers(
                 modifiers_by_position=modifiers_by_position,
                 should_auto_select_modifiers=should_auto_select_modifiers,
             )
-            fallback_prompt_modifiers = modifier_selector.select_modifiers(
-                fallback_models,
-                modifier_history,
-                selected_models_rs.applicable_modifiers,
-                user_selected_modifier_id=request.prompt_modifier_id,
-                modifiers_by_position=modifiers_by_position,
-                should_auto_select_modifiers=should_auto_select_modifiers,
-            )
-            prompt_modifiers = base_prompt_modifiers | fallback_prompt_modifiers
         except Exception as e:
             logging.error(f"Error selecting modifiers: {e}")
 
@@ -224,158 +213,170 @@ def _set_prompt_modifiers(
     return prompt_modifiers
 
 
+def kick_off_label_turn_quality(prompt: str, chat_id: str, turn_id: str) -> str:
+    assert prompt is not None, "prompt is required for NEW_CHAT or NEW_TURN intent"
+    asyncio.create_task(label_turn_quality(UUID(turn_id), UUID(chat_id), prompt))
+    return prompt
+
+
 async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Response:
     from ypl.backend.llm.routing.router import get_simple_pro_router
 
     logging.debug(json_dumps({"message": "select_models_plus request"} | request.model_dump(mode="json")))
-
-    async def select_models_(
-        preference: RoutingPreference,
-        provided_categories: list[str] | None = None,
-    ) -> tuple[RouterState, RouterState]:
-        num_models = request.num_models
-        # remove all same-turn already-shown user-selected models (when it's SMM) so we don't inject them again
-        user_selected_models = [
-            m for m in (preference.user_selected_models or []) if m not in (preference.same_turn_shown_models or [])
-        ]
-        provided_categories = provided_categories or []
-
-        # select N models
-        router = await get_simple_pro_router(
-            prompt,
-            num_models,
-            preference,
-            user_selected_models=user_selected_models,
-            show_me_more_models=preference.same_turn_shown_models or [],
-            provided_categories=provided_categories,
-            chat_id=request.chat_id,
-            for_fallback=False,
-        )
-        all_models_state = RouterState.new_all_models_state()
-        selected_models_rs = router.select_models(state=all_models_state)
-
-        # select N more models as fallback, not same as first N
-        # we need to exclude user-selected models already used in the primary selection.
-        updated_user_selected_models = [m for m in user_selected_models if m not in selected_models_rs.selected_models]
-        preference.user_selected_models = updated_user_selected_models
-        router = await get_simple_pro_router(
-            prompt,
-            num_models,
-            preference,
-            # exclude the user selected models already used in the primary selection
-            user_selected_models=updated_user_selected_models,
-            show_me_more_models=preference.same_turn_shown_models or [],
-            provided_categories=provided_categories,
-            for_fallback=True,
-        )
-        all_fallback_models = RouterState.new_all_models_state()
-        all_fallback_models = all_fallback_models.emplaced(
-            # just keep the models not already in the return models (any remainders), select within them
-            all_models=all_fallback_models.all_models.difference(selected_models_rs.get_sorted_selected_models())
-        )
-        fallback_models_rs = router.select_models(state=all_fallback_models)
-
-        return selected_models_rs, fallback_models_rs
-
     metric_inc(f"routing/intent_{request.intent}")
     start_time = time.time()
 
-    if not request.required_models or len(request.required_models) == 0:
-        # try to read it from the database
-        required_models = get_chat_required_models(UUID(request.chat_id))
-        if required_models:
-            request.required_models = list(required_models)
-
+    prompt = None
     match request.intent:
-        case SelectIntent.NEW_CHAT | SelectIntent.NEW_TURN:
-            assert request.prompt is not None, "prompt is required for NEW_CHAT or NEW_TURN intent"
-            prompt = request.prompt
-            if request.turn_id and request.chat_id:
-                asyncio.create_task(label_turn_quality(UUID(request.turn_id), UUID(request.chat_id), prompt))
-        case SelectIntent.SHOW_ME_MORE:
-            assert request.turn_id is not None, "turn_id is required for SHOW_ME_MORE intent"
-            prompt = get_user_message(request.turn_id)
-
-    # get information about previous turns (models shown, preferred, user-selected, etc)
-    match request.intent:
-        case SelectIntent.SHOW_ME_MORE | SelectIntent.NEW_TURN:
-            assert (
-                request.chat_id is not None and request.turn_id is not None
-            ), "chat_id is required for SHOW_ME_MORE and NEW_TURN intent"
-            preference = get_preferences(request.user_id, request.chat_id, request.turn_id)
-            if request.required_models:
-                # overwrite what we inferred from the chat_messages
-                preference.user_selected_models = request.required_models
-        case _:
-            # NEW_CHAT or any other situation, no previous turn information needed.
+        case SelectIntent.NEW_CHAT:
+            prompt = kick_off_label_turn_quality(notnull(request.prompt), request.chat_id, request.turn_id)
             preference = RoutingPreference(
                 turns=[],
                 user_selected_models=request.required_models or [],  # get from the request
                 same_turn_shown_models=[],
                 user_id=request.user_id,
             )
+        case SelectIntent.NEW_TURN:
+            prompt = kick_off_label_turn_quality(notnull(request.prompt), request.chat_id, request.turn_id)
+            preference = get_preferences(request.user_id, request.chat_id, request.turn_id)
+        case SelectIntent.SHOW_ME_MORE:
+            prompt = get_user_message(request.turn_id)
+            preference = get_preferences(request.user_id, request.chat_id, request.turn_id)
+        case _:
+            raise ValueError(f"Unsupported intent {request.intent} for select_models_plus()")
 
     preference.debug_level = request.debug_level
 
-    # Actually do the model selection (routing)
-    selected_models_rs, fallback_models_rs = await select_models_(
-        preference=preference,
-        provided_categories=request.provided_categories,
+    # Figure out what models are required for routing (must appear)
+    # 1. get it from request, if none, from DB, if none, from preference (inferred from history messages in the chat)
+    # 2. add all previous turn non-downvoted models for stability (2/4/2025, see routing decision log)
+    # 3. remove all same-turn already-shown user-selected models (when it's SMM)
+    required_models = request.required_models
+    if not required_models:
+        required_models = list(get_chat_required_models(UUID(request.chat_id)))
+    if not required_models:
+        required_models = preference.user_selected_models or []
+
+    required_models_for_routing = list(required_models) + preference.get_inherited_models(
+        is_show_me_more=(request.intent == SelectIntent.SHOW_ME_MORE)
     )
-    # Already sorted, just get them as is.
-    selected_models = selected_models_rs.get_selected_models()
-    fallback_models = fallback_models_rs.get_selected_models()
+    required_models_for_routing = (
+        [m for m in required_models_for_routing if m not in (preference.same_turn_shown_models or [])]
+        if request.intent == SelectIntent.SHOW_ME_MORE
+        else required_models_for_routing
+    )
+    required_models_for_routing = list(dict.fromkeys(required_models_for_routing))  # just dedupe
 
-    prompt_modifiers = _set_prompt_modifiers(request, selected_models_rs, fallback_models_rs)
+    # only run the routing chain if we don't have enough models to serve.
+    primary_models = []
+    primary_models_rs = None
+    if len(required_models_for_routing) >= request.num_models:
+        primary_models = required_models_for_routing[: request.num_models]
+        num_models_remaining = request.num_models
+    else:
+        # create a router
+        router = await get_simple_pro_router(
+            prompt,
+            request.num_models,
+            preference,
+            required_models=required_models_for_routing,
+            show_me_more_models=preference.same_turn_shown_models or [],
+            provided_categories=request.provided_categories or [],
+            chat_id=request.chat_id,
+            is_new_turn=(request.intent == SelectIntent.NEW_TURN),
+            for_fallback=True,
+        )
+        # actually run the router chain
+        all_models_state = RouterState.new_all_models_state()
+        primary_models_rs = router.select_models(state=all_models_state)
+        # extract results
+        selected_models = primary_models_rs.get_selected_models()
+        primary_models = selected_models[: request.num_models]
+        fallback_models = selected_models[request.num_models : request.num_models * 2]
+        num_models_remaining = primary_models_rs.num_models_remaining or request.num_models
 
-    # increment counters
-    metric_inc_by("routing/count_models_served", len(selected_models))
-    if len(selected_models) > 0:
-        metric_inc(f"routing/count_first_{selected_models[0]}")
-    if len(selected_models) > 1:
-        metric_inc(f"routing/count_second_{selected_models[1]}")
-    for model in selected_models:
-        metric_inc(f"routing/count_chosen_{model}")
-    metric_record(f"routing/latency_{request.intent}_ms", int((time.time() - start_time) * 1000))
+    # Update the required models, remove models already chosen in the primary routing
+    required_models_for_routing = [m for m in required_models_for_routing if m not in primary_models]
+
+    fallback_models = []
+    fallback_models_rs = None
+    if len(required_models_for_routing) >= request.num_models:
+        fallback_models = required_models_for_routing[request.num_models :]
+    else:
+        router = await get_simple_pro_router(
+            prompt,
+            request.num_models,
+            preference,
+            # exclude the user selected models already used in the primary selection
+            required_models=required_models_for_routing,
+            show_me_more_models=preference.same_turn_shown_models or [],
+            provided_categories=request.provided_categories or [],
+            is_new_turn=(request.intent == SelectIntent.NEW_TURN),
+            for_fallback=True,
+        )
+        all_fallback_models = RouterState.new_all_models_state()
+        all_fallback_models = all_fallback_models.emplaced(
+            # just keep the models not already in the return models (any remainders), select within them
+            all_models=all_fallback_models.all_models.difference(primary_models)
+        )
+        fallback_models_rs = router.select_models(state=all_fallback_models)
+        fallback_models = fallback_models_rs.get_selected_models()
+
+    # Generate modifier labels for the models we selected
+    prompt_modifiers_rs = await run_prompt_modifier_on_models(prompt, primary_models + fallback_models)
+
+    prompt_modifiers = _set_prompt_modifiers(request, prompt_modifiers_rs)
 
     routing_debug_info: RoutingDebugInfo = build_routing_debug_info(
-        selected_models_rs=selected_models_rs,
-        fallback_models_rs=fallback_models_rs,
+        primary_models=primary_models,
+        fallback_models=fallback_models,
+        router_state=primary_models_rs,
         required_models=request.required_models,
     )
 
+    # metric counters and logging
+    metric_inc_by("routing/count_models_served", len(primary_models))
+    if len(primary_models) > 0:
+        metric_inc(f"routing/count_first_{primary_models[0]}")
+    if len(primary_models) > 1:
+        metric_inc(f"routing/count_second_{primary_models[1]}")
+    for model in primary_models:
+        metric_inc(f"routing/count_chosen_{model}")
+    metric_record(f"routing/latency_{request.intent}_ms", int((time.time() - start_time) * 1000))
+
+    # Debug logging
     if logging.root.getEffectiveLevel() == logging.DEBUG:
         for model, model_debug in routing_debug_info.model_debug.items():
-            is_selected = " S => " if model in selected_models else ""
-            print(f"> {model:<50}{is_selected:<8}{model_debug.score:-10.1f}{model_debug.journey}")
+            is_selected = " S => " if model in primary_models else ""
+            logging.debug(f"> {model:<50}{is_selected:<8}{model_debug.score:-10.1f}{model_debug.journey}")
 
     # if the number of returned models is different from what the requests asked, log more information
-    if len(selected_models) != request.num_models:
-        dict = {
-            "message": f"Model routing: requested {request.num_models} models, but returned {len(selected_models)}.",
+    if len(primary_models) != request.num_models:
+        log_dict = {
+            "message": f"Model routing: requested {request.num_models} models, but returned {len(primary_models)}.",
             "chat_id": request.chat_id,
             "turn_id": request.turn_id,
             "intent": request.intent,
         }
-        logging.info(json_dumps(dict))
+        logging.info(json_dumps(log_dict))
 
-    providers_by_model = deduce_original_providers(tuple(selected_models + fallback_models))
-
+    providers_by_model = deduce_original_providers(tuple(primary_models + fallback_models))
     response = SelectModelsV2Response(
-        models=[(model, prompt_modifiers.get(model, [])) for model in selected_models],
+        models=[(model, prompt_modifiers.get(model, [])) for model in primary_models],
         fallback_models=[(model, prompt_modifiers.get(model, [])) for model in fallback_models],
         provider_map=providers_by_model,
+        # another convenient version
         selected_models=[
             SelectedModelInfo(
                 model=model,
                 provider=providers_by_model[model],
-                type=SelectedModelType.PRIMARY if model in selected_models else SelectedModelType.FALLBACK,
+                type=SelectedModelType.PRIMARY if model in primary_models else SelectedModelType.FALLBACK,
                 prompt_modfiers=prompt_modifiers.get(model, []),
             )
-            for model in selected_models + fallback_models
+            for model in primary_models + fallback_models
         ],
         routing_debug_info=routing_debug_info if request.debug_level > 0 else None,
-        num_models_remaining=selected_models_rs.num_models_remaining,  # return models remaining
+        num_models_remaining=num_models_remaining,
     )
     logging.debug(json_dumps({"message": "select_models_plus response"} | response.model_dump(mode="json")))
 
