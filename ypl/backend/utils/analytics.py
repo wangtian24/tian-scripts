@@ -931,8 +931,10 @@ async def post_cashout_metrics(start_date: datetime, end_date: datetime) -> None
                     )
                     total_transactions = sum(m.transaction_count for m in metrics)
                     message += (
-                        f"• {currency}: {total_transactions:,} transactions, "
-                        f"{total_amount:,.2f} {currency} ({total_amount_usd:,.2f} USD)\n"
+                        f"• {currency}: {total_transactions:,} transactions, " f"{total_amount:,.8f}".rstrip(
+                            "0"
+                        ).rstrip(".")
+                        + f" {currency} ({total_amount_usd:,.2f} USD)\n"
                     )
             else:
                 message = "⚠️ No cashout metrics data available"
@@ -955,7 +957,8 @@ async def post_cashout_metrics(start_date: datetime, end_date: datetime) -> None
                         )
                         message += (
                             f"• {metric.currency}: {metric.transaction_count:,} transactions, "
-                            f"{metric.total_amount:,.2f} {metric.currency} ({total_amount_usd:,.2f} USD)\n"
+                            f"{metric.total_amount:,.8f}".rstrip("0").rstrip(".")
+                            + f" {metric.currency} ({total_amount_usd:,.2f} USD)\n"
                         )
 
                 if monthly_metrics:
@@ -971,7 +974,8 @@ async def post_cashout_metrics(start_date: datetime, end_date: datetime) -> None
                         )
                         message += (
                             f"• {metric.currency}: {metric.transaction_count:,} transactions, "
-                            f"{metric.total_amount:,.2f} {metric.currency} ({total_amount_usd:,.2f} USD)\n"
+                            f"{metric.total_amount:,.8f}".rstrip("0").rstrip(".")
+                            + f" {metric.currency} ({total_amount_usd:,.2f} USD)\n"
                         )
 
             analytics_webhook_url = os.environ.get("ANALYTICS_SLACK_WEBHOOK_URL")
