@@ -175,20 +175,6 @@ JUDGE_YUPP_CHAT_PROMPT_SPEED_AWARE_TEMPLATE = ChatPromptTemplate.from_messages(
     [("human", JUDGE_YUPP_CHAT_PROMPT_SPEED_AWARE)]
 )
 
-WILDCHAT_REALISM_PROMPT = """Below are some WildChat prompts, followed by two of our prompts:
-
-WildChat prompts:
-{wildchat_prompt_str}
-
-Our prompts:
-Prompt 1: {prompt1}
-
-Prompt 2: {prompt2}
-
-Which of the two prompts is more similar to the WildChat prompts? Say 1 if the first is more similar and 2 if the second is more similar. Do not explain or add markup; only return the integer."""
-
-WILDCHAT_REALISM_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([("human", WILDCHAT_REALISM_PROMPT)])
-
 
 JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT = """
 You are an AI assistant specialized in evaluating the difficulty of prompts given to language models.

@@ -1,15 +1,9 @@
-import hashlib
-import json
-import pathlib
 from typing import Any
 
-from langchain_community.vectorstores import FAISS
-from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_openai import OpenAIEmbeddings
 from pydantic import SecretStr
 
-from ypl.backend.config import settings
 from ypl.backend.llm.constants import ALL_EMBEDDING_MODELS_BY_PROVIDER, ChatProvider
 from ypl.backend.llm.model_data_type import ModelInfo
 
@@ -37,29 +31,3 @@ def get_embedding_model(
         raise ValueError(f"Unsupported model: {model} for provider: {provider}")
 
     return embedding_llm_cls(api_key=SecretStr(api_key), model=model, **embedding_kwargs)  # type: ignore
-
-
-def cached_get_database(
-    documents: list[Document],
-    embedding_model: Embeddings,
-    cache_name: str | None = None,
-) -> FAISS:
-    """
-    Returns a flatfile vector database with the given documents, using `embedding_model` to create the embeddings if
-    specified. If `cache_name` is provided, the database will be cached using the name; otherwise, it will be
-    automatically generated using the hash of the documents.
-    """
-
-    def hash_sha512(documents: list[Document]) -> str:
-        return hashlib.sha512(json.dumps([doc.dict() for doc in documents]).encode()).hexdigest()
-
-    cache_path = pathlib.Path(settings.CACHE_DIR) / f"{cache_name or hash_sha512(documents)}.faiss.d"
-
-    if cache_path.exists():
-        return FAISS.load_local(str(cache_path), embeddings=embedding_model, allow_dangerous_deserialization=True)
-
-    cache_path.mkdir(parents=True, exist_ok=True)
-    db = FAISS.from_documents(documents, embedding_model)
-    db.save_local(str(cache_path))
-
-    return db

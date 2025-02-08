@@ -41,7 +41,6 @@ from ypl.backend.llm.chat import (
 )
 from ypl.backend.llm.constants import MODEL_HEURISTICS
 from ypl.backend.llm.db_helpers import get_chat_model
-from ypl.backend.llm.embedding import get_embedding_model
 from ypl.backend.llm.judge import (
     JudgeConfig,
     QuickResponseQualityLabeler,
@@ -55,7 +54,7 @@ from ypl.backend.llm.judge import (
     YuppSingleDifficultyLabeler,
     choose_llm,
 )
-from ypl.backend.llm.labeler import SummarizingQuicktakeLabeler, WildChatRealismLabeler
+from ypl.backend.llm.labeler import SummarizingQuicktakeLabeler
 from ypl.backend.llm.model.model_management import validate_active_onboarded_models
 from ypl.backend.llm.model.model_onboarding import verify_onboard_submitted_models
 from ypl.backend.llm.model_data_type import ModelInfo
@@ -563,37 +562,6 @@ def generate_quicktakes(
 
             obj["quicktake"] = quicktake
             print(json.dumps(obj), file=outf)
-
-
-@cli.command(help="Label the realism of user prompts read in from a JSON file, relative to WildChat")
-@click.option("-i", "--json-file", required=True, help="The JSON file to read prompts from")
-@click_provider_option("--provider", help="LLM and embeddings provider")
-@click.option("--api-key", help="API key", required=True)
-@click.option("--language-model", default="gpt-4o-mini", help="The LLM to use for judging realism")
-@click.option("--embeddings-model", default="text-embedding-ada-002", help="The embeddings model to use")
-@click.option("--limit", default=200, help="The number of prompts to judge")
-def label_wildchat_realism(
-    json_file: str, provider: str, api_key: str, language_model: str, embeddings_model: str, limit: int
-) -> None:
-    llm = get_chat_model(ModelInfo(provider=provider, model=language_model, api_key=api_key), temperature=0.0)
-    embedding_model = get_embedding_model(ModelInfo(provider=provider, model=embeddings_model, api_key=api_key))
-    judge = WildChatRealismLabeler(llm, embedding_model)
-    prompts = []
-
-    for idx, line in enumerate(open(json_file)):
-        if idx >= limit:
-            break
-
-        try:
-            prompts.append(json.loads(line)["messages"][0][0]["content"])
-        except KeyError:
-            continue
-
-    realistic_flags = asyncio.run(judge.abatch_label(prompts))
-    counter = Counter(realistic_flags)
-
-    print("Proportion realistic:", counter[True] / (counter[True] + counter[False]))
-    print("Sample size:", counter[True] + counter[False])
 
 
 @cli.command(help="Evaluate pairs of LLM generations read in from a JSON file, acting like a real Yupp user")
