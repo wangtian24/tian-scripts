@@ -14,7 +14,6 @@ class HyperwalletDetails:
     state_province: str
     country: str  # Country code (e.g. US)
     postal_code: str
-    client_user_id: str
     profile_type: str = "INDIVIDUAL"
 
 

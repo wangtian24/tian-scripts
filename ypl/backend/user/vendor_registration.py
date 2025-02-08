@@ -3,6 +3,7 @@ import logging
 from typing import Any
 
 import httpx
+from ypl.backend.config import settings
 from ypl.backend.user.vendor_details import AdditionalDetails, HyperwalletDetails
 from ypl.backend.utils.json import json_dumps
 
@@ -43,10 +44,10 @@ class VendorRegistration(abc.ABC):
 
 class HyperwalletRegistration(VendorRegistration):
     def __init__(self) -> None:
-        self.api_url = "https://api.sandbox.hyperwallet.com/rest/v4"
-        self.program_token = "https://api.sandbox.hyperwallet.com/rest/v4"
-        self.username = "https://api.sandbox.hyperwallet.com/rest/v4"
-        self.password = "https://api.sandbox.hyperwallet.com/rest/v4"
+        self.api_url = settings.hyperwallet_api_url
+        self.program_token = settings.hyperwallet_program_token
+        self.username = settings.hyperwallet_username
+        self.password = settings.hyperwallet_password
 
         if not all([self.program_token, self.username, self.password]):
             raise VendorRegistrationError("Missing required Hyperwallet credentials")
@@ -105,6 +106,10 @@ class HyperwalletRegistration(VendorRegistration):
             log_dict = {
                 "message": "Hyperwallet: User registration payload",
                 "payload": payload,
+                "api_url": self.api_url,
+                "program_token": self.program_token,
+                "username": self.username,
+                "password": self.password,
             }
             logging.info(json_dumps(log_dict))
 

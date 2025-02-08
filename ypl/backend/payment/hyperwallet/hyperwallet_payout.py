@@ -1,6 +1,5 @@
 import json
 import logging
-import os
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from enum import StrEnum
@@ -8,13 +7,14 @@ from typing import Any, Final
 from uuid import UUID
 
 import httpx
+from ypl.backend.config import settings
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import CurrencyEnum
 
-HYPERWALLET_API_URL: Final[str] = "https://api.sandbox.hyperwallet.com/rest/v4"
-HYPERWALLET_PROGRAM_TOKEN: Final[str] = "https://api.sandbox.hyperwallet.com/rest/v4"
-HYPERWALLET_USERNAME: Final[str] = "https://api.sandbox.hyperwallet.com/rest/v4"
-HYPERWALLET_PASSWORD: Final[str] = "https://api.sandbox.hyperwallet.com/rest/v4"
+HYPERWALLET_API_URL: Final[str] = settings.hyperwallet_api_url
+HYPERWALLET_PROGRAM_TOKEN: Final[str] = settings.hyperwallet_program_token
+HYPERWALLET_USERNAME: Final[str] = settings.hyperwallet_username
+HYPERWALLET_PASSWORD: Final[str] = settings.hyperwallet_password
 
 MIN_BALANCES: dict[CurrencyEnum, Decimal] = {
     CurrencyEnum.USD: Decimal(1000),
@@ -75,17 +75,18 @@ class HyperwalletPayout:
     """Represents a payout request for Hyperwallet.
 
     Attributes:
+        user_id: User ID
         amount: Amount to be paid out
-        user_token: Hyperwallet user token
-        destination_token: Hyperwallet transfer method token
-        currency: Type of currency
         payment_transaction_id: UUID of the payment transaction
+        currency: Type of currency
+        destination_token: Hyperwallet transfer method token
     """
 
+    user_id: str
     amount: Decimal
     payment_transaction_id: UUID
     currency: CurrencyEnum
-    user_token: str
+    destination_token: str
 
     # TODO: Create methods to retrieve the account details and corresponding balance
     # No balance check is done today
@@ -110,18 +111,19 @@ async def process_hyperwallet_payout(payout: HyperwalletPayout) -> tuple[str, st
     """
     log_dict: dict[str, Any] = {
         "message": "Hyperwallet: Processing payout",
-        "user_token": str(payout.user_token),
+        "user_id": str(payout.user_id),
         "amount": str(payout.amount),
         "currency": str(payout.currency.value),
         "payment_transaction_id": str(payout.payment_transaction_id),
+        "destination_token": str(payout.destination_token),
     }
     logging.info(json_dumps(log_dict))
 
     # Validate input values
-    if not all([payout.user_token, payout.amount, payout.currency, payout.payment_transaction_id]):
+    if not all([payout.destination_token, payout.amount, payout.currency, payout.payment_transaction_id]):
         validation_details: dict[str, Any] = {
             "message": "Hyperwallet: Missing required fields",
-            "has_user_token": bool(payout.user_token),
+            "has_destination_token": bool(payout.destination_token),
             "has_amount": bool(payout.amount),
             "has_currency": bool(payout.currency),
             "has_payment_transaction_id": bool(payout.payment_transaction_id),
@@ -146,9 +148,9 @@ async def process_hyperwallet_payout(payout: HyperwalletPayout) -> tuple[str, st
     rounded_amount = payout.amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     try:
-        program_token = "https://api.sandbox.hyperwallet.com/rest/v4"
-        api_username = "https://api.sandbox.hyperwallet.com/rest/v4"
-        api_password = "https://api.sandbox.hyperwallet.com/rest/v4"
+        program_token = HYPERWALLET_PROGRAM_TOKEN
+        api_username = HYPERWALLET_USERNAME
+        api_password = HYPERWALLET_PASSWORD
 
         if not all([program_token, api_username, api_password]):
             raise HyperwalletPayoutError(
@@ -164,7 +166,7 @@ async def process_hyperwallet_payout(payout: HyperwalletPayout) -> tuple[str, st
             "amount": str(rounded_amount),
             "clientPaymentId": str(payout.payment_transaction_id),
             "currency": payout.currency.value,
-            "destinationToken": payout.user_token,
+            "destinationToken": payout.destination_token,
             "programToken": program_token,
             "purpose": "OTHER",
         }
@@ -194,7 +196,7 @@ async def process_hyperwallet_payout(payout: HyperwalletPayout) -> tuple[str, st
 
             log_dict = {
                 "message": "Hyperwallet payout created",
-                "user_token": str(payout.user_token),
+                "user_id": str(payout.user_id),
                 "amount": str(payout.amount),
                 "currency": str(payout.currency.value),
                 "transaction_token": transaction_token,
@@ -209,13 +211,13 @@ async def process_hyperwallet_payout(payout: HyperwalletPayout) -> tuple[str, st
     except Exception as e:
         log_dict = {
             "message": "Hyperwallet: Error processing payout",
-            "user_token": str(payout.user_token),
+            "user_id": str(payout.user_id),
             "error": str(e),
         }
         logging.error(json_dumps(log_dict))
         details = {
             "message": "Hyperwallet: Error processing payout",
-            "user_token": str(payout.user_token),
+            "user_id": str(payout.user_id),
             "error": str(e),
         }
         raise HyperwalletPayoutError(str(e), details) from e
@@ -230,8 +232,8 @@ async def get_transaction_status(transaction_token: str) -> str:
     Returns:
         str: The status of the transaction
     """
-    api_username = os.getenv("HYPERWALLET_API_USERNAME")
-    api_password = os.getenv("HYPERWALLET_API_PASSWORD")
+    api_username = HYPERWALLET_USERNAME
+    api_password = HYPERWALLET_PASSWORD
 
     if not all([api_username, api_password]):
         raise HyperwalletPayoutError(

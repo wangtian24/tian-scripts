@@ -5,9 +5,11 @@ import time
 import uuid
 from decimal import Decimal
 
+import httpx
 from fastapi import HTTPException
 from sqlalchemy import select
 from tenacity import retry, stop_after_attempt, wait_exponential
+from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
 from ypl.backend.llm.utils import post_to_slack_with_user_name
 from ypl.backend.payment.facilitator import (
@@ -42,6 +44,7 @@ from ypl.backend.payment.payout_utils import (
 from ypl.backend.payment.payout_utils import (
     get_source_instrument_id as get_generic_source_instrument_id,
 )
+from ypl.backend.user.user import RegisterVendorRequest, register_user_with_vendor
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import (
     CurrencyEnum,
@@ -91,8 +94,8 @@ class HyperwalletFacilitator(BaseFacilitator):
             PaymentInstrumentFacilitatorEnum.HYPERWALLET,
             user_id,
             destination_identifier,
-            PaymentInstrumentIdentifierTypeEnum.PARTNER_IDENTIFIER,
-            None,
+            destination_identifier_type,
+            instrument_metadata,
         )
 
     async def get_balance(self, currency: CurrencyEnum, payment_transaction_id: uuid.UUID | None = None) -> Decimal:
@@ -106,6 +109,171 @@ class HyperwalletFacilitator(BaseFacilitator):
         """
         # TODO: Implement this
         return Decimal(0)
+
+    async def create_transfer_method(
+        self,
+        user_token: str,
+        destination_identifier: str,
+        destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
+        transfer_method_country: str = "US",
+        transfer_method_currency: str = "USD",
+    ) -> str:
+        """Create a transfer method for a user.
+
+        Args:
+            user_token: The Hyperwallet user token
+            email: The email address for the transfer method
+            transfer_method_country: The country code for the transfer method (default: US)
+            transfer_method_currency: The currency code for the transfer method (default: USD)
+
+        Returns:
+            str: The transfer method token
+
+        Raises:
+            PaymentInstrumentError: If the transfer method creation fails
+        """
+        try:
+            api_username = settings.hyperwallet_username
+            api_password = settings.hyperwallet_password
+            api_url = settings.hyperwallet_api_url
+
+            if not all([api_username, api_password, api_url]):
+                raise PaymentInstrumentError("Hyperwallet: Missing API credentials")
+
+            headers = {
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            }
+            auth = (api_username, api_password)
+
+            if destination_identifier_type == PaymentInstrumentIdentifierTypeEnum.PAYPAL_ID:
+                account_type = "PAYPAL_ACCOUNT"
+                payload = {
+                    "type": account_type,
+                    "transferMethodCountry": transfer_method_country,
+                    "transferMethodCurrency": transfer_method_currency,
+                    "email": destination_identifier,
+                }
+                url = f"{api_url}/users/{user_token}/paypal-accounts"
+            elif destination_identifier_type == PaymentInstrumentIdentifierTypeEnum.VENMO_ID:
+                account_type = "VENMO_ACCOUNT"
+                payload = {
+                    "type": account_type,
+                    "transferMethodCountry": transfer_method_country,
+                    "transferMethodCurrency": transfer_method_currency,
+                    "accountId": destination_identifier,
+                }
+                url = f"{api_url}/users/{user_token}/venmo-accounts"
+            else:
+                raise PaymentInstrumentError("Hyperwallet: Unsupported transfer method type")
+
+            log_dict = {
+                "message": f"Hyperwallet: Creating {account_type} transfer method",
+                "user_token": user_token,
+                "payload": payload,
+            }
+            logging.info(json_dumps(log_dict))
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    url,
+                    headers=headers,
+                    json=payload,
+                    auth=auth,
+                )
+                response.raise_for_status()
+
+                data = response.json()
+                transfer_token = data.get("token")
+
+                if not transfer_token:
+                    log_dict = {
+                        "message": "Hyperwallet: No transfer token in response",
+                        "user_token": user_token,
+                        "response": str(data),
+                    }
+                    logging.error(json_dumps(log_dict))
+                    raise PaymentInstrumentError("Hyperwallet: No transfer token in response")
+
+                log_dict = {
+                    "message": f"Hyperwallet: Created {account_type} transfer method",
+                    "user_token": user_token,
+                    "transfer_token": transfer_token,
+                }
+                logging.info(json_dumps(log_dict))
+
+                return str(transfer_token)
+
+        except Exception as e:
+            log_dict = {
+                "message": f"Hyperwallet: Failed to create {account_type} transfer method",
+                "user_token": user_token,
+                "error": str(e),
+            }
+            logging.exception(json_dumps(log_dict))
+            raise PaymentInstrumentError(f"Hyperwallet: Failed to create {account_type} transfer method") from e
+
+    async def get_payment_metadata(
+        self,
+        user_id: str,
+        destination_identifier: str,
+        destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
+        destination_additional_details: dict | None = None,
+    ) -> dict:
+        try:
+            #  Hyperwallet needs a user token. See if the user is already registered
+            async with get_async_session() as session:
+                query = select(UserVendorProfile).where(
+                    UserVendorProfile.user_id == user_id,  # type: ignore
+                    UserVendorProfile.vendor_name == VendorNameEnum.HYPERWALLET,  # type: ignore
+                    UserVendorProfile.deleted_at.is_(None),  # type: ignore
+                )
+                result = await session.execute(query)
+                user_vendor = result.scalar_one_or_none()
+                if not user_vendor:
+                    log_dict = {
+                        "message": "Hyperwallet: User token not found",
+                        "user_id": user_id,
+                    }
+                    logging.info(json_dumps(log_dict))
+                    #  if user is not registered, register the user
+                    user_vendor = await register_user_with_vendor(
+                        RegisterVendorRequest(
+                            user_id=user_id,
+                            vendor_name=VendorNameEnum.HYPERWALLET.value,
+                            additional_details=destination_additional_details,
+                        )
+                    )
+                    user_token = user_vendor.user_vendor_id
+                else:
+                    user_token = user_vendor.user_vendor_id
+
+                log_dict = {
+                    "message": "Hyperwallet: User token found",
+                    "user_id": user_id,
+                    "user_vendor_id": user_vendor.user_vendor_id,
+                }
+                logging.info(json_dumps(log_dict))
+
+                transfer_token = await self.create_transfer_method(
+                    user_token=user_token,
+                    destination_identifier=destination_identifier,
+                    destination_identifier_type=destination_identifier_type,
+                )
+                instrument_metadata = {
+                    "user_token": user_token,
+                    "transfer_token": transfer_token,
+                }
+
+                return instrument_metadata
+        except Exception as e:
+            log_dict = {
+                "message": "Hyperwallet: Failed to get payment token",
+                "user_id": user_id,
+                "error": str(e),
+            }
+            logging.exception(json_dumps(log_dict))
+            raise PaymentInstrumentError("Hyperwallet: Failed to get payment token") from e
 
     async def _send_payment_request(
         self,
@@ -137,37 +305,12 @@ class HyperwalletFacilitator(BaseFacilitator):
                 #     logging.error(json_dumps(log_dict))
                 #     raise PaymentInstrumentError("Source instrument does not have enough balance")
 
+                payment_metadata = await self.get_payment_metadata(
+                    user_id, destination_identifier, destination_identifier_type, destination_additional_details
+                )
                 source_instrument_id = await self.get_source_instrument_id()
-
-                # for hyperwallet, the destination identifier is the partner identifier
-                # which is created by the vendor registration process
-
-                async with get_async_session() as session:
-                    query = select(UserVendorProfile).where(
-                        UserVendorProfile.user_id == user_id,  # type: ignore
-                        UserVendorProfile.vendor_name == VendorNameEnum.HYPERWALLET,  # type: ignore
-                        UserVendorProfile.deleted_at.is_(None),  # type: ignore
-                    )
-                    result = await session.execute(query)
-                    user_vendor = result.scalar_one_or_none()
-                    if not user_vendor:
-                        log_dict = {
-                            "message": "Hyperwallet: User token not found",
-                            "user_id": user_id,
-                        }
-                        logging.error(json_dumps(log_dict))
-                        raise PaymentInstrumentError("Hyperwallet: User token not found")
-
-                log_dict = {
-                    "message": "Hyperwallet: User token found",
-                    "user_id": user_id,
-                    "user_vendor_id": user_vendor.user_vendor_id,
-                }
-                logging.info(json_dumps(log_dict))
-
-                destination_identifier = user_vendor.user_vendor_id
                 destination_instrument_id = await self.get_destination_instrument_id(
-                    user_id, destination_identifier, destination_identifier_type
+                    user_id, destination_identifier, destination_identifier_type, payment_metadata
                 )
             except HTTPException as e:
                 raise e
@@ -266,10 +409,11 @@ class HyperwalletFacilitator(BaseFacilitator):
 
             try:
                 hyperwallet_payout = HyperwalletPayout(
+                    user_id=user_id,
                     amount=amount,
                     currency=self.currency,
                     payment_transaction_id=payment_transaction_id,
-                    user_token=destination_identifier,
+                    destination_token=payment_metadata["transfer_token"],
                 )
                 transaction_token, transaction_status = await process_hyperwallet_payout(hyperwallet_payout)
 
@@ -456,7 +600,7 @@ class HyperwalletFacilitator(BaseFacilitator):
         return PaymentResponse(
             payment_transaction_id=payment_transaction_id,
             transaction_status=self._map_hyperwallet_status_to_internal(status),
-            customer_reference_id=str(payment_transaction_id),
+            customer_reference_id=str(transaction.customer_reference_id),
         )
 
     async def _monitor_transaction_completion(

@@ -5,6 +5,8 @@ supported_currency_to_instrument_identifier_type = {
     CurrencyEnum.USD: [
         PaymentInstrumentIdentifierTypeEnum.BANK_ACCOUNT_NUMBER,
         PaymentInstrumentIdentifierTypeEnum.PARTNER_IDENTIFIER,
+        PaymentInstrumentIdentifierTypeEnum.PAYPAL_ID,
+        PaymentInstrumentIdentifierTypeEnum.VENMO_ID,
     ],
     CurrencyEnum.USDC: [
         PaymentInstrumentIdentifierTypeEnum.PHONE_NUMBER,

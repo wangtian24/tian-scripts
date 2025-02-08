@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, or_, select
 
 from ypl.backend.db import get_async_session
+from ypl.backend.payment.hyperwallet.hyperwallet_utils import get_hyperwallet_user_auth_token
 from ypl.backend.user.user import (
     RegisterVendorRequest,
     VendorProfileResponse,
@@ -18,7 +19,7 @@ from ypl.backend.user.user import (
 from ypl.backend.utils.json import json_dumps
 from ypl.db.invite_codes import SpecialInviteCode, SpecialInviteCodeClaimLog
 from ypl.db.payments import PaymentInstrument, PaymentTransaction
-from ypl.db.users import User, UserStatus, WaitlistedUser
+from ypl.db.users import User, UserStatus, VendorNameEnum, WaitlistedUser
 
 router = APIRouter()
 admin_router = APIRouter()
@@ -91,6 +92,22 @@ async def register_user_with_vendor_route(request: RegisterVendorRequest) -> Ven
         }
         logging.error(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/users/get_vendor_token")
+async def get_vendor_token(user_id: str, vendor_name: str) -> str:
+    """Get a vendor token for a user.
+
+    Args:
+        user_id: The ID of the user to get the vendor token for
+
+    Returns:
+        The vendor token for the user
+    """
+    if vendor_name == VendorNameEnum.HYPERWALLET.value:
+        return await get_hyperwallet_user_auth_token(user_id)
+    else:
+        raise HTTPException(status_code=400, detail=f"Vendor {vendor_name} not supported")
 
 
 @admin_router.get("/admin/users/search")
