@@ -109,9 +109,10 @@ async def convert_credits_to_currency(credits: int, currency: CurrencyEnum) -> C
     usd_amount = credits_decimal * CREDITS_TO_USD_RATE
 
     if currency == CurrencyEnum.INR:
-        return CurrencyConversionResult(
-            currency_amount=credits_decimal * CREDITS_TO_INR_RATE, usd_amount=usd_amount, currency=currency
-        )
+        inr_amount = credits_decimal * CREDITS_TO_INR_RATE
+        exchange_rate = await get_exchange_rate(CurrencyEnum.USD, CurrencyEnum.INR)
+        usd_amount = inr_amount / exchange_rate
+        return CurrencyConversionResult(currency_amount=inr_amount, usd_amount=usd_amount, currency=currency)
     elif currency == CurrencyEnum.USD:
         return CurrencyConversionResult(currency_amount=usd_amount, usd_amount=usd_amount, currency=currency)
     elif currency == CurrencyEnum.USDC:
