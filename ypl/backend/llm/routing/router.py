@@ -170,11 +170,7 @@ async def get_simple_pro_router(
                     always_include=True, offset=50000
                 )
                 # propose promoted models
-                & (
-                    (PromotionModelProposer() | error_filter).with_flags(always_include=True)
-                    if not with_fallback
-                    else Passthrough()
-                )
+                & (PromotionModelProposer() | error_filter).with_flags(always_include=True)
                 # propose models with image or pdf capabilities, strong offset
                 & (attachment_proposer | error_filter).with_flags(always_include=True, offset=200000)
                 # propose reputable models
@@ -241,6 +237,8 @@ async def get_simple_pro_router(
                     settings.ROUTING_WEIGHTS.get("reputable", 0.3),
                     settings.ROUTING_WEIGHTS.get("random", 0.2),
                 )
+                # propose promoted models
+                & (PromotionModelProposer() | error_filter).with_flags(always_include=True)
                 # propose even more random models but low score
                 & RandomModelProposer().with_flags(offset=-1000, always_include=True)
             )

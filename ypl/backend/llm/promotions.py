@@ -186,10 +186,20 @@ class PromotionModelProposer(RNGMixin, ModelProposer):
         # The final show probability depends on where a promotion is in its time window and its strength.
         show_probability = min(1.0, MODEL_PROMO_MAX_SHOW_PROB * dampings[chosen_model] * strengths[chosen_model])
         if self.get_rng().random() > show_probability:
+            ld2 = {
+                "message": f"Model Promotion: chosen model [{chosen_model}] didn't win proposal, "
+                f"probability = {show_probability:.3f}",
+                "candidates_and_weights": [
+                    f"{c}: prob = {w:.3f}"
+                    for c, w in zip(candidates_names, candidates_weights_normalized, strict=False)
+                ],
+            }
+            logging.info(json_dumps(ld2))
             return state
 
-        log_dict = {
-            "message": f"Model Promotion: picked {chosen_model} with probability = {show_probability:.3f}",
+        ld3 = {
+            "message": f"Model Promotion: chosen model {chosen_model} won proposal, "
+            f"probability = {show_probability:.3f}",
             "promo_id": promotion.promotion_id,
             "promo_start_date": promotion.promo_start_date.isoformat() if promotion.promo_start_date else None,
             "promo_end_date": promotion.promo_end_date.isoformat() if promotion.promo_end_date else None,
@@ -198,7 +208,7 @@ class PromotionModelProposer(RNGMixin, ModelProposer):
             "window_size_hrs": window_size,
             "damping": dampings[chosen_model],
         }
-        logging.info(json_dumps(log_dict))
+        logging.info(json_dumps(ld3))
 
         return state.emplaced(
             selected_models={chosen_model: {SelectionCriteria.PROMOTED_MODELS: show_probability}},
