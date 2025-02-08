@@ -67,8 +67,6 @@ from ypl.backend.llm.utils import fetch_categories_with_descriptions_from_db
 from ypl.backend.payment.crypto.crypto_payout import process_pending_crypto_rewards
 from ypl.backend.payment.crypto.crypto_wallet import create_wallet
 from ypl.backend.payment.payment import (
-    store_coinbase_retail_wallet_balances,
-    store_wallet_balances,
     validate_ledger_balance_all_users,
 )
 from ypl.backend.payment.payout_utils import validate_pending_cashouts_async
@@ -1375,7 +1373,7 @@ def calculate_coinbase_signature_for_test() -> None:
 
     async def run() -> None:
         # create a test payload
-        msg = b"""{"blockHash":"0x5ad18a709e15238f0dc9f24dd1fdd50402104d047413caa071f5a447c464ac27","blockNumber":"25019532","blockTime":"1736828411","contractAddress":"","cumulativeGasUsed":"27409922","effectiveGasPrice":"8609108","eventType":"transaction","from":"0x0e88a5b4622552edb523f64f16f45a7333cb1c46","gas":"30000","gasPrice":"8609108","gasUsed":"21000","input":"0x","l1Fee":"10058601563","l1FeeScalar":"","l1GasPrice":"1948738794","l1GasUsed":"1600","logsBloom":"0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","maxFeePerGas":"8609108","maxPriorityFeePerGas":"1000000","network":"base-mainnet","nonce":"7","priorityFeePerGas":"995009","root":"","status":"1","to":"0x87a6e5b175125c9ed273fa3c03c2612da61b436c","transactionHash":"0x7e2566c8dbd26926b1a3d573e16297bcf8f6a11c0ac10af67a606d214e1fa467","transactionIndex":"161","transactionType":"2","type":"2","value":"126380509597800","valueString":"126380509597800","webhookId":"676ce841dd3e6d230439ca52"}"""  # noqa
+        msg = b"""{"blockHash":"0x5ad18a709e15238f0dc9f24dd1fdd50402104d047413caa071f5a447c464ac27","blockNumber":"25019532","blockTime":"1736828411","contractAddress":"","cumulativeGasUsed":"27409922","effectiveGasPrice":"8609108","eventType":"transaction","from":"0x0e88a5b4622552edb523f64f16f45a7333cb1c46","gas":"30000","gasPrice":"8609108","gasUsed":"21000","input":"0x","l1Fee":"10058601563","l1FeeScalar":"","l1GasPrice":"1948738794","l1GasUsed":"1600","logsBloom":"0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","maxFeePerGas":"8609108","maxPriorityFeePerGas":"1000000","network":"base-mainnet","nonce":"7","priorityFeePerGas":"995009","root":"","status":"1","to":"0x87a6e5b175125c9ed273fa3c03c2612da61b436c","transactionHash":"0x7e2566c8dbd26926b1a3d573e16297bcf8f6a11c0ac10af67a606d214e1fa467","transactionIndex":"161","transactionType":"2","type":"2","value":"126380509597800","valueString":"126380509597800","webhookId":"676ce841dd3e6d230439ca52"}"""  # noqa
         calculated_signature = await calculate_coinbase_signature(msg)
         log_dict = {
             "message": "Coinbase Webhook: Calculated signature",
@@ -1393,56 +1391,98 @@ def post_source_account_balances() -> None:
     from ypl.backend.llm.utils import post_to_slack
     from ypl.backend.payment.coinbase.coinbase_payout import get_coinbase_retail_wallet_account_details
     from ypl.backend.payment.crypto.crypto_wallet import SLACK_WEBHOOK_CASHOUT, get_wallet_balance
-    from ypl.backend.payment.payment import store_axis_upi_balance
+    from ypl.backend.payment.payment import (
+        retrieve_axis_upi_balance,
+        retrieve_coinbase_retail_wallet_balances,
+        retrieve_self_custodial_wallet_balances,
+        store_axis_upi_balance,
+        store_coinbase_retail_wallet_balances,
+        store_self_custodial_wallet_balances,
+    )
     from ypl.backend.payment.upi.axis.facilitator import get_balance
 
     async def format_and_post_balances() -> None:
         #  get self custodial wallet balance
         try:
             wallet_data = await get_wallet_balance()
-            await store_wallet_balances(wallet_data)
+            last_self_custodial_balance = await retrieve_self_custodial_wallet_balances()
+            await store_self_custodial_wallet_balances(wallet_data)
 
             message = "*Self Custodial Wallet Balance*\n"
             message += "```\n"
-            message += "| Asset | Balance |\n"
-            message += "|-------|----------|\n"
+            message += "| Asset | Balance | Delta Since Yesterday |\n"
+            message += "|-------|----------|------------------------|\n"
+
+            # Create a map of last balances by currency
+            last_balances: dict[str, Decimal] = {}
+            if last_self_custodial_balance:
+                for last_balance in last_self_custodial_balance:
+                    if last_balance.currency and last_balance.balance is not None:
+                        last_balances[str(last_balance.currency.value)] = Decimal(str(last_balance.balance))
+
             for balance in wallet_data["balances"]:
-                currency = balance["currency"]
-                amount = balance["balance"]
-                # Remove trailing zeros but keep decimal point if needed
-                formatted_amount = f"{amount:.8f}".rstrip("0").rstrip(".")
-                message += f"| {currency:<5} | {formatted_amount:>9} |\n"
+                currency = str(balance["currency"])
+                current_amount = Decimal(str(balance["balance"]))
+                last_amount = last_balances.get(currency, Decimal("0"))
+                delta = current_amount - last_amount
+
+                # Format amounts
+                formatted_current = f"{current_amount:.8f}".rstrip("0").rstrip(".")
+                formatted_delta = f"{delta:+.8f}".rstrip("0").rstrip(".")
+
+                message += f"| {currency:<5} | {formatted_current:>9} | {formatted_delta:>9} |\n"
             message += "```\n\n"
         except Exception as e:
             logging.error(f"Error getting wallet balance for daily posting: {e}")
 
         # Get offchain balance
         try:
+            last_coinbase_retail_balance = await retrieve_coinbase_retail_wallet_balances()
             accounts = await get_coinbase_retail_wallet_account_details()
             await store_coinbase_retail_wallet_balances(accounts)
 
             message += "*Coinbase Retail Wallet Balance*\n"
             message += "```\n"
-            message += "| Asset | Balance |\n"
-            message += "|-------|----------|\n"
+            message += "| Asset | Balance | Delta Since Yesterday |\n"
+            message += "|-------|----------|------------------------|\n"
+
+            last_coinbase_retail_balances: dict[str, Decimal] = {}
+            if last_coinbase_retail_balance:
+                for last_balance in last_coinbase_retail_balance:
+                    if last_balance.currency and last_balance.balance is not None:
+                        last_coinbase_retail_balances[str(last_balance.currency.value)] = Decimal(
+                            str(last_balance.balance)
+                        )
+
             for currency, details in accounts.items():
                 balance = details.get("balance", 0)
-                # Remove trailing zeros but keep decimal point if needed
-                formatted_balance = f"{balance:.8f}".rstrip("0").rstrip(".")
-                message += f"| {currency:<5} | {formatted_balance:>9} |\n"
+                current_amount = Decimal(str(balance))
+                last_amount = last_coinbase_retail_balances.get(currency, Decimal("0"))
+                delta = current_amount - last_amount
+
+                # Format amounts
+                formatted_current = f"{current_amount:.8f}".rstrip("0").rstrip(".")
+                formatted_delta = f"{delta:+.8f}".rstrip("0").rstrip(".")
+                message += f"| {currency:<5} | {formatted_current:>9} | {formatted_delta:>9} |\n"
             message += "```"
         except Exception as e:
             logging.error(f"Error getting coinbase retail wallet balance for daily posting: {e}")
 
         #  Get Axis UPI balance
         try:
+            last_axis_upi_balance = await retrieve_axis_upi_balance()
             balance = await get_balance()
             await store_axis_upi_balance(balance)
             message += "\n*Axis UPI Balance*\n"
             message += "```\n"
             # Remove trailing zeros but keep decimal point if needed
             formatted_balance = f"{balance:.8f}".rstrip("0").rstrip(".")
-            message += f"| Balance | {formatted_balance:>9} |\n"
+            message += "| Balance | Delta Since Yesterday |\n"
+            if last_axis_upi_balance is not None:
+                formatted_delta = f"{balance - last_axis_upi_balance:+.8f}".rstrip("0").rstrip(".")
+            else:
+                formatted_delta = "N/A"
+            message += f"| {formatted_balance:>9} | {formatted_delta:>9} |\n"
             message += "```"
         except Exception as e:
             logging.error(f"Error getting axis upi balance for daily posting: {e}")

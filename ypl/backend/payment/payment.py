@@ -506,7 +506,61 @@ async def update_payment_instrument(payment_instrument_id: UUID, request: Update
         await session.commit()
 
 
-async def store_wallet_balances(wallet_data: dict) -> None:
+async def retrieve_self_custodial_wallet_balances() -> list[DailyAccountBalanceHistory] | None:
+    """
+    Retrieve wallet balances from the daily_account_balances table.
+    """
+    try:
+        async with get_async_session() as session:
+            query = select(PaymentInstrument).where(
+                func.coalesce(PaymentInstrument.user_id, "") == "SYSTEM",
+                PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.ON_CHAIN,  # type: ignore
+                PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS,  # type: ignore
+                PaymentInstrument.deleted_at.is_(None),  # type: ignore
+            )
+            result = await session.execute(query)
+            payment_instrument = result.scalar_one()
+
+            # First find the latest date that has entries
+            latest_date_query = select(func.date(func.max(DailyAccountBalanceHistory.created_at))).where(
+                DailyAccountBalanceHistory.payment_instrument_id == payment_instrument.payment_instrument_id
+            )
+            result = await session.execute(latest_date_query)
+            latest_date = result.scalar_one()
+
+            if latest_date is None:
+                return None
+
+            query = (
+                select(DailyAccountBalanceHistory)
+                .where(
+                    DailyAccountBalanceHistory.payment_instrument_id == payment_instrument.payment_instrument_id,  # type: ignore
+                    func.date(DailyAccountBalanceHistory.created_at) == latest_date,
+                )
+                .order_by(DailyAccountBalanceHistory.created_at.desc())  # type: ignore
+            )
+            result = await session.execute(query)
+            all_balances = list(result.scalars().all())
+
+            # Get only the latest balance for each currency
+            seen_currencies = set()
+            balances = []
+            for balance in all_balances:
+                if balance.currency not in seen_currencies:
+                    balances.append(balance)
+                    seen_currencies.add(balance.currency)
+
+            return balances
+    except Exception as e:
+        log_dict = {
+            "message": "Failed to retrieve wallet balances",
+            "error": str(e),
+        }
+        logging.error(json_dumps(log_dict))
+        return None
+
+
+async def store_self_custodial_wallet_balances(wallet_data: dict) -> None:
     """
     Store wallet balances in the daily_account_balances table.
 
@@ -524,7 +578,7 @@ async def store_wallet_balances(wallet_data: dict) -> None:
     try:
         async with get_async_session() as session:
             query = select(PaymentInstrument).where(
-                PaymentInstrument.user_id == "SYSTEM",  # type: ignore
+                func.coalesce(PaymentInstrument.user_id, "") == "SYSTEM",
                 PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.ON_CHAIN,  # type: ignore
                 PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS,  # type: ignore
                 PaymentInstrument.deleted_at.is_(None),  # type: ignore
@@ -566,6 +620,59 @@ async def store_wallet_balances(wallet_data: dict) -> None:
         return None
 
 
+async def retrieve_coinbase_retail_wallet_balances() -> list[DailyAccountBalanceHistory] | None:
+    """
+    Retrieve Coinbase retail wallet balances from the daily_account_balances table.
+    """
+    try:
+        async with get_async_session() as session:
+            query = select(PaymentInstrument).where(
+                func.coalesce(PaymentInstrument.user_id, "") == "SYSTEM",
+                PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.COINBASE,  # type: ignore
+                PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS,  # type: ignore
+                PaymentInstrument.deleted_at.is_(None),  # type: ignore
+            )
+            result = await session.execute(query)
+            payment_instrument = result.scalar_one()
+
+            # First find the latest date that has entries
+            latest_date_query = select(func.date(func.max(DailyAccountBalanceHistory.created_at))).where(
+                DailyAccountBalanceHistory.payment_instrument_id == payment_instrument.payment_instrument_id
+            )
+            result = await session.execute(latest_date_query)
+            latest_date = result.scalar_one()
+
+            if latest_date is None:
+                return None
+
+            query = (
+                select(DailyAccountBalanceHistory)
+                .where(
+                    DailyAccountBalanceHistory.payment_instrument_id == payment_instrument.payment_instrument_id,  # type: ignore
+                    func.date(DailyAccountBalanceHistory.created_at) == latest_date,
+                )
+                .order_by(DailyAccountBalanceHistory.created_at.desc())  # type: ignore
+            )
+            result = await session.execute(query)
+            all_balances = list(result.scalars().all())
+
+            # Get only the latest balance for each currency
+            seen_currencies = set()
+            balances = []
+            for balance in all_balances:
+                if balance.currency not in seen_currencies:
+                    balances.append(balance)
+                    seen_currencies.add(balance.currency)
+            return balances
+    except Exception as e:
+        log_dict = {
+            "message": "Failed to retrieve Coinbase retail wallet balances",
+            "error": str(e),
+        }
+        logging.error(json_dumps(log_dict))
+        return None
+
+
 async def store_coinbase_retail_wallet_balances(accounts: dict[str, dict[str, str | Decimal]]) -> None:
     """
     Store Coinbase retail wallet balances in the daily_account_balances table.
@@ -584,7 +691,7 @@ async def store_coinbase_retail_wallet_balances(accounts: dict[str, dict[str, st
     try:
         async with get_async_session() as session:
             query = select(PaymentInstrument).where(
-                PaymentInstrument.user_id == "SYSTEM",  # type: ignore
+                func.coalesce(PaymentInstrument.user_id, "") == "SYSTEM",
                 PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.COINBASE,  # type: ignore
                 PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS,  # type: ignore
                 PaymentInstrument.deleted_at.is_(None),  # type: ignore
@@ -634,6 +741,54 @@ async def store_coinbase_retail_wallet_balances(accounts: dict[str, dict[str, st
         return None
 
 
+async def retrieve_axis_upi_balance() -> Decimal | None:
+    """
+    Retrieve Axis UPI balance from the daily_account_balances table.
+    """
+    try:
+        async with get_async_session() as session:
+            query = select(PaymentInstrument).where(
+                func.coalesce(PaymentInstrument.user_id, "") == "SYSTEM",
+                PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.UPI,  # type: ignore
+                PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.UPI_ID,  # type: ignore
+                PaymentInstrument.deleted_at.is_(None),  # type: ignore
+            )
+            result = await session.execute(query)
+            payment_instrument = result.scalar_one()
+
+            # First find the latest date that has entries
+            latest_date_query = select(func.date(func.max(DailyAccountBalanceHistory.created_at))).where(
+                DailyAccountBalanceHistory.payment_instrument_id == payment_instrument.payment_instrument_id
+            )
+            result = await session.execute(latest_date_query)
+            latest_date = result.scalar_one()
+
+            if latest_date is None:
+                return None
+
+            query = (
+                select(DailyAccountBalanceHistory)
+                .where(
+                    DailyAccountBalanceHistory.payment_instrument_id == payment_instrument.payment_instrument_id,  # type: ignore
+                    func.date(DailyAccountBalanceHistory.created_at) == latest_date,
+                )
+                .order_by(DailyAccountBalanceHistory.created_at.desc())  # type: ignore
+            )
+            result = await session.execute(query)
+            balance = result.scalar_one_or_none()
+            if balance is None:
+                return None
+
+            return Decimal(str(balance.balance))
+    except Exception as e:
+        log_dict = {
+            "message": "Failed to retrieve Axis UPI balance",
+            "error": str(e),
+        }
+        logging.error(json_dumps(log_dict))
+        return None
+
+
 async def store_axis_upi_balance(balance: Decimal) -> None:
     """
     Store Axis UPI balance in the daily_account_balances table.
@@ -644,7 +799,7 @@ async def store_axis_upi_balance(balance: Decimal) -> None:
     try:
         async with get_async_session() as session:
             query = select(PaymentInstrument).where(
-                PaymentInstrument.user_id == "SYSTEM",  # type: ignore
+                func.coalesce(PaymentInstrument.user_id, "") == "SYSTEM",
                 PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.UPI,  # type: ignore
                 PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.UPI_ID,  # type: ignore
                 PaymentInstrument.deleted_at.is_(None),  # type: ignore
