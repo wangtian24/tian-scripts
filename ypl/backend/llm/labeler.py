@@ -20,6 +20,7 @@ from ypl.backend.prompts import (
     USER_QUICKTAKE_PROMPT,
 )
 from ypl.backend.utils.json import json_dumps
+from ypl.backend.utils.utils import StopWatch
 from ypl.utils import Delegator
 
 logging.basicConfig(level=logging.WARNING)
@@ -248,7 +249,8 @@ class LLMLabeler(Generic[InputType, OutputType]):
                 return self.error_value, ""
 
     async def alabel(self, input: InputType) -> OutputType:
-        return (await self.alabel_full(input))[0]
+        with StopWatch(f"latency/{self.__class__.__name__}", auto_export=True):
+            return (await self.alabel_full(input))[0]
 
     def batch_label(self, inputs: list[InputType]) -> list[OutputType | None]:
         """Labels a batch of inputs."""

@@ -2,7 +2,7 @@ import logging
 import time
 import uuid
 from enum import Enum
-from typing import TypedDict, cast
+from typing import Any, TypedDict, cast
 
 from sqlalchemy import func, or_
 from sqlmodel import select
@@ -144,41 +144,87 @@ async def get_capability_override_details(
 
 
 class StopWatch:
-    def __init__(self) -> None:
+    """
+    StopWatch is a utility class for recording the time taken to execute a block of code.
+    You can use it as a context manager or manually record splits.
+
+        with StopWatch("latency/my_function"):
+        x = my_function()
+
+    Or use it manually, with a few splits in between:
+
+        stopwatch = StopWatch()
+        doStepA()
+        stopwatch.record_split("step_a")
+        doStepB()
+        stopwatch.record_split("step_b")
+        doStepC()
+        stopwatch.end("step_c")
+        stopwatch.export_metrics("latency/")  # split names will be appended to the prefix when exporting metrics
+
+    You can also use it reocrd laps with a start and end point you care about, rather than calculating from last split.
+
+        stopwatch = StopWatch("latency/", auto_export=True)  # will export metrics when .end() is called
+        doStuff()
+        stopwatch.start_lap("core_step")
+        doCoreStep()
+        stopwatch.end_lap("core_step")
+        doMoreStuff()
+        stopwatch.end("more_stuff")
+    """
+
+    TOTAL_KEY = "TOTAL"
+
+    def __init__(self, name: str | None = None, auto_export: bool = False) -> None:
+        self.name = name
         self.split_start_time = time.time() * 1000
         self.stopwatch_start_time = self.split_start_time  # the overall start time
         self.splits: dict[str, int] = {}
         self.lap_starts: dict[str, float] = {}
         self.ended = False
+        self.auto_export = auto_export
+
+    def __enter__(self) -> "StopWatch":
+        # nothing really to do here
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self.end()
+        if self.auto_export:
+            self.export_metrics()
+        # self.pretty_print()  # uncomment this line for debugging purposes
 
     # Recording time for specific laps with its own start and end
 
-    def record_split(self, name: str) -> None:
+    def record_split(self, split_name: str) -> None:
         """Record time since last split and update start time."""
         current = time.time() * 1000
-        self.splits[name] = int(current - self.split_start_time)
+        self.splits[split_name] = int(current - self.split_start_time)
         self.split_start_time = current
 
-    def end(self, name: str) -> None:
+    def end(self, last_split_name: str | None = None) -> None:
         """Record final split and total time."""
         if not self.ended:
-            self.record_split(name)
-            self.splits["TOTAL"] = int(time.time() * 1000 - self.stopwatch_start_time)
+            if last_split_name:
+                self.record_split(last_split_name)
+            self.splits[self.TOTAL_KEY] = int(time.time() * 1000 - self.stopwatch_start_time)
             self.ended = True
+            if self.auto_export:
+                self.export_metrics()
 
     # Recording time for specific laps with its own start and end
 
-    def start_lap(self, name: str) -> None:
+    def start_lap(self, lap_name: str) -> None:
         """Start a new lap with the given name."""
-        self.lap_starts[name] = time.time() * 1000
+        self.lap_starts[lap_name] = time.time() * 1000
 
-    def end_lap(self, name: str) -> None:
+    def end_lap(self, lap_name: str) -> None:
         """End a lap and record its duration."""
-        if name not in self.lap_starts:
-            raise ValueError(f"No lap named '{name}' was started")
+        if lap_name not in self.lap_starts:
+            raise ValueError(f"No lap named '{lap_name}' was started")
         current = time.time() * 1000
-        self.splits[name] = int(current - self.lap_starts[name])
-        del self.lap_starts[name]
+        self.splits[lap_name] = int(current - self.lap_starts[lap_name])
+        del self.lap_starts[lap_name]
 
     # Getting results
 
@@ -186,22 +232,26 @@ class StopWatch:
         """Return total time in milliseconds."""
         if not self.ended:
             return int(time.time() * 1000 - self.stopwatch_start_time)
-        return self.splits["total_time"]
+        return self.splits[self.TOTAL_KEY]
 
     def get_splits(self) -> dict[str, int]:
-        """Return dictionary of all recorded splits."""
+        """Return a copy of thedictionary of all recorded splits."""
         return self.splits.copy()
 
     def pretty_print(self, print_total: bool = True) -> None:
         """Print splits one per row with millisecond suffix."""
-        print("StopWatch results:")
-        for name, duration in self.splits.items():
-            if not print_total and name == "total_time":
+        print(f"StopWatch results: {self.name}")
+        for split_name, duration in self.splits.items():
+            if not print_total and split_name == self.TOTAL_KEY:
                 continue
-            print(f"-- {name:40} {int(duration):8} ms")
+            print(f"-- {split_name:40} {int(duration):8} ms")
 
-    def export_metrics(self, prefix: str) -> None:
+    def export_metrics(self, prefix: str | None = None, with_total: bool = False) -> None:
         """Export all splits as metrics with the given prefix."""
+        if prefix is None:
+            prefix = self.name or ""
 
-        for name, duration in self.splits.items():
-            metric_record(f"{prefix}{name}_ms", duration)
+        for split_name, duration in self.splits.items():
+            if not with_total and split_name == self.TOTAL_KEY:
+                continue
+            metric_record(f"{prefix}{split_name}_ms", duration)

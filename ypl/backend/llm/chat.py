@@ -374,7 +374,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
     stopwatch.end("prepare_response")
 
     # Export metrics
-    stopwatch.export_metrics("routing/latency/")
+    stopwatch.export_metrics("routing/latency/", with_total=True)
     metric_inc_by("routing/count_models_served", len(primary_models))
     if len(primary_models) > 0:
         metric_inc(f"routing/count_first_{primary_models[0]}")
