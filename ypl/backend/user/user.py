@@ -17,6 +17,26 @@ from ypl.db.users import User, UserStatus, UserVendorProfile, VendorNameEnum
 
 
 @dataclass
+class UserSearchResult:
+    user_id: str
+    name: str | None
+    email: str
+    created_at: datetime | None
+    deleted_at: datetime | None
+    points: int
+    status: UserStatus
+    discord_id: str | None
+    discord_username: str | None
+    image_url: str | None
+
+
+@dataclass
+class UserSearchResponse:
+    users: list[UserSearchResult]
+    has_more_rows: bool
+
+
+@dataclass
 class RegisterVendorRequest:
     user_id: str
     vendor_name: str
@@ -182,6 +202,35 @@ async def get_user(user_id: str) -> User:
             raise ValueError("User not found")
 
         return cast(User, user)
+
+
+async def get_all_users(limit: int = 100, offset: int = 0) -> UserSearchResponse:
+    async with get_async_session() as session:
+        stmt = (
+            select(User)
+            .order_by(User.created_at.desc())  # type: ignore
+            .limit(limit + 1)
+            .offset(offset)
+        )
+        users = (await session.execute(stmt)).scalars().all()
+        has_more_rows = len(users) > limit
+        user_search_results = []
+        for user in users:
+            user_search_results.append(
+                UserSearchResult(
+                    user_id=user.user_id,
+                    name=user.name,
+                    email=user.email,
+                    created_at=user.created_at,
+                    deleted_at=user.deleted_at,
+                    points=user.points,
+                    status=user.status,
+                    discord_id=user.discord_id,
+                    discord_username=user.discord_username,
+                    image_url=user.image,
+                )
+            )
+        return UserSearchResponse(users=user_search_results, has_more_rows=has_more_rows)
 
 
 async def deactivate_user(user_id: str, creator_user_email: str) -> None:

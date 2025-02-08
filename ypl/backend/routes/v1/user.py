@@ -12,14 +12,17 @@ from ypl.backend.db import get_async_session
 from ypl.backend.payment.hyperwallet.hyperwallet_utils import get_hyperwallet_user_auth_token
 from ypl.backend.user.user import (
     RegisterVendorRequest,
+    UserSearchResponse,
+    UserSearchResult,
     VendorProfileResponse,
     deactivate_user,
+    get_all_users,
     register_user_with_vendor,
 )
 from ypl.backend.utils.json import json_dumps
 from ypl.db.invite_codes import SpecialInviteCode, SpecialInviteCodeClaimLog
 from ypl.db.payments import PaymentInstrument, PaymentTransaction
-from ypl.db.users import User, UserStatus, VendorNameEnum, WaitlistedUser
+from ypl.db.users import User, VendorNameEnum, WaitlistedUser
 
 router = APIRouter()
 admin_router = APIRouter()
@@ -50,25 +53,6 @@ class RelatedUsersResponse:
     related_users: list[RelatedUser]
     num_children: int
     num_siblings: int
-
-
-@dataclass
-class UserSearchResult:
-    user_id: str
-    name: str | None
-    email: str
-    created_at: datetime | None
-    deleted_at: datetime | None
-    points: int
-    status: UserStatus
-    discord_id: str | None
-    discord_username: str | None
-    image_url: str | None
-
-
-@dataclass
-class UserSearchResponse:
-    users: list[UserSearchResult]
 
 
 @router.post("/users/register_user_with_vendor", response_model=VendorProfileResponse)
@@ -108,6 +92,18 @@ async def get_vendor_token(user_id: str, vendor_name: str) -> str:
         return await get_hyperwallet_user_auth_token(user_id)
     else:
         raise HTTPException(status_code=400, detail=f"Vendor {vendor_name} not supported")
+
+
+@admin_router.get("/admin/users")
+async def get_all_users_route(limit: int = 100, offset: int = 0) -> UserSearchResponse:
+    """Get all users."""
+    log_dict = {
+        "message": "Getting all users",
+        "limit": limit,
+        "offset": offset,
+    }
+    logging.info(json_dumps(log_dict))
+    return await get_all_users(limit, offset)
 
 
 @admin_router.get("/admin/users/search")
@@ -162,7 +158,8 @@ async def get_users(query: str) -> UserSearchResponse:
                             image_url=user.image,
                         )
                         for user in users
-                    ]
+                    ],
+                    has_more_rows=False,
                 )
 
             # if this is not a user related data point, look for payment instrument
@@ -194,7 +191,8 @@ async def get_users(query: str) -> UserSearchResponse:
                             image_url=user.image,
                         )
                         for user in users
-                    ]
+                    ],
+                    has_more_rows=False,
                 )
 
             # if this is not a payment instrument then search for payment transaction id
@@ -233,10 +231,11 @@ async def get_users(query: str) -> UserSearchResponse:
                             image_url=user.image,
                         )
                         for user in users
-                    ]
+                    ],
+                    has_more_rows=False,
                 )
 
-            return UserSearchResponse(users=[])
+            return UserSearchResponse(users=[], has_more_rows=False)
     except Exception as e:
         log_dict = {
             "message": "Error searching for users",
