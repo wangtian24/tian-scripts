@@ -1,4 +1,4 @@
-name: Generate invite codes for yuppster
+name: Generate invite codes based on criteria
 
 on:
   workflow_dispatch:
@@ -11,11 +11,42 @@ on:
           options:
           - staging
           - production
+        min_age_days:
+          description: 'Minimum age in days for eligible users'
+          required: true
+          default: '2'
+          type: string
+        min_eval_days:
+          description: 'Minimum number of evaluation days'
+          required: true
+          default: '2'
+          type: string
+        min_feedback_count:
+          description: 'Minimum number of feedbacks required'
+          required: false
+          default: '0'
+          type: string
+        limit:
+          description: 'Maximum number of users to generate codes for'
+          required: true
+          default: '10'
+          type: string
+        default_active:
+          description: 'Whether generated codes should be enabled'
+          required: false
+          default: false
+          type: boolean
 
 jobs:
-  generate_invite_codes_for_yuppster:
+  generate_invite_codes_for_top_users:
     uses: ./.github/workflows/cronjob.yml
     with:
-      command: generate-invite-codes-for-yuppster
+      command: generate-invite-codes-for-top-users
+      args: >-
+        --min-age-days=${{ inputs.min_age_days }}
+        --min-eval-days=${{ inputs.min_eval_days }}
+        --min-feedback-count=${{ inputs.min_feedback_count }}
+        --limit=${{ inputs.limit }}
+        ${{ inputs.default_active && '--default-active' || '' }}
       environment: ${{ inputs.environment }}
     secrets: inherit

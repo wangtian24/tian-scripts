@@ -2,15 +2,19 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import desc, func
+from pydantic import BaseModel
+from sqlalchemy import String, cast, desc, exists, func, not_
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from ypl.db.app_feedback import AppFeedback
+from ypl.db.chats import Eval
 from ypl.db.invite_codes import (
     SpecialInviteCode,
     SpecialInviteCodeClaimLog,
     SpecialInviteCodeState,
 )
+from ypl.db.users import User
 
 
 @dataclass
@@ -48,6 +52,19 @@ class UpdateInviteCodeRequest:
 
     state: SpecialInviteCodeState | None = None
     usage_limit: int | None = None
+
+
+class EligibleUser(BaseModel):
+    user_id: str
+    name: str
+    created_at: datetime
+    num_eval_days: int  # Distinct days that the user has provided evals on.
+    total_evals: int  # Total number of evals created
+    feedback_count: int
+
+
+class EligibleUsersResponse(BaseModel):
+    users: list[EligibleUser]
 
 
 async def get_invite_codes_for_user(user_id: str, session: AsyncSession) -> list[InviteCodeInfo]:
@@ -137,3 +154,89 @@ async def update_invite_code_for_user(
         invite_code.usage_limit = update_request.usage_limit
 
     await session.commit()
+
+
+async def get_users_eligible_for_invite_codes(
+    session: AsyncSession,
+    min_age_days: int,
+    min_eval_days: int,
+    min_feedback_count: int,
+    limit: int = 10,
+) -> list[EligibleUser]:
+    """Get users eligible for invite codes based on a few criteria, ordered by decreasing activity."""
+
+    cutoff_date = datetime.utcnow() - timedelta(days=min_age_days)
+
+    # Get number of evals from this user.
+    eval_stats = (
+        select(
+            cast(Eval.user_id, String).label("user_id"),
+            func.count(func.distinct(func.date(Eval.created_at))).label("num_eval_days"),
+            func.count().label("total_evals"),
+        )
+        .where(
+            Eval.deleted_at.is_(None),  # type: ignore
+        )
+        .group_by(cast(Eval.user_id, String))
+        .having(func.count(func.distinct(func.date(Eval.created_at))) >= min_eval_days)
+        .cte("eval_stats")
+    )
+
+    # Get number of in-app feeedback sent by the user.
+    feedback_stats = (
+        select(cast(AppFeedback.user_id, String).label("user_id"), func.count().label("feedback_count"))
+        .where(AppFeedback.deleted_at.is_(None))  # type: ignore
+        .group_by(cast(AppFeedback.user_id, String))
+        .cte("feedback_stats")
+    )
+
+    query = (
+        select(
+            User,
+            eval_stats.c.num_eval_days,
+            eval_stats.c.total_evals,
+            func.coalesce(feedback_stats.c.feedback_count, 0).label("feedback_count"),
+        )
+        .select_from(User)
+        .join(eval_stats, eval_stats.c.user_id == User.user_id)
+        # Use left outer join since feedback_min_count is allowed to be 0.
+        # Make sure we find users that don't have any in-app feedback.
+        .outerjoin(feedback_stats, feedback_stats.c.user_id == User.user_id)
+        .where(
+            User.created_at <= cutoff_date,  # type: ignore
+            User.deleted_at.is_(None),  # type: ignore
+            func.coalesce(feedback_stats.c.feedback_count, 0) >= min_feedback_count,
+            # Exclude user that already have invite codes
+            not_(
+                exists(
+                    select(1).where(
+                        SpecialInviteCode.creator_user_id == User.user_id,
+                        SpecialInviteCode.state == SpecialInviteCodeState.ACTIVE,
+                        SpecialInviteCode.deleted_at.is_(None),  # type: ignore
+                    )
+                )
+            ),
+        )
+        .order_by(
+            eval_stats.c.num_eval_days.desc(),
+            eval_stats.c.total_evals.desc(),
+            User.created_at.desc(),  # type: ignore
+        )
+        .limit(limit)
+    )
+
+    result = await session.execute(query)
+    users_with_evals = result.all()
+
+    eligible_users = [
+        EligibleUser(
+            user_id=row.User.user_id,
+            name=row.User.name,
+            created_at=row.User.created_at,
+            num_eval_days=row.num_eval_days,
+            total_evals=row.total_evals,
+            feedback_count=row.feedback_count,
+        )
+        for row in users_with_evals
+    ]
+    return eligible_users

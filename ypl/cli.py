@@ -74,7 +74,7 @@ from ypl.backend.payment.payment import (
 from ypl.backend.payment.payout_utils import validate_pending_cashouts_async
 from ypl.backend.payment.plaid.plaid_payout import PlaidPayout, process_plaid_payout
 from ypl.backend.utils.analytics import post_analytics_to_slack
-from ypl.backend.utils.generate_referral_codes import generate_invite_codes_for_yuppster_async
+from ypl.backend.utils.generate_referral_codes import generate_invite_code_for_top_users
 from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.utils import CapabilityType
 from ypl.db.chats import (
@@ -1338,10 +1338,25 @@ def validate_pending_cashouts() -> None:
 
 
 @cli.command()
+@click.option("--min-age-days", default=2, help="Minimum age in days for eligible users")
+@click.option("--min-eval-days", default=2, help="Minimum number of evaluation days")
+@click.option("--min-feedback-count", default=0, help="Minimum number of feedbacks required")
+@click.option("--limit", default=10, help="Maximum number of users to generate codes for")
+@click.option("--default-active", is_flag=True, default=False, help="Whether generated codes should be enabled")
 @db_cmd
-def generate_invite_codes_for_yuppster() -> None:
-    """Generate invite codes for all users with emails ending in specified domain."""
-    asyncio.run(generate_invite_codes_for_yuppster_async())
+def generate_invite_codes_for_top_users(
+    min_age_days: int, min_eval_days: int, min_feedback_count: int, limit: int, default_active: bool
+) -> None:
+    """Generate invite codes for top users."""
+    asyncio.run(
+        generate_invite_code_for_top_users(
+            min_age_days=min_age_days,
+            min_eval_days=min_eval_days,
+            min_feedback_count=min_feedback_count,
+            limit=limit,
+            default_active=default_active,
+        )
+    )
 
 
 @cli.command()
