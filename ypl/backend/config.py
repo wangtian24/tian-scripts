@@ -119,8 +119,13 @@ class Settings(BaseSettings):
     BASESCAN_API_KEY: str = os.getenv("BASESCAN_API_KEY", "")
     BASESCAN_API_URL: str = os.getenv("BASESCAN_API_URL", "")
 
-    CRYPTO_EXCHANGE_PRICE_API_URL_COINBASE: str = os.getenv("CRYPTO_EXCHANGE_PRICE_API_URL_COINBASE", "")
-    CRYPTO_EXCHANGE_PRICE_API_URL_COINGECKO: str = os.getenv("CRYPTO_EXCHANGE_PRICE_API_URL_COINGECKO", "")
+    CRYPTO_EXCHANGE_PRICE_API_URL_COINBASE: str = os.getenv(
+        "CRYPTO_EXCHANGE_PRICE_API_URL_COINBASE", "https://api.coinbase.com/v2/prices/{}-{}/spot"
+    )
+    CRYPTO_EXCHANGE_PRICE_API_URL_COINGECKO: str = os.getenv(
+        "CRYPTO_EXCHANGE_PRICE_API_URL_COINGECKO",
+        "https://api.coingecko.com/api/v3/simple/price?ids={}&vs_currencies=usd",
+    )
 
     SLACK_WEBHOOK_CASHOUT: str = os.getenv("SLACK_WEBHOOK_CASHOUT", "")
     SLACK_WEBHOOK_URL: str = os.getenv("SLACK_WEBHOOK_URL", "")
