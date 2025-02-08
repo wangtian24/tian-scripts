@@ -48,6 +48,7 @@ from ypl.backend.user.user import RegisterVendorRequest, register_user_with_vend
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import (
     CurrencyEnum,
+    PaymentInstrument,
     PaymentInstrumentFacilitatorEnum,
     PaymentInstrumentIdentifierTypeEnum,
     PaymentTransaction,
@@ -255,11 +256,29 @@ class HyperwalletFacilitator(BaseFacilitator):
                 }
                 logging.info(json_dumps(log_dict))
 
-                transfer_token = await self.create_transfer_method(
-                    user_token=user_token,
-                    destination_identifier=destination_identifier,
-                    destination_identifier_type=destination_identifier_type,
-                )
+                # see if the transfer method already exists
+                async with get_async_session() as session:
+                    query = select(PaymentInstrument).where(
+                        PaymentInstrument.user_id == user_id,  # type: ignore
+                        PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.HYPERWALLET,  # type: ignore
+                        PaymentInstrument.identifier_type == destination_identifier_type,  # type: ignore
+                        PaymentInstrument.identifier == destination_identifier,  # type: ignore
+                        PaymentInstrument.deleted_at.is_(None),  # type: ignore
+                    )
+                    result = await session.execute(query)
+                    payment_instrument = result.scalar_one_or_none()
+                    if (
+                        payment_instrument
+                        and payment_instrument.instrument_metadata
+                        and payment_instrument.instrument_metadata.get("transfer_token")
+                    ):
+                        transfer_token = payment_instrument.instrument_metadata["transfer_token"]
+                    else:
+                        transfer_token = await self.create_transfer_method(
+                            user_token=user_token,
+                            destination_identifier=destination_identifier,
+                            destination_identifier_type=destination_identifier_type,
+                        )
                 instrument_metadata = {
                     "user_token": user_token,
                     "transfer_token": transfer_token,
@@ -728,6 +747,6 @@ class HyperwalletFacilitator(BaseFacilitator):
             tuple: (max_wait_time_seconds, poll_interval_seconds)
         """
         return (
-            5 * 60,  # 5 minutes in seconds
+            1 * 60,  # 1 minutes in seconds
             10,  # 10 seconds
         )
