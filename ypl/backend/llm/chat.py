@@ -230,7 +230,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
 
     logging.debug(json_dumps({"message": "select_models_plus request"} | request.model_dump(mode="json")))
     metric_inc(f"routing/intent_{request.intent}")
-    stopwatch = StopWatch()
+    stopwatch = StopWatch(f"routing/latency/{request.intent}/", auto_export=True)
 
     # Prepare the prompt and past turn information
     prompt = None
@@ -381,8 +381,6 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
     logging.info(json_dumps(log_dict))
     stopwatch.end("prepare_response")
 
-    # Export metrics
-    stopwatch.export_metrics("routing/latency/", with_total=True)
     metric_inc_by("routing/count_models_served", len(primary_models))
     if len(primary_models) > 0:
         metric_inc(f"routing/count_first_{primary_models[0]}")

@@ -14,6 +14,7 @@ from ypl.backend.prompts import load_prompt_modifiers
 from ypl.backend.routes.api_auth import validate_admin_api_key, validate_api_key
 from ypl.backend.routes.v1 import chat_completions, chat_feed, credit, health, model, payment, rank, reward
 from ypl.backend.routes.v1 import chats as chats_route
+from ypl.backend.routes.v1 import classify as classify_route
 from ypl.backend.routes.v1 import email as email_route
 from ypl.backend.routes.v1 import event as event_route
 from ypl.backend.routes.v1 import feedback as feedback_route
@@ -72,12 +73,14 @@ api_router.include_router(payment.router, prefix="/v1", tags=["payment"])
 api_router.include_router(provider_route.router, prefix="/v1", tags=["providers"])
 api_router.include_router(chat_feed.router, prefix="/v1", tags=["chat-feed"])
 api_router.include_router(chats_route.router, prefix="/v1", tags=["chats"])
+api_router.include_router(classify_route.router, prefix="/v1", tags=["classify"])
 api_router.include_router(chat_completions.router, prefix="/v1", tags=["chat_completions"])
 api_router.include_router(files_route.router, prefix="/v1", tags=["files"])
 api_router.include_router(email_route.router, prefix="/v1", tags=["emails"])
 api_router.include_router(profile_route.router, prefix="/v1", tags=["profile"])
 api_router.include_router(event_route.router, prefix="/v1", tags=["event"])
 api_router.include_router(user_route.router, prefix="/v1", tags=["users"])
+
 
 admin_router.include_router(user_route.admin_router, prefix="/v1", tags=["admin"])
 admin_router.include_router(points_route.router, prefix="/v1", tags=["admin"])

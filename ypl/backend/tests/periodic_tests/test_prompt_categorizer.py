@@ -44,8 +44,8 @@ regression_examples = [
 @pytest.mark.asyncio
 @pytest.mark.parametrize("example", regression_examples)
 async def test_prompt_categorizer(example: dict[str, Any]) -> None:
-    online_labeler = _get_online_labeler()
-    topic_labeler = _get_topic_labeler()
+    online_labeler = await _get_online_labeler()
+    topic_labeler = await _get_topic_labeler()
     is_online = await online_labeler.alabel(example["content"])
     online_category = ONLINE_CATEGORY if is_online else OFFLINE_CATEGORY
     categories = await topic_labeler.alabel(example["content"])
