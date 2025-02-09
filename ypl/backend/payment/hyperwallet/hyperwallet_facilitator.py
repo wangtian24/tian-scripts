@@ -324,9 +324,15 @@ class HyperwalletFacilitator(BaseFacilitator):
                 #     logging.error(json_dumps(log_dict))
                 #     raise PaymentInstrumentError("Source instrument does not have enough balance")
 
-                payment_metadata = await self.get_payment_metadata(
-                    user_id, destination_identifier, destination_identifier_type, destination_additional_details
-                )
+                if (
+                    destination_identifier_type == PaymentInstrumentIdentifierTypeEnum.PAYPAL_ID
+                    or destination_identifier_type == PaymentInstrumentIdentifierTypeEnum.VENMO_ID
+                ):
+                    payment_metadata = await self.get_payment_metadata(
+                        user_id, destination_identifier, destination_identifier_type, destination_additional_details
+                    )
+                else:
+                    payment_metadata = None
                 source_instrument_id = await self.get_source_instrument_id()
                 destination_instrument_id = await self.get_destination_instrument_id(
                     user_id, destination_identifier, destination_identifier_type, payment_metadata
@@ -427,12 +433,17 @@ class HyperwalletFacilitator(BaseFacilitator):
                 raise PaymentProcessingError("Hyperwallet: Failed to update user points") from e
 
             try:
+                if payment_metadata:
+                    destination_token = payment_metadata["transfer_token"]
+                else:
+                    destination_token = destination_identifier
+
                 hyperwallet_payout = HyperwalletPayout(
                     user_id=user_id,
                     amount=amount,
                     currency=self.currency,
                     payment_transaction_id=payment_transaction_id,
-                    destination_token=payment_metadata["transfer_token"],
+                    destination_token=destination_token,
                 )
                 transaction_token, transaction_status = await process_hyperwallet_payout(hyperwallet_payout)
 
