@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, or_, select
 
 from ypl.backend.db import get_async_session
-from ypl.backend.payment.hyperwallet.hyperwallet_utils import get_hyperwallet_user_auth_token
+from ypl.backend.payment.hyperwallet.hyperwallet_utils import UserTokensResponse, get_hyperwallet_user_tokens
 from ypl.backend.user.user import (
     RegisterVendorRequest,
     UserSearchResponse,
@@ -78,18 +78,18 @@ async def register_user_with_vendor_route(request: RegisterVendorRequest) -> Ven
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/users/get_vendor_token")
-async def get_vendor_token(user_id: str, vendor_name: str) -> str:
+@router.get("/users/get-user-tokens")
+async def get_user_tokens(user_id: str, vendor_name: str) -> UserTokensResponse:
     """Get a vendor token for a user.
 
     Args:
         user_id: The ID of the user to get the vendor token for
-
+        vendor_name: The name of the vendor to get the token for
     Returns:
         The vendor token for the user
     """
     if vendor_name == VendorNameEnum.HYPERWALLET.value:
-        return await get_hyperwallet_user_auth_token(user_id)
+        return await get_hyperwallet_user_tokens(user_id)
     else:
         raise HTTPException(status_code=400, detail=f"Vendor {vendor_name} not supported")
 

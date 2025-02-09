@@ -1,6 +1,7 @@
 """Utility functions for interacting with the Hyperwallet API."""
 
 import logging
+from dataclasses import dataclass
 from typing import cast
 
 import httpx
@@ -18,7 +19,13 @@ class HyperwalletUtilsError(Exception):
     pass
 
 
-async def get_hyperwallet_user_auth_token(user_id: str) -> str:
+@dataclass
+class UserTokensResponse:
+    hyperwallet_user_auth_token: str
+    hyperwallet_user_token: str
+
+
+async def get_hyperwallet_user_tokens(user_id: str) -> UserTokensResponse:
     """Get an authentication token for a Hyperwallet user.
 
     Args:
@@ -90,7 +97,10 @@ async def get_hyperwallet_user_auth_token(user_id: str) -> str:
             }
             logging.info(json_dumps(log_dict))
 
-            return cast(str, token)
+            return UserTokensResponse(
+                hyperwallet_user_auth_token=cast(str, token),
+                hyperwallet_user_token=cast(str, user_vendor.user_vendor_id),
+            )
 
     except Exception as e:
         log_dict = {
