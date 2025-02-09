@@ -1702,32 +1702,32 @@ def validate_ledger_balance() -> None:
 
 
 @cli.command()
-@click.option("--dry-run", is_flag=True, help="Print emails that would be sent without actually sending them")
+@click.option("--print-only", is_flag=True, help="Print emails that would be sent without actually sending them")
 @db_cmd
-def send_monthly_summary_emails(dry_run: bool) -> None:
+def send_monthly_summary_emails(print_only: bool) -> None:
     """Schedule and send monthly summary emails to users.
 
     Example usage:
         poetry run python -m ypl.cli send-monthly-summary-emails
-        poetry run python -m ypl.cli send-monthly-summary-emails --dry-run
+        poetry run python -m ypl.cli send-monthly-summary-emails --print-only
     """
 
     with Session(get_engine()) as session:
-        asyncio.run(send_monthly_summary_emails_async(session, dry_run))
+        asyncio.run(send_monthly_summary_emails_async(session, print_only))
 
 
 @cli.command()
-@click.option("--dry-run", is_flag=True, help="Print emails that would be sent without actually sending them")
+@click.option("--print-only", is_flag=True, help="Print emails that would be sent without actually sending them")
 @db_cmd
-def send_marketing_emails(dry_run: bool) -> None:
+def send_marketing_emails(print_only: bool) -> None:
     """Schedule and send email campaigns to users.
 
     Example usage:
-        poetry run python -m ypl.cli send-marketing-emails --dry-run
+        poetry run python -m ypl.cli send-marketing-emails --print-only
     """
 
     with Session(get_engine()) as session:
-        asyncio.run(send_marketing_emails_async(session, dry_run))
+        asyncio.run(send_marketing_emails_async(session, print_only))
 
 
 @cli.command()
@@ -1741,7 +1741,7 @@ def test_send_email(campaign: str, to_address: str, print_only: bool) -> None:
     Example usage:
         poetry run python -m ypl.cli test-send-email --campaign signup
         poetry run python -m ypl.cli test-send-email --campaign sic_availability --print-only
-        poetry run python -m ypl.cli test-send-email --campaign sic_availability --to-address spherecollider@gmail.com
+        poetry run python -m ypl.cli test-send-email --campaign monthly_summary --to-address spherecollider@gmail.com
     """
 
     asyncio.run(
@@ -1751,8 +1751,13 @@ def test_send_email(campaign: str, to_address: str, print_only: bool) -> None:
                 to_address=to_address,
                 template_params={
                     "email_recipient_name": "Rumplestiltskin",
-                    "referee_name": "Friend of Rumpy",
+                    "referee_name": "Oompa Loompa",
                     "credits": 100,
+                    "pref_count": 10,
+                    "eval_count": 10,
+                    "credits_received": "10,000",
+                    "credits_cashed_out": "5,000",
+                    "favorite_model": "GPT-4o",
                     "unsubscribe_link": "https://gg.yupp.ai/unsubscribe?user_id=asdfzxcv",
                     "invite_code_link": "https://gg.yupp.ai/join/special-invite-code",
                 },

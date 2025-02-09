@@ -3,10 +3,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from sqlalchemy import and_, case, func
 from sqlmodel import Session, select
 from ypl.backend.email.send_email import EmailConfig, batch_send_emails_async
-from ypl.db.chats import Chat
+from ypl.db.chats import Chat, ChatMessage, Eval, EvalType, MessageEval
 from ypl.db.emails import EmailLogs
+from ypl.db.language_models import LanguageModel
+from ypl.db.point_transactions import PointsActionEnum, PointTransaction
 from ypl.db.users import User, UserStatus
 
 # In case cron job fails, we retry again every day for RETRY_DAYS days.
@@ -81,7 +84,7 @@ def _users_for_timeframe_query(
 
 async def send_marketing_emails_async(
     session: Session,
-    dry_run: bool = False,
+    print_only: bool = False,
 ) -> None:
     """Send check-in emails to users based on their activity.
 
@@ -110,6 +113,8 @@ async def send_marketing_emails_async(
             results = session.exec(query).all()
             for user, has_chats, already_sent in results:
                 if already_sent or not has_chats:
+                    if already_sent:
+                        logging.info(f"Skipping {user.email} for {active_campaign} because email was already sent")
                     continue
                 all_email_configs.append(
                     EmailConfig(
@@ -129,6 +134,8 @@ async def send_marketing_emails_async(
             results = session.exec(query).all()
             for user, has_chats, already_sent in results:
                 if already_sent or has_chats:
+                    if already_sent:
+                        logging.info(f"Skipping {user.email} for {inactive_campaign} because email was already sent")
                     continue
                 all_email_configs.append(
                     EmailConfig(
@@ -142,8 +149,8 @@ async def send_marketing_emails_async(
                     )
                 )
 
-    if dry_run:
-        logging.info(f"[DRY RUN] Found {len(all_email_configs)} total emails to send:")
+    if print_only:
+        logging.info(f"[PRINT-ONLY] Found {len(all_email_configs)} total emails to send:")
         for config in all_email_configs:
             logging.info(f"  - To: {config.to_address} | Campaign: {config.campaign}")
     elif all_email_configs:
@@ -162,6 +169,134 @@ async def send_marketing_emails_async(
         logging.info("✓ All emails batched successfully")
 
 
-async def send_monthly_summary_emails_async(session: Session, dry_run: bool = False) -> None:
-    logging.info("Sending monthly summary emails dry run")
-    pass
+def _users_eligible_for_summary() -> Any:
+    """Get users who have at least 3 evals from the past month."""
+
+    # Get evals from the past month
+    one_month_ago = datetime.now() - timedelta(days=30)
+
+    # Format campaign name for current month
+    current_date = datetime.now(UTC)
+    monthly_campaign = f"monthly_summary_{current_date.year}_{current_date.month:02d}_{current_date.day:02d}"
+
+    eval_count = (
+        select(func.count())
+        .where(
+            and_(
+                Eval.user_id == User.user_id,  # type: ignore
+                Eval.eval_type == EvalType.SELECTION,  # type: ignore
+                Eval.created_at >= one_month_ago,  # type: ignore
+            )
+        )
+        .label("eval_count")
+    )
+
+    already_sent = (
+        select(1)
+        .where(
+            EmailLogs.email_sent_to == User.email,
+            EmailLogs.campaign_name == monthly_campaign,
+        )
+        .exists()
+        .label("already_sent")
+    )
+
+    favorite_model = (
+        select(LanguageModel.label)
+        .select_from(ChatMessage)
+        .join(MessageEval, MessageEval.message_id == ChatMessage.message_id)  # type: ignore
+        .join(
+            Eval,
+            and_(
+                Eval.eval_id == MessageEval.eval_id,  # type: ignore
+                Eval.user_id == User.user_id,  # type: ignore
+                Eval.eval_type == EvalType.SELECTION,  # type: ignore
+                Eval.created_at >= one_month_ago,  # type: ignore
+            ),
+        )
+        .join(LanguageModel, LanguageModel.language_model_id == ChatMessage.assistant_language_model_id)  # type: ignore
+        .where(MessageEval.score == 100)
+        .group_by(LanguageModel.label)
+        .order_by(func.count().desc())
+        .limit(1)
+        .scalar_subquery()
+    ).label("favorite_model")
+
+    credits_received = (
+        select(func.sum(PointTransaction.point_delta))
+        .where(
+            PointTransaction.user_id == User.user_id,
+            PointTransaction.action_type == PointsActionEnum.REWARD,
+            PointTransaction.created_at >= one_month_ago,  # type: ignore
+        )
+        .label("credits_received")
+    )
+
+    credits_cashed_out = (
+        select(
+            func.sum(
+                case(
+                    (PointTransaction.action_type == PointsActionEnum.CASHOUT_REVERSED, -PointTransaction.point_delta),  # type: ignore
+                    (PointTransaction.action_type == PointsActionEnum.CASHOUT, PointTransaction.point_delta),  # type: ignore
+                    else_=0,
+                )
+            )
+        )
+        .where(
+            PointTransaction.user_id == User.user_id,
+            PointTransaction.created_at >= one_month_ago,  # type: ignore
+            PointTransaction.action_type.in_([PointsActionEnum.CASHOUT, PointsActionEnum.CASHOUT_REVERSED]),  # type: ignore
+        )
+        .label("credits_cashed_out")
+    )
+
+    conditions = [
+        User.deleted_at.is_(None),  # type: ignore
+        User.status != UserStatus.DEACTIVATED,
+        eval_count >= 3,
+        # TODO(w): Enable this for external users once ready.
+        User.email.endswith("yupp.ai"),
+    ]
+
+    return select(User, eval_count, already_sent, credits_received, credits_cashed_out, favorite_model).where(  # type: ignore
+        *conditions
+    )
+
+
+async def send_monthly_summary_emails_async(session: Session, print_only: bool = False) -> None:
+    # Format campaign name for current month
+    current_date = datetime.now(UTC)
+    monthly_campaign = f"monthly_summary_{current_date.year}_{current_date.month:02d}_{current_date.day:02d}"
+
+    all_email_configs = []
+    results = session.exec(_users_eligible_for_summary()).all()
+    for user, eval_count, already_sent, credits_received, credits_cashed_out, favorite_model in results:
+        if already_sent:
+            logging.info(f"Skipping {user.email} for {monthly_campaign} because email was already sent")
+            continue
+        # Convert None to 0 and get absolute value of negative numbers
+        credits_cashed_out_display = abs(credits_cashed_out) if credits_cashed_out is not None else 0
+        # Format numbers with comma separators
+        eval_count_fmt = f"{eval_count:,}"
+        credits_received_fmt = f"{credits_received:,}" if credits_received is not None else "0"
+        credits_cashed_out_fmt = f"{credits_cashed_out_display:,}"
+        all_email_configs.append(
+            EmailConfig(
+                campaign=monthly_campaign,
+                to_address=user.email,
+                template_params={
+                    "email_recipient_name": user.name,
+                    "pref_count": eval_count_fmt,
+                    "credits_received": credits_received_fmt,
+                    "credits_cashed_out": credits_cashed_out_fmt,
+                    "favorite_model": favorite_model,
+                },
+            )
+        )
+
+    if print_only:
+        logging.info(f"[PRINT-ONLY] Found {len(all_email_configs)} total emails to send:")
+        for config in all_email_configs:
+            logging.info(f"  - To: {config.to_address} | Campaign: {config.campaign}")
+    elif all_email_configs:
+        await batch_send_emails_async(all_email_configs)

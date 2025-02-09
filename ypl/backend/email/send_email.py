@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 from typing import Any
 
 import resend
@@ -19,6 +20,7 @@ from ypl.backend.email.campaigns.signup import (
     SIGN_UP_EMAIL_CONTENT,
     YOUR_FRIEND_JOINED_EMAIL_CONTENT,
 )
+from ypl.backend.email.campaigns.summary import MONTHLY_SUMMARY_EMAIL_CONTENT
 from ypl.backend.email.campaigns.utils import html_to_plaintext, load_html_wrapper
 from ypl.backend.email.email_types import EmailConfig, EmailContent
 from ypl.backend.utils.json import json_dumps
@@ -36,6 +38,7 @@ EMAIL_CAMPAIGNS = {
     "week_1_inactive": WEEK_1_INACTIVE_EMAIL_CONTENT,
     "week_5_inactive": WEEK_5_INACTIVE_EMAIL_CONTENT,
     "week_6_deactivation": WEEK_6_DEACTIVATION_EMAIL_CONTENT,
+    "monthly_summary": MONTHLY_SUMMARY_EMAIL_CONTENT,
 }
 
 REPLY_TO_ADDRESS = "gcmouli+yupp@yupp.ai"
@@ -113,7 +116,15 @@ async def _log_emails_to_db(email_configs: list[EmailConfig]) -> None:
     Args:
         email_configs: List of email configurations (campaign, to_address, template_params)
     """
-    email_logs = [EmailLogs(email_sent_to=config.to_address, campaign_name=config.campaign) for config in email_configs]
+    email_logs = [
+        EmailLogs(
+            email_sent_to=config.to_address,
+            campaign_name=f"{config.campaign}_{datetime.now().strftime('%Y_%m:02d')}"
+            if config.campaign == "monthly_summary"
+            else config.campaign,
+        )
+        for config in email_configs
+    ]
     try:
         async with get_async_session() as session:
             async with session.begin():
