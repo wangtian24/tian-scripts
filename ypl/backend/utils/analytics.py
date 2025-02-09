@@ -905,6 +905,48 @@ async def post_cashout_metrics(start_date: datetime, end_date: datetime) -> None
         currency;
     """
 
+    daily_cashedout_no_prompt_query = """
+    WITH cashout_users AS (
+    SELECT DISTINCT user_id
+    FROM point_transactions
+    WHERE (created_at AT TIME ZONE 'America/Los_Angeles')::date >=
+            ((current_date - INTERVAL '1 day') AT TIME ZONE 'America/Los_Angeles')::date
+        AND action_type = 'CASHOUT'
+    ),
+    prompt_users AS (
+        SELECT DISTINCT user_id
+        FROM point_transactions
+        WHERE (created_at AT TIME ZONE 'America/Los_Angeles')::date >=
+            ((current_date - INTERVAL '1 day') AT TIME ZONE 'America/Los_Angeles')::date
+        AND action_type = 'PROMPT'
+    )
+    SELECT count(cu.user_id)
+    FROM cashout_users cu
+    LEFT JOIN prompt_users pu ON cu.user_id = pu.user_id
+    WHERE pu.user_id IS NULL;
+    """
+
+    weekly_cashedout_no_prompt_query = """
+    WITH cashout_users AS (
+        SELECT DISTINCT user_id
+        FROM point_transactions
+        WHERE (created_at AT TIME ZONE 'America/Los_Angeles')::date >=
+            ((current_date - INTERVAL '7 days') AT TIME ZONE 'America/Los_Angeles')::date
+        AND action_type = 'CASHOUT'
+    ),
+    prompt_users AS (
+        SELECT DISTINCT user_id
+        FROM point_transactions
+        WHERE (created_at AT TIME ZONE 'America/Los_Angeles')::date >=
+            ((current_date - INTERVAL '7 days') AT TIME ZONE 'America/Los_Angeles')::date
+        AND action_type = 'PROMPT'
+    )
+    SELECT count(cu.user_id)
+    FROM cashout_users cu
+    LEFT JOIN prompt_users pu ON cu.user_id = pu.user_id
+    WHERE pu.user_id IS NULL;
+    """
+
     try:
         with Session(get_engine()) as session:
             daily_results = session.execute(text(daily_query)).all()
@@ -938,6 +980,11 @@ async def post_cashout_metrics(start_date: datetime, end_date: datetime) -> None
                         ).rstrip(".")
                         + f" {currency} ({total_amount_usd:,.2f} USD)\n"
                     )
+
+                daily_cashedout_no_prompt_results = session.execute(
+                    text(daily_cashedout_no_prompt_query)
+                ).scalar_one_or_none()
+                message += f"• Number of users who cashed out but did not prompt: {daily_cashedout_no_prompt_results}\n"
             else:
                 message = "⚠️ No cashout metrics data available"
 
@@ -961,6 +1008,13 @@ async def post_cashout_metrics(start_date: datetime, end_date: datetime) -> None
                             f"• {metric.currency}: {metric.transaction_count:,} transactions, "
                             f"{metric.total_amount:,.8f}".rstrip("0").rstrip(".")
                             + f" {metric.currency} ({total_amount_usd:,.2f} USD)\n"
+                        )
+                        weekly_cashedout_no_prompt_results = session.execute(
+                            text(weekly_cashedout_no_prompt_query)
+                        ).scalar_one_or_none()
+                        message += (
+                            f"• Number of users who cashed out but did not prompt: "
+                            f"{weekly_cashedout_no_prompt_results}\n"
                         )
 
                 if monthly_metrics:
