@@ -370,6 +370,15 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         routing_debug_info=routing_debug_info if request.debug_level > 0 else None,
         num_models_remaining=num_models_remaining,
     )
+    log_dict = {
+        "message": f"Model routing final response for [{request.intent}]: prompt = [{prompt[:100]}]",
+        "chat_id": request.chat_id,
+        "turn_id": request.turn_id,
+        "primary_models": str(primary_models),
+        "fallback_models": str(fallback_models),
+        "num_models_remaining": str(num_models_remaining),
+    }
+    logging.info(json_dumps(log_dict))
     stopwatch.end("prepare_response")
 
     # Export metrics
