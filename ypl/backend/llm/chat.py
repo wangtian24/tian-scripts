@@ -35,7 +35,7 @@ from ypl.backend.llm.db_helpers import (
     get_user_message,
     notnull,
 )
-from ypl.backend.llm.labeler import QT_CANT_ANSWER, QuickTakeGenerator
+from ypl.backend.llm.labeler import QT_CANT_ANSWER, CantAnswerException, QuickTakeGenerator
 from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.model_heuristics import ModelHeuristics
 from ypl.backend.llm.prompt_modifier import attach_prompt_modifiers_to_models, get_prompt_modifiers
@@ -1332,16 +1332,32 @@ async def generate_quicktake(
         # -- Post-processing
         response_quicktake = QT_CANT_ANSWER
         response_model = ""
-        found_response = False
+        has_good_response = False
+        has_cant_answer = False
+        has_other_failure = False
         for model in all_labelers.keys():
             response = all_quicktakes.get(model)
-            if response and not isinstance(response, Exception):
+            if response and not isinstance(response, Exception) and not has_good_response:
                 response_model = model
                 response_quicktake = response
-                found_response = True
-                break
-        if not found_response:
+                has_good_response = True
+            elif isinstance(response, CantAnswerException):
+                has_cant_answer = True
+            else:
+                has_other_failure = True
+        if not has_good_response:
             errors = "no_response"
+
+        metric_inc(f"quicktake/model_{response_model or 'NONE'}")
+        if has_good_response:
+            metric_inc("quicktake/num_good_response")
+        elif has_cant_answer and has_other_failure:
+            metric_inc("quicktake/num_failed_mixed")
+        elif has_cant_answer:
+            metric_inc("quicktake/num_failed_all_cannot_answer")
+        else:
+            metric_inc("quicktake/num_failed_all_timed_out")
+        metric_inc("quicktake/num_total")
 
     except Exception as e:
         err_log_dict = {
