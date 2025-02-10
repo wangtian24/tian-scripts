@@ -1,0 +1,94 @@
+#!/bin/bash
+
+# Get list of local branches with creation and last commit times
+echo "Local branches (ordered by last commit time, oldest first):"
+echo "--------------------------------------------------------"
+
+# Create array to store branch info
+declare -a branches
+i=0
+
+# First collect all branch info into array
+while IFS= read -r branch; do
+    # Skip if branch is current branch
+    [[ "$branch" == "*"* ]] && continue
+    
+    branch=$(echo "$branch" | tr -d ' ')
+    
+    # Get creation time and last commit info
+    created=$(git log --date=iso --pretty=format:"%ad" $branch | tail -1)
+    last_commit_date=$(git log -1 --date=iso --pretty=format:"%ad" $branch)
+    last_commit_msg=$(git log -1 --pretty=format:"%s" $branch)
+    
+    # Store branch info with epoch timestamp for sorting
+    epoch=$(date -j -f "%Y-%m-%d %H:%M:%S %z" "${last_commit_date}" "+%s" 2>/dev/null)
+    branches[$i]="$epoch|$branch|$created|$last_commit_date|$last_commit_msg"
+    
+    ((i++))
+done < <(git branch)
+
+# Sort branches by last commit date (oldest first) and print
+i=0
+while IFS= read -r branch_info; do
+    IFS='|' read -r epoch branch created last_commit_date last_commit_msg <<< "$branch_info"
+    
+    # Print branch info in one line
+    printf "%d) %-30s Created: %-30s Last: %-30s Msg: %-50s\n" \
+           $i "$branch" "$created" "$last_commit_date" "$last_commit_msg"
+    
+    # Store sorted branch info without epoch for later use
+    branches[$i]="$branch|$created|$last_commit_date|$last_commit_msg"
+    
+    ((i++))
+done < <(printf '%s\n' "${branches[@]}" | sort -t'|' -k1n)
+
+# Get user input
+echo "Enter branch numbers to delete (comma-separated or range like 1-5):"
+read input
+
+# Convert range format (e.g. "1-5") to comma-separated list
+if [[ $input =~ ^[0-9]+-[0-9]+$ ]]; then
+    start=${input%-*}
+    end=${input#*-}
+    input=$(seq -s, $start $end)
+fi
+# Convert input to array
+IFS=',' read -ra indices <<< "$input"
+
+echo -e "\nBranches to be deleted:"
+echo "----------------------"
+
+# Show selected branches first
+branches_to_delete=()
+for index in "${indices[@]}"; do
+    index=$(echo $index | tr -d ' ')
+    if [[ $index =~ ^[0-9]+$ ]] && [ $index -lt ${#branches[@]} ]; then
+        IFS='|' read -r branch created last_commit_date last_commit_msg <<< "${branches[$index]}"
+        printf "%-30s Last commit: %s\n" "$branch" "$last_commit_date"
+        branches_to_delete+=("$branch")
+    else
+        echo "Invalid index: $index"
+    fi
+done
+
+# Ask for confirmation
+echo -e "\nProceed with deletion? [y/N] "
+read -r confirm
+
+if [[ $confirm =~ ^[Yy]$ ]]; then
+    success=0
+    failed=0
+    for branch in "${branches_to_delete[@]}"; do
+        if git branch -D "$branch" > /dev/null 2>&1; then
+            ((success++))
+        else
+            echo "Failed to delete branch: $branch"
+            ((failed++))
+        fi
+    done
+    echo -e "\nDeletion complete:"
+    echo "Successfully deleted: $success branch(es)"
+    [[ $failed -gt 0 ]] && echo "Failed to delete: $failed branch(es)"
+else
+    echo "Operation cancelled"
+fi
