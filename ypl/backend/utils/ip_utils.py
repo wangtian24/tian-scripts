@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import httpx
 from sqlalchemy import Column, desc
@@ -27,8 +27,14 @@ class IPInfo(TypedDict):
 
 
 @dataclass
+class IPInfoWithModifiedAt:
+    ip_info: IPInfo
+    modified_at: datetime | None
+
+
+@dataclass
 class UserIPDetailsResponse:
-    ip_details: list[IPInfo]
+    ip_details: list[IPInfoWithModifiedAt]
     has_more_results: bool
 
 
@@ -81,11 +87,11 @@ async def store_ip_details(ip_address: str, user_id: str | None = None) -> IPInf
         result_info: IPInfo | None = None
         async with get_async_session() as session:
             ip_details = (
-                await session.execute(select(IPs).where((Column("ip") == ip_address) & (Column("deleted_at") is None)))
+                await session.execute(select(IPs).where((IPs.ip == ip_address) and (IPs.deleted_at is None)))
             ).scalar_one_or_none()
 
             if ip_details:
-                if ip_details.created_at < datetime.now() - timedelta(days=60):
+                if ip_details.created_at < datetime.now(UTC) - timedelta(days=60):
                     try:
                         ip_info = await get_ip_details(ip_address)
                         if ip_info:
@@ -153,6 +159,9 @@ async def store_ip_details(ip_address: str, user_id: str | None = None) -> IPInf
                     user_ip = UserIPDetails(user_id=user_id, ip=ip_address)
                     session.add(user_ip)
                     await session.commit()
+                else:
+                    existing_association.modified_at = datetime.now()
+                    await session.commit()
 
             return result_info
 
@@ -172,10 +181,10 @@ async def get_user_ip_details(user_id: str, limit: int = 100, offset: int = 0) -
         async with get_async_session() as session:
             user_ip_details = (
                 await session.execute(
-                    select(IPs)
+                    select(IPs, UserIPDetails.modified_at)
                     .join(UserIPDetails, IPs.ip == UserIPDetails.ip)  # type: ignore
                     .where(Column("user_id") == user_id)
-                    .order_by(desc(UserIPDetails.created_at))  # type: ignore
+                    .order_by(desc(UserIPDetails.modified_at))  # type: ignore
                     .offset(offset)
                     .limit(limit + 1)
                 )
@@ -197,7 +206,7 @@ async def get_user_ip_details(user_id: str, limit: int = 100, offset: int = 0) -
                     "postal": user_ip_detail[0].postal,
                     "timezone": user_ip_detail[0].timezone,
                 }
-                ip_details.append(ip_info)
+                ip_details.append(IPInfoWithModifiedAt(ip_info=ip_info, modified_at=user_ip_detail[1]))
 
             return UserIPDetailsResponse(ip_details=ip_details, has_more_results=has_more_results)
     except Exception as e:
