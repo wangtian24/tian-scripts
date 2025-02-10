@@ -19,6 +19,7 @@ from ypl.backend.user.user import (
     get_all_users,
     register_user_with_vendor,
 )
+from ypl.backend.utils.ip_utils import UserIPDetailsResponse, get_user_ip_details
 from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.soul_utils import SoulPermission, validate_permissions
 from ypl.db.invite_codes import SpecialInviteCode, SpecialInviteCodeClaimLog
@@ -105,6 +106,15 @@ async def get_all_users_route(limit: int = 100, offset: int = 0) -> UserSearchRe
     }
     logging.info(json_dumps(log_dict))
     return await get_all_users(limit, offset)
+
+
+@admin_router.get("/admin/users/{user_id}/ip-details")
+async def get_user_ip_details_route(user_id: str, limit: int = 100, offset: int = 0) -> UserIPDetailsResponse:
+    """Get the IP details for a user."""
+    ip_details = await get_user_ip_details(user_id)
+    if not ip_details:
+        raise HTTPException(status_code=404, detail="No IP details found for the user")
+    return ip_details
 
 
 async def validate_read_users(
