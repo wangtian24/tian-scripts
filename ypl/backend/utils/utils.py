@@ -1,6 +1,7 @@
 import logging
 import time
 import uuid
+from collections.abc import AsyncIterator
 from enum import Enum
 from typing import Any, TypedDict, cast
 
@@ -255,3 +256,8 @@ class StopWatch:
             if not with_total and split_name == self.TOTAL_KEY:
                 continue
             metric_record(f"{prefix}{split_name}_ms", duration)
+
+
+async def yield_all(async_iter: AsyncIterator[Any]) -> AsyncIterator[Any]:
+    async for msg in async_iter:
+        yield msg

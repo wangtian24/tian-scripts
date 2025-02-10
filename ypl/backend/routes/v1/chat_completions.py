@@ -40,6 +40,8 @@ from ypl.backend.llm.transform_messages import TransformOptions, transform_user_
 from ypl.backend.llm.utils import post_to_slack
 from ypl.backend.prompts import get_system_prompt_with_modifiers
 from ypl.backend.utils.json import json_dumps
+from ypl.backend.utils.monitoring import metric_inc
+from ypl.backend.utils.utils import StopWatch, yield_all
 from ypl.db.attachments import Attachment
 from ypl.db.chats import (
     AssistantSelectionSource,
@@ -142,12 +144,58 @@ async def chat_completions(
         )
 
 
+async def _handle_existing_message(
+    chat_request: ChatRequest,
+    existing_message: ChatMessage,
+    initial_status: dict,
+    final_status: dict,
+    start_time: datetime,
+) -> AsyncIterator[str]:
+    metric_inc("stream/chat_completions/existing_message_found")
+    chat_request.message_id = existing_message.message_id
+    asyncio.create_task(update_modifier_status(chat_request))
+    log_dict = {
+        "message": "chat_completions: Existing message found",
+        "chat_id": str(chat_request.chat_id),
+        "turn_id": str(chat_request.turn_id),
+        "message_id": str(existing_message.message_id),
+        "content_length": str(len(existing_message.content)),
+        "model": chat_request.model,
+    }
+    if chat_request.prompt_modifier_ids:
+        log_dict["prompt_modifier_ids"] = ",".join(str(id) for id in chat_request.prompt_modifier_ids)
+    logging.info(json_dumps(log_dict))
+    # Send initial status.
+    yield StreamResponse(
+        initial_status | {"existing_response": True, "message_id": str(existing_message.message_id)},
+        "status",
+    ).encode()
+
+    # Send the content of the existing message as a single chunk.
+    yield StreamResponse({"content": existing_message.content, "model": chat_request.model}, "content").encode()
+
+    # Send completion status.
+    end_time = datetime.now()
+    yield StreamResponse(
+        final_status
+        | {
+            "duration_ms": (end_time - start_time).total_seconds() * 1000,
+            "response_tokens": len(existing_message.content.split()),
+        },
+        "status",
+    ).encode()
+    return
+
+
 async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequest) -> AsyncIterator[str]:
     eager_persist_task: asyncio.Task[Any] | None = None
     stop_stream_task: asyncio.Task[Any] | None = None
     full_response = ""
     response_tokens_num = 0
     chunks_count = 0
+    stopwatch = StopWatch("stream/chat_completions/", auto_export=True)
+    stopwatch.start_lap("total_time_to_first_token")
+    stopwatch.start_lap("total_time_to_last_token")
     try:
         start_time = datetime.now()
         # Create task keep checking for "Stop Stream" signal from user
@@ -162,40 +210,13 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
             existing_message = await _get_message(chat_request)
 
         if existing_message:
-            chat_request.message_id = existing_message.message_id
-            asyncio.create_task(update_modifier_status(chat_request))
-            log_dict = {
-                "message": "chat_completions: Existing message found",
-                "chat_id": str(chat_request.chat_id),
-                "turn_id": str(chat_request.turn_id),
-                "message_id": str(existing_message.message_id),
-                "content_length": str(len(existing_message.content)),
-                "model": chat_request.model,
-            }
-            if chat_request.prompt_modifier_ids:
-                log_dict["prompt_modifier_ids"] = ",".join(str(id) for id in chat_request.prompt_modifier_ids)
-            logging.info(json_dumps(log_dict))
-            # Send initial status.
-            yield StreamResponse(
-                intial_status | {"existing_response": True, "message_id": str(existing_message.message_id)},
-                "status",
-            ).encode()
-
-            # Send the content of the existing message as a single chunk.
-            yield StreamResponse({"content": existing_message.content, "model": chat_request.model}, "content").encode()
-
-            # Send completion status.
-            end_time = datetime.now()
-            yield StreamResponse(
-                final_status
-                | {
-                    "duration_ms": (end_time - start_time).total_seconds() * 1000,
-                    "response_tokens": len(existing_message.content.split()),
-                },
-                "status",
-            ).encode()
+            yield_all(_handle_existing_message(chat_request, existing_message, intial_status, final_status, start_time))
+            stopwatch.end()
             return
 
+        metric_inc("stream/chat_completions/num_stream_new")
+
+        # Create task to eagerly persist user message
         # Create task to eagerly persist user message
         # This is a product requirement to enable "I prefer this" button
         # before both side-by-side streams finish generating their responses.
@@ -248,6 +269,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
             last_message = chat_context[-1] if chat_context else None
             if last_message and isinstance(last_message, HumanMessage) and last_message.content == chat_request.prompt:
                 should_append_message = False
+        stopwatch.record_split("preprocessing")
 
         latest_attachments: list[Attachment] = []
 
@@ -276,6 +298,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
             use_signed_url=False,
         )
         messages = await transform_user_messages(messages, chat_request.model, transform_options)
+        stopwatch.record_split("process_attachments")
 
         first_token_timestamp: float = 0
         message_metadata: dict[str, Any] = {}
@@ -284,6 +307,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
         default_citations = []
         eager_persist_task_yielded = False
         stream_completion_status: CompletionStatus = CompletionStatus.SUCCESS
+        ttft_recorded = False
         try:
             async for chunk in client.astream(messages):
                 # TODO(bhanu) - assess if we should customize chunking for optimal network performance
@@ -296,6 +320,9 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                     if settings.ENVIRONMENT == "local":
                         logging.info(chunk.content)
                     full_response += str(content)
+                    if not ttft_recorded:
+                        stopwatch.end_lap("total_time_to_first_token")
+                        ttft_recorded = True
                     yield StreamResponse({"content": content, "model": chat_request.model}).encode()
                 if hasattr(chunk, "response_metadata") and chunk.response_metadata is not None:
                     if chunk.response_metadata:
@@ -374,6 +401,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                         f" client {str(client)}"
                     )
                 )
+        stopwatch.record_split("stream_message_chunks")
 
         asyncio.create_task(astore_language_code(str(chat_request.message_id), chat_request.prompt))
 
@@ -401,6 +429,8 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
             completionTokens=response_tokens_num,
             chunks_count=chunks_count,
         )
+        stopwatch.end_lap("total_time_to_last_token")
+        stopwatch.record_split("postprocessing")
 
         try:
             if metadata_future:
@@ -410,6 +440,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                 except TimeoutError:
                     logging.error("Timeout error while enhancing citations")
                     message_metadata["citations"] = default_citations
+                stopwatch.record_split("wait_for_citations")
                 yield StreamResponse({"metadata": message_metadata, "model": chat_request.model}).encode()
 
             # upsert
@@ -500,6 +531,8 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                 await stop_stream_task
             except asyncio.CancelledError:
                 logging.info("stop_stream_task was cancelled " + chat_request.model)
+
+    stopwatch.end()
 
 
 async def error_stream(error_message: str) -> AsyncIterator[str]:
