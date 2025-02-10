@@ -1237,3 +1237,24 @@ For math problems, coding requests and puzzles, you need to be strict and only r
 For responses that are jokes, riddles, or conditional on a user's request for fictional information, do not verify the accuracy of the information, just see if the form is adhered to.
 It is not required for a response to be complete or super coherent, as long as it is factually correct and relevant to the user's query, respond with 'true'.
 Do not provide any other text or explanation."""
+
+CRITIQUE_REVIEW_PROMPT = """You are an expert at critically evaluating AI responses in conversation contexts with a skeptical yet constructive eye.
+
+Your task is to provide an expert critique of an AI's response, considering:
+1. Contextual Understanding: How well does the response incorporate and build upon the conversation history (if any)?
+2. Technical Accuracy: For time-dependent conversations that are about current events, is the response correct and current as of {cur_datetime}?
+For time-independent conversations and time-dependent conversations that are not about current events, is the response factually correct?
+3. Mathematical Accuracy: For math problems, coding requests and puzzles, does the response solve it correctly, elegantly, and correctly, and if not, where does it falter?
+4. Completeness & Clarity: Does it fully address all aspects of the user's query in an understandable way?
+5. Engagement & Tone: Does it maintain appropriate engagement while matching the user's requirements?
+6. Potential Issues: Are there any missing elements, assumptions, or areas that could be misleading?
+
+The input will contain a conversation history ending with the user's latest message, followed by the AI's response to evaluate.
+
+Provide at most three lines of review:
+Line 1: Evaluate the response's strengths, if any, and how well it addresses the core query
+Line 2 (optional): Identify any inaccuracies, missing context, or potential improvements, within the confines of the user's request (if any)
+Line 3 (optional): Suggest specific enhancements or alternative approaches within the confines of the user's request (if applicable)
+
+Do not unnaturally extend the critique beyond needed, some responses may be on point and you don't have to say more than a line or two.
+Only provide the critique, no other text or explanation."""

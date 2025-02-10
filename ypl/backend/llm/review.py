@@ -5,7 +5,7 @@ import enum
 import logging
 import time
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import Any, Generic, TypeVar, cast
 from uuid import UUID
 
 from langchain_core.language_models import BaseChatModel
@@ -17,23 +17,31 @@ from typing_extensions import TypedDict
 
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
-from ypl.backend.llm.chat import get_curated_chat_context
-from ypl.backend.llm.constants import ChatProvider
+from ypl.backend.llm.chat import (
+    get_curated_chat_context,
+    get_gemini_2_flash_llm,
+    get_gemini_15_flash_llm,
+    get_gpt_4o_llm,
+    get_gpt_4o_mini_llm,
+)
 from ypl.backend.llm.labeler import LLMLabeler
-from ypl.backend.llm.model_data_type import ModelInfo
-from ypl.backend.llm.vendor_langchain_adapter import OpenAILangChainAdapter
 from ypl.backend.prompts import (
     BINARY_REVIEW_PROMPT,
+    CRITIQUE_REVIEW_PROMPT,
     fill_cur_datetime,
 )
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import Turn
+
+# Type variable for review results
+ReviewResultType = TypeVar("ReviewResultType", bool, str)
 
 
 class ReviewType(str, enum.Enum):
     """Type of review to perform."""
 
     BINARY = "binary"
+    CRITIQUE = "critique"
 
 
 class ReviewStatus(str, enum.Enum):
@@ -60,79 +68,83 @@ class BinaryResult(TypedDict):
     reviewer_model: str
 
 
+class CritiqueResult(TypedDict):
+    """Result from critique review."""
+
+    response: str
+    reviewer_model: str
+
+
 class ReviewResponse(BaseModel):
     """Response model for all review types."""
 
     binary: dict[str, BinaryResult] | None = None
+    critique: dict[str, CritiqueResult] | None = None
     status: ReviewStatus = ReviewStatus.SUCCESS
+
+
+class ReviewConfig(BaseModel):
+    """Configuration for a review type."""
+
+    max_tokens: int
+    prompt_template: str
 
 
 ReviewResult = dict[str, BinaryResult]
 
-GPT_4O_BINARY_REVIEW_LLM: OpenAILangChainAdapter | None = None
-GPT_4O_MINI_BINARY_REVIEW_LLM: OpenAILangChainAdapter | None = None
+REVIEW_CONFIGS: dict[ReviewType, ReviewConfig] = {
+    ReviewType.BINARY: ReviewConfig(
+        max_tokens=8,
+        prompt_template=BINARY_REVIEW_PROMPT,
+    ),
+    ReviewType.CRITIQUE: ReviewConfig(
+        max_tokens=512,
+        prompt_template=CRITIQUE_REVIEW_PROMPT,
+    ),
+}
 
 
-def get_gpt_4o_binary_review_llm() -> OpenAILangChainAdapter:
-    global GPT_4O_BINARY_REVIEW_LLM
-    if GPT_4O_BINARY_REVIEW_LLM is None:
-        GPT_4O_BINARY_REVIEW_LLM = OpenAILangChainAdapter(
-            model_info=ModelInfo(
-                provider=ChatProvider.OPENAI,
-                model="gpt-4o",
-                api_key=settings.OPENAI_API_KEY,
-            ),
-            model_config_=dict(
-                temperature=0.0,
-                max_tokens=8,
-            ),
-        )
-    return GPT_4O_BINARY_REVIEW_LLM
+REVIEW_LLMS: dict[ReviewType, dict[str, BaseChatModel]] = {}
 
 
-def get_gpt_4o_mini_binary_review_llm() -> OpenAILangChainAdapter:
-    global GPT_4O_MINI_BINARY_REVIEW_LLM
-    if GPT_4O_MINI_BINARY_REVIEW_LLM is None:
-        GPT_4O_MINI_BINARY_REVIEW_LLM = OpenAILangChainAdapter(
-            model_info=ModelInfo(
-                provider=ChatProvider.OPENAI,
-                model="gpt-4o-mini",
-                api_key=settings.OPENAI_API_KEY,
-            ),
-            model_config_=dict(temperature=0.0, max_tokens=8),
-        )
-    return GPT_4O_MINI_BINARY_REVIEW_LLM
-
-
-BINARY_REVIEW_LLMS: dict[str, BaseChatModel] | None = None
-
-
-def get_binary_review_llms() -> Mapping[str, BaseChatModel]:
-    global BINARY_REVIEW_LLMS
-    if BINARY_REVIEW_LLMS is None:
-        BINARY_REVIEW_LLMS = {
-            "gpt-4o": get_gpt_4o_binary_review_llm(),
-            "gpt-4o-mini": get_gpt_4o_mini_binary_review_llm(),
+def get_review_llms(review_type: ReviewType = ReviewType.BINARY) -> Mapping[str, BaseChatModel]:
+    """Get all review LLM instances."""
+    global REVIEW_LLMS
+    if review_type not in REVIEW_LLMS:
+        REVIEW_LLMS[review_type] = {
+            "gpt-4o": get_gpt_4o_llm(REVIEW_CONFIGS[review_type].max_tokens),
+            "gpt-4o-mini": get_gpt_4o_mini_llm(REVIEW_CONFIGS[review_type].max_tokens),
+            "gemini-15-flash": get_gemini_15_flash_llm(REVIEW_CONFIGS[review_type].max_tokens),
+            "gemini-2-flash": get_gemini_2_flash_llm(REVIEW_CONFIGS[review_type].max_tokens),
         }
-    return BINARY_REVIEW_LLMS
+    return REVIEW_LLMS[review_type]
 
 
-class BinaryReviewLabeler(LLMLabeler[tuple[str, str], bool]):
-    """Labeler that determines if a response accurately answers the last human message with a binary true/false."""
+class BaseReviewLabeler(LLMLabeler[tuple[str, str], ReviewResultType], Generic[ReviewResultType]):
+    """Base class for all review labelers."""
 
-    def __init__(self, model: str = "gpt-4o", timeout_secs: float = settings.DEFAULT_REVIEW_TIMEOUT_SECS) -> None:
+    def __init__(
+        self,
+        review_type: ReviewType,
+        model: str = "gpt-4o",
+        timeout_secs: float = settings.DEFAULT_REVIEW_TIMEOUT_SECS,
+    ) -> None:
         self.model = model
-        if self.model not in get_binary_review_llms():
-            logging.warning(f"BinaryReviewLabeler: Unsupported model {model}, using gpt-4o instead")
+        self.review_type = review_type
+        llms = get_review_llms(self.review_type)
+        if self.model not in llms:
+            logging.warning(f"{self.__class__.__name__}: Unsupported model {model}, using gpt-4o instead")
             self.model = "gpt-4o"
-        self.base_llm = get_binary_review_llms()[self.model]
+        self.base_llm = llms[self.model]
         super().__init__(self.base_llm, timeout_secs=timeout_secs)
 
     def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
-        binary_prompt = fill_cur_datetime(BINARY_REVIEW_PROMPT)
+        """Prepare the LLM with the appropriate prompt template."""
+        config = REVIEW_CONFIGS[self.review_type]
+        prompt = fill_cur_datetime(config.prompt_template)
         template = ChatPromptTemplate.from_messages(
             [
-                ("system", binary_prompt),
+                ("system", prompt),
                 (
                     "human",
                     (
@@ -145,8 +157,22 @@ class BinaryReviewLabeler(LLMLabeler[tuple[str, str], bool]):
         return template | llm  # type: ignore
 
     def _prepare_input(self, input: tuple[str, str]) -> dict[str, Any]:
-        """Input is (conversation_until_last_user_message, response) tuple"""
-        return dict(conversation_until_last_user_message=input[0], response=input[1])
+        """Prepare input for the LLM."""
+        return dict(
+            conversation_until_last_user_message=input[0],
+            response=input[1],
+        )
+
+    @property
+    def error_value(self) -> ReviewResultType:
+        raise NotImplementedError("Subclasses must implement this method")
+
+
+class BinaryReviewLabeler(BaseReviewLabeler[bool]):
+    """Labeler that determines if a response accurately answers the last human message with a binary true/false."""
+
+    def __init__(self, model: str = "gpt-4o", timeout_secs: float = settings.DEFAULT_REVIEW_TIMEOUT_SECS) -> None:
+        super().__init__(ReviewType.BINARY, model, timeout_secs)
 
     def _parse_output(self, output: BaseMessage) -> bool:
         return str(output.content).strip().lower() == "true"
@@ -156,8 +182,26 @@ class BinaryReviewLabeler(LLMLabeler[tuple[str, str], bool]):
         return False
 
 
+class CritiqueReviewLabeler(BaseReviewLabeler[str]):
+    """Labeler that provides a short critique of the response."""
+
+    def __init__(self, model: str = "gpt-4o", timeout_secs: float = settings.DEFAULT_REVIEW_TIMEOUT_SECS) -> None:
+        super().__init__(ReviewType.CRITIQUE, model, timeout_secs)
+
+    def _parse_output(self, output: BaseMessage) -> str:
+        parsed_output = str(output.content).replace("\n", " ").replace("Critique:", "").strip()
+        for i in range(1, 4):
+            parsed_output = parsed_output.replace(f"Line {i}: ", "").strip()
+        return parsed_output
+
+    @property
+    def error_value(self) -> str:
+        return "Error: Review failed"
+
+
 # Singleton instances with model tracking
 BINARY_REVIEWER: dict[str, BinaryReviewLabeler] = {}
+CRITIQUE_REVIEWER: dict[str, CritiqueReviewLabeler] = {}
 
 
 def get_binary_reviewer(model: str = "gpt-4o") -> BinaryReviewLabeler:
@@ -165,6 +209,13 @@ def get_binary_reviewer(model: str = "gpt-4o") -> BinaryReviewLabeler:
     if model not in BINARY_REVIEWER:
         BINARY_REVIEWER[model] = BinaryReviewLabeler(model=model)
     return BINARY_REVIEWER[model]
+
+
+def get_critique_reviewer(model: str = "gpt-4o") -> CritiqueReviewLabeler:
+    """Get or create the critique reviewer instance for the specified model."""
+    if model not in CRITIQUE_REVIEWER:
+        CRITIQUE_REVIEWER[model] = CritiqueReviewLabeler(model=model)
+    return CRITIQUE_REVIEWER[model]
 
 
 def _extract_conversation_until_last_user_message(chat_history_messages: list[BaseMessage]) -> str:
@@ -265,12 +316,14 @@ async def generate_reviews(
     review_types = request.review_types or list(ReviewType)
 
     # Initialize reviewer with specified model
+    logging.info(f"Initializing reviewers with model {request.reviewer_model or 'gpt-4o'}")
     binary_reviewer = get_binary_reviewer(request.reviewer_model or "gpt-4o")
+    critique_reviewer = get_critique_reviewer(request.reviewer_model or "gpt-4o")
 
     async def _run_pointwise_review(
         review_type: ReviewType,
-        reviewer: LLMLabeler[tuple[str, str], Any],
-    ) -> tuple[ReviewType, dict[str, BinaryResult]]:
+        reviewer: BaseReviewLabeler[ReviewResultType],
+    ) -> tuple[ReviewType, dict[str, BinaryResult | CritiqueResult]]:
         """Generic function to run pointwise reviews.
 
         Args:
@@ -280,7 +333,9 @@ async def generate_reviews(
         Returns:
             Tuple of review type and results dictionary
         """
-        assert isinstance(reviewer, BinaryReviewLabeler), f"Reviewer {reviewer} is not a BinaryReviewLabeler"
+        assert isinstance(reviewer, BinaryReviewLabeler) or isinstance(
+            reviewer, CritiqueReviewLabeler
+        ), f"Reviewer {reviewer} is not a BinaryReviewLabeler or CritiqueReviewLabeler"
         model_name = reviewer.model
 
         try:
@@ -297,15 +352,20 @@ async def generate_reviews(
             results = await asyncio.gather(*(task for _, task in review_tasks), return_exceptions=True)
 
             # Process results with proper type casting
-            if review_type == ReviewType.BINARY:
-                pointwise_results: dict[str, BinaryResult] = {}
-            else:
-                logging.warning(f"run_{review_type}: Unsupported review type {review_type}, skipping")
-                return review_type, {}
+            pointwise_results: dict[str, BinaryResult | CritiqueResult] = {}
 
             for (model, _), result in zip(review_tasks, results, strict=True):
-                if isinstance(result, bool):  # Only include successful results
-                    pointwise_results[model] = {"response": result, "reviewer_model": model_name}
+                if isinstance(result, bool) or isinstance(result, str):  # Handle both bool and str results
+                    if review_type == ReviewType.BINARY and isinstance(result, bool):
+                        pointwise_results[model] = cast(
+                            BinaryResult, {"response": result, "reviewer_model": model_name}
+                        )
+                    elif review_type == ReviewType.CRITIQUE and isinstance(result, str):
+                        pointwise_results[model] = cast(
+                            CritiqueResult, {"response": result, "reviewer_model": model_name}
+                        )
+                    else:
+                        logging.warning(f"run_{review_type}: {model} returned {result} of type {type(result)}")
                 else:
                     logging.warning(f"run_{review_type}: {model} returned {result} of type {type(result)}")
 
@@ -325,18 +385,25 @@ async def generate_reviews(
             ReviewType.BINARY,
             binary_reviewer,
         )
-        return result
+        return cast(tuple[ReviewType, dict[str, BinaryResult]], result)
+
+    async def run_critique_review() -> tuple[ReviewType, dict[str, CritiqueResult]]:
+        """Run critique review."""
+        result = await _run_pointwise_review(
+            ReviewType.CRITIQUE,
+            critique_reviewer,
+        )
+        logging.info(f"Critique review result: {result}")
+        return cast(tuple[ReviewType, dict[str, CritiqueResult]], result)
 
     # Map review types to their corresponding functions
     review_funcs = {
         ReviewType.BINARY: run_binary_review,
+        ReviewType.CRITIQUE: run_critique_review,
     }
 
-    # Map review types to their error values with proper type annotations, but only for requested types
-    error_values: dict[ReviewType, ReviewResult] = {}
-    for review_type in review_types:
-        if review_type == ReviewType.BINARY:
-            error_values[review_type] = cast(dict[str, BinaryResult], {})
+    # Map review types to their error values with proper type annotations
+    error_values: dict[ReviewType, ReviewResult] = {review_type: {} for review_type in review_types}
 
     # Run selected review types in parallel
     tasks = [review_funcs[review_type]() for review_type in review_types]
@@ -366,9 +433,10 @@ async def generate_reviews(
         "review_types": [rt.value for rt in review_types],
     }
     logging.info(json_dumps(log_dict))
-
+    logging.info(f"Processed results: {processed_results}")
     # Convert dict[ReviewType, ReviewResult] to ReviewResponse
     return ReviewResponse(
         binary=cast(dict[str, BinaryResult], processed_results.get(ReviewType.BINARY)),
+        critique=cast(dict[str, CritiqueResult], processed_results.get(ReviewType.CRITIQUE)),
         status=ReviewStatus.ERROR if has_error else ReviewStatus.SUCCESS,
     )

@@ -1030,7 +1030,7 @@ def get_fine_tuned_gpt_4o_llm(max_tokens: int) -> OpenAILangChainAdapter:
     return get_gpt_llm(MODEL_FOR_FINETUNE_QT_FULL_NAME, max_tokens)
 
 
-def get_gemini_15_flash_llm() -> GeminiLangChainAdapter:
+def get_gemini_15_flash_llm(max_tokens: int) -> GeminiLangChainAdapter:
     global GEMINI_15_FLASH_LLM
     if GEMINI_15_FLASH_LLM is None:
         GEMINI_15_FLASH_LLM = GeminiLangChainAdapter(
@@ -1043,14 +1043,14 @@ def get_gemini_15_flash_llm() -> GeminiLangChainAdapter:
                 project_id=settings.GCP_PROJECT_ID,
                 region=settings.GCP_REGION,
                 temperature=0.0,
-                max_output_tokens=MAX_TOKENS,
+                max_output_tokens=max_tokens,
                 top_k=1,
             ),
         )
     return GEMINI_15_FLASH_LLM
 
 
-def get_gemini_2_flash_llm() -> GeminiLangChainAdapter:
+def get_gemini_2_flash_llm(max_tokens: int) -> GeminiLangChainAdapter:
     global GEMINI_2_FLASH_LLM
     if GEMINI_2_FLASH_LLM is None:
         GEMINI_2_FLASH_LLM = GeminiLangChainAdapter(
@@ -1063,7 +1063,7 @@ def get_gemini_2_flash_llm() -> GeminiLangChainAdapter:
                 project_id=settings.GCP_PROJECT_ID,
                 region=settings.GCP_REGION_GEMINI_2,
                 temperature=0.0,
-                max_output_tokens=MAX_TOKENS,
+                max_output_tokens=max_tokens,
                 top_k=1,
             ),
         )
@@ -1081,8 +1081,8 @@ def get_qt_llms() -> Mapping[str, BaseChatModel]:
             "gpt-4o": get_gpt_4o_llm(MAX_TOKENS),
             "gpt-4o-mini": get_gpt_4o_mini_llm(MAX_TOKENS),
             MODEL_FOR_FINETUNE_QT_FULL_NAME: get_fine_tuned_gpt_4o_llm(MAX_TOKENS),
-            "gemini-1.5-flash-002": get_gemini_15_flash_llm(),
-            "gemini-2.0-flash-exp": get_gemini_2_flash_llm(),
+            "gemini-1.5-flash-002": get_gemini_15_flash_llm(MAX_TOKENS),
+            "gemini-2.0-flash-exp": get_gemini_2_flash_llm(MAX_TOKENS),
         }
     return QT_LLMS
 
