@@ -2,12 +2,12 @@ import uuid
 from datetime import date
 from decimal import Decimal
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import sqlalchemy as sa
 from sqlalchemy import BigInteger, Boolean, Column, Integer, Numeric, String, UniqueConstraint
 from sqlalchemy import Enum as sa_Enum
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlmodel import Field, Relationship
 
 from ypl.db.base import BaseModel
@@ -15,7 +15,7 @@ from ypl.db.users import User
 
 if TYPE_CHECKING:
     from ypl.db.chats import ChatMessage, TurnQuality
-    from ypl.db.promotions import ModelPromotion
+    from ypl.db.model_promotions import ModelPromotion
     from ypl.db.ratings import Rating, RatingHistory
 
 
@@ -237,6 +237,9 @@ class LanguageModel(BaseModel, table=True):
     num_requests_in_metric_window: int | None = Field(default=None, nullable=True)
     # Average number of tokens in requests used to calculate the metrics. Used for speed score calculation.
     avg_token_count: float | None = Field(default=None, nullable=True)
+
+    # Model-specific parameters, allowing us to configure virutal models
+    parameters: dict[str, Any] = Field(default_factory=dict, sa_type=JSONB, nullable=True)
 
     # --- Relationships ---
     promotions: list["ModelPromotion"] = Relationship(back_populates="language_model")
