@@ -150,6 +150,12 @@ class User(BaseModel, table=True):
         sa_relationship_kwargs={"secondary": "soul_user_roles"}, back_populates="users"
     )
 
+    # Relationship to IP details through association table
+    ip_details: list["IPs"] = Relationship(
+        back_populates="users",
+        sa_relationship_kwargs={"secondary": "user_ip_details"},
+    )
+
     def is_new_user(self) -> bool:
         return len(self.chats) < NEW_USER_CHAT_THRESHOLD
 
@@ -216,6 +222,49 @@ class User(BaseModel, table=True):
             and (start_date is None or (r.created_at is not None and r.created_at >= start_date))
             and (end_date is None or (r.created_at is not None and r.created_at <= end_date))
         )
+
+
+class IPs(BaseModel, table=True):
+    """Represents unique IP address details including geolocation information."""
+
+    __tablename__ = "ips"
+
+    ip: str = Field(primary_key=True, nullable=False, sa_type=sa.Text)
+    hostname: str | None = Field(default=None, sa_type=sa.Text)
+    city: str | None = Field(default=None, sa_type=sa.Text)
+    region: str | None = Field(default=None, sa_type=sa.Text)
+    country: str | None = Field(default=None, sa_type=sa.Text)
+    loc: str | None = Field(default=None, sa_type=sa.Text)
+    org: str | None = Field(default=None, sa_type=sa.Text)
+    postal: str | None = Field(default=None, sa_type=sa.Text)
+    timezone: str | None = Field(default=None, sa_type=sa.Text)
+
+    # Relationship to users through association table
+    users: list["User"] = Relationship(
+        back_populates="ip_details",
+        sa_relationship_kwargs={"secondary": "user_ip_details"},
+    )
+
+
+class UserIPDetails(BaseModel, table=True):
+    """Association table linking users to IP details with timestamps."""
+
+    __tablename__ = "user_ip_details"
+
+    user_id: str = Field(
+        sa_column=sa.Column(
+            sa.Text, sa.ForeignKey("users.user_id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False
+        )
+    )
+    ip: str = Field(
+        sa_column=sa.Column(sa.Text, sa.ForeignKey("ips.ip", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
+    )
+
+    __table_args__ = (
+        sa.PrimaryKeyConstraint("user_id", "ip"),
+        sa.Index("ix_user_ip_details_user_id", "user_id"),
+        sa.Index("ix_user_ip_details_ip", "ip"),
+    )
 
 
 class SyntheticUserAttributes(BaseModel, table=True):
