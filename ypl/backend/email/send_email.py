@@ -38,6 +38,9 @@ EMAIL_CAMPAIGNS = {
     "week_1_inactive": WEEK_1_INACTIVE_EMAIL_CONTENT,
     "week_5_inactive": WEEK_5_INACTIVE_EMAIL_CONTENT,
     "week_6_deactivation": WEEK_6_DEACTIVATION_EMAIL_CONTENT,
+    # "monthly_summary" is the campaign name we use for email
+    # templates. On the EmailLogs table, we store the campaign name
+    # as "monthly_summary_{year}_{month}_{day}".
     "monthly_summary": MONTHLY_SUMMARY_EMAIL_CONTENT,
 }
 

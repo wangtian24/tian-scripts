@@ -177,7 +177,9 @@ def _users_eligible_for_summary() -> Any:
 
     # Format campaign name for current month
     current_date = datetime.now(UTC)
-    monthly_campaign = f"monthly_summary_{current_date.year}_{current_date.month:02d}_{current_date.day:02d}"
+    monthly_campaign_for_logging = (
+        f"monthly_summary_{current_date.year}_{current_date.month:02d}_{current_date.day:02d}"
+    )
 
     eval_count = (
         select(func.count())
@@ -195,7 +197,7 @@ def _users_eligible_for_summary() -> Any:
         select(1)
         .where(
             EmailLogs.email_sent_to == User.email,
-            EmailLogs.campaign_name == monthly_campaign,
+            EmailLogs.campaign_name == monthly_campaign_for_logging,
         )
         .exists()
         .label("already_sent")
@@ -266,13 +268,15 @@ def _users_eligible_for_summary() -> Any:
 async def send_monthly_summary_emails_async(session: Session, print_only: bool = False) -> None:
     # Format campaign name for current month
     current_date = datetime.now(UTC)
-    monthly_campaign = f"monthly_summary_{current_date.year}_{current_date.month:02d}_{current_date.day:02d}"
+    monthly_campaign_for_logging = (
+        f"monthly_summary_{current_date.year}_{current_date.month:02d}_{current_date.day:02d}"
+    )
 
     all_email_configs = []
     results = session.exec(_users_eligible_for_summary()).all()
     for user, eval_count, already_sent, credits_received, credits_cashed_out, favorite_model in results:
         if already_sent:
-            logging.info(f"Skipping {user.email} for {monthly_campaign} because email was already sent")
+            logging.info(f"Skipping {user.email} for {monthly_campaign_for_logging} because email was already sent")
             continue
         # Convert None to 0 and get absolute value of negative numbers
         credits_cashed_out_display = abs(credits_cashed_out) if credits_cashed_out is not None else 0
@@ -282,7 +286,10 @@ async def send_monthly_summary_emails_async(session: Session, print_only: bool =
         credits_cashed_out_fmt = f"{credits_cashed_out_display:,}"
         all_email_configs.append(
             EmailConfig(
-                campaign=monthly_campaign,
+                # "monthly_summary" is the campaign name we use for email
+                # templates. On the EmailLogs table, we store the campaign name
+                # as "monthly_summary_{year}_{month}_{day}".
+                campaign="monthly_summary",
                 to_address=user.email,
                 template_params={
                     "email_recipient_name": user.name,

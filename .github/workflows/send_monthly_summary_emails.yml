@@ -2,9 +2,9 @@ name: Send monthly summary emails
 
 on:
   schedule:
-    # Test this weekly for Yuppsters first before enabling it monthly for users.
     # - cron: "0 17 2 * *" # Runs at 9 AM PST (17:00/5 PM UTC) on the 2nd day of every month
-    - cron: "0 17 * * 1" # Runs at 9 AM PST (17:00/5 PM UTC) every Monday
+    # Test this weekly for Yuppsters first before enabling it monthly for users.
+    - cron: "0 17 * * 2" # Runs at 9 AM PST (17:00/5 PM UTC) every Tuesday
   workflow_dispatch:
 
 jobs:
