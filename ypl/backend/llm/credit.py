@@ -74,6 +74,64 @@ class CashoutPaymentTransaction:
     destination_identifier_type: PaymentInstrumentIdentifierTypeEnum
     customer_reference_id: str | None
 
+    @classmethod
+    def from_payment_transaction(
+        cls,
+        payment_transaction: PaymentTransaction,
+        destination_payment_instrument: PaymentInstrument,
+        point_transaction: PointTransaction,
+    ) -> "CashoutPaymentTransaction":
+        assert payment_transaction.last_status_change_at is not None
+        assert payment_transaction.created_at is not None
+
+        return cls(
+            payment_transaction_id=payment_transaction.payment_transaction_id,
+            created_at=payment_transaction.created_at,
+            credits_cashed_out=-point_transaction.point_delta,
+            currency=payment_transaction.currency,
+            amount=payment_transaction.amount,
+            status=payment_transaction.status,
+            last_status_change_at=payment_transaction.last_status_change_at,
+            facilitator=destination_payment_instrument.facilitator,
+            destination_identifier=destination_payment_instrument.identifier,
+            destination_identifier_type=destination_payment_instrument.identifier_type,
+            customer_reference_id=payment_transaction.customer_reference_id,
+        )
+
+
+@dataclass
+class CashoutInstrument:
+    identifier: str
+    identifier_type: PaymentInstrumentIdentifierTypeEnum
+    facilitator: PaymentInstrumentFacilitatorEnum
+
+    @classmethod
+    def from_payment_instrument(cls, payment_instrument: PaymentInstrument) -> "CashoutInstrument":
+        return cls(
+            identifier=payment_instrument.identifier,
+            identifier_type=payment_instrument.identifier_type,
+            facilitator=payment_instrument.facilitator,
+        )
+
+
+@dataclass
+class CashoutUserLimits:
+    credits_balance: int
+    credits_available_for_cashout: int
+    minimum_credits_per_cashout: int
+
+
+@dataclass
+class CashoutUserInfo:
+    credits_balance: int
+    credits_available_for_cashout: int
+    minimum_credits_per_cashout: int
+
+    country_code: str
+
+    stored_instruments: list[CashoutInstrument]
+    last_successful_transaction: CashoutPaymentTransaction | None
+
 
 async def get_total_credits_rank(user_id: str) -> int:
     async with get_async_session() as session:

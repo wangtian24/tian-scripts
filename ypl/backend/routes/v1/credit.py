@@ -11,7 +11,9 @@ from sqlalchemy.exc import NoResultFound
 from ypl.backend.config import settings
 from ypl.backend.llm.credit import (
     Amount,
+    CashoutInstrument,
     CashoutPaymentTransaction,
+    CashoutUserInfo,
     RewardedCreditsPerActionTotals,
     get_cashout_amounts_per_currency,
     get_cashout_credit_stats,
@@ -27,7 +29,6 @@ from ypl.backend.payment.base_types import BaseFacilitator, PaymentResponse
 from ypl.backend.payment.cashout_rate_limits import (
     CashoutKillswitchError,
     CashoutLimitError,
-    CashoutUserInfo,
     check_cashout_killswitch,
     check_facilitator_cashout_killswitch,
     check_global_cashout_killswitch,
@@ -38,11 +39,16 @@ from ypl.backend.payment.cashout_rate_limits import (
 from ypl.backend.payment.currency import get_supported_currencies
 from ypl.backend.payment.exchange_rates import get_exchange_rate
 from ypl.backend.payment.facilitator import get_supported_facilitators
+from ypl.backend.payment.payment import get_last_successful_transaction_and_instrument, get_user_payment_instruments
 from ypl.backend.payment.validation import validate_destination_identifier_for_currency
 from ypl.backend.user.user import get_user
 from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.vpn_utils import get_ip_details
-from ypl.db.payments import CurrencyEnum, PaymentInstrumentFacilitatorEnum, PaymentInstrumentIdentifierTypeEnum
+from ypl.db.payments import (
+    CurrencyEnum,
+    PaymentInstrumentFacilitatorEnum,
+    PaymentInstrumentIdentifierTypeEnum,
+)
 
 router = APIRouter()
 
@@ -338,7 +344,16 @@ async def fetch_cashout_options(request: CashoutOptionsRequest) -> CashoutOption
     except CashoutKillswitchError as e:
         return CashoutNotAvailableResponse(unavailable_reason=str(e))
 
-    facilitators = get_supported_facilitators(request.guessed_country_code)
+    [user, instruments, last_transaction_and_instrument] = await asyncio.gather(
+        get_user(request.user_id),
+        get_user_payment_instruments(request.user_id),
+        get_last_successful_transaction_and_instrument(request.user_id),
+    )
+
+    user_country_code = user.country_code
+    country_code = user_country_code if user_country_code else request.guessed_country_code
+
+    facilitators = get_supported_facilitators(country_code)
 
     facilitator_killswitch_errors = await asyncio.gather(
         *[
@@ -354,7 +369,7 @@ async def fetch_cashout_options(request: CashoutOptionsRequest) -> CashoutOption
         if error is None
     ]
 
-    currencies = get_supported_currencies(request.guessed_country_code)
+    currencies = get_supported_currencies(country_code)
 
     log_dict: dict[str, Any] = {}
 
@@ -362,6 +377,8 @@ async def fetch_cashout_options(request: CashoutOptionsRequest) -> CashoutOption
         log_dict = {
             "message": "Cashout is not available",
             "user_id": request.user_id,
+            "country_code": country_code,
+            "user_country_code": user_country_code,
             "guessed_country_code": request.guessed_country_code,
             "currencies": [currency.value for currency in currencies],
             "facilitators": [facilitator.value for facilitator in facilitators],
@@ -372,11 +389,29 @@ async def fetch_cashout_options(request: CashoutOptionsRequest) -> CashoutOption
         return CashoutNotAvailableResponse(unavailable_reason="Cashout is not available")
 
     try:
-        user_info = await validate_and_return_cashout_user_limits(request.user_id)
+        user_limits = await validate_and_return_cashout_user_limits(request.user_id)
+        user_info = CashoutUserInfo(
+            credits_balance=user_limits.credits_balance,
+            credits_available_for_cashout=user_limits.credits_available_for_cashout,
+            minimum_credits_per_cashout=user_limits.minimum_credits_per_cashout,
+            country_code=country_code,
+            stored_instruments=[CashoutInstrument.from_payment_instrument(instrument) for instrument in instruments],
+            last_successful_transaction=CashoutPaymentTransaction.from_payment_transaction(
+                last_transaction_and_instrument[0],
+                last_transaction_and_instrument[1],
+                last_transaction_and_instrument[2],
+            )
+            if last_transaction_and_instrument
+            else None,
+        )
+
         log_dict = {
             "message": "Cashout options returned",
             "user_id": request.user_id,
             "user_info": user_info,
+            "country_code": country_code,
+            "user_country_code": user_country_code,
+            "guessed_country_code": request.guessed_country_code,
             "currencies": [currency.value for currency in currencies],
             "facilitators": [facilitator.value for facilitator in facilitators],
         }

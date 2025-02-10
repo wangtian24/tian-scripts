@@ -10,6 +10,7 @@ from cdp.transfer import Transfer
 from fastapi import HTTPException
 from sqlmodel import select
 from tenacity import retry, stop_after_attempt, wait_exponential
+from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
 from ypl.backend.llm.utils import post_to_slack_with_user_name
 from ypl.backend.payment.base_types import (
@@ -63,10 +64,20 @@ SLACK_WEBHOOK_CASHOUT = os.getenv("SLACK_WEBHOOK_CASHOUT")
 
 
 def get_supported_facilitators(country_code: str) -> list[PaymentInstrumentFacilitatorEnum]:
+    all_supported_facilitators = [
+        PaymentInstrumentFacilitatorEnum.UPI,
+        PaymentInstrumentFacilitatorEnum.ON_CHAIN,
+        PaymentInstrumentFacilitatorEnum.COINBASE,
+    ]
+    # Only for testing
+    if settings.ENVIRONMENT != "production":
+        return all_supported_facilitators
+
     if country_code == "IN":
         return [PaymentInstrumentFacilitatorEnum.UPI]
 
-    return [PaymentInstrumentFacilitatorEnum.ON_CHAIN, PaymentInstrumentFacilitatorEnum.COINBASE]
+    # We may filter some facilitators based on country code in the future.
+    return all_supported_facilitators
 
 
 class OnChainFacilitator(BaseFacilitator):

@@ -1,6 +1,5 @@
 import asyncio
 import logging
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Final, Literal, TypedDict
@@ -13,6 +12,7 @@ from sqlalchemy.sql.functions import Function
 from sqlmodel import select
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
+from ypl.backend.llm.credit import CashoutUserLimits
 from ypl.backend.llm.utils import post_to_slack_with_user_name
 from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.utils import CapabilityType, UserCapabilityStatus, get_capability_override_details
@@ -445,14 +445,7 @@ async def _get_credits_balance(session: AsyncSession, user_id: str) -> tuple[int
     return points, email.endswith("@yupp.ai")
 
 
-@dataclass
-class CashoutUserInfo:
-    credits_balance: int
-    credits_available_for_cashout: int
-    minimum_credits_per_cashout: int = MINIMUM_CREDITS_PER_CASHOUT
-
-
-async def validate_and_return_cashout_user_limits(user_id: str, credits_to_cashout: int = 0) -> CashoutUserInfo:
+async def validate_and_return_cashout_user_limits(user_id: str, credits_to_cashout: int = 0) -> CashoutUserLimits:
     """
     Validate the cashout request, and enforce limits.
     Checks both count of cashouts and total credits cashed out for daily, weekly and monthly periods.
@@ -498,7 +491,7 @@ async def validate_and_return_cashout_user_limits(user_id: str, credits_to_casho
                 max_value=0,
                 user_id=user_id,
             )
-        cashout_user_info = CashoutUserInfo(
+        cashout_user_info = CashoutUserLimits(
             credits_balance=credits_balance,
             # This value will be updated later in the method, based on the limits.
             credits_available_for_cashout=total_credits_available_for_cashout,

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -7,8 +8,8 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
 from sqlalchemy.exc import DatabaseError, OperationalError
+from sqlmodel import func, select
 from tenacity import after_log, retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 from ypl.backend.db import get_async_session
 from ypl.backend.llm.utils import post_to_slack
@@ -150,7 +151,7 @@ async def update_payment_transaction(payment_transaction_id: UUID, **fields_to_u
     """
     async with get_async_session() as session:
         payment_transaction_db = await session.execute(
-            select(PaymentTransaction).where(PaymentTransaction.payment_transaction_id == payment_transaction_id)  # type: ignore
+            select(PaymentTransaction).where(PaymentTransaction.payment_transaction_id == payment_transaction_id)
         )
         payment_transaction_db_row = payment_transaction_db.scalar_one()
 
@@ -171,7 +172,7 @@ async def update_payment_transaction(payment_transaction_id: UUID, **fields_to_u
 )
 async def update_user_points(user_id: str, amount: int) -> None:
     async with get_async_session() as session:
-        user_record = await session.execute(select(User).where(User.user_id == user_id))  # type: ignore
+        user_record = await session.execute(select(User).where(User.user_id == user_id))
         user_row = user_record.scalar_one()
         user_row.points += amount
         await session.commit()
@@ -219,7 +220,7 @@ async def get_points_transactions(
         async with get_async_session() as session:
             stmt = (
                 select(PointTransaction)
-                .where(PointTransaction.user_id == user_id)  # type: ignore
+                .where(PointTransaction.user_id == user_id)
                 .order_by(PointTransaction.created_at.desc())  # type: ignore
                 .offset(offset)
                 .limit(limit + 1)
@@ -306,7 +307,7 @@ async def get_cashouts(
             )
 
             if user_id:
-                stmt = stmt.where(User.user_id == user_id)  # type: ignore
+                stmt = stmt.where(User.user_id == user_id)
 
             stmt = stmt.order_by(PointTransaction.created_at.desc())  # type: ignore
             stmt = stmt.offset(offset)
@@ -426,7 +427,7 @@ async def get_payment_instruments(
     async with get_async_session() as session:
         query = (
             select(PaymentInstrument)
-            .where(PaymentInstrument.user_id == user_id)  # type: ignore
+            .where(PaymentInstrument.user_id == user_id)
             .order_by(PaymentInstrument.created_at.desc())  # type: ignore
             .offset(offset)
             .limit(limit + 1)
@@ -483,7 +484,7 @@ async def update_payment_instrument(payment_instrument_id: UUID, request: Update
     """
     async with get_async_session() as session:
         payment_instrument = await session.execute(
-            select(PaymentInstrument).where(PaymentInstrument.payment_instrument_id == payment_instrument_id)  # type: ignore
+            select(PaymentInstrument).where(PaymentInstrument.payment_instrument_id == payment_instrument_id)
         )
         payment_instrument_row = payment_instrument.scalar_one()
 
@@ -514,8 +515,8 @@ async def retrieve_self_custodial_wallet_balances() -> list[DailyAccountBalanceH
         async with get_async_session() as session:
             query = select(PaymentInstrument).where(
                 func.coalesce(PaymentInstrument.user_id, "") == "SYSTEM",
-                PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.ON_CHAIN,  # type: ignore
-                PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS,  # type: ignore
+                PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.ON_CHAIN,
+                PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS,
                 PaymentInstrument.deleted_at.is_(None),  # type: ignore
             )
             result = await session.execute(query)
@@ -579,8 +580,8 @@ async def store_self_custodial_wallet_balances(wallet_data: dict) -> None:
         async with get_async_session() as session:
             query = select(PaymentInstrument).where(
                 func.coalesce(PaymentInstrument.user_id, "") == "SYSTEM",
-                PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.ON_CHAIN,  # type: ignore
-                PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS,  # type: ignore
+                PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.ON_CHAIN,
+                PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS,
                 PaymentInstrument.deleted_at.is_(None),  # type: ignore
             )
             result = await session.execute(query)
@@ -628,8 +629,8 @@ async def retrieve_coinbase_retail_wallet_balances() -> list[DailyAccountBalance
         async with get_async_session() as session:
             query = select(PaymentInstrument).where(
                 func.coalesce(PaymentInstrument.user_id, "") == "SYSTEM",
-                PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.COINBASE,  # type: ignore
-                PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS,  # type: ignore
+                PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.COINBASE,
+                PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS,
                 PaymentInstrument.deleted_at.is_(None),  # type: ignore
             )
             result = await session.execute(query)
@@ -692,8 +693,8 @@ async def store_coinbase_retail_wallet_balances(accounts: dict[str, dict[str, st
         async with get_async_session() as session:
             query = select(PaymentInstrument).where(
                 func.coalesce(PaymentInstrument.user_id, "") == "SYSTEM",
-                PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.COINBASE,  # type: ignore
-                PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS,  # type: ignore
+                PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.COINBASE,
+                PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS,
                 PaymentInstrument.deleted_at.is_(None),  # type: ignore
             )
             result = await session.execute(query)
@@ -749,8 +750,8 @@ async def retrieve_axis_upi_balance() -> Decimal | None:
         async with get_async_session() as session:
             query = select(PaymentInstrument).where(
                 func.coalesce(PaymentInstrument.user_id, "") == "SYSTEM",
-                PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.UPI,  # type: ignore
-                PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.UPI_ID,  # type: ignore
+                PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.UPI,
+                PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.UPI_ID,
                 PaymentInstrument.deleted_at.is_(None),  # type: ignore
             )
             result = await session.execute(query)
@@ -800,8 +801,8 @@ async def store_axis_upi_balance(balance: Decimal) -> None:
         async with get_async_session() as session:
             query = select(PaymentInstrument).where(
                 func.coalesce(PaymentInstrument.user_id, "") == "SYSTEM",
-                PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.UPI,  # type: ignore
-                PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.UPI_ID,  # type: ignore
+                PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.UPI,
+                PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.UPI_ID,
                 PaymentInstrument.deleted_at.is_(None),  # type: ignore
             )
             result = await session.execute(query)
@@ -833,3 +834,40 @@ async def store_axis_upi_balance(balance: Decimal) -> None:
         logging.error(json_dumps(log_dict))
         asyncio.create_task(post_to_slack(json_dumps(log_dict)))
         return None
+
+
+# TODO: Merge with get_payment_instruments
+async def get_user_payment_instruments(user_id: str) -> Sequence[PaymentInstrument]:
+    async with get_async_session() as session:
+        query = select(PaymentInstrument).where(
+            PaymentInstrument.user_id == user_id,
+            PaymentInstrument.deleted_at.is_(None),  # type: ignore
+        )
+        result = await session.exec(query)
+        return result.all()
+
+
+async def get_last_successful_transaction_and_instrument(
+    user_id: str,
+) -> tuple[PaymentTransaction, PaymentInstrument, PointTransaction] | None:
+    async with get_async_session() as session:
+        query = (
+            select(PaymentTransaction, PaymentInstrument, PointTransaction)
+            .join(
+                PaymentInstrument,
+                PaymentTransaction.destination_instrument_id == PaymentInstrument.payment_instrument_id,  # type: ignore
+            )
+            .join(
+                PointTransaction,
+                PointTransaction.cashout_payment_transaction_id == PaymentTransaction.payment_transaction_id,  # type: ignore
+            )
+            .where(
+                PaymentInstrument.user_id == user_id,
+                PaymentTransaction.status == PaymentTransactionStatusEnum.SUCCESS,
+                PaymentTransaction.deleted_at.is_(None),  # type: ignore
+            )
+            .order_by(PaymentTransaction.created_at.desc())  # type: ignore
+            .limit(1)
+        )
+        result = await session.exec(query)
+        return result.one_or_none()
