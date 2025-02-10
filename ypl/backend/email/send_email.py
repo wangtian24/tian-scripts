@@ -165,12 +165,8 @@ async def send_email_async(email_config: EmailConfig, print_only: bool = False) 
     email_content = await _prepare_email_content(email_config.campaign, email_config.template_params)
     email_plaintext = html_to_plaintext(email_content.body_html)
     resend_params = await _create_email_params(
-        email_config.to_address, email_content.subject, email_plaintext, email_content.body_html
+        email_config.to_address, _get_subject(email_content.subject), email_plaintext, email_content.body_html
     )
-
-    if print_only:
-        logging.info(f"Email composed: {json_dumps(resend_params)}")
-        return None
 
     if settings.resend_api_key and not print_only:
         resend.api_key = settings.resend_api_key
@@ -178,7 +174,13 @@ async def send_email_async(email_config: EmailConfig, print_only: bool = False) 
         await _log_emails_to_db([email_config])
         logging.info(f"Email sent for {email_config.campaign}")
         return email
-    return None
+    else:
+        log_dict = {
+            "message": "No Resend API key for this environment, logging the content instead",
+            "resend_params": resend_params,
+        }
+        logging.info(json_dumps(log_dict))
+        return None
 
 
 async def batch_send_emails_async(
@@ -198,7 +200,7 @@ async def batch_send_emails_async(
         batch_params.append(
             await _create_email_params(
                 email_config.to_address,
-                email_content.subject,
+                _get_subject(email_content.subject),
                 email_plaintext,
                 email_content.body_html,
             )
@@ -210,4 +212,14 @@ async def batch_send_emails_async(
         await _log_emails_to_db(email_configs)
         logging.info(f"Email count sent in batch: {len(email_configs)}")
         return response
-    return None
+    else:
+        log_dict = {
+            "message": "No Resend API key for this environment, logging the content instead",
+            "batch_params": batch_params,
+        }
+        logging.info(json_dumps(log_dict))
+        return None
+
+
+def _get_subject(default_subject: str) -> str:
+    return default_subject if settings.ENVIRONMENT == "production" else f"[{settings.ENVIRONMENT}] {default_subject}"
