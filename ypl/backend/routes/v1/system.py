@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 
 from ypl.backend.llm.db_helpers import (
     deduce_original_provider,
@@ -12,6 +12,7 @@ from ypl.backend.llm.db_helpers import (
 from ypl.backend.llm.provider.provider_clients import load_active_models_with_providers
 from ypl.backend.llm.routing.rule_router import get_routing_table
 from ypl.backend.utils.json import json_dumps
+from ypl.backend.utils.soul_utils import SoulPermission, validate_permissions
 
 router = APIRouter()
 
@@ -33,7 +34,14 @@ CACHED_FUNCS: dict[str, list] = {
 }
 
 
-@router.post("/admin/clear-cache")
+async def validate_manage_caches(
+    x_creator_email: str | None = Header(None, alias="X-Creator-Email"),
+) -> None:
+    """Validate that the user has MANAGE_CACHES permission."""
+    await validate_permissions([SoulPermission.MANAGE_CACHES], x_creator_email)
+
+
+@router.post("/admin/clear-cache", dependencies=[Depends(validate_manage_caches)])
 async def clear_cache(name: str) -> dict[str, str]:
     """Clears a cache and returns its pre-clear info."""
     funcs = CACHED_FUNCS.get(name)

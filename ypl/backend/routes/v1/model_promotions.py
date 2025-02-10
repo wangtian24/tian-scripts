@@ -2,7 +2,7 @@ import logging
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
 from ypl.backend.llm.promotions import (
@@ -13,6 +13,7 @@ from ypl.backend.llm.promotions import (
     get_all_model_promotions,
 )
 from ypl.backend.utils.json import json_dumps
+from ypl.backend.utils.soul_utils import SoulPermission, validate_permissions
 from ypl.db.model_promotions import ModelPromotion
 
 router = APIRouter()
@@ -25,7 +26,14 @@ class ModelPromotionCreationRequest(BaseModel):
     promo_strength: float
 
 
-@router.post("/admin/model_promotions/create")
+async def validate_manage_model_promotions(
+    x_creator_email: str | None = Header(None, alias="X-Creator-Email"),
+) -> None:
+    """Validate that the user has MANAGE_MODEL_PERFORMANCE permission."""
+    await validate_permissions([SoulPermission.MANAGE_MODEL_PERFORMANCE], x_creator_email)
+
+
+@router.post("/admin/model_promotions/create", dependencies=[Depends(validate_manage_model_promotions)])
 async def model_promotion_create(request: ModelPromotionCreationRequest) -> ModelPromotion:
     try:
         # Create the model promotion
@@ -78,7 +86,7 @@ async def model_promotions_active_promotions() -> list[tuple[str, ModelPromotion
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/admin/model_promotions/activate")
+@router.post("/admin/model_promotions/activate", dependencies=[Depends(validate_manage_model_promotions)])
 async def model_promotion_activate(promotion_id: UUID) -> str:
     try:
         await activate_promotion(promotion_id)
@@ -94,7 +102,7 @@ async def model_promotion_activate(promotion_id: UUID) -> str:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/admin/model_promotions/deactivate")
+@router.post("/admin/model_promotions/deactivate", dependencies=[Depends(validate_manage_model_promotions)])
 async def model_promotion_deactivate(promotion_id: UUID) -> str:
     try:
         await deactivate_promotion(promotion_id)

@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 
-from fastapi import APIRouter, HTTPException, Path, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query
 from sqlalchemy import String, cast
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, or_, select
@@ -20,6 +20,7 @@ from ypl.backend.user.user import (
     register_user_with_vendor,
 )
 from ypl.backend.utils.json import json_dumps
+from ypl.backend.utils.soul_utils import SoulPermission, validate_permissions
 from ypl.db.invite_codes import SpecialInviteCode, SpecialInviteCodeClaimLog
 from ypl.db.payments import PaymentInstrument, PaymentTransaction
 from ypl.db.users import User, VendorNameEnum, WaitlistedUser
@@ -106,7 +107,21 @@ async def get_all_users_route(limit: int = 100, offset: int = 0) -> UserSearchRe
     return await get_all_users(limit, offset)
 
 
-@admin_router.get("/admin/users/search")
+async def validate_read_users(
+    x_creator_email: str | None = Header(None, alias="X-Creator-Email"),
+) -> None:
+    """Validate that the user has READ_USERS permission."""
+    await validate_permissions([SoulPermission.READ_USERS], x_creator_email)
+
+
+async def validate_delete_users(
+    x_creator_email: str | None = Header(None, alias="X-Creator-Email"),
+) -> None:
+    """Validate that the user has DELETE_USERS permission."""
+    await validate_permissions([SoulPermission.DELETE_USERS], x_creator_email)
+
+
+@admin_router.get("/admin/users/search", dependencies=[Depends(validate_read_users)])
 async def get_users(query: str) -> UserSearchResponse:
     """Search for users where name or user_id partially matches the query string.
 
@@ -246,7 +261,7 @@ async def get_users(query: str) -> UserSearchResponse:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@admin_router.get("/admin/users/{user_id}/related")
+@admin_router.get("/admin/users/{user_id}/related", dependencies=[Depends(validate_read_users)])
 async def get_related_users(user_id: str = Path(..., description="User ID")) -> RelatedUsersResponse:
     """Get users related to the given user.
 
@@ -522,7 +537,7 @@ async def _get_sibling_users(session: AsyncSession, user_id: str, parent_user_id
         return []
 
 
-@admin_router.post("/admin/users/{user_id}/deactivate")
+@admin_router.post("/admin/users/{user_id}/deactivate", dependencies=[Depends(validate_delete_users)])
 async def deactivate_user_route(
     user_id: str = Path(..., description="User ID"),
     creator_user_email: str = Query(..., description="Email of the user performing the deactivation"),

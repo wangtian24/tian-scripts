@@ -2,7 +2,7 @@ import asyncio
 import logging
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 from sqlmodel import func, select
 
@@ -10,6 +10,7 @@ from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
 from ypl.backend.llm.utils import post_to_slack_with_user_name
 from ypl.backend.utils.json import json_dumps
+from ypl.backend.utils.soul_utils import SoulPermission, validate_permissions
 from ypl.backend.utils.utils import CapabilityType
 from ypl.db.users import (
     Capability,
@@ -42,7 +43,17 @@ class CashoutOverrideRequest(BaseModel):
     override_config: CashoutOverrideConfig | None = None
 
 
-@router.post("/admin/user-capability/cashout/override")
+async def validate_manage_cashout(
+    x_creator_email: str | None = Header(None, alias="X-Creator-Email"),
+) -> None:
+    """Validate that the user has MANAGE_CASHOUT permission."""
+    await validate_permissions([SoulPermission.MANAGE_CASHOUT], x_creator_email)
+
+
+@router.post(
+    "/admin/user-capability/cashout/override",
+    dependencies=[Depends(validate_manage_cashout)],
+)
 async def create_cashout_override(request: CashoutOverrideRequest) -> str:
     """Create a cashout capability override for a user.
 
