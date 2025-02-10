@@ -1185,6 +1185,8 @@ Below are recent conversations a user has had with different LLMs.
 Based on these, generate up to 10 engaging conversation starters for new chats this user may want to initiate with an LLM.
 These conversation starters are intended to be used by the user to ask the LLM, not the LLM to ask the user.
 They should explore related areas, or introduce fresh angles while staying relevant to the user's interests and prior discussions.
+The conversation starters should not directly continue a previous conversation, but rather introduce a new, potentially
+controversial or interesting topic, in an area that the user is interested in, based on the conversation history.
 Give more weight to later conversations, but try to generate a diverse set of conversation starters.
 Return the list of follow-up questions as a JSON array, where each item contains:
 - the suggestion,
@@ -1207,7 +1209,7 @@ JUDGE_CONVERSATION_STARTERS_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages(
 
 JUDGE_CHAT_TITLE_PROMPT = """
 You are an assistant skilled at creating titles of a conversation between a user and one or more LLMs.
-Below is such a conversation; based on this conversation, generate a brieftitle for the chat.
+Below is such a conversation; based on this conversation, generate a brief title for the chat.
 The title should be:
 - Brief, ideally less than 6 words
 - Informative, capturing the essence of the conversation
