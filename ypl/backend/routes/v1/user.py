@@ -24,7 +24,7 @@ from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.soul_utils import SoulPermission, validate_permissions
 from ypl.db.invite_codes import SpecialInviteCode, SpecialInviteCodeClaimLog
 from ypl.db.payments import PaymentInstrument, PaymentTransaction
-from ypl.db.users import User, VendorNameEnum, WaitlistedUser
+from ypl.db.users import User, UserIPDetails, VendorNameEnum, WaitlistedUser
 
 router = APIRouter()
 admin_router = APIRouter()
@@ -235,6 +235,42 @@ async def get_users(query: str) -> UserSearchResponse:
 
             log_dict = {
                 "message": "Users found for search query in payment transactions",
+                "query": query,
+                "users_count": str(len(users)),
+            }
+            logging.info(json_dumps(log_dict))
+
+            if len(users) > 0:
+                return UserSearchResponse(
+                    users=[
+                        UserSearchResult(
+                            user_id=user.user_id,
+                            name=user.name,
+                            email=user.email,
+                            created_at=user.created_at,
+                            deleted_at=user.deleted_at,
+                            points=user.points,
+                            status=user.status,
+                            discord_id=user.discord_id,
+                            discord_username=user.discord_username,
+                            image_url=user.image,
+                        )
+                        for user in users
+                    ],
+                    has_more_rows=False,
+                )
+
+            #  if none of the above then search for IP address
+            stmt = (
+                select(User)
+                .join(UserIPDetails, User.user_id == UserIPDetails.user_id)  # type: ignore
+                .where(col(UserIPDetails.ip).ilike(search))
+            )
+            result = await session.execute(stmt)
+            users = result.scalars().all()
+
+            log_dict = {
+                "message": "Users found for search query in user IP details",
                 "query": query,
                 "users_count": str(len(users)),
             }
