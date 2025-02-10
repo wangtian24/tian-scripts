@@ -1,9 +1,14 @@
+import asyncio
 import logging
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel.ext.asyncio.session import AsyncSession
+from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine
 from ypl.backend.llm.invite import get_users_eligible_for_invite_codes
+from ypl.backend.llm.utils import post_to_slack
+from ypl.backend.utils.json import json_dumps
+from ypl.backend.utils.soul_utils import get_soul_url
 from ypl.db.invite_codes import SpecialInviteCode, SpecialInviteCodeState
 from ypl.random_word_slugs.generate import Options, generate_slug
 
@@ -37,13 +42,35 @@ async def generate_invite_code_for_top_users(
             limit=limit,
         )
         codes_created = 0
+        slack_messages = []
+
         for user in users:
             code = await generate_invite_code_for_user(session, user.user_id, default_active=default_active)
             if code is not None:
-                logger.info(f"Generated code for user {user.name}: {user.user_id}: {code.code}")
+                generation_info = {
+                    "user_id": user.user_id,
+                    "name": user.name,
+                    "code": code.code,
+                    "usage_limit": code.usage_limit,
+                    "state": code.state.value,
+                }
+                logging.info(json_dumps(generation_info))
+                slack_messages.append(f"SIC for {user.name} {get_soul_url(user.user_id)} created: {code.code}")
                 codes_created += 1
 
         await session.commit()
+
+        if slack_messages:
+            message_to_post = (
+                f"Generated {codes_created} INACTIVE SICs. <@U07BX3T7YBV> needs to review and activate: \n\n"
+                + "\n".join(slack_messages)
+            )
+
+            await post_to_slack(
+                message_to_post,
+                webhook_url=settings.guest_management_slack_webhook_url,
+            )
+
     return len(users), codes_created
 
 
@@ -71,7 +98,15 @@ async def generate_invite_code_for_user(
                 return new_invite
         except SQLAlchemyError:
             if attempt == MAX_RETRIES - 1:  # Last attempt
-                logger.warning(f"Failed to generate unique invite code after {MAX_RETRIES} attempts for user {user_id}")
+                log_dict = {
+                    "message": f":x: Failed to generate unique invite code after {MAX_RETRIES} attempts",
+                    "user_id": user_id,
+                    "soul_url": get_soul_url(user_id),
+                }
+                logging.warning(json_dumps(log_dict))
+                asyncio.create_task(
+                    post_to_slack(json_dumps(log_dict), webhook_url=settings.guest_management_slack_webhook_url)
+                )
                 return None
             # The savepoint will be automatically rolled back due to the exception
             continue

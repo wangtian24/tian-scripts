@@ -72,7 +72,7 @@ from ypl.backend.payment.payment import (
 from ypl.backend.payment.payout_utils import validate_pending_cashouts_async
 from ypl.backend.payment.plaid.plaid_payout import PlaidPayout, process_plaid_payout
 from ypl.backend.utils.analytics import post_analytics_to_slack
-from ypl.backend.utils.generate_referral_codes import generate_invite_code_for_top_users
+from ypl.backend.utils.generate_invite_codes import generate_invite_code_for_top_users
 from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.utils import CapabilityType
 from ypl.db.chats import (

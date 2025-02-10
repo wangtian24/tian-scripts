@@ -206,12 +206,11 @@ async def get_users_eligible_for_invite_codes(
             User.created_at <= cutoff_date,  # type: ignore
             User.deleted_at.is_(None),  # type: ignore
             func.coalesce(feedback_stats.c.feedback_count, 0) >= min_feedback_count,
-            # Exclude user that already have invite codes
+            # Exclude user that already have invite codes (both inactive or active)
             not_(
                 exists(
                     select(1).where(
                         SpecialInviteCode.creator_user_id == User.user_id,
-                        SpecialInviteCode.state == SpecialInviteCodeState.ACTIVE,
                         SpecialInviteCode.deleted_at.is_(None),  # type: ignore
                     )
                 )

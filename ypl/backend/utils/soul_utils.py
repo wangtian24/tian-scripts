@@ -115,3 +115,10 @@ async def validate_permissions(
             }
             logging.warning(json_dumps(log_dict))
             raise HTTPException(status_code=403, detail=f"Permission denied. Required permission: {permission.value}")
+
+
+def get_soul_url(user_id: str) -> str:
+    """
+    Generate the Soul URL for a given user ID.
+    """
+    return f"https://yupp-soul.vercel.app/users?query={user_id}"

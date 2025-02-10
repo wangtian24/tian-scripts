@@ -244,6 +244,11 @@ class Settings(BaseSettings):
         return self._get_gcp_secret("ipinfo-api-key")
 
     @computed_field  # type: ignore[misc]
+    @cached_property
+    def guest_management_slack_webhook_url(self) -> str:
+        return self._get_gcp_secret(f"guest-mgmt-slack-webhook-url-{self.ENVIRONMENT}")
+
+    @computed_field  # type: ignore[misc]
     @property
     def server_host(self) -> str:
         # Use HTTPS for anything other than local development
