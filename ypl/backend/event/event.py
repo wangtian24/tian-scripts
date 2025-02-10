@@ -9,6 +9,7 @@ from sqlmodel import desc, select
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
 from ypl.backend.llm.utils import post_to_slack_with_user_name
+from ypl.backend.utils.ip_utils import store_ip_details
 from ypl.backend.utils.json import json_dumps
 from ypl.db.events import Event
 from ypl.db.redis import get_upstash_redis_client
@@ -255,6 +256,10 @@ async def create_new_event(request: CreateEventRequest) -> EventResponse | None:
 
             #  check potential bot activity
             await check_event_rate_limit(request.user_id, request.event_name)
+
+            #  store ip details
+            if event.event_params and event.event_params.get("ip"):
+                await store_ip_details(event.event_params["ip"], request.user_id)
 
             return EventResponse(
                 event_id=str(event.event_id),
