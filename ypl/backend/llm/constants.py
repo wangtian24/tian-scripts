@@ -609,45 +609,6 @@ MODEL_HEURISTICS.update(
 MODEL_HEURISTICS["gpt-4o-mini-2024-07-18"] = MODEL_HEURISTICS["gpt-4o-mini"]
 MODEL_HEURISTICS["gemini-1.5-pro-exp-0827"] = MODEL_HEURISTICS["gemini-1.5-pro"]
 
-MODEL_DESCRIPTIONS = {
-    "gpt-4o": (
-        "OpenAI's GPT-4o, a good all-around model. It has a larger context size. It's good for most tasks. Pretty fast."
-    ),
-    "gpt-4o-mini": ("OpenAI's GPT-4o Mini, an inexpensive model. It's decent at most tasks. Pretty fast."),
-    "gpt-4-turbo": (
-        "OpenAI's GPT-4 Turbo, a high-performance model. Slightly worse than GPT-4o but better than GPT-4o Mini. "
-        "Kind of fast."
-    ),
-    "o1-preview-2024-09-12": (
-        "OpenAI's O1, the best model for complex tasks for math, reasoning, and coding. Overkill for nonreasoning and "
-        "noncomplex tasks. Slow."
-    ),
-    "o1-mini-2024-09-12": (
-        "OpenAI's O1 Mini, a great model for math, reasoning, and coding. Better for slightly complex tasks than 4o. "
-        "Not slow, not fast."
-    ),
-    "mistral-large-latest": (
-        "Mistral's large model, a good all-around model. Not as good as GPT-4o in most tasks. Not slow, not fast."
-    ),
-    "gemini-1.5-pro": ("Google's Gemini 1.5 Pro, a good model for most tasks. Kind of fast."),
-    "gemma-2-9b-it": ("Google's Gemma 9B model, a good model for simple tasks. Pretty fast."),
-    "claude-3-5-sonnet-20240620": (
-        "Anthropic's Claude 3.5 Sonnet, a good model for most tasks. It's about the same as GPT-4o. Kind of fast."
-    ),
-    "meta-llama/Meta-Llama-3.1-70B-Instruct": (
-        "Meta-Llama 3.1 70B Instruct, a good model for most simple tasks, better than Gemma 9B. Kind of fast."
-    ),
-    "phi-3-mini-4k-instruct": (
-        "Microsoft's Phi 3 Mini 4k Instruct, a very specialized model great for simple coding tasks. Fails at complex "
-        "tasks. Very fast."
-    ),
-    "phi-3-medium-4k-instruct": (
-        "Microsoft's Phi 3 Medium 4k Instruct, a very specialized model great for simple-to-medium coding tasks. Fails"
-        " at complex tasks. Very fast."
-    ),
-    "qwen1.5-72b-chat": ("A decent model, especially for Mandarin Chinese. Kind of fast."),
-    "qwen-max": ("A good model, especially for Mandarin Chinese. Kind of slow."),
-}
 
 PROVIDER_KEY_MAPPING = {
     "alibaba": "ALIBABA_API_KEY",

@@ -45,14 +45,11 @@ from ypl.backend.llm.judge import (
     JudgeConfig,
     QuickResponseQualityLabeler,
     ResponseRefusalLabeler,
-    SpeedAwareYuppEvaluationLabeler,
-    YuppEvaluationLabeler,
     YuppMultilabelClassifier,
     YuppOnlinePromptLabeler,
     YuppPromptDifficultyLabeler,
     YuppQualityLabeler,
     YuppSingleDifficultyLabeler,
-    choose_llm,
 )
 from ypl.backend.llm.labeler import SummarizingQuicktakeLabeler
 from ypl.backend.llm.model.model_management import validate_active_onboarded_models
@@ -560,111 +557,6 @@ def generate_quicktakes(
 
             obj["quicktake"] = quicktake
             print(json.dumps(obj), file=outf)
-
-
-@cli.command(help="Evaluate pairs of LLM generations read in from a JSON file, acting like a real Yupp user")
-@click.option("-c", "--config", required=True, help="The judge config to use")
-@click.option("--limit", default=200, help="The number of examples to judge")
-@click.option("-i", "--input-file", type=str, required=True, help="The JSON file containing conversations")
-@click.option(
-    "-o",
-    "--output-file",
-    type=str,
-    default=None,
-    help="The JSON file to write the results to. Defaults to the input file.",
-)
-@click.option(
-    "-j",
-    "--num-parallel",
-    default=4,
-    help="The number of jobs to run in parallel. Optimal value depends on the rate limit and CPU cores.",
-)
-@click.option("--speed-aware", is_flag=True, help="Use speed-aware Yupp evaluation")
-@click.option("--no-exclude", is_flag=True, help="Do not exclude the two LLMs from the random selection")
-def judge_yupp_llm_outputs(
-    input_file: str, output_file: str, limit: int, config: str, num_parallel: int, speed_aware: bool, no_exclude: bool
-) -> None:
-    async def arun_batch(
-        inputs: list[tuple[int, str, str, str, str, str, float | None, float | None]],
-    ) -> list[tuple[str, int]]:
-        async def ajudge_yupp_output(
-            row_idx: int,
-            user_msg: str,
-            llm1_msg: str,
-            llm2_msg: str,
-            llm1: str,
-            llm2: str,
-            time1: float | None = None,
-            time2: float | None = None,
-        ) -> tuple[str, int]:
-            async with sem:
-                llm_info = choose_llm(cfg.llms, exclude_models=None if no_exclude else {llm1, llm2}, seed=row_idx)
-                llm = get_chat_model(llm_info, temperature=0.0)
-
-                if time1 is not None and time2 is not None:
-                    judge1 = SpeedAwareYuppEvaluationLabeler(llm)
-                    in1 = (user_msg, llm1_msg, llm2_msg, time1, time2)
-
-                    return llm_info.model, await judge1.alabel(in1)  # for MyPy
-                else:
-                    judge2 = YuppEvaluationLabeler(llm)
-                    in2 = (user_msg, llm1_msg, llm2_msg)
-
-                    return llm_info.model, await judge2.alabel(in2)  # for MyPy
-
-        sem = asyncio.Semaphore(num_parallel)
-
-        return await tqdm_asyncio.gather(*[ajudge_yupp_output(*x) for x in inputs])  # type: ignore
-
-    cfg = JudgeConfig.parse_file(config)
-    output_file = output_file or input_file
-
-    chats = JsonChatIO(input_file).read_chats()
-    coro_inputs: list[tuple[int, str, str, str, str, str, float | None, float | None]] = []
-    default_cost = MODEL_HEURISTICS["gpt-4o-mini"]
-
-    for row_idx, chat in enumerate(chats[:limit]):
-        try:
-            for user_message, llm1_response, llm2_response in chat.triplet_blocks():
-                llm1 = chat.eval_llms[0]
-                llm2 = chat.eval_llms[1]
-
-                coro_inputs.append(
-                    (
-                        row_idx,
-                        str(user_message.content),
-                        str(llm1_response.content),
-                        str(llm2_response.content),
-                        llm1,
-                        llm2,
-                        MODEL_HEURISTICS.get(llm1, default_cost).compute_time(output_string=str(llm1_response.content))
-                        if speed_aware
-                        else None,
-                        MODEL_HEURISTICS.get(llm2, default_cost).compute_time(output_string=str(llm2_response.content))
-                        if speed_aware
-                        else None,
-                    )
-                )
-        except ValueError:
-            logging.exception(f"Error processing chat row {row_idx}")
-            raise
-
-    results = asyncio.run(arun_batch(coro_inputs))
-
-    for (chosen_llm, result), inp in zip(results, coro_inputs, strict=False):
-        idx = inp[0]
-
-        if result is None or result < 0:
-            new_result = None
-        else:
-            new_result = 100 - int(20 * ((result - 1) * 5 / 4))  # inverted to match FE semantics
-
-        chats[idx].judgements += [None, new_result]  # no judgements associated with user messages
-        chats[idx].judge_llm = chosen_llm
-
-    chat_io = JsonChatIO(output_file)
-    chat_io.write_all_chats(chats)
-    chat_io.flush()
 
 
 @cli.command(help="Evaluate the traits of prompts and LLM responses read in from a JSON file")

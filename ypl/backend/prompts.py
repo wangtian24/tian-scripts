@@ -9,7 +9,6 @@ from langchain_core.prompts import ChatPromptTemplate
 from sqlmodel import Session, select
 
 from ypl.backend.db import get_engine
-from ypl.backend.llm.constants import MODEL_DESCRIPTIONS
 from ypl.db.chats import PromptModifier
 
 RESPONSES_USER_PROMPT = """
@@ -140,8 +139,6 @@ SYNTHESIZER_GENERATE_PERSONA_PROMPT = """Generate a JSON object representing per
 
 Generate a single JSON object. Try to imitate the above examples but don't just repeat them; be slightly different. "persona" should be a single noun. Do not explain or add markup. Random seed: {seed}"""
 
-MODEL_HEURISTICS_STR = "\n".join((x + ": " + y) for x, y in MODEL_DESCRIPTIONS.items())
-
 JUDGE_YUPP_CHAT_PROMPT = """User's prompt: {user_prompt}
 
 Response 1: {response1}
@@ -154,27 +151,7 @@ Response 2: {response2}
 
 Which of the above responses is better given the user's prompt? Say 1 if the first is much better, 2 if the first is slightly better, 4 if the second is slightly better, and 5 if the second is much better. Do not explain or add markup; only return the integer."""
 
-JUDGE_YUPP_CHAT_PROMPT_SPEED_AWARE = f"""User's prompt: {{user_prompt}}
-
-Response 1: {{response1}}
-
-(END RESPONSE 1; Took {{time1}} seconds to produce)
-
-Response 2: {{response2}}
-
-(END RESPONSE 2; Took {{time2}} seconds to produce)
-
-Model heuristics:
-{MODEL_HEURISTICS_STR}
-
-Which of the above responses is a better user experience given the user's prompt? Take both speed and quality into account when making the decision. Prefer the faster response if the quality is about the same. If you still can't make a decision, use the heuristics provided above. Say 1 if the first is much better, 2 if the first is slightly better, 4 if the second is slightly better, and 5 if the second is much better. Do not say 3. Do not explain or add markup; only return the integer."""
-
 JUDGE_YUPP_CHAT_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([("human", JUDGE_YUPP_CHAT_PROMPT)])
-
-JUDGE_YUPP_CHAT_PROMPT_SPEED_AWARE_TEMPLATE = ChatPromptTemplate.from_messages(
-    [("human", JUDGE_YUPP_CHAT_PROMPT_SPEED_AWARE)]
-)
-
 
 JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT = """
 You are an AI assistant specialized in evaluating the difficulty of prompts given to language models.
@@ -704,8 +681,8 @@ If the query requires creative writing, you DO NOT need to use or cite search re
 If the user query is about some simple calculation, only answer with the final result.
 Follow these rules for writing formulas:
 
-- Always use ( and) for inline formulas and[ and] for blocks, for example(x^4 = x - 3 )
-- To cite a formula add citations to the end, for example[ sin(x) ] [1][2] or (x^2-2) [4].
+- Always use (and) for inline formulas and [and] for blocks, for example (x^4 = x - 3 )
+- To cite a formula add citations to the end, for example [ sin(x) ] [1][2] or (x^2-2) [4].
 - Never use $ or $$ to render LaTeX, even if it is present in the user query.
 - Never use unicode to render math expressions, ALWAYS use LaTeX.
 - Never use the label instruction for LaTeX.
