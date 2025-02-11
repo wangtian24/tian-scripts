@@ -1,7 +1,7 @@
 import logging
-from collections import OrderedDict
+from collections import OrderedDict, deque
 
-from ypl.backend.llm.db_helpers import deduce_model_speed_scores
+from ypl.backend.llm.db_helpers import deduce_model_speed_scores, deduce_semantic_groups
 from ypl.backend.llm.routing.modules.base import RouterModule
 from ypl.backend.llm.routing.policy import SelectionCriteria
 from ypl.backend.llm.routing.route_data_type import RoutingPreference
@@ -198,3 +198,43 @@ class PromotionModelReranker(Reranker, RNGMixin):
 
     async def _aselect_models(self, state: RouterState) -> RouterState:
         return self._select_models(state)
+
+
+class SemanticGroupReranker(Reranker):
+    """
+    Scatter models with same semantic group so they are not next to each other.
+    This is neede for routings for prompts with attachments, as we don't do semantic group
+    deduping for these prompts.
+    """
+
+    DEFAULT_DISTANCE = 4  # keep models with the same SG at least this distance apart if possible
+
+    def __init__(self, min_dist: int | None) -> None:
+        super().__init__(name="semGrpRanker")
+        self.min_dist = min_dist or self.DEFAULT_DISTANCE
+
+    def rerank(self, model_names: list[str], state: RouterState) -> list[str]:
+        semantic_group_map = deduce_semantic_groups(tuple(model_names))
+
+        # Track models seen in last num_models_to_select positions by semantic group
+        recent_groups: deque[str] = deque(maxlen=self.min_dist)
+        reranked: list[str] = []
+        deferred: list[str] = []
+
+        # Process each model
+        for model in model_names:
+            group = semantic_group_map.get(model)
+
+            # If no semantic group or group not recently seen, add to result
+            if group is None or group not in recent_groups:
+                reranked.append(model)
+                if group is not None:
+                    recent_groups.append(group)
+            # Otherwise defer to end
+            else:
+                deferred.append(model)
+
+        # Add all deferred models at the end
+        reranked.extend(deferred)
+
+        return reranked

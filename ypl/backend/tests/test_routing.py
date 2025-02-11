@@ -503,6 +503,7 @@ def test_fast_compute_all_conf_overlap_diffs() -> None:
 @patch("ypl.backend.llm.routing.modules.proposers.deduce_original_providers")
 @patch("ypl.backend.llm.routing.modules.filters.deduce_original_providers")
 @patch("ypl.backend.llm.routing.rule_router.deduce_original_providers")
+@patch("ypl.backend.llm.routing.modules.rankers.deduce_semantic_groups")
 @patch("ypl.backend.llm.routing.modules.filters.deduce_semantic_groups")
 @patch("ypl.backend.llm.routing.rule_router.get_routing_table")
 @patch("ypl.backend.llm.routing.modules.filters.get_image_attachment_models")
@@ -516,7 +517,8 @@ async def test_simple_pro_router(
     mock_active_models: Mock,
     mock_image_attachment_models: Mock,
     mock_routing_table: Mock,
-    mock_semantic_group_map: Mock,
+    mock_semantic_group_map1: Mock,
+    mock_semantic_group_map2: Mock,
     mock_deduce_providers1: Mock,
     mock_deduce_providers2: Mock,
     mock_deduce_providers3: Mock,
@@ -534,7 +536,8 @@ async def test_simple_pro_router(
     # Test that we get different models
     pro_models = {"pro1", "pro2", "pro3", "pro4"}
     mock_get_all_pro_models.return_value = pro_models
-    mock_semantic_group_map.return_value = {}
+    mock_semantic_group_map1.return_value = {}
+    mock_semantic_group_map2.return_value = {}
     mock_has_image_attachments.return_value = False
     models = {"model1", "model2"}
     reputable_providers = {"pro1", "pro2", "pro3", "model1"}
@@ -608,7 +611,8 @@ async def test_simple_pro_router(
     mock_deduce_speed_scores.return_value = {model: 1.0 for model in all_models}
     mock_get_all_strong_models.return_value = {"pro1", "pro2", "pro3", "model1"}
     mock_error_filter.side_effect = lambda state: state
-    mock_semantic_group_map.return_value = {"model1": "group1", "model2": "group1"}
+    mock_semantic_group_map1.return_value = {"model1": "group1", "model2": "group1"}
+    mock_semantic_group_map2.return_value = {"model1": "group1", "model2": "group1"}
 
     router = await get_simple_pro_router(
         prompt="",
@@ -774,6 +778,8 @@ def test_context_length_filter(mock_context_lengths: Mock) -> None:
 @patch("ypl.backend.llm.promotions.get_model_creation_dates", return_value={})
 @patch("ypl.backend.llm.promotions.get_active_model_promotions", return_value=[])
 @patch("ypl.backend.llm.routing.modules.rankers.deduce_model_speed_scores", return_value={})
+@patch("ypl.backend.llm.routing.modules.rankers.deduce_semantic_groups", return_value={})
+@patch("ypl.backend.llm.routing.modules.filters.deduce_semantic_groups", return_value={})
 @patch("ypl.backend.llm.routing.modules.filters.deduce_original_providers", return_value=PROVIDER_MAP)
 @patch("ypl.backend.llm.routing.modules.proposers.deduce_original_providers", return_value=PROVIDER_MAP)
 @patch("ypl.backend.llm.routing.rule_router.deduce_original_providers", return_value=PROVIDER_MAP)
@@ -791,6 +797,8 @@ async def test_select_models_plus(
     mock_deduce_original_providers2: Mock,
     mock_deduce_original_providers3: Mock,
     mock_deduce_original_providers4: Mock,
+    mock_deduce_semantic_groups1: Mock,
+    mock_deduce_semantic_groups2: Mock,
     mock_deduce_model_speed_scores: Mock,
     mock_get_active_model_promotions: Mock,
     mock_get_model_creation_dates: Mock,
@@ -848,9 +856,8 @@ async def test_select_models_plus(
     MockTopicCategorizer.return_value.alabel = mock_topic_categorizer_fn
     MockModifierLabeler.return_value.alabel = mock_modifier_labeler_fn
 
-    for i in range(30):
+    for _ in range(30):
         for intent in (SelectIntent.NEW_TURN, SelectIntent.SHOW_ME_MORE, SelectIntent.NEW_CHAT):
-            print(f"------------------------------- loop {i} intent {intent}")
             request = make_image_request(intent)
             response = await select_models_plus(request)
             assert len(response.models) == 2
