@@ -69,7 +69,7 @@ async def validate_destination_identifier(
             "facilitator": request.facilitator,
             "currency": request.currency,
         }
-        logging.error(json_dumps(log_dict))
+        logging.warning(json_dumps(log_dict))
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         log_dict = {
