@@ -1282,7 +1282,7 @@ def post_source_account_balances() -> None:
     """Get funding source account balances."""
     from ypl.backend.llm.utils import post_to_slack
     from ypl.backend.payment.coinbase.coinbase_payout import get_coinbase_retail_wallet_account_details
-    from ypl.backend.payment.crypto.crypto_wallet import SLACK_WEBHOOK_CASHOUT, get_wallet_balance
+    from ypl.backend.payment.crypto.crypto_wallet import get_wallet_balance
     from ypl.backend.payment.payment import (
         retrieve_axis_upi_balance,
         retrieve_coinbase_retail_wallet_balances,
@@ -1379,7 +1379,7 @@ def post_source_account_balances() -> None:
         except Exception as e:
             logging.error(f"Error getting axis upi balance for daily posting: {e}")
 
-        await post_to_slack(message, SLACK_WEBHOOK_CASHOUT)
+        await post_to_slack(message, os.environ.get("ANALYTICS_SLACK_WEBHOOK_URL"))
 
     asyncio.run(format_and_post_balances())
 
