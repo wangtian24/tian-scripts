@@ -22,6 +22,7 @@ from ypl.backend.llm.chat import (
     generate_quicktake,
     get_active_prompt_modifiers,
 )
+from ypl.backend.llm.chat_title import get_chat_title_suggestion
 from ypl.backend.llm.review import (
     ReviewRequest,
     ReviewResponse,
@@ -570,4 +571,16 @@ async def generate_reviews_turn_id(
         request.turn_id = turn_id if turn_id else request.turn_id
         return await generate_reviews(request)
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/chats/{chat_id}/suggest_title")
+async def suggest_chat_title(
+    chat_id: str = Path(..., description="The ID of the chat"),
+) -> str:
+    try:
+        return await get_chat_title_suggestion(UUID(chat_id))
+    except Exception as e:
+        log_dict = {"message": f"Error suggesting chat title for chat {chat_id}: {str(e)}"}
+        logging.exception(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
