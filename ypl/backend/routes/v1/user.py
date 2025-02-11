@@ -154,6 +154,11 @@ async def get_users(query: str) -> UserSearchResponse:
                     col(User.name).ilike(search),
                     col(User.user_id).ilike(search),
                     col(User.email).ilike(search),
+                    col(User.discord_id).ilike(search),
+                    col(User.discord_username).ilike(search),
+                    col(User.city).ilike(search),
+                    col(User.country_code).ilike(search),
+                    col(User.educational_institution).ilike(search),
                 )
             )
 
