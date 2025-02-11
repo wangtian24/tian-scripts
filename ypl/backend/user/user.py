@@ -8,11 +8,13 @@ from uuid import UUID
 from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.exc import DatabaseError, OperationalError
+from sqlalchemy.ext.asyncio import AsyncSession
 from tenacity import after_log, retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 from ypl.backend.db import get_async_session
 from ypl.backend.user.vendor_details import AdditionalDetails
 from ypl.backend.user.vendor_registration import VendorRegistrationError, get_vendor_registration
 from ypl.backend.utils.json import json_dumps
+from ypl.db.invite_codes import SpecialInviteCode, SpecialInviteCodeState
 from ypl.db.users import User, UserStatus, UserVendorProfile, VendorNameEnum
 
 
@@ -233,6 +235,21 @@ async def get_all_users(limit: int = 100, offset: int = 0) -> UserSearchResponse
         return UserSearchResponse(users=user_search_results, has_more_rows=has_more_rows)
 
 
+async def _deactivate_user_invite_codes_status(session: AsyncSession, user_id: str) -> list[SpecialInviteCode]:
+    """
+    Returns:
+        List of updated invite codes
+    """
+    query = select(SpecialInviteCode).where(SpecialInviteCode.creator_user_id == user_id)  # type: ignore
+
+    result = await session.execute(query)
+    invite_codes = list(result.scalars().all())
+    for invite_code in invite_codes:
+        invite_code.state = SpecialInviteCodeState.INACTIVE
+
+    return invite_codes
+
+
 async def deactivate_user(user_id: str, creator_user_email: str) -> None:
     try:
         async with get_async_session() as session:
@@ -266,14 +283,20 @@ async def deactivate_user(user_id: str, creator_user_email: str) -> None:
             if not user:
                 raise HTTPException(status_code=404, detail="User not found")
 
+            # Update user status
             user.status = UserStatus.DEACTIVATED
             user.deleted_at = datetime.now()
+
+            # Update all active invite codes to inactive
+            invite_codes = await _deactivate_user_invite_codes_status(session, user_id)
+
             await session.commit()
 
             log_dict = {
                 "message": "User deactivated successfully",
                 "user_id": user_id,
                 "creator_user_email": creator_user_email,
+                "deactivated_invite_codes": "\n".join([invite_code.code for invite_code in invite_codes]),
             }
             logging.info(json_dumps(log_dict))
 
