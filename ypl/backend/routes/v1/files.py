@@ -14,7 +14,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from gcloud.aio.storage import Storage
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from PIL import ExifTags, Image
+from PIL import Image
 from pillow_heif import register_heif_opener
 from pydantic import BaseModel, SecretStr
 from sqlmodel import select
@@ -40,32 +40,6 @@ class AttachmentResponse(BaseModel):
 MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024
 
 SUPPORTED_MIME_TYPES_PATTERN = "image/.*|application/pdf"
-EXIF_ORIENTATION_TAG = -1
-
-
-def _get_exif_orientation_tag() -> int:
-    global EXIF_ORIENTATION_TAG
-    if EXIF_ORIENTATION_TAG == -1:
-        for orientation in ExifTags.TAGS.keys():
-            if ExifTags.TAGS[orientation] == "Orientation":
-                EXIF_ORIENTATION_TAG = orientation
-                break
-    return EXIF_ORIENTATION_TAG
-
-
-def maybe_rotate_image(image: Image.Image) -> Image.Image:
-    tag = _get_exif_orientation_tag()
-    try:
-        exif = image._getexif()  # type: ignore
-        if exif[tag] == 8:
-            image = image.rotate(90, expand=True)
-        elif exif[tag] == 3:
-            image = image.rotate(180, expand=True)
-        elif exif[tag] == 6:
-            image = image.rotate(270, expand=True)
-    except (AttributeError, KeyError, IndexError):
-        pass  # Image doesn't have EXIF data, or not rotated.
-    return image
 
 
 @router.post("/file/upload", response_model=AttachmentResponse)
@@ -129,7 +103,6 @@ async def upload_file(file: UploadFile = File(...)) -> AttachmentResponse:  # no
                 async with Storage() as async_client:
                     thumbnail_start = datetime.now()
                     image = Image.open(BytesIO(file_content))
-                    image = maybe_rotate_image(image)  # type: ignore
                     original_dimensions = image.size
                     image.thumbnail((512, 512))
                     image_bytes = BytesIO()
