@@ -41,7 +41,7 @@ from ypl.backend.llm.utils import post_to_slack
 from ypl.backend.prompts import get_system_prompt_with_modifiers
 from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.monitoring import metric_inc
-from ypl.backend.utils.utils import StopWatch, yield_all
+from ypl.backend.utils.utils import StopWatch
 from ypl.db.attachments import Attachment
 from ypl.db.chats import (
     AssistantSelectionSource,
@@ -184,7 +184,6 @@ async def _handle_existing_message(
         },
         "status",
     ).encode()
-    return
 
 
 async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequest) -> AsyncIterator[str]:
@@ -210,7 +209,10 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
             existing_message = await _get_message(chat_request)
 
         if existing_message:
-            yield_all(_handle_existing_message(chat_request, existing_message, intial_status, final_status, start_time))
+            async for existing_chunk in _handle_existing_message(
+                chat_request, existing_message, intial_status, final_status, start_time
+            ):
+                yield existing_chunk
             stopwatch.end()
             return
 
