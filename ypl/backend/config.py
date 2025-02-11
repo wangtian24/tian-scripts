@@ -3,6 +3,7 @@ import json
 import os
 import secrets
 import warnings
+from collections.abc import Callable
 from functools import cached_property
 from typing import Annotated, Any, Literal, Self
 
@@ -145,6 +146,8 @@ class Settings(BaseSettings):
 
         import logging
 
+        from google.api_core import exceptions as core_exceptions
+        from google.api_core import retry
         from google.cloud import secretmanager
 
         try:
@@ -158,8 +161,32 @@ class Settings(BaseSettings):
 
             client = secretmanager.SecretManagerServiceClient()
             name = f"projects/{self.GCP_PROJECT_ID}/secrets/{secret_name}/versions/latest"
-            response = client.access_secret_version(request={"name": name})
-            return response.payload.data.decode("UTF-8")
+
+            retry_config = retry.Retry(
+                initial=0.5,
+                maximum=10.0,
+                multiplier=2.0,
+                predicate=retry.if_exception_type(
+                    core_exceptions.ResourceExhausted,
+                    core_exceptions.DeadlineExceeded,
+                    core_exceptions.ServiceUnavailable,
+                ),
+                deadline=30.0,
+            )
+
+            # Each retry will wait for 2x the previous wait time, up to a maximum of 10 seconds.
+            # Each retry has a timeout of 5 seconds, and the entire request has a timeout of 30 seconds.
+            response = client.access_secret_version(request={"name": name}, retry=retry_config, timeout=5.0)
+            data = response.payload.data.decode("UTF-8")
+            logging.info(
+                json_dumps(
+                    {
+                        "message": "Secret retrieved successfully",
+                        "secret_name": secret_name,
+                    }
+                )
+            )
+            return data
         except Exception as e:
             logging.error(
                 json_dumps(
@@ -356,18 +383,29 @@ settings = Settings()
 
 
 async def preload_gcp_secrets() -> None:
-    """Preload secrets to avoid slow response times"""
+    """Preload secrets to avoid slow fetch times during a request"""
+    import logging
+
+    logging.info("Preloading GCP secrets")
+
+    # Limit concurrent secret fetches to 5 at a time
+    semaphore = asyncio.Semaphore(5)
+
+    async def fetch_secret(fn: Callable[[], Any]) -> Any:
+        async with semaphore:
+            return await asyncio.to_thread(fn)
+
     await asyncio.gather(
-        asyncio.to_thread(lambda: settings.axis_upi_config),
-        asyncio.to_thread(lambda: settings.validate_destination_identifier_secret_key),
-        asyncio.to_thread(lambda: settings.hyperwallet_api_url),
-        asyncio.to_thread(lambda: settings.hyperwallet_program_token),
-        asyncio.to_thread(lambda: settings.hyperwallet_username),
-        asyncio.to_thread(lambda: settings.hyperwallet_password),
-        asyncio.to_thread(lambda: settings.checkout_com_api_url),
-        asyncio.to_thread(lambda: settings.checkout_com_secret),
-        asyncio.to_thread(lambda: settings.checkout_com_processing_channel),
-        asyncio.to_thread(lambda: settings.checkout_com_entity_id),
-        asyncio.to_thread(lambda: settings.vpnapi_api_key),
-        asyncio.to_thread(lambda: settings.ipinfo_api_key),
+        fetch_secret(lambda: settings.axis_upi_config),
+        fetch_secret(lambda: settings.validate_destination_identifier_secret_key),
+        fetch_secret(lambda: settings.hyperwallet_api_url),
+        fetch_secret(lambda: settings.hyperwallet_program_token),
+        fetch_secret(lambda: settings.hyperwallet_username),
+        fetch_secret(lambda: settings.hyperwallet_password),
+        fetch_secret(lambda: settings.checkout_com_api_url),
+        fetch_secret(lambda: settings.checkout_com_secret),
+        fetch_secret(lambda: settings.checkout_com_processing_channel),
+        fetch_secret(lambda: settings.checkout_com_entity_id),
+        fetch_secret(lambda: settings.vpnapi_api_key),
+        fetch_secret(lambda: settings.ipinfo_api_key),
     )
