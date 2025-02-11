@@ -156,7 +156,7 @@ async def has_image_attachments(chat_id: str) -> bool:
         return result.first() is not None
 
 
-def _set_prompt_modifiers(
+async def _set_prompt_modifiers(
     request: SelectModelsV2Request,
     selected_models_rs: RouterState,
 ) -> dict[str, list[tuple[str, str]]]:
@@ -188,8 +188,8 @@ def _set_prompt_modifiers(
 
     else:
         try:
-            if request.chat_id and request.intent != SelectIntent.NEW_CHAT:
-                modifier_history, modifiers_by_position = get_modifiers_by_model_and_position(request.chat_id)
+            if request.chat_id:
+                modifier_history, modifiers_by_position = await get_modifiers_by_model_and_position(request.chat_id)
             else:
                 modifier_history, modifiers_by_position = {}, (None, None)
 
@@ -327,7 +327,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
 
     # Attach prompt modifiers to the models we selected
     prompt_modifiers_rs = await attach_prompt_modifiers_to_models(prompt_modifiers, primary_models + fallback_models)
-    prompt_modifiers_by_model = _set_prompt_modifiers(request, prompt_modifiers_rs)
+    prompt_modifiers_by_model = await _set_prompt_modifiers(request, prompt_modifiers_rs)
     stopwatch.record_split("set_prompt_modifiers")
 
     # Deduce the provider information for models

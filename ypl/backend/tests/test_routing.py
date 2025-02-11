@@ -2,7 +2,7 @@ import random
 import uuid
 from collections import Counter
 from typing import Any
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import numpy as np
 import pytest
@@ -10,6 +10,7 @@ from pytest import approx, mark
 
 from ypl.backend.config import settings
 from ypl.backend.llm.chat import SelectIntent, SelectModelsV2Request, select_models_plus
+from ypl.backend.llm.prompt_selector import CategorizedPromptModifierSelector
 from ypl.backend.llm.ranking import Battle, ChoixRanker, ChoixRankerConfIntervals, EloRanker
 from ypl.backend.llm.routing.modules.filters import ContextLengthFilter, SupportsImageAttachmentModelFilter, TopK
 from ypl.backend.llm.routing.modules.proposers import (
@@ -134,6 +135,8 @@ IMAGE_ATTACHMENT_MODELS = [
     "meta-llama/Llama-3.2-11B-Vision-Instruct-Turbo",
     "meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo",
     "pixtral-12b-2409",
+    "x-ai/grok-2-1212",
+    "x-ai/grok-beta",
 ]
 PRO_MODELS = ["pro1", "pro2", "pro3", "pro4"]
 STRONG_MODELS = [
@@ -752,7 +755,6 @@ def test_context_length_filter(mock_context_lengths: Mock) -> None:
 @patch("ypl.backend.llm.category_labeler.YuppOnlinePromptLabeler")
 @patch("ypl.backend.llm.chat.get_prompt_categories", return_value=[])
 @patch("ypl.backend.llm.chat.get_prompt_modifiers", return_value=[])
-@patch("ypl.backend.llm.chat.attach_prompt_modifiers_to_models")
 @patch("ypl.backend.llm.chat.label_turn_quality", return_value=None)
 @patch("ypl.backend.llm.chat.get_chat_required_models", return_value=[])
 @patch("ypl.backend.llm.routing.modules.filters.get_active_models", return_value=ACTIVE_MODELS)
@@ -779,9 +781,9 @@ def test_context_length_filter(mock_context_lengths: Mock) -> None:
 @patch("ypl.backend.llm.routing.modules.filters.HighErrorRateFilter._get_error_rates", return_value={})
 @patch("ypl.backend.llm.prompt_selector.CategorizedPromptModifierSelector.make_default_from_db")
 @patch("ypl.backend.llm.chat.get_user_message", return_value="hi")
-@patch("ypl.backend.llm.chat.get_modifiers_by_model_and_position", return_value={})
+@patch("ypl.backend.llm.chat.get_modifiers_by_model_and_position", return_value=({}, (None, None)))
 async def test_select_models_plus(
-    mock_get_modifiers_by_model_and_position: Mock,
+    mock_get_modifiers_by_model_and_position: AsyncMock,
     mock_get_user_message: Mock,
     mock_make_default_from_db: Mock,
     mock_high_error_rate_filter: Mock,
@@ -805,7 +807,6 @@ async def test_select_models_plus(
     mock_active_models: Mock,
     mock_get_chat_required_models: Mock,
     mock_label_turn_quality: Mock,
-    mock_attach_prompt_modifiers_to_models: Mock,
     mock_get_prompt_modifiers: Mock,
     mock_get_prompt_categories: Mock,
     MockOnlineYupp: Mock,
@@ -815,7 +816,7 @@ async def test_select_models_plus(
     mock_get_preferences.side_effect = lambda *args, **kwargs: RoutingPreference(
         turns=[], user_id="user", user_selected_models=[], same_turn_shown_models=[]
     )
-    # mock_make_default_from_db.return_value = CategorizedPromptModifierSelector.make_default()
+    mock_make_default_from_db.return_value = CategorizedPromptModifierSelector.make_default()
     show_me_more_models = random.sample(IMAGE_ATTACHMENT_MODELS, 3)
 
     def make_image_request(intent: SelectIntent) -> SelectModelsV2Request:

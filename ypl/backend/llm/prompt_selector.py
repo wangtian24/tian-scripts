@@ -45,23 +45,25 @@ DEFAULT_PROMPT_MODIFIER_POLICY = PromptModifierPolicy(
 )
 
 
-def get_modifiers_by_model_and_position(chat_id: str) -> tuple[dict[str, list[str]], tuple[str | None, str | None]]:
+async def get_modifiers_by_model_and_position(
+    chat_id: str,
+) -> tuple[dict[str, list[str]], tuple[str | None, str | None]]:
     """
     Fetches the modifier history for a given chat from the DB.
     Returns a tuple of:
     - a mapping between the model name and a list of modifier IDs.
     - a tuple of the modifier most recently applied to the LHS and the one most recently applied to the RHS.
     """
-    with Session(get_engine()) as session:
+    async with get_async_session() as session:
         query = (
             select(LanguageModel.internal_name, PromptModifierAssoc.prompt_modifier_id)  # type: ignore
             .join(ChatMessage, ChatMessage.assistant_language_model_id == LanguageModel.language_model_id)
             .join(Turn, ChatMessage.turn_id == Turn.turn_id)
             .outerjoin(PromptModifierAssoc, PromptModifierAssoc.chat_message_id == ChatMessage.message_id)
-            .where(Turn.chat_id == chat_id)
+            .where(Turn.chat_id == uuid.UUID(chat_id))
         )
         modifiers_by_model = defaultdict(list)
-        for model_name, modifier_id in session.exec(query).all():
+        for model_name, modifier_id in (await session.exec(query)).all():
             if modifier_id is not None:
                 modifiers_by_model[model_name].append(str(modifier_id))
 
@@ -75,7 +77,7 @@ def get_modifiers_by_model_and_position(chat_id: str) -> tuple[dict[str, list[st
             .order_by(Turn.sequence_id.desc(), ChatMessage.turn_sequence_number.desc())  # type: ignore
             .limit(2)
         )
-        res = session.exec(recent_query).all()
+        res = (await session.exec(recent_query)).all()
         if res and len(res) == 2:
             # Reverse the order of the results to get the LHS and RHS modifiers.
             modifiers_by_position = (res[1][1], res[0][1])
