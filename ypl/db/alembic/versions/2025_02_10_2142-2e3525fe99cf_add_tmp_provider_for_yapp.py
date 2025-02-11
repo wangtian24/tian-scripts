@@ -24,7 +24,7 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 YAPP_TMP_PROVIDER_NAME = "Yapp Temporary"
-YAPP_TMP_PROVIDER_BASE_API_URL = "https://yapp-tmp0.yapp.ai/v1"
+YAPP_TMP_PROVIDER_BASE_API_URL = "http://yapp-tmp0.yupp.ai/v1"
 YAPP_TMP_PROVIDER_API_KEY_ENV_NAME = "YAPP_TMP_API_KEY" 
 BSL_ORG_NAME = "Yupp BSL"
 CREATOR_USER_ID = "SYSTEM"

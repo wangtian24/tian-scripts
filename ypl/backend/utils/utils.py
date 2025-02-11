@@ -4,6 +4,7 @@ import uuid
 from collections.abc import AsyncIterator
 from enum import Enum
 from typing import Any, TypedDict, cast
+from urllib.parse import urlparse, urlunparse
 
 from sqlalchemy import func, or_
 from sqlmodel import select
@@ -259,3 +260,14 @@ class StopWatch:
 async def yield_all(async_iter: AsyncIterator[Any]) -> AsyncIterator[Any]:
     async for msg in async_iter:
         yield msg
+
+
+def merge_base_url_with_port(base_url: str, port: int | None) -> str:
+    """Merge a base URL with a port number"""
+    if not port:
+        return base_url
+    parsed_url = urlparse(base_url)
+    netloc = f"{parsed_url.hostname}:{port}"
+    return urlunparse(
+        (parsed_url.scheme, netloc, parsed_url.path, parsed_url.params, parsed_url.query, parsed_url.fragment)
+    )
