@@ -440,7 +440,7 @@ class CoinbaseFacilitator(BaseFacilitator):
         return PaymentResponse(
             payment_transaction_id=payment_transaction_id,
             transaction_status=self._map_coinbase_status_to_internal(status),
-            customer_reference_id=str(payment_transaction_id),
+            customer_reference_id=partner_reference_id,
         )
 
     async def _monitor_transaction_completion(
