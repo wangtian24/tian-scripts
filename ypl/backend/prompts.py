@@ -275,6 +275,7 @@ negative_notes:
   - Dry 💧
   - Generic 😐
   - Irrelevant 🤷
+  - Hallucinating 🤖
   - Misleading ❌
   - Outdated 📉
   - Repetitive 🔁

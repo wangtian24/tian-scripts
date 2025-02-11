@@ -9,6 +9,7 @@ from uuid import UUID
 
 import numpy as np
 from cachetools.func import ttl_cache
+from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,13 +23,13 @@ from ypl.backend.llm.constants import ChatProvider
 from ypl.backend.llm.judge import DEFAULT_PROMPT_DIFFICULTY, YuppPromptDifficultyWithCommentLabeler
 from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.moderation import DEFAULT_MODERATION_RESULT, amoderate
-from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter
+from ypl.backend.llm.vendor_langchain_adapter import OpenAILangChainAdapter
 from ypl.backend.rw_cache import TurnQualityCache
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import ChatMessage, CompletionStatus, Eval, EvalType, MessageEval, MessageType, Turn, TurnQuality
 from ypl.db.language_models import LanguageModel
 
-LLM: GeminiLangChainAdapter | None = None
+LLM: BaseChatModel | None = None
 
 # Eval quality score assigned to low-quality evals.
 LOW_EVAL_QUALITY_SCORE = 0.1
@@ -47,21 +48,18 @@ MIN_RESPONSE_TIME_SECS = 2.5
 SELECTED_MODEL_SCORE = 100
 
 
-def get_llm() -> GeminiLangChainAdapter:
+def get_llm() -> BaseChatModel:
     global LLM
     if LLM is None:
-        LLM = GeminiLangChainAdapter(
+        LLM = OpenAILangChainAdapter(
             model_info=ModelInfo(
-                provider=ChatProvider.GOOGLE,
-                model="gemini-1.5-flash-002",
-                api_key=settings.GOOGLE_API_KEY,
+                provider=ChatProvider.OPENAI,
+                model="gpt-4o-mini",
+                api_key=settings.OPENAI_API_KEY,
             ),
             model_config_=dict(
-                project_id=settings.GCP_PROJECT_ID,
-                region=settings.GCP_REGION,
                 temperature=0.0,
-                max_output_tokens=40,
-                top_k=1,
+                max_tokens=128,
             ),
         )
     return LLM
