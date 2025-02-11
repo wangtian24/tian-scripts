@@ -1,9 +1,7 @@
 import os
 
-from mabwiser.mab import LearningPolicy
 from pytest import approx, mark, raises
 
-from ypl.backend.llm.mab_ranker import MultiArmedBanditRanker
 from ypl.backend.llm.ranking import (
     CHOIX_RANKER_ALGORITHMS,
     ChoixRanker,
@@ -99,18 +97,6 @@ def test_choix_ranker(algo: str) -> None:
     assert leaderboard[1].model == "b"
     assert leaderboard[0].rating == approx(1036.464, abs=0.01)
     assert leaderboard[1].rating == approx(963.535, abs=0.01)
-
-
-def test_mab_ranker() -> None:
-    ranker = MultiArmedBanditRanker(
-        models=["a", "b"],
-        learning_policy=LearningPolicy.EpsilonGreedy(epsilon=0.2),
-    )
-    ranker.fit([("a", "b"), ("a", "b"), ("a", "b"), ("a", "b")], [1.0, 0.0, 1.0, 1.0])
-
-    assert ranker.get_rating("a") == 0.75
-    with raises(NotImplementedError):
-        ranker.predict("a", "b")
 
 
 def test_choix_confidence_ranker() -> None:
