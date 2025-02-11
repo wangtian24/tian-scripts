@@ -247,14 +247,12 @@ class StopWatch:
                 continue
             print(f"-- {split_name:40} {int(duration):8} ms")
 
-    def export_metrics(self, prefix: str | None = None, with_total: bool = False) -> None:
+    def export_metrics(self, prefix: str | None = None) -> None:
         """Export all splits as metrics with the given prefix."""
         if prefix is None:
             prefix = self.name or ""
 
         for split_name, duration in self.splits.items():
-            if not with_total and split_name == self.TOTAL_KEY:
-                continue
             metric_record(f"{prefix}{split_name}_ms", duration)
 
 
