@@ -16,6 +16,7 @@ from uuid import UUID
 
 import ypl.db.all_models  # noqa: F401
 from fastapi import APIRouter, Header, Request
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 from sqlmodel import select
@@ -492,7 +493,7 @@ async def potential_matching_pending_transactions(event_data: dict[str, Any]) ->
         # check if this is a payment to our source account from payment instruments
         # if so, we can skip the rest of the logic
         source_account_stmt = select(PaymentInstrument).where(
-            PaymentInstrument.identifier == destination_address,
+            func.lower(PaymentInstrument.identifier) == func.lower(destination_address),
             PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.ON_CHAIN,
             PaymentInstrument.user_id == "SYSTEM",
             PaymentInstrument.deleted_at.is_(None),  # type: ignore
