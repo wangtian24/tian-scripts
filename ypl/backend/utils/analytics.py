@@ -526,8 +526,8 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
         FROM
             reward_action_logs t
         WHERE
-            (created_at AT TIME ZONE 'America/Los_Angeles')::date =
-            ((current_date - INTERVAL '1 day') AT TIME ZONE 'America/Los_Angeles')::date
+            (created_at AT TIME ZONE 'America/Los_Angeles')::date >=
+            ((current_date - INTERVAL '90 day') AT TIME ZONE 'America/Los_Angeles')::date
             AND action_type = 'REFERRAL_BONUS_REFERRED_USER'
             AND associated_reward_id IS NOT NULL
             AND deleted_at IS NULL
@@ -760,6 +760,7 @@ async def post_credit_metrics(start_date: datetime, end_date: datetime) -> None:
                         f"Rest of World: {weekly_metrics.distinct_users_row:,} users; {usd_credits_from_row:,} "
                         f"Credits, ${usd_amount_row:,.2f})\n"
                     )
+
                 if monthly_metrics:
                     usd_credits_from_india = monthly_metrics.total_credits_from_india
                     usd_credits_from_row = monthly_metrics.total_credits_from_row
@@ -994,44 +995,64 @@ async def post_cashout_metrics(start_date: datetime, end_date: datetime) -> None
                 monthly_metrics = [r for r in weekly_results if r.period == "monthly"]
 
                 if weekly_metrics:
-                    message += "\nWeekly Cashouts:\n"
+                    # Group weekly metrics by currency and aggregate
+                    weekly_by_currency: dict[str, dict[str, Any]] = {}
                     for metric in weekly_metrics:
-                        total_amount = metric.total_amount
+                        if metric.currency not in weekly_by_currency:
+                            weekly_by_currency[metric.currency] = {
+                                "transaction_count": 0,
+                                "total_amount": 0,
+                            }
+                        weekly_by_currency[metric.currency]["transaction_count"] += metric.transaction_count
+                        weekly_by_currency[metric.currency]["total_amount"] += metric.total_amount
+
+                    message += f"\nWeekly Cashouts: (Week of {weekly_metrics[0].period_start}):\n"
+                    for currency, data in weekly_by_currency.items():
                         total_amount_usd = (
                             await get_exchange_rate(
-                                source_currency=CurrencyEnum(metric.currency),
+                                source_currency=CurrencyEnum(currency),
                                 destination_currency=CurrencyEnum.USD,
                             )
-                            * metric.total_amount
+                            * data["total_amount"]
                         )
                         message += (
-                            f"• {metric.currency}: {metric.transaction_count:,} transactions, "
-                            f"{metric.total_amount:,.8f}".rstrip("0").rstrip(".")
-                            + f" {metric.currency} ({total_amount_usd:,.2f} USD)\n"
+                            f"• {currency}: {data['transaction_count']:,} transactions, "
+                            f"{data['total_amount']:,.8f}".rstrip("0").rstrip(".")
+                            + f" {currency} ({total_amount_usd:,.2f} USD)\n"
                         )
-                        weekly_cashedout_no_prompt_results = session.execute(
-                            text(weekly_cashedout_no_prompt_query)
-                        ).scalar_one_or_none()
-                        message += (
-                            f"• Number of users who cashed out but did not prompt: "
-                            f"{weekly_cashedout_no_prompt_results}\n"
-                        )
+                    weekly_cashedout_no_prompt_results = session.execute(
+                        text(weekly_cashedout_no_prompt_query)
+                    ).scalar_one_or_none()
+                    message += (
+                        f"• Number of users who cashed out but did not prompt: "
+                        f"{weekly_cashedout_no_prompt_results}\n"
+                    )
 
                 if monthly_metrics:
-                    message += f"\nMonthly Cashouts ({monthly_metrics[0].period_start.strftime('%B %Y')}):\n"
+                    # Group monthly metrics by currency and aggregate
+                    monthly_by_currency: dict[str, dict[str, Any]] = {}
                     for metric in monthly_metrics:
-                        total_amount = metric.total_amount
+                        if metric.currency not in monthly_by_currency:
+                            monthly_by_currency[metric.currency] = {
+                                "transaction_count": 0,
+                                "total_amount": 0,
+                            }
+                        monthly_by_currency[metric.currency]["transaction_count"] += metric.transaction_count
+                        monthly_by_currency[metric.currency]["total_amount"] += metric.total_amount
+
+                    message += f"\nMonthly Cashouts ({monthly_metrics[0].period_start.strftime('%B %Y')}):\n"
+                    for currency, data in monthly_by_currency.items():
                         total_amount_usd = (
                             await get_exchange_rate(
-                                source_currency=CurrencyEnum(metric.currency),
+                                source_currency=CurrencyEnum(currency),
                                 destination_currency=CurrencyEnum.USD,
                             )
-                            * metric.total_amount
+                            * data["total_amount"]
                         )
                         message += (
-                            f"• {metric.currency}: {metric.transaction_count:,} transactions, "
-                            f"{metric.total_amount:,.8f}".rstrip("0").rstrip(".")
-                            + f" {metric.currency} ({total_amount_usd:,.2f} USD)\n"
+                            f"• {currency}: {data['transaction_count']:,} transactions, "
+                            f"{data['total_amount']:,.8f}".rstrip("0").rstrip(".")
+                            + f" {currency} ({total_amount_usd:,.2f} USD)\n"
                         )
 
             analytics_webhook_url = os.environ.get("ANALYTICS_SLACK_WEBHOOK_URL")
