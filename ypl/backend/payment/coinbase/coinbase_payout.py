@@ -477,13 +477,24 @@ async def get_transaction_status(account_id: str, transaction_id: str) -> str:
     }
 
     try:
+        log_dict = {
+            "message": "Coinbase retail payout transaction status polling for transaction",
+            "account_id": account_id,
+            "transaction_id": transaction_id,
+        }
+        logging.info(json_dumps(log_dict))
         async with httpx.AsyncClient() as client:
             response = await client.get(
                 f"{BASE_URL}/accounts/{account_id}/transactions/{transaction_id}", headers=headers
             )
             if response.status_code != 200:
-                details = {"status_code": str(response.status_code), "response": response.text}
-                raise CoinbaseRetailPayoutError("Failed to get transaction status", details)
+                log_dict = {
+                    "message": "Failed to get transaction status",
+                    "status_code": str(response.status_code),
+                    "response": response.text,
+                }
+                logging.error(json_dumps(log_dict))
+                raise CoinbaseRetailPayoutError("Failed to get transaction status", log_dict)
 
             data = response.json()
             raw_status = data.get("data", {}).get("status", "")

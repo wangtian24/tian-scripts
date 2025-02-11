@@ -1657,13 +1657,32 @@ def create_cashout_override(
 
 
 @cli.command()
-@click.option("--account-id", required=True, help="The ID of the Coinbase account")
 @click.option("--transaction-id", required=True, help="The ID of the Coinbase transaction")
-def get_coinbase_retail_transaction_status(account_id: str, transaction_id: str) -> None:
+def get_coinbase_retail_transaction_status(transaction_id: str) -> None:
     """Get the status of a Coinbase retail transaction."""
-    from ypl.backend.payment.coinbase.coinbase_payout import get_transaction_status
+    from ypl.backend.payment.coinbase.coinbase_payout import (
+        get_coinbase_retail_wallet_balance_for_currency,
+        get_transaction_status,
+    )
+    from ypl.db.payments import PaymentTransaction
 
-    txn_status = asyncio.run(get_transaction_status(account_id, transaction_id))
+    async def _get_account_id() -> tuple[str, str]:
+        async with get_async_session() as session:
+            payment_transaction = (
+                await session.exec(
+                    select(PaymentTransaction).where(PaymentTransaction.payment_transaction_id == transaction_id)
+                )
+            ).first()
+        if not payment_transaction:
+            raise ValueError("Payment transaction not found")
+        currency = payment_transaction.currency
+        account_info = await get_coinbase_retail_wallet_balance_for_currency(currency)
+        account_id = str(account_info["account_id"])
+        coinbase_transaction_id = payment_transaction.partner_reference_id
+        return account_id, coinbase_transaction_id
+
+    account_id, coinbase_transaction_id = asyncio.run(_get_account_id())
+    txn_status = asyncio.run(get_transaction_status(account_id, coinbase_transaction_id))
     print(txn_status)
 
 
