@@ -68,6 +68,7 @@ def get_supported_facilitators(country_code: str) -> list[PaymentInstrumentFacil
         PaymentInstrumentFacilitatorEnum.UPI,
         PaymentInstrumentFacilitatorEnum.ON_CHAIN,
         PaymentInstrumentFacilitatorEnum.COINBASE,
+        PaymentInstrumentFacilitatorEnum.PAYPAL,
     ]
     # Only for testing
     if settings.ENVIRONMENT != "production":

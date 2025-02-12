@@ -5,6 +5,7 @@ from ypl.db.payments import CurrencyEnum
 def get_supported_currencies(country_code: str) -> list[CurrencyEnum]:
     all_supported_currencies = [
         CurrencyEnum.INR,
+        CurrencyEnum.USD,
         CurrencyEnum.USDC,
         CurrencyEnum.ETH,
         CurrencyEnum.CBBTC,
