@@ -11,7 +11,7 @@ from ypl.backend.llm.judge import ConversationStartersLabeler, SuggestedFollowup
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import Chat, SuggestedPromptType, SuggestedTurnPrompt, SuggestedUserPrompt
 
-MAX_TOKENS = 100
+MAX_TOKENS = 200
 
 
 async def maybe_add_suggested_followups(chat_id: uuid.UUID, turn_id: uuid.UUID) -> None:
@@ -22,7 +22,7 @@ async def maybe_add_suggested_followups(chat_id: uuid.UUID, turn_id: uuid.UUID) 
             model="",
             current_turn_id=turn_id,
             include_current_turn=True,
-            max_turns=10,
+            max_turns=5,
             max_message_length=1000,
             context_for_logging="add_suggested_followups",
         )
@@ -47,15 +47,15 @@ async def maybe_add_suggested_followups(chat_id: uuid.UUID, turn_id: uuid.UUID) 
                     for followup in suggested_followups
                 ]
             )
-        if suggested_placeholder:
-            suggested_turn_prompts.append(
-                SuggestedTurnPrompt(
-                    turn_id=turn_id,
-                    prompt=suggested_placeholder,
-                    summary=suggested_placeholder,
-                    suggestion_type=SuggestedPromptType.PROMPTBOX_PLACEHOLDER,
+            if suggested_placeholder:
+                suggested_turn_prompts.append(
+                    SuggestedTurnPrompt(
+                        turn_id=turn_id,
+                        prompt=suggested_placeholder,
+                        summary=suggested_placeholder,
+                        suggestion_type=SuggestedPromptType.PROMPTBOX_PLACEHOLDER,
+                    )
                 )
-            )
 
         logging.info(
             json_dumps(
