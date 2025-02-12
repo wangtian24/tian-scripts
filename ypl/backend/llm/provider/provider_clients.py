@@ -96,10 +96,15 @@ async def get_provider_client(model_name: str) -> BaseChatModel:
     # combine extra args for provider and model.
     kwargs = {**PROVIDER_KWARGS.get(provider.name, {}), **model_kwargs}
 
+    # Split the model name into base and variant. The variant is not directly used, variant-specific parameters
+    # are stored in the LanguageModel.parameters field.
+    model_name = model.internal_name.split(":")[0]
+    # model_variant = model.internal_name.split(":")[1] if ":" in model.internal_name else None
+
     match provider.name:
         case "Google":
             return ChatGoogleGenerativeAI(
-                model=model.internal_name,
+                model=model_name,
                 api_key=SecretStr(os.getenv("GOOGLE_API_KEY", "")),
                 **model_kwargs,
             )
@@ -108,7 +113,7 @@ async def get_provider_client(model_name: str) -> BaseChatModel:
             return GoogleGroundedGemini(  # type: ignore[call-arg]
                 model_info=ModelInfo(
                     provider="GoogleGrounded",
-                    model=model.internal_name.replace("-online", ""),  # TODO: make more robust
+                    model=model_name.replace("-online", ""),  # TODO: make more robust
                     api_key=settings.GOOGLE_API_KEY,
                 ),
                 model_config_=dict(
@@ -120,27 +125,21 @@ async def get_provider_client(model_name: str) -> BaseChatModel:
             )
 
         case "OpenAI":
-            return ChatOpenAI(model=model.internal_name, api_key=SecretStr(os.getenv("OPENAI_API_KEY", "")), **kwargs)
+            return ChatOpenAI(model=model_name, api_key=SecretStr(os.getenv("OPENAI_API_KEY", "")), **kwargs)
 
         case "Anthropic":
-            return ChatAnthropic(
-                model_name=model.internal_name, api_key=SecretStr(os.getenv("ANTHROPIC_API_KEY", "")), **kwargs
-            )
+            return ChatAnthropic(model_name=model_name, api_key=SecretStr(os.getenv("ANTHROPIC_API_KEY", "")), **kwargs)
 
         case "Mistral AI":
-            return ChatMistralAI(
-                model_name=model.internal_name, api_key=SecretStr(os.getenv("MISTRAL_API_KEY", "")), **kwargs
-            )
+            return ChatMistralAI(model_name=model_name, api_key=SecretStr(os.getenv("MISTRAL_API_KEY", "")), **kwargs)
         # TODO(bhanu) - the current API key is throwing 403
         case "Hugging Face":
             llm = HuggingFaceEndpoint(
-                model=model.internal_name, huggingfacehub_api_token=os.getenv("HUGGINGFACE_API_KEY", ""), **kwargs
+                model=model_name, huggingfacehub_api_token=os.getenv("HUGGINGFACE_API_KEY", ""), **kwargs
             )
             return ChatHuggingFace(llm=llm)
         case "Perplexity":
-            return CustomChatPerplexity(
-                model=model.internal_name, api_key=os.getenv("PERPLEXITY_API_KEY", ""), **kwargs
-            )
+            return CustomChatPerplexity(model=model_name, api_key=os.getenv("PERPLEXITY_API_KEY", ""), **kwargs)
 
         case provider_name if provider_name in [
             "OpenRouter",
@@ -153,7 +152,7 @@ async def get_provider_client(model_name: str) -> BaseChatModel:
             "Yapp Temporary",  # TODO(tian): add 'Yapp' provider here when we added it to the DB later
         ]:
             return ChatOpenAI(
-                model=model.internal_name,
+                model=model_name,
                 api_key=SecretStr(os.getenv(provider.api_key_env_name or API_KEY_MAP[provider_name], "")),
                 base_url=merge_base_url_with_port(provider.base_api_url, provider_port),
                 **kwargs,
