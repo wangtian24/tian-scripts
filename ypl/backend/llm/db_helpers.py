@@ -40,6 +40,7 @@ from ypl.db.chats import (
 )
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
 from ypl.db.model_promotions import ModelPromotionStatus
+from ypl.db.yapps import Yapp
 from ypl.utils import async_timed_cache, ifnull
 
 IMAGE_ATTACHMENT_MIME_TYPE = "image/*"
@@ -584,3 +585,17 @@ def get_chat_required_models(chat_id: UUID) -> Sequence[str]:
 def notnull(value: str | None) -> str:
     assert value is not None, "value is required"
     return value
+
+
+@ttl_cache(ttl=300)  # 5 min cache
+def get_yapp_descriptions() -> dict[str, str]:
+    query = (
+        select(LanguageModel.internal_name, Yapp.description)
+        .join(LanguageModel)
+        .where(
+            LanguageModel.status == LanguageModelStatusEnum.ACTIVE,
+            LanguageModel.language_model_id == Yapp.language_model_id,
+        )
+    )
+    with Session(get_engine()) as session:
+        return {row[0]: row[1] for row in session.exec(query).all()}

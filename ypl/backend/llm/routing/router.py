@@ -42,6 +42,7 @@ from ypl.backend.llm.routing.modules.rankers import (
     ScoreReranker,
     SemanticGroupReranker,
     SpeedReranker,
+    YappReranker,
 )
 from ypl.backend.llm.routing.policy import SelectionCriteria, decayed_random_fraction
 from ypl.backend.llm.routing.route_data_type import RoutingPreference
@@ -135,6 +136,7 @@ async def get_simple_pro_router(
             | (
                 SemanticGroupReranker(min_dist=num_models_to_return) if has_attachment else Passthrough()
             )  # scatter models with same semantic group
+            | YappReranker(num_models)  # yapp models should never be in the fallback
             | FirstK(num_models_to_return, num_primary_models=num_models, name="final")
             | SpeedReranker(num_models)  # rerank final results with speed, the fastest models always in the front
             | (PositionMatchReranker(preference, num_models) if is_new_turn else Passthrough())

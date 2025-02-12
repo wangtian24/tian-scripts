@@ -261,3 +261,23 @@ class GlobalThreadPoolExecutor(SingletonMixin, ThreadPoolExecutor):
 
     def __init__(self, max_workers: int = 8, **kwargs: Any) -> None:
         super().__init__(max_workers=max_workers, **kwargs)
+
+
+def get_base_and_variant_model_name(model_name: str) -> tuple[str, str | None]:
+    """Split a model name into base name and variant name."""
+    parts = model_name.split(":", 1)
+    base_name = parts[0]
+    variant_name = parts[1] if len(parts) > 1 else None
+    return base_name, variant_name
+
+
+def get_base_model_name(model_name: str) -> str:
+    return get_base_and_variant_model_name(model_name)[0]
+
+
+def get_variant_model_name(model_name: str) -> str | None:
+    return get_base_and_variant_model_name(model_name)[1]
+
+
+def is_yapp_model(model_name: str) -> bool:
+    return get_base_model_name(model_name).endswith("-yapp")

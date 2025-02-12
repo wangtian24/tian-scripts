@@ -8,9 +8,15 @@ from pydantic import BaseModel
 from ypl.backend.llm.category_labeler import (
     get_prompt_category_classifier_llm,
     get_prompt_online_classifier_llm,
+    get_yapp_agent_classifier_llm,
     merge_categories,
 )
-from ypl.backend.llm.judge import PromptModifierLabeler, YuppMultilabelClassifier, YuppOnlinePromptLabeler
+from ypl.backend.llm.judge import (
+    PromptModifierLabeler,
+    YappAgentClassifier,
+    YuppMultilabelClassifier,
+    YuppOnlinePromptLabeler,
+)
 from ypl.backend.llm.prompt_modifier import get_prompt_modifier_llm
 from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.utils import StopWatch
@@ -48,23 +54,31 @@ async def classify_prompt(prompt: str, model_name: str | None = None) -> PromptC
             )
             sw.record_split("get_topic_labeler")
 
+            yapp_labeler = YappAgentClassifier(
+                await get_yapp_agent_classifier_llm(model_name), timeout_secs=CLASSIFICATION_TIMEOUT_SECS
+            )
+            sw.record_split("get_yapp_labeler")
+
             modifier_labeler = PromptModifierLabeler(
                 await get_prompt_modifier_llm(model_name), timeout_secs=CLASSIFICATION_TIMEOUT_SECS
             )
             sw.record_split("get_modifier_labeler")
 
-            CACHED_LABELERS[model_key] = (online_labeler, topic_labeler, modifier_labeler)
+            CACHED_LABELERS[model_key] = (online_labeler, topic_labeler, yapp_labeler, modifier_labeler)
 
-        online_labeler, topic_labeler, modifier_labeler = CACHED_LABELERS[model_key]
+        online_labeler, topic_labeler, yapp_labeler, modifier_labeler = CACHED_LABELERS[model_key]
         sw.record_split("get_modifier_labeler")
 
-        online_label, topic_labels, prompt_modifier = await asyncio.gather(
+        online_label, topic_labels, yapp_label, prompt_modifier = await asyncio.gather(
             online_labeler.alabel(prompt),
             topic_labeler.alabel(prompt),
+            yapp_labeler.alabel(prompt),
             modifier_labeler.alabel(prompt),
         )
         sw.end("labeling")
-        prompt_categories = merge_categories(topic_labels=topic_labels, online_label=online_label)
+        prompt_categories = merge_categories(
+            topic_labels=topic_labels, online_label=online_label, yapp_label=yapp_label
+        )
         return PromptClassificationResponse(
             categories=prompt_categories, modifiers=prompt_modifier, debug_info={"latency_ms": sw.get_splits()}
         )

@@ -784,6 +784,7 @@ def test_context_length_filter(mock_context_lengths: Mock) -> None:
 @patch("ypl.backend.llm.routing.modules.proposers.deduce_original_providers", return_value=PROVIDER_MAP)
 @patch("ypl.backend.llm.routing.rule_router.deduce_original_providers", return_value=PROVIDER_MAP)
 @patch("ypl.backend.llm.chat.deduce_original_providers", return_value=PROVIDER_MAP)
+@patch("ypl.backend.llm.judge.get_yapp_descriptions", return_value={})
 @patch("ypl.backend.llm.routing.modules.filters.HighErrorRateFilter._get_error_rates", return_value={})
 @patch("ypl.backend.llm.prompt_selector.CategorizedPromptModifierSelector.make_default_from_db")
 @patch("ypl.backend.llm.chat.get_user_message", return_value="hi")
@@ -793,6 +794,7 @@ async def test_select_models_plus(
     mock_get_user_message: Mock,
     mock_make_default_from_db: Mock,
     mock_high_error_rate_filter: Mock,
+    mock_get_yapp_descriptions: Mock,
     mock_deduce_original_providers1: Mock,
     mock_deduce_original_providers2: Mock,
     mock_deduce_original_providers3: Mock,

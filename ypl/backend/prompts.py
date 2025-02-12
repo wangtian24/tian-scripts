@@ -530,6 +530,26 @@ PROMPT_MULTILABEL_CLASSIFICATION_PROMPT_TEMPLATE = ChatPromptTemplate.from_messa
     [("human", PROMPT_MULTILABEL_CLASSIFICATION_PROMPT)]
 )
 
+
+PROMPT_YAPP_CLASSIFICATION_PROMPT = """
+You are a helpful AI assistant matching user's prompts to a list of LLM agents to help satisfy user's information needs. Here is the list of agent names and their descriptions:
+{yapp_descriptions}
+
+Look at the user prompt below, decide which agent might best help the user. If you cannot find a fit agent, just return "none". Do not explain, just return its name.
+
+prompt: {{prompt}}
+
+answer:
+"""
+
+
+def get_yapp_classification_prompt_template(yapp_descriptions: dict[str, str]) -> ChatPromptTemplate:
+    template = PROMPT_YAPP_CLASSIFICATION_PROMPT.format(
+        yapp_descriptions="\n".join(f"- {yapp_name}: {yapp_desc}" for yapp_name, yapp_desc in yapp_descriptions.items())
+    )
+    return ChatPromptTemplate.from_messages([("human", template)])
+
+
 JUDGE_YUPP_ONLINE_PROMPT = """
 You are a classifier that determines whether the request in an user input prompt requires online information (such as web search or fetching data from the internet) or can be answered using the model's existing knowledge.
 

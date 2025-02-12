@@ -15,6 +15,7 @@ from vertexai.preview.generative_models import GenerativeModel
 
 from ypl.backend.db import get_engine
 from ypl.backend.llm.constants import MODEL_HEURISTICS
+from ypl.backend.llm.db_helpers import get_yapp_descriptions
 from ypl.backend.llm.labeler import InputType, LLMLabeler, OnErrorBehavior, OutputType
 from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.prompt_classifiers import CategorizerResponse, PromptCategorizer
@@ -37,6 +38,7 @@ from ypl.backend.prompts import (
     RESPONSE_DIFFICULTY_PROMPT_TEMPLATE,
     RESPONSE_QUALITY_PROMPT_TEMPLATE,
     fill_cur_datetime,
+    get_yapp_classification_prompt_template,
 )
 from ypl.db.chats import PromptModifier
 
@@ -289,6 +291,30 @@ class YuppMultilabelClassifier(LLMLabeler[str, list[str]]):
     @property
     def error_value(self) -> list[str]:
         return []
+
+
+class YappAgentClassifier(LLMLabeler[str, str]):
+    """a simple agent classification model to help pick from available Yapp agents"""
+
+    cached = True
+
+    def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
+        yapp_descriptions: dict[str, str] = get_yapp_descriptions()
+        return get_yapp_classification_prompt_template(yapp_descriptions) | llm  # type: ignore
+
+    def _prepare_input(self, input: str) -> dict[str, Any]:
+        return dict(prompt=input)
+
+    def _parse_output(self, output: BaseMessage) -> str:
+        content = str(output.content).lower()
+        if content in ["none", "weather-yapp", "news-yapp", "wikipedia-yapp", "youtube-transcript-yapp"]:
+            return content
+
+        return self.error_value
+
+    @property
+    def error_value(self) -> str:
+        return "none"
 
 
 class YuppMemoryExtractor(LLMLabeler[list[BaseMessage], list[str]]):

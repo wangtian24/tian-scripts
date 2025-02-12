@@ -6,6 +6,7 @@ from ypl.backend.llm.routing.modules.base import RouterModule
 from ypl.backend.llm.routing.policy import SelectionCriteria
 from ypl.backend.llm.routing.route_data_type import RoutingPreference
 from ypl.backend.llm.routing.router_state import RouterState
+from ypl.backend.llm.utils import is_yapp_model
 from ypl.backend.utils.json import json_dumps
 from ypl.utils import RNGMixin
 
@@ -111,6 +112,33 @@ class SpeedReranker(Reranker):
         return self._select_models(state)
 
 
+class YappReranker(Reranker):
+    """
+    If the yapp model doesn't make to the top num_models (primary models), pull it to the end, don't leave it in the
+    fallback (except for cases where there's not enough models).
+    TODO(Tian): right now we don't boost Yapps to the primary group, their score should help them, but this can change.
+    """
+
+    def __init__(self, num_models: int) -> None:
+        super().__init__(name="yappRanker")
+        self.num_models = num_models
+
+    def rerank(self, model_names: list[str], state: RouterState) -> list[str]:
+        # Split into first num_models and rest
+        first_part = model_names[: self.num_models]
+        rest_part = model_names[self.num_models :]
+
+        # Find any yapp models in rest
+        yapp_models = [m for m in rest_part if is_yapp_model(m)]  # noqa: F821
+        if yapp_models:
+            # Remove yapp models from rest
+            rest_part = [m for m in rest_part if not is_yapp_model(m)]
+            # Add yapp models to the very end
+            rest_part.extend(yapp_models)
+            model_names = first_part + rest_part
+        return model_names
+
+
 class PositionMatchReranker(Reranker):
     """
     Rank models so if a previous-turn reappears, make it match the position of the previous turn.
@@ -203,7 +231,7 @@ class PromotionModelReranker(Reranker, RNGMixin):
 class SemanticGroupReranker(Reranker):
     """
     Scatter models with same semantic group so they are not next to each other.
-    This is neede for routings for prompts with attachments, as we don't do semantic group
+    This is needed for routings for prompts with attachments, as we don't do semantic group
     deduping for these prompts.
     """
 
