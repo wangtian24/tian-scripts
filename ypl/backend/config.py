@@ -212,6 +212,14 @@ class Settings(BaseSettings):
 
     @computed_field  # type: ignore[misc]
     @cached_property
+    def paypal_config(self) -> dict:
+        secret = self._get_gcp_secret(f"paypal-config-{self.ENVIRONMENT}")
+        if not secret:
+            return {}
+        return json.loads(secret)  # type: ignore[no-any-return]
+
+    @computed_field  # type: ignore[misc]
+    @cached_property
     def validate_destination_identifier_secret_key(self) -> str:
         return self._get_gcp_secret(f"validate-destination-identifier-secret-key-{self.ENVIRONMENT}")
 
@@ -397,6 +405,7 @@ async def preload_gcp_secrets() -> None:
 
     await asyncio.gather(
         fetch_secret(lambda: settings.axis_upi_config),
+        fetch_secret(lambda: settings.paypal_config),
         fetch_secret(lambda: settings.validate_destination_identifier_secret_key),
         fetch_secret(lambda: settings.hyperwallet_api_url),
         fetch_secret(lambda: settings.hyperwallet_program_token),

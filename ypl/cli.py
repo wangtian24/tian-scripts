@@ -1722,5 +1722,45 @@ def migrate_wallet_credentials() -> None:
         raise
 
 
+@cli.command()
+@click.option("--amount", required=True, type=float, help="The amount to pay out")
+@click.option(
+    "--currency", type=click.Choice(["USD", "EUR", "GBP", "CAD", "AUD"]), default="USD", help="The currency for payout"
+)
+@click.option(
+    "--destination-type",
+    type=click.Choice(["PAYPAL_ID", "VENMO_ID"]),
+    default="PAYPAL_ID",
+    help="The type of PayPal destination",
+)
+@click.option("--destination-identifier", required=True, help="The PayPal Email or Venmo Phone Number of the recipient")
+def process_paypal_payout(amount: float, currency: str, destination_type: str, destination_identifier: str) -> None:
+    """Process PayPal payout with specified parameters."""
+    import uuid
+    from decimal import Decimal
+
+    from ypl.backend.payment.paypal.paypal_payout import PayPalPayout, process_paypal_payout
+    from ypl.db.payments import CurrencyEnum, PaymentInstrumentIdentifierTypeEnum
+
+    payout = PayPalPayout(
+        amount=Decimal(str(amount)),
+        currency=CurrencyEnum[currency],
+        payment_transaction_id=uuid.uuid4(),
+        destination_type=PaymentInstrumentIdentifierTypeEnum[destination_type],
+        destination_identifier=destination_identifier,
+    )
+
+    asyncio.run(process_paypal_payout(payout))
+
+
+@cli.command()
+@click.option("--batch-id", required=True, help="The PayPal batch ID to check status for")
+def get_paypal_transaction_status(batch_id: str) -> None:
+    """Get PayPal transaction status for the specified batch ID."""
+    from ypl.backend.payment.paypal.paypal_payout import get_transaction_status
+
+    asyncio.run(get_transaction_status(batch_id))
+
+
 if __name__ == "__main__":
     cli()
