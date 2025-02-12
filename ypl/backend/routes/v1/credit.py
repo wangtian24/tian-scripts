@@ -156,13 +156,6 @@ async def validate_cashout_request(request: CashoutCreditsRequest) -> None:
         }
         logging.warning(json_dumps(log_dict))
 
-        if request.country_code != user.country_code:
-            log_dict["VPN_detected"] = True
-            asyncio.create_task(
-                post_to_slack_with_user_name(request.user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
-            )
-        raise HTTPException(status_code=400, detail="Cashout to crypto is not supported in India")
-
     if request.cashout_currency.is_crypto() and request.ip_address and settings.ENVIRONMENT == "production":
         ip_details = await get_ip_details(request.ip_address)
         if ip_details and ip_details["security"]["vpn"]:
