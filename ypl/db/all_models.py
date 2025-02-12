@@ -14,6 +14,7 @@ from ypl.db import (
     soul_rbac,
     users,
     webhooks,
+    yapps,
 )
 
 all_models = [
@@ -33,4 +34,5 @@ all_models = [
     soul_rbac,
     users,
     webhooks,
+    yapps,
 ]

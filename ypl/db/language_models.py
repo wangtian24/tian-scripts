@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from ypl.db.chats import ChatMessage, TurnQuality
     from ypl.db.model_promotions import ModelPromotion
     from ypl.db.ratings import Rating, RatingHistory
+    from ypl.db.yapps import Yapp
 
 
 class LanguageModelStatusEnum(Enum):
@@ -243,6 +244,7 @@ class LanguageModel(BaseModel, table=True):
 
     # --- Relationships ---
     promotions: list["ModelPromotion"] = Relationship(back_populates="language_model")
+    yapps: list["Yapp"] = Relationship(back_populates="language_model")
 
     def supports_mime_type(self, mime_type: str) -> bool:
         import re
