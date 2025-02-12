@@ -113,22 +113,28 @@ class TopK(ModelFilter):
 class FirstK(ModelFilter):
     """
     Keep the first k models in the selected_models dict keys, whatever order they are in.
+    Parameters:
+        k: The number of models to keep.
+        num_primary_models: The number of primary models to keep, this is smaller than k when we have fallbacks.
     """
 
-    def __init__(self, k: int, name: str | None = None, persist: bool = True) -> None:
+    def __init__(
+        self, k: int, num_primary_models: int | None = None, name: str | None = None, persist: bool = True
+    ) -> None:
         """
         Args:
             k: The number of models to keep.
         """
         super().__init__(name=f"-firstK-{name}({k})" if name else f"-firstK{k}", persist=persist)
         self.k = k
+        self.num_primary_models = num_primary_models or k
 
     def _filter(self, state: RouterState) -> tuple[RouterState, set[str]]:
         prev_selected_models = list(state.selected_models.keys())
         excluded_models = set(prev_selected_models[self.k :])
 
         # Every TopK/FirstK in the chain will be setting this, the last one will be the final value.
-        state.num_models_remaining = max(0, len(prev_selected_models) - self.k)
+        state.num_models_remaining = max(0, len(prev_selected_models) - self.num_primary_models)
 
         state.selected_models = {model: x for model, x in state.selected_models.items() if model not in excluded_models}
 

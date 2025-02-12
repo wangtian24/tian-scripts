@@ -135,7 +135,7 @@ async def get_simple_pro_router(
             | (
                 SemanticGroupReranker(min_dist=num_models_to_return) if has_attachment else Passthrough()
             )  # scatter models with same semantic group
-            | FirstK(num_models_to_return, name="final")
+            | FirstK(num_models_to_return, num_primary_models=num_models, name="final")
             | SpeedReranker(num_models)  # rerank final results with speed, the fastest models always in the front
             | (PositionMatchReranker(preference, num_models) if is_new_turn else Passthrough())
             # -- logging stage --
