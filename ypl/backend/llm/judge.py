@@ -26,6 +26,7 @@ from ypl.backend.prompts import (
     JUDGE_QUICK_RESPONSE_QUALITY_PROMPT_TEMPLATE,
     JUDGE_RESPONSE_REFUSAL_PROMPT,
     JUDGE_SUGGESTED_FOLLOWUPS_PROMPT_TEMPLATE,
+    JUDGE_SUGGESTED_PROMPTBOX_PROMPT_TEMPLATE,
     JUDGE_YUPP_CHAT_PROMPT_TEMPLATE,
     JUDGE_YUPP_ONLINE_PROMPT,
     JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT_SIMPLE_TEMPLATE,
@@ -505,6 +506,21 @@ class SuggestedFollowupsLabeler(LLMLabeler[list[BaseMessage], list[dict[str, str
     @property
     def error_value(self) -> list[dict[str, str]]:
         return []
+
+
+class SuggestedPromptboxLabeler(LLMLabeler[list[BaseMessage], str]):
+    def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
+        return JUDGE_SUGGESTED_PROMPTBOX_PROMPT_TEMPLATE | llm  # type: ignore
+
+    def _prepare_input(self, input: list[BaseMessage]) -> dict[str, str]:
+        return dict(chat_history=_format_message_history(input))
+
+    def _parse_output(self, output: BaseMessage) -> str:
+        return str(output.content).strip()
+
+    @property
+    def error_value(self) -> str:
+        return "Ask a follow-up"
 
 
 class ConversationStartersLabeler(LLMLabeler[list[list[BaseMessage]], list[dict[str, str]]]):

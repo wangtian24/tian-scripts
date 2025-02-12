@@ -32,7 +32,16 @@ from ypl.backend.llm.search import ChatMessageSearchResult, search_chat_messages
 from ypl.backend.llm.turn_quality import TurnAnnotations, get_turn_annotations, label_turn_quality
 from ypl.backend.rw_cache import TurnQualityCache
 from ypl.backend.utils.json import json_dumps
-from ypl.db.chats import Chat, ChatMessage, MessageType, SuggestedTurnPrompt, SuggestedUserPrompt, Turn, TurnQuality
+from ypl.db.chats import (
+    Chat,
+    ChatMessage,
+    MessageType,
+    SuggestedPromptType,
+    SuggestedTurnPrompt,
+    SuggestedUserPrompt,
+    Turn,
+    TurnQuality,
+)
 
 # Maximum number of pinned chats for a user.
 MAX_PINNED_CHATS = 10
@@ -406,6 +415,7 @@ class SuggestedPrompt(BaseModel):
 
 class SuggestedPromptsResponse(BaseModel):
     prompts: list[SuggestedPrompt]
+    promptbox_placeholder: SuggestedPrompt | None = None
 
 
 @router.get("/turns/{turn_id}/suggested_followups", response_model=SuggestedPromptsResponse)
@@ -420,13 +430,20 @@ async def get_suggested_followups(turn_id: UUID) -> SuggestedPromptsResponse:
             suggested_followups = result.scalars().all()
 
             seen_summaries = set()
+            promptbox_placeholder = None
             unique_suggestions = []
             for sf in suggested_followups:
-                if sf.summary not in seen_summaries:
-                    seen_summaries.add(sf.summary)
-                    unique_suggestions.append(SuggestedPrompt(prompt=sf.prompt, summary=sf.summary))
+                if sf.suggestion_type == SuggestedPromptType.PROMPTBOX_PLACEHOLDER:
+                    promptbox_placeholder = SuggestedPrompt(prompt=sf.prompt, summary=sf.summary)
+                    continue
+                elif sf.suggestion_type == SuggestedPromptType.FOLLOWUP:
+                    if sf.summary not in seen_summaries:
+                        seen_summaries.add(sf.summary)
+                        unique_suggestions.append(SuggestedPrompt(prompt=sf.prompt, summary=sf.summary))
+                else:
+                    raise ValueError(f"Unknown suggestion type: {sf.suggestion_type}")
 
-            return SuggestedPromptsResponse(prompts=unique_suggestions)
+            return SuggestedPromptsResponse(prompts=unique_suggestions, promptbox_placeholder=promptbox_placeholder)
     except Exception as e:
         log_dict = {"message": f"Error getting suggested followups for turn {turn_id}: {str(e)}"}
         logging.exception(json_dumps(log_dict))

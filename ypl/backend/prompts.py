@@ -1288,6 +1288,26 @@ JUDGE_SUGGESTED_FOLLOWUPS_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages(
     [("human", JUDGE_SUGGESTED_FOLLOWUPS_PROMPT)]
 )
 
+JUDGE_SUGGESTED_PROMPTBOX_PROMPT = """
+You are a helpful assistant specializing in generating placeholder text.
+Below is the conversation history between a user and an LLM.
+Based on the the discussion, suggest a placeholder text for a box used by the user to follow up on the conversation.
+The placeholder text should broadly be related to the conversation, but not be a specific follow-up question;
+instead, it should provide a generic follow-up encouragement related to the conversation.
+Do not explain; only return the placeholder text as a string. Do not include markup in your response.
+
+For example, if the conversation is about career opportunities, the placeholder text could be "Ask a follow-up on the topic of careers"
+If the user has asked about antibiotics, the placeholder text could be "Anything else you'd like to know about antibiotics?"
+And so on. Keep it very short and concise.
+
+Conversation history:
+{chat_history}
+"""
+
+JUDGE_SUGGESTED_PROMPTBOX_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages(
+    [("human", JUDGE_SUGGESTED_PROMPTBOX_PROMPT)]
+)
+
 JUDGE_CONVERSATION_STARTERS_PROMPT = """
 You are an assistant skilled at creating engaging conversation starters between a user and an LLM.
 Below are recent conversations a user has had with different LLMs.

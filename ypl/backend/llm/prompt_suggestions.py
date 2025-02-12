@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import uuid
 
@@ -6,9 +7,9 @@ from sqlmodel import select
 
 from ypl.backend.db import get_async_session
 from ypl.backend.llm.chat import get_curated_chat_context, get_gpt_4o_mini_llm
-from ypl.backend.llm.judge import ConversationStartersLabeler, SuggestedFollowupsLabeler
+from ypl.backend.llm.judge import ConversationStartersLabeler, SuggestedFollowupsLabeler, SuggestedPromptboxLabeler
 from ypl.backend.utils.json import json_dumps
-from ypl.db.chats import Chat, SuggestedTurnPrompt, SuggestedUserPrompt
+from ypl.db.chats import Chat, SuggestedPromptType, SuggestedTurnPrompt, SuggestedUserPrompt
 
 MAX_TOKENS = 100
 
@@ -26,8 +27,35 @@ async def maybe_add_suggested_followups(chat_id: uuid.UUID, turn_id: uuid.UUID) 
             context_for_logging="add_suggested_followups",
         )
 
-        labeler = SuggestedFollowupsLabeler(get_gpt_4o_mini_llm(MAX_TOKENS), timeout_secs=3)
-        suggested_followups = await labeler.alabel(chat_context.messages)
+        llm = get_gpt_4o_mini_llm(MAX_TOKENS)
+        followup_labeler = SuggestedFollowupsLabeler(llm, timeout_secs=3)
+        promptbox_labeler = SuggestedPromptboxLabeler(llm, timeout_secs=3)
+        suggested_followups, suggested_placeholder = await asyncio.gather(
+            followup_labeler.alabel(chat_context.messages),
+            promptbox_labeler.alabel(chat_context.messages),
+        )
+        suggested_turn_prompts = []
+        if suggested_followups:
+            suggested_turn_prompts.extend(
+                [
+                    SuggestedTurnPrompt(
+                        turn_id=turn_id,
+                        prompt=followup["suggestion"],
+                        summary=followup["label"],
+                        suggestion_type=SuggestedPromptType.FOLLOWUP,
+                    )
+                    for followup in suggested_followups
+                ]
+            )
+        if suggested_placeholder:
+            suggested_turn_prompts.append(
+                SuggestedTurnPrompt(
+                    turn_id=turn_id,
+                    prompt=suggested_placeholder,
+                    summary=suggested_placeholder,
+                    suggestion_type=SuggestedPromptType.PROMPTBOX_PLACEHOLDER,
+                )
+            )
 
         logging.info(
             json_dumps(
@@ -35,20 +63,12 @@ async def maybe_add_suggested_followups(chat_id: uuid.UUID, turn_id: uuid.UUID) 
                     "message": "Suggested follow ups",
                     "turn_id": turn_id,
                     "suggested_followups": suggested_followups,
+                    "suggested_promptbox_placeholder": suggested_placeholder,
                 }
             )
         )
-        if not suggested_followups:
+        if not suggested_turn_prompts:
             return
-
-        suggested_turn_prompts = [
-            SuggestedTurnPrompt(
-                turn_id=turn_id,
-                prompt=followup["suggestion"],
-                summary=followup["label"],
-            )
-            for followup in suggested_followups
-        ]
 
         async with get_async_session() as session:
             # Delete existing suggestions for this turn -- the new ones have more context (i.e., after "show me more").

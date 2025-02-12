@@ -409,6 +409,11 @@ class TurnQuality(BaseModel, table=True):
         return sum(available_components) / len(available_components) if available_components else None
 
 
+class SuggestedPromptType(enum.Enum):
+    FOLLOWUP = "followup"
+    PROMPTBOX_PLACEHOLDER = "promptbox_placeholder"
+
+
 class SuggestedTurnPrompt(BaseModel, table=True):
     """A follow-up prompt suggestion, associated with a completed turn."""
 
@@ -419,6 +424,14 @@ class SuggestedTurnPrompt(BaseModel, table=True):
     turn: Turn = Relationship(back_populates="suggested_followup_prompts")
     prompt: str = Field(nullable=False)
     summary: str = Field(nullable=False)
+    suggestion_type: SuggestedPromptType = Field(
+        sa_column=Column(
+            SQLAlchemyEnum(SuggestedPromptType),
+            nullable=True,
+            default=SuggestedPromptType.FOLLOWUP,
+            server_default=SuggestedPromptType.FOLLOWUP.name,
+        )
+    )
 
 
 class SuggestedUserPrompt(BaseModel, table=True):
