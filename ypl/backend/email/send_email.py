@@ -54,6 +54,9 @@ SIGNATURE = """
 </p>
 """
 INVITE_FRIEND_BONUS_CREDITS = "10,000"
+YUPP_LINK = """
+See you at <a href="https://gg.yupp.ai">Yupp</a> 👋
+"""
 CONFIDENTIALITY_FOOTER = """
 <p>Thanks for being a part of our small, invite-only alpha.</p>
 <p>We really appreciate your trust and ask for your strict confidentiality.</p>
@@ -88,6 +91,7 @@ async def _prepare_email_content(campaign: str, template_params: dict[str, Any])
         "confidentiality_footer": CONFIDENTIALITY_FOOTER,
         "signature": SIGNATURE,
         "credits": template_params.get("credits", INVITE_FRIEND_BONUS_CREDITS),
+        "yupp_link": YUPP_LINK,
     }
 
     campaign_data = EMAIL_CAMPAIGNS[campaign]
