@@ -381,12 +381,6 @@ async def create_transaction(
     request_path = f"/{API_VERSION}/accounts/{account_id}/transactions"
     jwt_token = build_jwt("POST", request_path, key_name, key_secret)
 
-    # Get the network for the currency
-    network = get_network_for_currency(currency)
-    if not network:
-        details = {"currency": currency}
-        raise CoinbaseRetailPayoutError("Unsupported currency", details)
-
     # Create transaction payload
     payload = {
         "type": "send",
@@ -394,8 +388,12 @@ async def create_transaction(
         "amount": amount,
         "currency": currency,
         "idem": str(payment_transaction_id),
-        "network": network,
     }
+
+    # Get the preferred network for the currency if available
+    network = get_network_for_currency(currency)
+    if network:
+        payload["network"] = network
 
     headers = {
         "Authorization": f"Bearer {jwt_token}",
