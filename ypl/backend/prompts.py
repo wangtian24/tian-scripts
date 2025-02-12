@@ -19,6 +19,137 @@ RESPONSES_USER_PROMPT = """
 
 """
 
+
+PROMPT_MEMORY_EXTRACTION_PROMPT_TEMPLATE = """
+Task:
+Extract any clear memories or personal beliefs from the following user text.
+Focus on extraction from the Human text. The AI and Sys-labeled text is
+provided for additional context and clarification. Each extracted memory or
+belief should:
+
+ - Be rendered as a concise first-person sentence capturing a single factual
+   or self-assessed statement.
+ - Reflect a real-world memory if possible; otherwise, a personal belief or
+   self-assessment is acceptable.
+ - If no memory or belief is found, return an empty JSON array ([]).
+ - If multiple distinct memories or beliefs exist, return them each as a
+   separate string in the JSON array.
+ - Represent a complete thought that is self-contained and unambiguous. If
+   the extracted statement could be misinterpreted due to ambiguity (e.g.,
+   "Java" as coffee vs. programming language), rephrase it to include
+   disambiguating context from the original text (e.g., "I strongly prefer
+   Java coffee" or "I strongly prefer Java as a programming language").
+ - When extracting temporal references, ensure they are anchored to an
+   absolute timeframe. If the user mentions a relative timeframe (e.g.,
+   "this month" or "last week"), convert it into a specific month or date
+   where possible (e.g., "My birthday is in February" instead of "This
+   month is my birthday"). If the exact timeframe is not inferable, retain
+   the relative phrase but clarify its context.
+
+The current date/time is {cur_datetime}.
+
+Input (User text):
+
+    {chat_history}
+
+Output (JSON array):
+
+A JSON array of zero or more strings. Each string is a first-person sentence
+containing a memory or belief. If none are found, return [].
+
+Example Usage:
+
+Input:
+
+idk why but I feel like I know her from somewhere. we sat across a long table
+and she looked familiar but I couldn’t place it. She totally knew me though,
+like, no doubt. wild.
+
+Output (No clear memory or belief is present):
+
+    []
+
+Input:
+
+"When I went to Lisbon last August, I really enjoyed the paella, but I want to
+understand how it differs from the Spanish variant?"
+
+Output (One memory found about Lisbon/paella):
+
+    [ "I enjoyed paella in Lisbon last August." ]
+
+Input:
+
+"I am an expert in database file formats and have spent years analyzing InnoDB
+storage structures."
+
+Output (One self-assessment about expertise):
+
+    ["I am an expert in database file formats."]
+
+Input:
+
+"Last summer, I went to Japan and was amazed by the efficiency of their trains."
+
+Output (One memory describing a visit to Japan):
+
+    ["I was amazed by the efficiency of Japan’s trains last summer."]
+
+Input:
+
+"A few months ago, I took a cooking class in Thailand, and last week, I
+enrolled in a pottery course. I also believe I'm a quick learner."
+
+Output (with multiple memories and temporal anchoring):
+
+    [
+        "I took a cooking class in Thailand around November 2024.",
+        "I enrolled in a pottery course in early February 2025.",
+        "I believe I am a quick learner."
+    ]
+
+Input:
+
+"I love cheesecake, but not the thick new york style. I prefer the french
+ style that's fluffier. Please give me a recipe for that."
+
+Output:
+
+    [
+        "I love cheesecake.",
+        "I prefer fluffier French style cheescake to the New York style."
+    ]
+
+
+Input (memory requires expansion to capture context):
+
+"give me a shuffle sort implementation in java (I prefer java)"
+
+Output:
+
+    [
+        "I prefer the Java programming language.",
+    ]
+
+
+Input (involving temporal context):
+
+"My wife's birthday is next week."
+
+Output (with temporal context extracted and anchored):
+
+    [
+        "My wife's birthday is the week of February 10th.",
+    ]
+
+Use the above format, always returning a valid JSON array. If no clear memory
+or belief is found, return an empty array: [].
+"""
+
+PROMPT_MEMORY_EXTRACTION_PROMPT = ChatPromptTemplate.from_messages(
+    [("human", PROMPT_MEMORY_EXTRACTION_PROMPT_TEMPLATE)]
+)
+
 PROMPT_DIFFICULTY_SYSTEM_PROMPT = """
 You are a specialized language model designed to analyze prompts sent by users to LLMs.
 Your task is to take in a prompt, and determine how complex it is for an LLM to answer it,

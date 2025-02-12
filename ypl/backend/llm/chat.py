@@ -713,7 +713,9 @@ def _get_assistant_messages(
     return messages
 
 
-def _get_enhanced_user_message(messages: list[ChatMessage], max_message_length: int | None = None) -> HumanMessage:
+def _get_enhanced_user_message(
+    messages: list[ChatMessage], max_message_length: int | None = None
+) -> tuple[UUID, HumanMessage]:
     user_msgs = [msg for msg in messages if msg.message_type == MessageType.USER_MESSAGE]
     if not user_msgs:
         raise ValueError("No user messages found")
@@ -726,9 +728,12 @@ def _get_enhanced_user_message(messages: list[ChatMessage], max_message_length: 
         if max_message_length and len(user_msg.content) > max_message_length
         else user_msg.content
     )
-    return HumanMessage(
-        content=content,
-        additional_kwargs={"attachments": attachments},
+    return (
+        user_msg.message_id,
+        HumanMessage(
+            content=content,
+            additional_kwargs={"attachments": attachments},
+        ),
     )
 
 
@@ -737,10 +742,12 @@ class ChatContext(BaseModel):
 
     Attributes:
         messages: List of formatted messages (HumanMessage, AIMessage, SystemMessage) representing the chat history.
+        uuids: List of UUIDs corresponding to the messages.
         current_turn_responses: Optional mapping of model names to their responses for the current turn.
             The responses are raw text content from each model's message in the current turn.
     """
 
+    uuids: list[uuid.UUID | None]
     messages: list[BaseMessage]
     current_turn_responses: dict[str, str] | None = None
 
@@ -756,7 +763,10 @@ async def get_curated_chat_context(
     context_for_logging: str | None = None,
     return_all_current_turn_responses: bool = False,
 ) -> ChatContext:
-    """Fetch chat history and format it for OpenAI context.
+    """Fetch chat history and format it for OpenAI context, returning message UUIDs as well.
+
+    Note: Non-human chat messages will not return UUIDs because multiple messages may be
+    merged into a single message by this method.
 
     Args:
         chat_id: The chat ID to fetch history for.
@@ -816,7 +826,7 @@ async def get_curated_chat_context(
         else:
             query = query.where(Turn.sequence_id <= subquery)
 
-    formatted_messages: list[BaseMessage] = []
+    formatted_messages: list[tuple[UUID | None, BaseMessage]] = []
     # An async session is 2-3X slower.
     with Session(get_engine()) as session:
         result = session.exec(query)
@@ -835,7 +845,12 @@ async def get_curated_chat_context(
         formatted_messages.append(_get_enhanced_user_message(turn_messages, max_message_length))
         # Get assistant messages
         formatted_messages.extend(
-            _get_assistant_messages(turn_messages, model, use_all_models_in_chat_history, max_message_length)
+            [
+                (None, x)
+                for x in _get_assistant_messages(
+                    turn_messages, model, use_all_models_in_chat_history, max_message_length
+                )
+            ]
         )
 
     info = {
@@ -843,7 +858,7 @@ async def get_curated_chat_context(
         "chat_id": str(chat_id),
         "model": model,
     }
-    for i, fmsg in enumerate(formatted_messages):
+    for i, (_unused_uuid, fmsg) in enumerate(formatted_messages):
         msg_type = (
             "Human"
             if isinstance(fmsg, HumanMessage)
@@ -871,9 +886,15 @@ async def get_curated_chat_context(
                 current_turn_responses[m.assistant_model_name] = m.content
             else:
                 break
-        return ChatContext(messages=formatted_messages, current_turn_responses=current_turn_responses)
+        return ChatContext(
+            messages=[msg for _, msg in formatted_messages],
+            uuids=[msg_uuid for msg_uuid, _ in formatted_messages],
+            current_turn_responses=current_turn_responses,
+        )
 
-    return ChatContext(messages=formatted_messages)
+    return ChatContext(
+        messages=[msg for _, msg in formatted_messages], uuids=[msg_uuid for msg_uuid, _ in formatted_messages]
+    )
 
 
 class Intent(Enum):

@@ -31,6 +31,7 @@ from ypl.backend.llm.chat import (
 )
 from ypl.backend.llm.chat_title import maybe_set_chat_title
 from ypl.backend.llm.crawl import enhance_citations
+from ypl.backend.llm.memory_extraction import maybe_extract_memories
 from ypl.backend.llm.model.model import ModelResponseTelemetry
 from ypl.backend.llm.model_heuristics import ModelHeuristics
 from ypl.backend.llm.prompt_suggestions import maybe_add_suggested_followups
@@ -113,6 +114,9 @@ model_heuristics = ModelHeuristics(tokenizer_type="tiktoken")
 async def _message_completed(chat_request: ChatRequest) -> None:
     """Called when a message is completed successfully."""
     asyncio.create_task(maybe_add_suggested_followups(chat_request.chat_id, chat_request.turn_id))
+    asyncio.create_task(
+        maybe_extract_memories(chat_request.chat_id, chat_request.turn_id, chat_request.creator_user_id)
+    )
     # Wait a bit before the title update to allow cache hits on the chat history.
     asyncio.create_task(maybe_set_chat_title(chat_request.chat_id, chat_request.turn_id, sleep_secs=1.5))
     # asyncio.create_task(maybe_update_user_memory(chat_request.chat_id, chat_request.turn_id))

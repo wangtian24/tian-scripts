@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 import sqlalchemy as sa
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import Column
+from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlmodel import Field, Relationship
 
 from ypl.db.base import BaseModel
@@ -16,7 +17,7 @@ if TYPE_CHECKING:
 
 # These are the various sources from which memory can be populated.
 class MemorySource(enum.Enum):
-    # An user's turn in the conversation.
+    # A user's turn in the conversation.
     USER_MESSAGE = "user_message"
     # The assistant's turn in the conversation. Whether this is an
     # LLM or a Yapp is not specified here.
@@ -45,7 +46,8 @@ class Memory(BaseModel, table=True):
     memory_content: str | None = Field(sa_column=Column(sa.Text, nullable=True), default=None)
 
     # The embedding vector. Requires the 'pgvector' extension in PostgreSQL.
-    embedding: Vector | None = Field(sa_column=Column(Vector(1536), nullable=True), default=None)
+    content_pgvector: Vector | None = Field(sa_column=Column(Vector(1536), nullable=True), default=None)
+    content_tsvector: TSVECTOR | None = Field(default=None, sa_column=Column(TSVECTOR))
 
     # Which embedding model was used?
     embedding_model_id: uuid.UUID | None = Field(foreign_key="embedding_models.embedding_model_id", default=None)

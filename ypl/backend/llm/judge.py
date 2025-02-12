@@ -2,7 +2,7 @@ import json
 import logging
 import random
 import re
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import vertexai
 import vertexai.preview
@@ -31,6 +31,7 @@ from ypl.backend.prompts import (
     JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT_SIMPLE_TEMPLATE,
     JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT_TEMPLATE,
     JUDGE_YUPP_PROMPT_DIFFICULTY_WITH_COMMENT_PROMPT_TEMPLATE,
+    PROMPT_MEMORY_EXTRACTION_PROMPT_TEMPLATE,
     PROMPT_MULTILABEL_CLASSIFICATION_PROMPT_TEMPLATE,
     RESPONSE_DIFFICULTY_PROMPT_TEMPLATE,
     RESPONSE_QUALITY_PROMPT_TEMPLATE,
@@ -283,6 +284,30 @@ class YuppMultilabelClassifier(LLMLabeler[str, list[str]]):
             return item
 
         return self.error_value
+
+    @property
+    def error_value(self) -> list[str]:
+        return []
+
+
+class YuppMemoryExtractor(LLMLabeler[list[BaseMessage], list[str]]):
+    """Accepts messages in a single user and system turn, and finds memories."""
+
+    def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
+        cp_template = ChatPromptTemplate.from_messages(
+            [("human", fill_cur_datetime(PROMPT_MEMORY_EXTRACTION_PROMPT_TEMPLATE))]
+        )
+        return cp_template | llm  # type: ignore
+
+    def _prepare_input(self, input: list[BaseMessage]) -> dict[str, str]:
+        return dict(chat_history=_format_message_history(input))
+
+    def _parse_output(self, output: BaseMessage) -> list[str]:
+        content = str(output.content)
+
+        left, right = content.find("["), content.rfind("]") + 1
+        # A parse failure below returns error_value.
+        return cast(list[str], json.loads(content[left:right]))
 
     @property
     def error_value(self) -> list[str]:
