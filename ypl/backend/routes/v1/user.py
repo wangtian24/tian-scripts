@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -173,24 +174,7 @@ async def get_users(query: str) -> UserSearchResponse:
             logging.info(json_dumps(log_dict))
 
             if len(users) > 0:
-                return UserSearchResponse(
-                    users=[
-                        UserSearchResult(
-                            user_id=user.user_id,
-                            name=user.name,
-                            email=user.email,
-                            created_at=user.created_at,
-                            deleted_at=user.deleted_at,
-                            points=user.points,
-                            status=user.status,
-                            discord_id=user.discord_id,
-                            discord_username=user.discord_username,
-                            image_url=user.image,
-                        )
-                        for user in users
-                    ],
-                    has_more_rows=False,
-                )
+                return _create_user_search_response(users)
 
             # if this is not a user related data point, look for payment instrument
             stmt = select(User).join(PaymentInstrument).where(col(PaymentInstrument.identifier).ilike(search))
@@ -206,24 +190,7 @@ async def get_users(query: str) -> UserSearchResponse:
             logging.info(json_dumps(log_dict))
 
             if len(users) > 0:
-                return UserSearchResponse(
-                    users=[
-                        UserSearchResult(
-                            user_id=user.user_id,
-                            name=user.name,
-                            email=user.email,
-                            created_at=user.created_at,
-                            deleted_at=user.deleted_at,
-                            points=user.points,
-                            status=user.status,
-                            discord_id=user.discord_id,
-                            discord_username=user.discord_username,
-                            image_url=user.image,
-                        )
-                        for user in users
-                    ],
-                    has_more_rows=False,
-                )
+                return _create_user_search_response(users)
 
             # if this is not a payment instrument then search for payment transaction id
             stmt = (
@@ -246,24 +213,7 @@ async def get_users(query: str) -> UserSearchResponse:
             logging.info(json_dumps(log_dict))
 
             if len(users) > 0:
-                return UserSearchResponse(
-                    users=[
-                        UserSearchResult(
-                            user_id=user.user_id,
-                            name=user.name,
-                            email=user.email,
-                            created_at=user.created_at,
-                            deleted_at=user.deleted_at,
-                            points=user.points,
-                            status=user.status,
-                            discord_id=user.discord_id,
-                            discord_username=user.discord_username,
-                            image_url=user.image,
-                        )
-                        for user in users
-                    ],
-                    has_more_rows=False,
-                )
+                return _create_user_search_response(users)
 
             #  if none of the above then search for IP address
             stmt = (
@@ -282,24 +232,22 @@ async def get_users(query: str) -> UserSearchResponse:
             logging.info(json_dumps(log_dict))
 
             if len(users) > 0:
-                return UserSearchResponse(
-                    users=[
-                        UserSearchResult(
-                            user_id=user.user_id,
-                            name=user.name,
-                            email=user.email,
-                            created_at=user.created_at,
-                            deleted_at=user.deleted_at,
-                            points=user.points,
-                            status=user.status,
-                            discord_id=user.discord_id,
-                            discord_username=user.discord_username,
-                            image_url=user.image,
-                        )
-                        for user in users
-                    ],
-                    has_more_rows=False,
-                )
+                return _create_user_search_response(users)
+
+            # if none of the above then search for special invite code
+            stmt = select(User).join(SpecialInviteCode).where(col(SpecialInviteCode.code).ilike(search))
+            result = await session.execute(stmt)
+            users = result.scalars().all()
+
+            log_dict = {
+                "message": "Users found for search query in special invite codes",
+                "query": query,
+                "users_count": str(len(users)),
+            }
+            logging.info(json_dumps(log_dict))
+
+            if len(users) > 0:
+                return _create_user_search_response(users)
 
             return UserSearchResponse(users=[], has_more_rows=False)
     except Exception as e:
@@ -310,6 +258,28 @@ async def get_users(query: str) -> UserSearchResponse:
         }
         logging.error(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+def _create_user_search_response(users: Sequence[User]) -> UserSearchResponse:
+    """Create a UserSearchResponse from a list of users."""
+    return UserSearchResponse(
+        users=[
+            UserSearchResult(
+                user_id=user.user_id,
+                name=user.name,
+                email=user.email,
+                created_at=user.created_at,
+                deleted_at=user.deleted_at,
+                points=user.points,
+                status=user.status,
+                discord_id=user.discord_id,
+                discord_username=user.discord_username,
+                image_url=user.image,
+            )
+            for user in users
+        ],
+        has_more_rows=False,
+    )
 
 
 @admin_router.get("/admin/users/{user_id}/related", dependencies=[Depends(validate_read_users)])
