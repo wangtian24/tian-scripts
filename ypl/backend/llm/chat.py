@@ -322,7 +322,9 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         selected_models = models_rs.get_selected_models()
         primary_models = selected_models[: request.num_models]
         fallback_models = selected_models[request.num_models : request.num_models * 2]
-        num_models_remaining = models_rs.num_models_remaining or request.num_models
+        num_models_remaining = (
+            models_rs.num_models_remaining if models_rs.num_models_remaining is not None else request.num_models
+        )
     stopwatch.record_split("routing_total")
 
     # Attach prompt modifiers to the models we selected
