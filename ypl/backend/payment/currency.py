@@ -7,6 +7,7 @@ def get_supported_currencies(country_code: str) -> list[CurrencyEnum]:
         CurrencyEnum.INR,
         CurrencyEnum.USDC,
         CurrencyEnum.ETH,
+        CurrencyEnum.CBBTC,
     ]
     # Only for testing
     if settings.ENVIRONMENT != "production":
