@@ -36,7 +36,7 @@ browser_like_headers = {
 }
 
 
-async def get_html_from_url(url: str) -> str | None:
+async def get_html_from_url(url: str) -> tuple[str | None, str]:
     try:
         async with httpx.AsyncClient(
             timeout=FETCH_HTML_TIMEOUT,
@@ -45,24 +45,36 @@ async def get_html_from_url(url: str) -> str | None:
         ) as client:
             response = await client.get(url)
             response.raise_for_status()
-            return response.text
+            return response.text, str(response.url)
     except httpx.TimeoutException:
         logging.warning(f"Citations: Timeout while fetching URL: {url}")
     except httpx.HTTPStatusError as e:
         logging.warning(f"Citations: HTTP error {e.response.status_code} while fetching URL: {url}")
     except Exception as e:
         logging.warning(f"Citations: Could not fetch URL {url}: {str(e)}")
-    return None
+    return None, url
 
 
-async def get_html_from_urls(urls: list[str]) -> list[str]:
+async def get_html_from_urls(urls: list[str]) -> tuple[list[str], list[str]]:
     try:
         tasks = [get_html_from_url(url) for url in urls]
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        return ["" if not isinstance(r, str) else r for r in results]
+
+        htmls = []
+        final_urls = []
+        for result in results:
+            if isinstance(result, tuple) and len(result) == 2:
+                html, final_url = result
+                htmls.append("" if html is None else html)
+                final_urls.append(final_url)
+            else:
+                htmls.append("")
+                final_urls.append("")
+
+        return htmls, final_urls
     except Exception as e:
         logging.warning(f"Citations: Could not fetch multiple URLs: {str(e)}")
-        return []
+        return [], urls
 
 
 async def get_title_and_description_from_html(html: str) -> tuple[str, str]:
@@ -107,7 +119,7 @@ async def enhance_citations(citations: list[str]) -> list[dict[str, str]]:
         if not citations:
             return []
 
-        htmls = await get_html_from_urls(citations)
+        htmls, final_urls = await get_html_from_urls(citations)
         if not htmls:
             return [{"title": get_domain_from_url(url), "description": "", "url": url} for url in citations]
 
@@ -116,13 +128,15 @@ async def enhance_citations(citations: list[str]) -> list[dict[str, str]]:
         )
 
         enhanced_citations = []
-        for result, url in zip(title_and_descriptions, citations, strict=True):
+        for result, url, final_url in zip(title_and_descriptions, citations, final_urls, strict=True):
             if isinstance(result, BaseException):
                 logging.warning(f"Citations: Could not process {url}: {str(result)}")
-                enhanced_citations.append({"title": get_domain_from_url(url), "description": "", "url": url})
+                enhanced_citations.append(
+                    {"title": get_domain_from_url(url), "description": "", "url": final_url or url}
+                )
             else:
                 title, description = result
-                enhanced_citations.append({"title": title, "description": description, "url": url})
+                enhanced_citations.append({"title": title, "description": description, "url": final_url or url})
 
         end_time = datetime.now()
         logging.info(f"Citations: Time taken to parse citations: {end_time - start_time}")
