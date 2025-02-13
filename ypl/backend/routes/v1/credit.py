@@ -155,6 +155,7 @@ async def validate_cashout_request(request: CashoutCreditsRequest) -> None:
             "user_country_code": user.country_code,
         }
         logging.warning(json_dumps(log_dict))
+        raise HTTPException(status_code=400, detail="Cashout to crypto is not supported in India")
 
     if request.cashout_currency.is_crypto() and request.ip_address and settings.ENVIRONMENT == "production":
         ip_details = await get_ip_details(request.ip_address)
