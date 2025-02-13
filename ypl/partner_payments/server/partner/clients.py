@@ -1,12 +1,14 @@
 import logging
 
 from ypl.partner_payments.server.partner.axis.client import AxisClient
+from ypl.partner_payments.server.partner.tabapay.client import TabaPayClient
 
 
 class PartnerClients:
     def __init__(self) -> None:
         self.axis = AxisClient()
-        self.clients = [self.axis]
+        self.tabapay = TabaPayClient()
+        self.clients = [self.axis, self.tabapay]
 
     async def initialize(self) -> None:
         logging.info("Initializing partner clients")
