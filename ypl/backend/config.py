@@ -131,9 +131,12 @@ class Settings(BaseSettings):
 
     DEFAULT_QT_TIMEOUT_SECS: float = 1.5
 
-    ATTACHMENT_QUICKTAKE_TIMEOUT_SECS: float = 4.0
+    ATTACHMENT_QUICKTAKE_TIMEOUT_SECS: float = 1.5
 
     DEFAULT_REVIEW_TIMEOUT_SECS: float = 20.0
+
+    PARSE_PDF_LOCALLY_FOR_QUICKTAKE: bool = True
+    MAX_TEXT_TO_EXTRACT_FROM_PDF: int = 16000
 
     # The base URL of the yupp-head app, set to staging by default.
     # Example use case: when updating models on yupp-mind, we need to revalidate the model caches on yupp-head too.

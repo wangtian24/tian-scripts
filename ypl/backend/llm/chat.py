@@ -1169,6 +1169,7 @@ async def generate_quicktake(
         chat_history: The chat history to use.
     """
     start_time = time.time()
+    stopwatch = StopWatch("quicktake/latency/", auto_export=True)
 
     match request.chat_id, request.turn_id, chat_history:
         case None, None, None:
@@ -1195,20 +1196,30 @@ async def generate_quicktake(
     old_attachments = [attachment for m in chat_history for attachment in m.additional_kwargs.get("attachments", [])]
     new_attachments = await get_attachments(request.attachment_ids) if request.attachment_ids else []
     all_attachments = old_attachments + new_attachments
+    stopwatch.record_split("get_attachments")
+
     has_attachments = len(all_attachments) > 0
     has_pdf_attachments = any(attachment.content_type == "application/pdf" for attachment in all_attachments)
     has_image_attachments = any(
         attachment.content_type is not None and attachment.content_type.startswith("image/")
         for attachment in all_attachments
     )
-    transform_options: TransformOptions = {"image_type": "thumbnail", "use_signed_url": False}
+    parse_pdf_locally = settings.PARSE_PDF_LOCALLY_FOR_QUICKTAKE
+    transform_options: TransformOptions = {
+        "image_type": "thumbnail",
+        "use_signed_url": False,
+        "parse_pdf_locally": parse_pdf_locally,
+        "max_pdf_text": settings.MAX_TEXT_TO_EXTRACT_FROM_PDF,
+    }
     chat_history = await transform_user_messages(chat_history, QT_MODEL_WITH_PDF_SUPPORT[0], options=transform_options)
+    stopwatch.record_split("transform_chat_history")
 
     # Calculate the length of input with all the information, and check against the context length allowed by the model.
     chat_history_text = "\n".join(get_text_part(m) for m in chat_history)
     chat_history_context_len = len(ModelHeuristics(tokenizer_type="tiktoken").encode_tokens(chat_history_text))
     min_required_context_len = int(chat_history_context_len * 1.2)  # Add a buffer for system prompt etc.
     context_lengths = get_model_context_lengths()
+    stopwatch.record_split("tokenize_and_get_context_lengths")
 
     # Choose models to use for generating quicktakes, we have a set of main models that try to answer the question,
     # and a set of fallback models that are fast but only try to provide contextual commentaries.
@@ -1237,7 +1248,7 @@ async def generate_quicktake(
     if request.model:
         preferred_models = [request.model]
     elif has_pdf_attachments or has_image_attachments:
-        if has_pdf_attachments:
+        if has_pdf_attachments and not parse_pdf_locally:
             preferred_models = QT_MODEL_WITH_PDF_SUPPORT
         elif has_image_attachments:
             preferred_models = QT_MODEL_WITH_IMAGE_SUPPORT
@@ -1260,6 +1271,8 @@ async def generate_quicktake(
     )
     _latest_message = HumanMessage(content=latest_message_transform_result[0].content)
     errors = ""
+
+    stopwatch.record_split("transform_latest_msg")
 
     try:
         # -- Prepare labelers for the main quicktake call
@@ -1325,6 +1338,8 @@ async def generate_quicktake(
         # TODO(Raghu): This includes secondary and fallback models even when there is preferred model
         #              or PDF attachment. Decide if we want to include these.
 
+        stopwatch.record_split("prepare_tasks")
+
         # -- Make all quicktake calls in parallel
         class LabelerTask:
             model: str
@@ -1351,6 +1366,8 @@ async def generate_quicktake(
         all_quicktakes: dict[str, Any] = await Delegator(
             labeler_tasks, timeout_secs=timeout_secs, priority_groups=priority_groups
         ).async_run()
+
+        stopwatch.record_split("fetch_from_llms")
 
         # -- Post-processing
         response_quicktake = QT_CANT_ANSWER
@@ -1423,6 +1440,7 @@ async def generate_quicktake(
         "attachment_mime_types": [attachment.content_type for attachment in all_attachments],
     }
     logging.info(json_dumps(log_dict))
+    stopwatch.end("postprocessing")
 
     return QuickTakeResponse(quicktake=response_quicktake, model=response_model, errors=errors)
 

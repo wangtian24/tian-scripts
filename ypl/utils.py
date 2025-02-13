@@ -331,7 +331,7 @@ def replace_text_part(message: BaseMessage, new_text: str) -> HumanMessage:
         if part["type"] != "text":
             new_content.append(part)
             continue
-        new_content.append({"type": "text", "text": new_text})
+        new_content.append({"type": "text", "text": part["text"] + "\n" + new_text})
     return HumanMessage(content=new_content)
 
 

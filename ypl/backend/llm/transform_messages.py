@@ -5,6 +5,7 @@ import os
 from datetime import datetime
 from typing import Any, Literal, TypedDict
 
+import fitz
 from gcloud.aio.storage import Storage
 from langchain_core.messages import BaseMessage, HumanMessage
 
@@ -19,11 +20,14 @@ from ypl.db.language_models import Provider
 class TransformOptions(TypedDict, total=False):
     use_signed_url: bool
     image_type: Literal["thumbnail", "original"]
+    parse_pdf_locally: bool
+    max_pdf_text: int | None
 
 
 DEFAULT_OPTIONS: TransformOptions = {
     "use_signed_url": False,
     "image_type": "thumbnail",
+    "parse_pdf_locally": False,
 }
 
 
@@ -46,12 +50,10 @@ async def download_attachment(attachment: Attachment, transform_options: Transfo
     try:
         logging.info(f"Attachments: Downloading attachment {attachment.attachment_id} from {gcs_path}")
         async with Storage() as async_client:
-            blob = await async_client.download(
-                bucket=bucket_name,
-                object_name=object_name,
-            )
+            blob = await async_client.download(bucket=bucket_name, object_name=object_name)
             logging.info(
-                f"Attachments: {attachment.attachment_id} - GCS download took {datetime.now() - start_time} seconds"
+                f"Attachments: {attachment.attachment_id} - "
+                f"GCS partial download took {datetime.now() - start_time} seconds"
             )
             return blob
 
@@ -66,6 +68,30 @@ async def download_attachment(attachment: Attachment, transform_options: Transfo
         }
         logging.exception(json_dumps(log_dict))
         raise RuntimeError(f"Failed to download file from GCS: {str(e)}") from e
+
+
+PARSED_PDF_TEXT_TEMPLATE = """
+The user has uploaded one or more PDF files, here is the extracted text from one of the files, enclosed between <PDF_START> and <PDF_END>. Please use the content below to help user answer their questions.
+<PDF_START>
+{text}
+<PDF_END>
+"""  # noqa: E501
+
+
+async def generate_pdf_part_locally(attachment: Attachment, transform_options: TransformOptions) -> dict[str, Any]:
+    file_bytes = await download_attachment(attachment, transform_options=None)
+    max_text_len = transform_options.get("max_pdf_text", 32000) or 32000
+    doc = fitz.open(stream=file_bytes, filetype="pdf")
+    text = []
+    total_len = 0
+    for page in doc:
+        page_text = page.get_text()
+        text.append(page_text)
+        total_len += len(page_text)
+        if total_len > max_text_len:
+            break
+    final_text = "".join(text)[:max_text_len]
+    return {"type": "text", "text": PARSED_PDF_TEXT_TEMPLATE.format(text=final_text)}
 
 
 async def generate_pdf_part(attachment: Attachment, provider: Provider) -> dict[str, Any]:
@@ -112,7 +138,10 @@ async def generate_part(
 ) -> dict[str, Any]:
     is_pdf = attachment.content_type.startswith(PDF_ATTACHMENT_MIME_TYPE)
     if is_pdf:
-        return await generate_pdf_part(attachment, provider)
+        if options.get("parse_pdf_locally", False):
+            return await generate_pdf_part_locally(attachment, options)
+        else:
+            return await generate_pdf_part(attachment, provider)
     is_image = attachment.content_type.startswith("image/")
     if is_image:
         return await generate_image_part(attachment, options)
@@ -178,6 +207,7 @@ async def transform_user_messages(
         generate_part(attachment, provider=model_provider[1], options=options) for attachment in filtered_attachments
     ]
     results = await asyncio.gather(*attachment_tasks, return_exceptions=True)
+
     for attachment, result in zip(filtered_attachments, results, strict=True):
         if isinstance(result, BaseException):
             logging.warning(f"Attachments: skipping attachment: {attachment.attachment_id} - {str(result)}")
@@ -203,6 +233,7 @@ async def transform_user_messages(
         content.append({"type": "text", "text": str(message.content)})
 
         transformed_messages.append(HumanMessage(content=content))  # type: ignore
+
     return transformed_messages
 
 
