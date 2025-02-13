@@ -133,8 +133,10 @@ async def process_paypal_payout(payout: PayPalPayout) -> tuple[str, str]:
 
         if payout.destination_type == PaymentInstrumentIdentifierTypeEnum.PAYPAL_ID:
             recipient_wallet_type = "PAYPAL"
+            recipient_type = "EMAIL"
         elif payout.destination_type == PaymentInstrumentIdentifierTypeEnum.VENMO_ID:
             recipient_wallet_type = "VENMO"
+            recipient_type = "PHONE"
 
         body = {
             "sender_batch_header": {
@@ -152,6 +154,7 @@ async def process_paypal_payout(payout: PayPalPayout) -> tuple[str, str]:
                     "sender_item_id": str(payout.payment_transaction_id),
                     "recipient_wallet": recipient_wallet_type,
                     "receiver": payout.destination_identifier,
+                    "recipient_type": recipient_type,
                 }
             ],
         }
