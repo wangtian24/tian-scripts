@@ -83,6 +83,9 @@ class SecretManager:
     async def get_axis_upi_config(self) -> dict:
         return json.loads(self._get_gcp_secret(f"axis-upi-config-{self.settings.ENVIRONMENT}"))  # type: ignore[no-any-return]
 
+    async def get_tabapay_config(self) -> dict:
+        return json.loads(self._get_gcp_secret(f"tabapay-config-{self.settings.ENVIRONMENT}"))  # type: ignore[no-any-return]
+
 
 settings = Settings()
 secret_manager = SecretManager(settings)
