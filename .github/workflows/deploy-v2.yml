@@ -1,4 +1,4 @@
-name: Build and Deploy
+name: Build and Deploy Payment Service
 
 on:
   push:
@@ -184,8 +184,8 @@ jobs:
       with:
         environment: ${{ env.ENVIRONMENT }}
         service_name: ${{ env.SERVICE_NAME }}
-      secrets: inherit
-      env: inherit
+        inherit-secrets: true
+        inherit-env: true
  
     - name: Install gcloud beta
       if: github.event.inputs.gpu == 'true'
