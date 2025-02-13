@@ -65,7 +65,9 @@ def store_language_code(chat_message_id: str, content: str) -> None:
         logging.error(json_dumps(log_dict))
 
 
-async def astore_language_code(chat_message_id: str, content: str) -> None:
+async def astore_language_code(chat_message_id: str, content: str, sleep_secs: float = 0.0) -> None:
+    if sleep_secs > 0.0:
+        await asyncio.sleep(sleep_secs)
     await asyncio.to_thread(store_language_code, chat_message_id, content)
 
 

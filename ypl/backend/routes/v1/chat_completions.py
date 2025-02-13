@@ -119,6 +119,7 @@ async def _message_completed(chat_request: ChatRequest) -> None:
     )
     # Wait a bit before the title update to allow cache hits on the chat history.
     asyncio.create_task(maybe_set_chat_title(chat_request.chat_id, chat_request.turn_id, sleep_secs=1.5))
+    asyncio.create_task(astore_language_code(str(chat_request.message_id), chat_request.prompt, sleep_secs=1.0))
     # asyncio.create_task(maybe_update_user_memory(chat_request.chat_id, chat_request.turn_id))
 
 
@@ -408,8 +409,6 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                     )
                 )
         stopwatch.record_split("stream_message_chunks")
-
-        asyncio.create_task(astore_language_code(str(chat_request.message_id), chat_request.prompt))
 
         # once streaming is done, update the status of the failed message
         if chat_request.intent == "retry" and chat_request.retry_message_id:
