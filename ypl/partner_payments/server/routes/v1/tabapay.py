@@ -13,17 +13,17 @@ from ypl.partner_payments.server.partner.tabapay.client import (
 router = APIRouter(tags=["tabapay"])
 
 
-@router.post("/balance")
+@router.get("/balance")
 async def get_balance(request: GetBalanceRequest) -> GetBalanceResponse:
     return await partner_clients.tabapay.get_balance(request)
 
 
-@router.post("/account-details")
+@router.get("/account-details")
 async def get_account_details(account_id: str) -> TabapayAccountDetails:
     return await partner_clients.tabapay.get_account_details(account_id)
 
 
-@router.post("/transaction-status")
+@router.get("/transaction-status")
 async def get_transaction_status(transaction_id: str) -> TabapayStatusEnum:
     return await partner_clients.tabapay.get_transaction_status(transaction_id)
 
