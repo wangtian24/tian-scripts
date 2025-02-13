@@ -100,7 +100,7 @@ async def get_simple_pro_router(
 
     rule_proposer = RoutingRuleProposer(*categories)
     rule_filter = RoutingRuleFilter(*categories)
-    error_filter = HighErrorRateFilter()
+    error_filter = HighErrorRateFilter() if not has_pdf else HighErrorRateFilter(soft_threshold=0.2, hard_threshold=0.4)
     num_pro = int(pro_proposer.get_rng().random() * 2 + 1)
 
     image_proposer = ImageProModelProposer() if IMAGE_CATEGORY in categories else Passthrough()
