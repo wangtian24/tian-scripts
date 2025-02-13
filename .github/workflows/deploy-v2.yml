@@ -51,7 +51,7 @@ on:
       gpu:
         description: 'Whether to deploy with GPU'
         required: true
-        default: 'false'
+        default: false
         type: boolean
       categorizer_model_path:
         description: 'Path to the categorizer model'
@@ -178,8 +178,8 @@ jobs:
         cache-to: type=gha,mode=max
         file: ${{ env.DOCKERFILE }}
 
+    # This will be only used while running the deploy command, and is not meant to be used for the build step.
     - name: Create .env file
-      description: This will be only used while running the deploy command, and is not meant to be used for the build step.
       uses: ./.github/workflows/deploy-create-env.yml
       with:
         environment: ${{ env.ENVIRONMENT }}
