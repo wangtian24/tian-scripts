@@ -142,13 +142,14 @@ async def get_provider_client(model_name: str) -> BaseChatModel:
             return CustomChatPerplexity(model=model_name, api_key=os.getenv("PERPLEXITY_API_KEY", ""), **kwargs)
 
         case provider_name if provider_name in [
-            "OpenRouter",
-            "Together AI",
             "Alibaba",
+            "Anyscale",
+            "Cerebras",
             "DeepSeek",
             "Groq",
-            "Cerebras",
-            "Anyscale",
+            "OpenRouter",
+            "Sambanova",
+            "Together AI",
             "Yapp Temporary",  # TODO(tian): add 'Yapp' provider here when we added it to the DB later
         ]:
             return ChatOpenAI(
