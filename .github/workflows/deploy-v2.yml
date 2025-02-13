@@ -1,0 +1,329 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [ staging ]
+  schedule:
+    - cron: '0 9,21 * * *'  # Runs at 9 AM/PM UTC (2 AM/PM PST) daily
+  workflow_dispatch:
+    inputs:
+      use_prompt_conditional_routing:
+        description: 'Whether to use prompt-conditional routing'
+        required: true
+        default: true
+        type: boolean
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+      image:
+        description: 'Image to deploy (use backend, unless you want to deploy the pytorch services)'
+        required: true
+        default: 'backend'
+        type: choice
+        options:
+        - backend
+        - backend-pytorch-service
+        - backend-pytorch-service-bleeding
+      service_name:
+        description: 'Service name (backend == yupp-mind)'
+        required: true
+        default: 'backend'
+        type: choice
+        options:
+        - backend
+        - webhooks
+        - partner-payments-server
+        - backend-pytorch-service
+        - backend-pytorch-service-bleeding
+      region:
+        description: 'Region to deploy to'
+        required: true
+        default: 'us-east4'
+        type: choice
+        options:
+        - us-east4
+        - us-central1
+      gpu:
+        description: 'Whether to deploy with GPU'
+        required: true
+        default: 'false'
+        type: boolean
+      categorizer_model_path:
+        description: 'Path to the categorizer model'
+        required: true
+        default: 'gs://yupp-models/online-classifier-base.zip'
+        type: string
+      pytorch_serve_gcp_url:
+        description: 'URL of the PyTorch Serve GCP service'
+        required: true
+        default: 'https://backend-pytorch-service-staging-451082535721.us-central1.run.app/api/v1'
+        type: string
+      llm_gcp_region:
+        description: 'GCP region for the LLM'
+        required: true
+        default: 'us-east4'
+        type: string
+
+
+env:
+  GCP_REGION: ${{ github.event.inputs.llm_gcp_region || 'us-east4' }}
+  GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  SERVICE_NAME: ${{ github.event.inputs.service_name || 'backend' }}
+  IMAGE_NAME: "gcr.io/yupp-llms/${{ github.event.inputs.image || 'backend' }}:v2"
+  REGION: ${{ github.event.inputs.region || 'us-east4' }}
+
+permissions:
+  contents: write  # Permission required for pushing new tags.
+  packages: read
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    # Remove unused content on github runners.
+    - name: Free up space
+      run: |
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /opt/ghc
+        sudo rm -rf /usr/local/share/boost
+        sudo swapoff -a
+        sudo rm -f /swapfile
+        sudo apt clean
+        df -h
+
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch all history to compare with main branch
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+
+    - name: Cache Docker layers
+      uses: actions/cache@v3
+      with:
+        path: /tmp/.buildx-cache
+        key: ${{ runner.os }}-buildx-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-buildx-
+
+    - name: Set up environment
+      run: |
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.event.inputs.environment }}" == "production" ]]; then
+          echo "ENVIRONMENT=production" >> $GITHUB_ENV
+          echo "SERVICE_NAME=${{ github.event.inputs.image || 'backend' }}" >> $GITHUB_ENV 
+          echo "MEMORY=24Gi" >> $GITHUB_ENV
+          echo "CPU=6" >> $GITHUB_ENV
+          echo "CLOUD_SQL_CONNECTION_NAME=${{ secrets.CLOUD_SQL_CONNECTION_NAME_PRODUCTION }}" >> $GITHUB_ENV
+        else
+          echo "ENVIRONMENT=staging" >> $GITHUB_ENV
+          echo "SERVICE_NAME=${{ github.event.inputs.image || 'backend' }}-staging" >> $GITHUB_ENV #here
+          echo "MEMORY=24Gi" >> $GITHUB_ENV
+          echo "CPU=6" >> $GITHUB_ENV
+          echo "CLOUD_SQL_CONNECTION_NAME=${{ secrets.CLOUD_SQL_CONNECTION_NAME_STAGING }}" >> $GITHUB_ENV
+        fi
+
+        if [[ "${{ github.event.inputs.image }}" == "backend-pytorch-service" || "${{ github.event.inputs.image }}" == "backend-pytorch-service-bleeding" ]]; then
+          echo "DOCKERFILE=Dockerfile.pytorch-service" >> $GITHUB_ENV
+        else
+          echo "DOCKERFILE=Dockerfile" >> $GITHUB_ENV
+        fi
+
+    - name: Check for DB or rules changes
+      id: check_changes
+      run: |
+        git fetch --tags --force
+        TAG_NAME=latest-${{ github.event.inputs.environment || 'staging' }}
+        if git diff --name-only $TAG_NAME | grep -q -E 'data/reward_rules|ypl/db/alembic/'; then
+          echo "DB_OR_RULES_CHANGED=true" >> $GITHUB_ENV
+          echo "Detected DB or reward rules changes"
+        else
+          echo "DB_OR_RULES_CHANGED=false" >> $GITHUB_ENV
+          echo "No DB or reward rules changes detected"
+        fi
+    
+    - name: Create a basic .env file
+      run: |
+        echo "ENVIRONMENT=${{ env.ENVIRONMENT }}" >> .env
+        echo "PROJECT_NAME=\"Yupp-Server\"" >> .env
+        echo "GCP_PROJECT_ID=${{ env.GCP_PROJECT_ID }}" >> .env
+
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v1
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v1
+      with:
+        project_id: ${{ env.GCP_PROJECT_ID }}
+
+    - name: Authenticate Docker
+      run: gcloud auth configure-docker --quiet
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        platforms: linux/amd64
+        push: true
+        tags: ${{ env.IMAGE_NAME }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        file: ${{ env.DOCKERFILE }}
+
+    - name: Create .env file
+      description: This will be only used while running the deploy command, and is not meant to be used for the build step.
+      uses: ./.github/workflows/deploy-create-env.yml
+      with:
+        environment: ${{ env.ENVIRONMENT }}
+        service_name: ${{ env.SERVICE_NAME }}
+      secrets: inherit
+      env: inherit
+ 
+    - name: Install gcloud beta
+      if: github.event.inputs.gpu == 'true'
+      run: gcloud components install beta
+
+    - name: Deploy to Cloud Run
+      run: |
+        if [[ "${{ github.event.inputs.gpu }}" == "true" ]]; then
+          gcloud beta run deploy ${{ env.SERVICE_NAME }} \
+            --image ${{ env.IMAGE_NAME }} \
+            --region ${{ env.REGION }} \
+            --allow-unauthenticated \
+            --cpu ${{ env.CPU }} \
+            --memory ${{ env.MEMORY }} \
+            --gpu-type nvidia-l4 \
+            --gpu 1 \
+            --service-min-instances 1 \
+            --args=service \
+            --no-cpu-throttling \
+            --add-cloudsql-instances=${{ env.CLOUD_SQL_CONNECTION_NAME }} \
+            --vpc-egress=private-ranges-only \
+            --network=default \
+            --subnet=default \
+            --command="/app/ypl/pytorch/serve/entrypoint.sh"
+        elif [[ "${{ env.SERVICE_NAME }}" == "backend" ]]; then
+          gcloud run deploy ${{ env.SERVICE_NAME }} \
+            --image ${{ env.IMAGE_NAME }} \
+            --set-env-vars-from-file=.env \
+            --platform managed \
+            --region ${{ env.REGION }} \
+            --allow-unauthenticated \
+            --cpu ${{ env.CPU }} \
+            --memory ${{ env.MEMORY }} \
+            --args=service \
+            --add-cloudsql-instances=${{ env.CLOUD_SQL_CONNECTION_NAME }} \
+            --vpc-egress=private-ranges-only \
+            --network=default \
+            --subnet=default \
+            --command="/app/ypl/backend/entrypoint.sh"
+        elif [[ "${{ env.SERVICE_NAME }}" == "partner-payments-server" ]]; then
+          gcloud run deploy ${{ env.SERVICE_NAME }} \
+            --image ${{ env.IMAGE_NAME }} \
+            --set-env-vars-from-file=.env \
+            --set-env-vars="SCRIPT_TO_RUN=/app/ypl/partner_payments/server/entrypoint.sh" \
+            --platform managed \
+            --region ${{ env.REGION }} \
+            --allow-unauthenticated \
+            --cpu ${{ env.CPU }} \
+            --memory ${{ env.MEMORY }} \
+            --args=service \
+            --add-cloudsql-instances=${{ env.CLOUD_SQL_CONNECTION_NAME }} \
+            --vpc-egress=all-traffic \
+            --network=default \
+            --subnet=payment-partners-staging \
+            --command="/app/ypl/partner_payments/server/entrypoint.sh"
+        else
+          echo "ERROR: Invalid service name"
+          exit 1
+        fi
+
+    - name: Update traffic to latest version
+      run: |
+        gcloud run services update-traffic ${{ env.SERVICE_NAME }} \
+          --to-latest \
+          --region ${{ env.REGION }} \
+          --platform managed
+
+    - name: Setup Python
+      if: ${{ env.DB_OR_RULES_CHANGED == 'true' }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: 3.11
+
+    - name: Cache Poetry install
+      if: ${{ env.DB_OR_RULES_CHANGED == 'true' }}
+      uses: actions/cache@v4
+      with:
+        path: ~/.local
+        key: poetry-1.8.2-0
+
+    - name: Install Poetry
+      if: ${{ env.DB_OR_RULES_CHANGED == 'true' }}
+      uses: snok/install-poetry@v1
+      with:
+        version: 1.8.2
+        virtualenvs-create: true
+        virtualenvs-in-project: true
+
+    - name: Cache Poetry dependencies
+      if: ${{ env.DB_OR_RULES_CHANGED == 'true' }}
+      id: cache-deps
+      uses: actions/cache@v4
+      with:
+        path: .venv
+        key: pydeps-${{ hashFiles('**/poetry.lock') }}
+
+    - name: Install dependencies
+      if: ${{ env.DB_OR_RULES_CHANGED == 'true' }}
+      run: poetry install --no-interaction --no-root --sync
+
+    - name: Run migrations
+      if: ${{ env.ENVIRONMENT == 'staging' && env.DB_OR_RULES_CHANGED == 'true' }}
+      run: |
+        echo "yupp" | poetry run alembic upgrade head
+
+    - name: Refresh reward rules
+      if: ${{ env.DB_OR_RULES_CHANGED == 'true' }}
+      run: poetry run python -m ypl.cli refresh-rewards-rules
+
+    - name: Tag commit
+      run: |
+        git fetch --tags --force
+        TAG_NAME=latest-${{ github.event.inputs.environment || 'staging' }}
+        PR_TITLES=$(git log $TAG_NAME..HEAD --pretty=format:"* %s (%al)" | perl -pe 's/\n/  /g' )  # Get changes from last tag.
+        echo "PR_TITLES=${PR_TITLES}" >> $GITHUB_ENV
+        git config user.name 'github-actions[bot]'
+        git config user.email 'github-actions[bot]@users.noreply.github.com'
+        git tag -f $TAG_NAME ${{ github.sha }}
+        git push origin $TAG_NAME --force
+
+    - name: Post to Slack for Production Deployment
+      if: env.ENVIRONMENT == 'production'
+      continue-on-error: true
+      uses: slackapi/slack-github-action@v1.27.0
+      with:
+        payload: |
+          {
+            "text": "New backend service version deployed to production",
+            "blocks": [
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "New backend service version deployed to production\nChanges since last deployment:\n${{ env.PR_TITLES || '* No changes to report' }}"
+                }
+              }
+            ]
+          }
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_GG_PUSH_PRODUCTION }}
+        SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
