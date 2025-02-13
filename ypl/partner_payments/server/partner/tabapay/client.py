@@ -46,23 +46,23 @@ class TabapayConfig:
     """Configuration for Tabapay client.
 
     Attributes:
-        base_url: Base URL for Tabapay API
+        api_url: Base URL for Tabapay API
         client_id: Client identifier for authentication
-        api_key: API key for authentication
+        bearer_token: Key for authentication
     """
 
-    base_url: str
+    api_url: str
     client_id: str
-    api_key: str
+    bearer_token: str
 
     def validate(self) -> None:
         """Validates that all required fields are present."""
-        if not self.base_url:
-            raise TabapayError("Tabapay base URL is missing")
+        if not self.api_url:
+            raise TabapayError("Tabapay API URL is missing")
         if not self.client_id:
             raise TabapayError("Tabapay client ID is missing")
-        if not self.api_key:
-            raise TabapayError("Tabapay API key is missing")
+        if not self.bearer_token:
+            raise TabapayError("Tabapay bearer token is missing")
 
 
 @dataclass(frozen=True)
@@ -225,7 +225,7 @@ class TabaPayClient(BasePartnerClient):
         """Initialize the client with configuration and HTTP client setup."""
         self.config = await secret_manager.get_tabapay_config()
         config_obj = TabapayConfig(
-            base_url=self.config["base_url"], client_id=self.config["client_id"], api_key=self.config["api_key"]
+            api_url=self.config["api_url"], client_id=self.config["client_id"], bearer_token=self.config["bearer_token"]
         )
         config_obj.validate()
 
@@ -243,12 +243,12 @@ class TabaPayClient(BasePartnerClient):
     def _get_headers(self) -> dict[str, str]:
         """Get common headers for API requests."""
         assert self._config_obj is not None
-        return {"accept": CONTENT_TYPE_JSON, "authorization": f"{AUTH_BEARER} {self._config_obj.api_key}"}
+        return {"accept": CONTENT_TYPE_JSON, "authorization": f"{AUTH_BEARER} {self._config_obj.bearer_token}"}
 
     def _get_base_url(self, path: str) -> str:
         """Construct full URL for API endpoints."""
         assert self._config_obj is not None
-        return f"{self._config_obj.base_url}/v1/clients/{self._config_obj.client_id}/{path}"
+        return f"{self._config_obj.api_url}/v1/clients/{self._config_obj.client_id}/{path}"
 
     @require_initialization
     async def get_balance(self, request: GetBalanceRequest) -> GetBalanceResponse:
