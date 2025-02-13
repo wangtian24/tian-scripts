@@ -7,11 +7,6 @@ on:
     - cron: '0 9,21 * * *'  # Runs at 9 AM/PM UTC (2 AM/PM PST) daily
   workflow_dispatch:
     inputs:
-      use_prompt_conditional_routing:
-        description: 'Whether to use prompt-conditional routing'
-        required: true
-        default: true
-        type: boolean
       environment:
         description: 'Environment to deploy to'
         required: true
@@ -39,7 +34,6 @@ on:
         - webhooks
         - partner-payments-server
         - backend-pytorch-service
-        - backend-pytorch-service-bleeding
       region:
         description: 'Region to deploy to'
         required: true
@@ -53,11 +47,6 @@ on:
         required: true
         default: false
         type: boolean
-      categorizer_model_path:
-        description: 'Path to the categorizer model'
-        required: true
-        default: 'gs://yupp-models/online-classifier-base.zip'
-        type: string
       pytorch_serve_gcp_url:
         description: 'URL of the PyTorch Serve GCP service'
         required: true
@@ -117,7 +106,7 @@ jobs:
       run: |
         if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.event.inputs.environment }}" == "production" ]]; then
           echo "ENVIRONMENT=production" >> $GITHUB_ENV
-          echo "SERVICE_NAME=${{ github.event.inputs.image || 'backend' }}" >> $GITHUB_ENV 
+          echo "SERVICE_NAME=${{ github.event.inputs.image || 'backend' }}" >> $GITHUB_ENV
           echo "MEMORY=24Gi" >> $GITHUB_ENV
           echo "CPU=6" >> $GITHUB_ENV
           echo "CLOUD_SQL_CONNECTION_NAME=${{ secrets.CLOUD_SQL_CONNECTION_NAME_PRODUCTION }}" >> $GITHUB_ENV
@@ -147,7 +136,7 @@ jobs:
           echo "DB_OR_RULES_CHANGED=false" >> $GITHUB_ENV
           echo "No DB or reward rules changes detected"
         fi
-    
+
     - name: Create a basic .env file
       run: |
         echo "ENVIRONMENT=${{ env.ENVIRONMENT }}" >> .env
@@ -186,7 +175,7 @@ jobs:
         service_name: ${{ env.SERVICE_NAME }}
         inherit-secrets: true
         inherit-env: true
- 
+
     - name: Install gcloud beta
       if: github.event.inputs.gpu == 'true'
       run: gcloud components install beta

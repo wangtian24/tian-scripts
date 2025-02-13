@@ -95,8 +95,6 @@ class Settings(BaseSettings):
     # The timeout for the prompt categorizer in routing
     ROUTING_TIMEOUT_SECS: float = 1.25
 
-    # Whether to use prompt-conditional routing. Defaults to false.
-    ROUTING_USE_PROMPT_CONDITIONAL: bool = False
     ROUTING_REPUTABLE_PROVIDERS: list[str] = ["openai", "google", "anthropic", "azure", "microsoft", "meta"]
     OPENAI_API_KEY_ROUTING: str = ""
 
