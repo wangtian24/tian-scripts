@@ -59,10 +59,10 @@ def upgrade() -> None:
     with Session(op.get_bind()) as session:
         # Add data to just-created yapps table
         for yapp_model_name, yapp_desc in YAPPS_DESC:
-            row = session.exec(select(LanguageModel).where(LanguageModel.internal_name == yapp_model_name)).first()
-            if row:
+            lang_id = session.exec(select(LanguageModel.language_model_id).where(LanguageModel.internal_name == yapp_model_name)).first()
+            if lang_id:
                 yapp = Yapp(
-                    language_model_id=row.language_model_id,
+                    language_model_id=lang_id,
                     description=yapp_desc,
                 )
                 session.add(yapp)

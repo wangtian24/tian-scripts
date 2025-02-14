@@ -19,7 +19,6 @@ revision: str = '558685d40d27'
 down_revision: str | None = 'f650d72412a0'
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
-
 SAMBANOVA_MODELS = [
     {
         "label": "Deepseek-R1 Distill Llama 70B (Sambanova)",
@@ -28,7 +27,6 @@ SAMBANOVA_MODELS = [
         "parameter_count": 70_000_000_000,
         "context_window_tokens": 128_000,
         "is_strong": True,
-        "status": LanguageModelStatusEnum.SUBMITTED,
         "semantic_group": "deepseek r1",
     },
     {
@@ -38,7 +36,6 @@ SAMBANOVA_MODELS = [
         "parameter_count": 405_000_000_000,
         "context_window_tokens": 128_000,
         "is_strong": True,
-        "status": LanguageModelStatusEnum.SUBMITTED,
         "semantic_group": "llama",
     },
     {
@@ -48,7 +45,6 @@ SAMBANOVA_MODELS = [
         "parameter_count": 405_000_000_000,
         "context_window_tokens": 128_000,
         "is_strong": True,
-        "status": LanguageModelStatusEnum.SUBMITTED,
         "semantic_group": "llama",
     },
     {
@@ -58,7 +54,6 @@ SAMBANOVA_MODELS = [
         "parameter_count": 70_000_000_000,
         "context_window_tokens": 128_000,
         "is_strong": True,
-        "status": LanguageModelStatusEnum.SUBMITTED,
         "semantic_group": "llama",
     },
     {
@@ -68,7 +63,6 @@ SAMBANOVA_MODELS = [
         "parameter_count": 8_000_000_000,
         "context_window_tokens": 128_000,
         "is_strong": False,
-        "status": LanguageModelStatusEnum.SUBMITTED,
         "semantic_group": "llama",
     },
     {
@@ -78,7 +72,6 @@ SAMBANOVA_MODELS = [
         "parameter_count": 1_000_000_000,
         "context_window_tokens": 128_000,
         "is_strong": False,
-        "status": LanguageModelStatusEnum.SUBMITTED,
         "semantic_group": "llama",
     },
     {
@@ -88,7 +81,6 @@ SAMBANOVA_MODELS = [
         "parameter_count": 3_000_000_000,
         "context_window_tokens": 128_000,
         "is_strong": False,
-        "status": LanguageModelStatusEnum.SUBMITTED,
         "semantic_group": "llama",
     },
     {
@@ -98,7 +90,6 @@ SAMBANOVA_MODELS = [
         "parameter_count": 70_000_000_000,
         "context_window_tokens": 128_000,
         "is_strong": True,
-        "status": LanguageModelStatusEnum.SUBMITTED,
         "semantic_group": "llama",
     },
     {
@@ -108,7 +99,6 @@ SAMBANOVA_MODELS = [
         "parameter_count": 72_000_000_000,
         "context_window_tokens": 131_072,
         "is_strong": True,
-        "status": LanguageModelStatusEnum.SUBMITTED,
         "semantic_group": "qwen",
     },
     {
@@ -118,7 +108,6 @@ SAMBANOVA_MODELS = [
         "parameter_count": 32_000_000_000,
         "context_window_tokens": 131_072,
         "is_strong": False,
-        "status": LanguageModelStatusEnum.SUBMITTED,
         "semantic_group": "qwen",
     },
     {
@@ -128,7 +117,6 @@ SAMBANOVA_MODELS = [
         "parameter_count": 32_000_000_000,
         "context_window_tokens": 32_768,
         "is_strong": False,
-        "status": LanguageModelStatusEnum.SUBMITTED,
         "semantic_group": "qwen",
     },
     {
@@ -139,7 +127,6 @@ SAMBANOVA_MODELS = [
         "context_window_tokens": 128_000,
         "is_strong": False,
         "supported_attachement_mime_types": ["image/*"],
-        "status": LanguageModelStatusEnum.SUBMITTED,
         "semantic_group": "llama",
     },
     {
@@ -150,7 +137,6 @@ SAMBANOVA_MODELS = [
         "context_window_tokens": 128_000,
         "is_strong": True,
         "supported_attachement_mime_types": ["image/*"],
-        "status": LanguageModelStatusEnum.SUBMITTED,
         "semantic_group": "llama",
     },
 ]
@@ -194,25 +180,52 @@ def upgrade() -> None:
 
         # add all models
         for model in SAMBANOVA_MODELS:
-            existing_model = session.exec(select(LanguageModel).where(
+            existing_model_id = session.exec(select(LanguageModel.language_model_id).where(
                 LanguageModel.internal_name == model["internal_name"]
             )).first()
             
-            if not existing_model:
-                model = LanguageModel(
-                    provider_id=provider.provider_id,
-                    organization_id=org.organization_id,
-                    name=model["internal_name"],
-                    creator_user_id="SYSTEM",
-                    avatar_url=AVARTAR_URL,
-                    is_pro=False,
-                    **model,
+            if not existing_model_id:
+                session.execute(
+                    sa.text("""
+                        INSERT INTO language_models (
+                            created_at, language_model_id,
+                            provider_id, organization_id, name, creator_user_id, 
+                            avatar_url, is_pro, label, family, internal_name,
+                            parameter_count, context_window_tokens, is_strong,
+                            semantic_group
+                        ) VALUES (
+                            NOW(), GEN_RANDOM_UUID(),
+                            :provider_id, :org_id, :name, :creator_user_id,
+                            :avatar_url, :is_pro, :label, :family, :internal_name,
+                            :parameter_count, :context_window_tokens, :is_strong,
+                            :semantic_group
+                        )
+                    """),
+                    {
+                        "provider_id": provider.provider_id,
+                        "org_id": org.organization_id,
+                        "name": model["internal_name"],
+                        "creator_user_id": "SYSTEM",
+                        "avatar_url": AVARTAR_URL,
+                        "is_pro": False,
+                        "label": model["label"],
+                        "family": model["family"],
+                        "internal_name": model["internal_name"],
+                        "parameter_count": model["parameter_count"],
+                        "context_window_tokens": model["context_window_tokens"],
+                        "is_strong": model["is_strong"],
+                        "status": "SUBMITTED",
+                        "semantic_group": model["semantic_group"]
+                    }
                 )
-                session.add(model)
             else:
                 print(f"Model {model['internal_name']} already exists, skipping...")
-                existing_model.deleted_at = None
-                session.add(existing_model)
+                session.execute(
+                    sa.text("""
+                        UPDATE language_model SET deleted_at = NULL WHERE language_model_id = :language_model_id
+                    """),
+                    {"language_model_id": existing_model_id}
+                )
         session.commit()
 
     # ### end Alembic commands ###

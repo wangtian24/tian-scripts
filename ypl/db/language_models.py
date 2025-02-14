@@ -120,16 +120,14 @@ class LanguageModel(BaseModel, table=True):
 
     language_model_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
 
-    # This is the name displayed to the user, e.g. "gpt-4o-2024-05-13".
-    # This name can be pseudonymous, e.g. "anonymous-model" with internal_name
-    # "gpt-4o-2024-05-13". This is useful when Model Providers want to train
-    # their models anonymously.
-    # This is unique per provider.
+    # The name of the model, unique across all models in our system. It's a combination of the provider name and
+    # provider's internal name.
+    # e.g. "openai/gpt-4o-2024-05-13".
+    # TODO(Tian): not unique right now, we will do another round of data updates before setting it to unique.
     name: str = Field(index=True)
 
-    # This is the "real" name of the model as given by the Model Provider,
+    # Provider's internal name. It's only unique within a provider and it's used in the API calls to providers.
     # e.g. "gpt-4o-2024-05-13".
-    # This is unique per provider, and is sent to the model provider for identification.
     # it might have ":" to indicate a variant, such as "gpt-o3-mini:high", but only the
     # part before the first ":" is sent to the provider as model name.
     internal_name: str = Field(sa_column=Column("internal_name", sa.VARCHAR(), nullable=False, index=True))
@@ -140,7 +138,20 @@ class LanguageModel(BaseModel, table=True):
     license: LicenseEnum = Field(
         default=LicenseEnum.unknown, sa_column=Column(sa_Enum(LicenseEnum), server_default=LicenseEnum.unknown.name)
     )
+
+    # Model taxonomy, it has four levels
+    # 1. family: e.g. "GPT", "Claude", "Llama"
+    # 2. model_class: e.g. "o1", "o1-mini", "o3-mini"
+    # 3. model_version: e.g. "1", "2", "3.5"
+    # 4. model_release: e.g. "20240513", "202501", usually in yyyymmdd or yyyymm date format for
+    #      easier sorting but could be in other formats as well.
+    # This is manually maintained information and should be updated for every new model added. This is for identifying
+    # same models served from different providers so we can have more flexible serving.
     family: str | None = Field(default=None)
+    model_class: str | None = Field(default=None)
+    model_version: str | None = Field(default=None)
+    model_release: str | None = Field(default=None)
+
     avatar_url: str | None = Field(default=None)
 
     # This is the number of parameters in the model.
