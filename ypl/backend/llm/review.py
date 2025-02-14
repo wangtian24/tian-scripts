@@ -28,13 +28,14 @@ from ypl.backend.llm.labeler import LLMLabeler
 from ypl.backend.prompts import (
     BINARY_REVIEW_PROMPT,
     CRITIQUE_REVIEW_PROMPT,
+    SEGMENTED_REVIEW_PROMPT,
     fill_cur_datetime,
 )
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import Turn
 
 # Type variable for review results
-ReviewResultType = TypeVar("ReviewResultType", bool, str)
+ReviewResultType = TypeVar("ReviewResultType", bool, str, list[dict[str, str]])
 
 
 class ReviewType(str, enum.Enum):
@@ -42,6 +43,7 @@ class ReviewType(str, enum.Enum):
 
     BINARY = "binary"
     CRITIQUE = "critique"
+    SEGMENTED = "segmented"
 
 
 class ReviewStatus(str, enum.Enum):
@@ -75,11 +77,19 @@ class CritiqueResult(TypedDict):
     reviewer_model: str
 
 
+class SegmentedResult(TypedDict):
+    """Result from segmented review."""
+
+    segments: list[dict[str, str]]  # List of segments with their updates and reviews
+    reviewer_model: str
+
+
 class ReviewResponse(BaseModel):
     """Response model for all review types."""
 
     binary: dict[str, BinaryResult] | None = None
     critique: dict[str, CritiqueResult] | None = None
+    segmented: dict[str, SegmentedResult] | None = None
     status: ReviewStatus = ReviewStatus.SUCCESS
 
 
@@ -100,6 +110,10 @@ REVIEW_CONFIGS: dict[ReviewType, ReviewConfig] = {
     ReviewType.CRITIQUE: ReviewConfig(
         max_tokens=512,
         prompt_template=CRITIQUE_REVIEW_PROMPT,
+    ),
+    ReviewType.SEGMENTED: ReviewConfig(
+        max_tokens=4096,  # Larger token limit for detailed segmented reviews
+        prompt_template=SEGMENTED_REVIEW_PROMPT,
     ),
 }
 
@@ -199,9 +213,90 @@ class CritiqueReviewLabeler(BaseReviewLabeler[str]):
         return "Error: Review failed"
 
 
+class SegmentedReviewLabeler(BaseReviewLabeler[list[dict[str, str]]]):
+    """Labeler that provides segmented review with updates and reasoning."""
+
+    def __init__(self, model: str = "gpt-4o", timeout_secs: float = settings.DEFAULT_REVIEW_TIMEOUT_SECS) -> None:
+        super().__init__(ReviewType.SEGMENTED, model, timeout_secs)
+
+    def _process_tag_content(self, lines: list[str], start_idx: int, tag: str) -> tuple[str, int]:
+        """Process content for a specific XML-style tag in the segmented review format.
+
+        This method extracts content between XML-style tags of the format:
+        <tag N>
+        content lines...
+        </tag N>
+
+        where N is a numeric identifier. The method handles accidental generation cases like [insert verbatim ...]
+        markers and preserves all whitespace/formatting in the content.
+
+        Args:
+            lines: List of lines to process from the LLM output
+            start_idx: Current line index pointing to the opening tag line
+            tag: Tag name (one of: "segment", "review", or "updated-segment")
+
+        Returns:
+            tuple[str, int]: A tuple containing:
+                - The extracted content as a single string with newlines preserved
+                - The index of the last processed line (the closing tag line)
+
+        Example:
+            For input lines:
+                <segment 1>
+                This is some content
+                 across multiple lines
+                </segment 1>
+
+            With start_idx=0 and tag="segment", returns:
+            ("This is some content\n across multiple lines", 3)
+        """
+        tag_num = lines[start_idx].strip()[len(f"<{tag}") + 1 : -1].strip()
+        content = []
+        i = start_idx + 1
+        while i < len(lines):
+            if lines[i].strip() == f"</{tag} {tag_num}>":
+                break
+            if lines[i].strip().startswith("[insert verbatim"):
+                i += 1
+                continue
+            content.append(lines[i])
+            i += 1
+        return "\n".join(content), i
+
+    def _parse_output(self, output: BaseMessage) -> list[dict[str, str]]:
+        content = str(output.content)
+        segments = []
+        current_segment = {}
+        lines = content.split("\n")
+        i = 0
+
+        while i < len(lines):
+            if i == 0 and lines[0].strip() == "...":
+                i += 1
+                continue
+
+            line = lines[i].strip()
+            if line.startswith("<segment"):
+                current_segment["segment"], i = self._process_tag_content(lines, i, "segment")
+            elif line.startswith("<review"):
+                current_segment["review"], i = self._process_tag_content(lines, i, "review")
+            elif line.startswith("<updated-segment"):
+                current_segment["update"], i = self._process_tag_content(lines, i, "updated-segment")
+                segments.append(current_segment)
+                current_segment = {}
+            i += 1
+
+        return segments
+
+    @property
+    def error_value(self) -> list[dict[str, str]]:
+        return [{"segment": "", "update": "", "review": "Error: Review failed"}]
+
+
 # Singleton instances with model tracking
 BINARY_REVIEWER: dict[str, BinaryReviewLabeler] = {}
 CRITIQUE_REVIEWER: dict[str, CritiqueReviewLabeler] = {}
+SEGMENTED_REVIEWER: dict[str, SegmentedReviewLabeler] = {}
 
 
 def get_binary_reviewer(model: str = "gpt-4o") -> BinaryReviewLabeler:
@@ -216,6 +311,13 @@ def get_critique_reviewer(model: str = "gpt-4o") -> CritiqueReviewLabeler:
     if model not in CRITIQUE_REVIEWER:
         CRITIQUE_REVIEWER[model] = CritiqueReviewLabeler(model=model)
     return CRITIQUE_REVIEWER[model]
+
+
+def get_segmented_reviewer(model: str = "gpt-4o") -> SegmentedReviewLabeler:
+    """Get or create the segmented reviewer instance for the specified model."""
+    if model not in SEGMENTED_REVIEWER:
+        SEGMENTED_REVIEWER[model] = SegmentedReviewLabeler(model=model)
+    return SEGMENTED_REVIEWER[model]
 
 
 def _extract_conversation_until_last_user_message(chat_history_messages: list[BaseMessage]) -> str:
@@ -265,6 +367,8 @@ async def generate_reviews(
     Returns:
         ReviewResponse: Object containing results for binary review
             - binary: dict[str, BinaryResult] if binary review was requested
+            - critique: dict[str, CritiqueResult] if critique review was requested
+            - segmented: dict[str, SegmentedResult] if segmented review was requested
     """
 
     async with get_async_session() as session:
@@ -319,11 +423,12 @@ async def generate_reviews(
     logging.info(f"Initializing reviewers with model {request.reviewer_model or 'gpt-4o'}")
     binary_reviewer = get_binary_reviewer(request.reviewer_model or "gpt-4o")
     critique_reviewer = get_critique_reviewer(request.reviewer_model or "gpt-4o")
+    segmented_reviewer = get_segmented_reviewer(request.reviewer_model or "gpt-4o")
 
     async def _run_pointwise_review(
         review_type: ReviewType,
         reviewer: BaseReviewLabeler[ReviewResultType],
-    ) -> tuple[ReviewType, dict[str, BinaryResult | CritiqueResult]]:
+    ) -> tuple[ReviewType, dict[str, BinaryResult | CritiqueResult | SegmentedResult]]:
         """Generic function to run pointwise reviews.
 
         Args:
@@ -333,9 +438,9 @@ async def generate_reviews(
         Returns:
             Tuple of review type and results dictionary
         """
-        assert isinstance(reviewer, BinaryReviewLabeler) or isinstance(
-            reviewer, CritiqueReviewLabeler
-        ), f"Reviewer {reviewer} is not a BinaryReviewLabeler or CritiqueReviewLabeler"
+        assert isinstance(
+            reviewer, (BinaryReviewLabeler | CritiqueReviewLabeler | SegmentedReviewLabeler)
+        ), f"Reviewer {reviewer} is not a valid review labeler type"
         model_name = reviewer.model
 
         try:
@@ -352,7 +457,7 @@ async def generate_reviews(
             results = await asyncio.gather(*(task for _, task in review_tasks), return_exceptions=True)
 
             # Process results with proper type casting
-            pointwise_results: dict[str, BinaryResult | CritiqueResult] = {}
+            pointwise_results: dict[str, BinaryResult | CritiqueResult | SegmentedResult] = {}
 
             for (model, _), result in zip(review_tasks, results, strict=True):
                 if isinstance(result, bool) or isinstance(result, str):  # Handle both bool and str results
@@ -366,6 +471,13 @@ async def generate_reviews(
                         )
                     else:
                         logging.warning(f"run_{review_type}: {model} returned {result} of type {type(result)}")
+                elif isinstance(result, list):  # Check for list type first
+                    if review_type == ReviewType.SEGMENTED and all(isinstance(x, dict) for x in result):
+                        pointwise_results[model] = cast(
+                            SegmentedResult, {"segments": result, "reviewer_model": model_name}
+                        )
+                    else:
+                        logging.warning(f"run_{review_type}: {model} returned invalid list result {result}")
                 else:
                     logging.warning(f"run_{review_type}: {model} returned {result} of type {type(result)}")
 
@@ -393,13 +505,21 @@ async def generate_reviews(
             ReviewType.CRITIQUE,
             critique_reviewer,
         )
-        logging.info(f"Critique review result: {result}")
         return cast(tuple[ReviewType, dict[str, CritiqueResult]], result)
+
+    async def run_segmented_review() -> tuple[ReviewType, dict[str, SegmentedResult]]:
+        """Run segmented review."""
+        result = await _run_pointwise_review(
+            ReviewType.SEGMENTED,
+            segmented_reviewer,
+        )
+        return cast(tuple[ReviewType, dict[str, SegmentedResult]], result)
 
     # Map review types to their corresponding functions
     review_funcs = {
         ReviewType.BINARY: run_binary_review,
         ReviewType.CRITIQUE: run_critique_review,
+        ReviewType.SEGMENTED: run_segmented_review,
     }
 
     # Map review types to their error values with proper type annotations
@@ -438,5 +558,6 @@ async def generate_reviews(
     return ReviewResponse(
         binary=cast(dict[str, BinaryResult], processed_results.get(ReviewType.BINARY)),
         critique=cast(dict[str, CritiqueResult], processed_results.get(ReviewType.CRITIQUE)),
+        segmented=cast(dict[str, SegmentedResult], processed_results.get(ReviewType.SEGMENTED)),
         status=ReviewStatus.ERROR if has_error else ReviewStatus.SUCCESS,
     )

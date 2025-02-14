@@ -64,6 +64,63 @@ def test_update_ratings_counter() -> None:
     assert counter.threshold == 10
 
 
+def test_process_tag_content() -> None:
+    """Test the _process_tag_content method of SegmentedReviewLabeler."""
+    from ypl.backend.llm.review import SegmentedReviewLabeler
+
+    # Create a minimal instance just for testing the method
+    labeler = SegmentedReviewLabeler()
+
+    # Test case 1: Basic tag content extraction
+    lines = [
+        "<segment 1>",
+        "This is some content",
+        "across multiple lines",
+        "</segment 1>",
+    ]
+    content, end_idx = labeler._process_tag_content(lines, 0, "segment")
+    print(content)
+    assert content == "This is some content\nacross multiple lines"
+    assert end_idx == 3
+
+    # Test case 2: Handling [insert verbatim] markers
+    lines = [
+        "<review 2>",
+        "[insert verbatim review 2]",
+        "The explanation here",
+        "continues here",
+        "</review 2>",
+    ]
+    content, end_idx = labeler._process_tag_content(lines, 0, "review")
+    assert content == "The explanation here\ncontinues here"
+    assert end_idx == 4
+
+    # Test case 3: Preserving whitespace and empty lines
+    lines = [
+        "<updated-segment 3>",
+        "  Indented line",
+        "",
+        "    Double indented",
+        "</updated-segment 3>",
+    ]
+    content, end_idx = labeler._process_tag_content(lines, 0, "updated-segment")
+    assert content == "  Indented line\n\n    Double indented"
+    assert end_idx == 4
+
+    lines = [
+        "...",
+        "...",
+        "<updated-segment 3>",
+        "  Indented line",
+        "",
+        "    Double indented",
+        "</updated-segment 3>",
+    ]
+    content, end_idx = labeler._process_tag_content(lines, 2, "updated-segment")
+    assert content == "  Indented line\n\n    Double indented"
+    assert end_idx == 6
+
+
 @pytest.mark.asyncio
 @pytest.mark.repeat(3)
 async def test_multi_delegate() -> None:
