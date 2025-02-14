@@ -18,12 +18,12 @@ async def get_balance(request: GetBalanceRequest) -> GetBalanceResponse:
     return await partner_clients.tabapay.get_balance(request)
 
 
-@router.get("/account-details")
+@router.get("/account-details/{account_id}")
 async def get_account_details(account_id: str) -> TabapayAccountDetails:
     return await partner_clients.tabapay.get_account_details(account_id)
 
 
-@router.get("/transaction-status")
+@router.get("/transaction-status/{transaction_id}")
 async def get_transaction_status(transaction_id: str) -> TabapayStatusEnum:
     return await partner_clients.tabapay.get_transaction_status(transaction_id)
 
