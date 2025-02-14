@@ -198,8 +198,8 @@ class Settings(BaseSettings):
                     }
                 )
             )
-
-            return ""
+            # Raise the error instead of returning an empty string so that the property is not cached.
+            raise e
 
     @computed_field  # type: ignore[misc]
     @cached_property
@@ -210,18 +210,12 @@ class Settings(BaseSettings):
     @cached_property
     def axis_upi_config(self) -> dict:
         secret = self._get_gcp_secret(f"axis-upi-config-{self.ENVIRONMENT}")
-        # Let it fail silently if the secret is not found or is empty. It's not in the critical path.
-        # Other checks will catch it if it's not found.
-        if not secret:
-            return {}
         return json.loads(secret)  # type: ignore[no-any-return]
 
     @computed_field  # type: ignore[misc]
     @cached_property
     def paypal_config(self) -> dict:
         secret = self._get_gcp_secret(f"paypal-config-{self.ENVIRONMENT}")
-        if not secret:
-            return {}
         return json.loads(secret)  # type: ignore[no-any-return]
 
     @computed_field  # type: ignore[misc]
@@ -409,7 +403,8 @@ async def preload_gcp_secrets() -> None:
         async with semaphore:
             return await asyncio.to_thread(fn)
 
-    await asyncio.gather(
+    logging.info("Preloading GCP secrets")
+    results = await asyncio.gather(
         fetch_secret(lambda: settings.axis_upi_config),
         fetch_secret(lambda: settings.paypal_config),
         fetch_secret(lambda: settings.validate_destination_identifier_secret_key),
@@ -424,4 +419,10 @@ async def preload_gcp_secrets() -> None:
         fetch_secret(lambda: settings.vpnapi_api_key),
         fetch_secret(lambda: settings.ipinfo_api_key),
         fetch_secret(lambda: settings.partner_payments_api_url),
+        return_exceptions=True,
     )
+
+    logging.info("GCP secrets preloaded")
+    for result in results:
+        if isinstance(result, Exception):
+            logging.error(f"Error preloading a GCP secret: {result}")

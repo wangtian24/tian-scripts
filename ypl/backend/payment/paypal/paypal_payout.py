@@ -14,10 +14,6 @@ from ypl.backend.config import settings
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import CurrencyEnum, PaymentInstrumentIdentifierTypeEnum
 
-PAYPAL_API_URL: Final[str] = settings.paypal_config["api_url"]
-PAYPAL_CLIENT_ID: Final[str] = settings.paypal_config["client_id"]
-PAYPAL_CLIENT_SECRET: Final[str] = settings.paypal_config["client_secret"]
-
 EMAIL_SUBJECT: Final[str] = "You have a credit from YUPP!"
 EMAIL_MESSAGE: Final[str] = "You have received a credit from YUPP. Thanks for using YUPP!"
 
@@ -74,14 +70,21 @@ class PayPalPayout:
 
 def _get_paypal_client() -> PayPalHttpClient:
     """Get PayPal client instance."""
-    if not all([PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET]):
+
+    paypal_config = settings.paypal_config
+
+    if not all([paypal_config["client_id"], paypal_config["client_secret"]]):
         raise PayPalPayoutError(GENERIC_ERROR_MESSAGE, {"error": "Missing PayPal API credentials"})
 
     # Choose environment based on API URL
-    if "sandbox" in PAYPAL_API_URL:
-        environment = SandboxEnvironment(client_id=PAYPAL_CLIENT_ID, client_secret=PAYPAL_CLIENT_SECRET)
+    if "sandbox" in paypal_config["api_url"]:
+        environment = SandboxEnvironment(
+            client_id=paypal_config["client_id"], client_secret=paypal_config["client_secret"]
+        )
     else:
-        environment = LiveEnvironment(client_id=PAYPAL_CLIENT_ID, client_secret=PAYPAL_CLIENT_SECRET)
+        environment = LiveEnvironment(
+            client_id=paypal_config["client_id"], client_secret=paypal_config["client_secret"]
+        )
 
     return PayPalHttpClient(environment)
 
