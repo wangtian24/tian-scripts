@@ -163,6 +163,7 @@ async def process_paypal_payout(payout: PayPalPayout) -> tuple[str, str]:
                     "recipient_wallet": recipient_wallet_type,
                     "receiver": payout.destination_identifier,
                     "recipient_type": recipient_type,
+                    "purpose": "CASHBACK",
                 }
             ],
         }
