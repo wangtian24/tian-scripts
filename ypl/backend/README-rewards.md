@@ -26,6 +26,7 @@ constants:
   weekly_points_limit: 100000
   monthly_points_limit: 200000
   zero_turn_based_reward_probability: 0.25
+  min_ever_high_value_reward_amount: 15
 ```
 
 ### Rule Properties

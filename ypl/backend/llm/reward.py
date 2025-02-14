@@ -520,6 +520,8 @@ def _handle_turn_based_reward(
         should_reward = True
         reward_amount = 0
         high_value_reward_amount = user_turn_reward.get_amount(high_value=False)
+        if high_value_reward_amount < RULE_CONSTANTS["min_ever_high_value_reward_amount"]:
+            high_value_reward_amount = RULE_CONSTANTS["min_ever_high_value_reward_amount"]
         reward_comment = "Better luck next time!"
 
         log_dict = {
@@ -562,8 +564,17 @@ def _handle_turn_based_reward(
     # Get reward amount from rule engine
     reward_amount = user_turn_reward.get_amount()
     high_value_reward_amount = user_turn_reward.get_amount(high_value=True)
-
     reward_comment = user_turn_reward.get_reward_comment()
+
+    # Safety checks.
+    if reward_amount < 0:
+        reward_amount = 0
+
+    if high_value_reward_amount < max(0, RULE_CONSTANTS["min_ever_high_value_reward_amount"]):
+        high_value_reward_amount = max(0, RULE_CONSTANTS["min_ever_high_value_reward_amount"])
+
+    if reward_amount == 0:
+        reward_comment = "Better luck next time!"
 
     log_reward_debug_info(
         should_reward=should_reward,
@@ -571,15 +582,6 @@ def _handle_turn_based_reward(
         high_value_reward_amount=high_value_reward_amount,
         **user_turn_reward.to_dict(),
     )
-
-    # Safety check to prevent negative rewards.
-    if reward_amount < 0:
-        reward_amount = 0
-    if high_value_reward_amount < 0:
-        high_value_reward_amount = 0
-
-    if reward_amount == 0:
-        reward_comment = "Better luck next time!"
 
     return (
         should_reward,

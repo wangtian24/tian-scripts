@@ -501,24 +501,37 @@ def test_turn_reward_amount(
     user_with_recent_reward = create_user_turn_reward(points_last_award=10)
     low_value_reward_amounts = []
     high_value_reward_amounts = []
-    should_reward_values = []
     num_iterations = 1000
     for _ in range(num_iterations):
-        should_reward, reward_amount, high_value_reward_amount, _, _, _ = _handle_turn_based_reward(
-            user_with_recent_reward
-        )
+        _, reward_amount, high_value_reward_amount, _, _, _ = _handle_turn_based_reward(user_with_recent_reward)
         low_value_reward_amounts.append(reward_amount)
         high_value_reward_amounts.append(high_value_reward_amount)
-        should_reward_values.append(should_reward)
     expected_zero_reward_count = zero_reward_probability * num_iterations
     assert len([x for x in low_value_reward_amounts if x == 0]) == approx(expected_zero_reward_count, rel=0.2)
     # A high value reward should never be zero.
     assert len([x for x in high_value_reward_amounts if x == 0]) == 0
-    # TODO: Rethink if we need should_reward in the return value as it'll always be true.
-    # A user should always be rewarded, even if they get a zero reward.
-    # assert (
-    #     len([x for x in should_reward_values if x is False]) == 0
-    # ), "A user should always be rewarded even if they get a zero reward."
+
+    # In the worst case, a user should get a non-zero high value reward while getting a low value reward of 0.
+    zero_reward_probability = 1.0
+    user_with_recent_reward = create_user_turn_reward(
+        points_last_award=10,
+        points_last_day=daily_points_limit,
+    )
+    num_iterations = 1000
+    low_value_reward_amounts = []
+    high_value_reward_amounts = []
+    for _ in range(num_iterations):
+        _, reward_amount, high_value_reward_amount, _, _, _ = _handle_turn_based_reward(user_with_recent_reward)
+        low_value_reward_amounts.append(reward_amount)
+        high_value_reward_amounts.append(high_value_reward_amount)
+    assert (
+        len([x for x in low_value_reward_amounts if x == 0]) == num_iterations
+    ), "Expected all low value rewards to be 0."
+    min_ever_high_value_reward_amount = RULES.get("constants", {}).get("min_ever_high_value_reward_amount")
+    assert min(high_value_reward_amounts) == min_ever_high_value_reward_amount, (
+        "Expected all high value rewards to be at least the minimum high value reward amount. "
+        f"Expected: {min_ever_high_value_reward_amount}, got: {min(high_value_reward_amounts)}."
+    )
 
     # A user should not get a zero reward if their most recent one was 0 (or never received anything).
     user_with_recent_zero_reward = create_user_turn_reward(points_last_award=0)

@@ -6,6 +6,8 @@ constants: &constants
   weekly_referral_points_limit: &weekly_referral_points_limit 200000
   monthly_referral_points_limit: &monthly_referral_points_limit 500000
   zero_turn_based_reward_probability: &zero_turn_based_reward_probability 0.25
+  # Lowest amount that can be rewarded in a high value reward.
+  min_ever_high_value_reward_amount: &min_ever_high_value_reward_amount 15
 
 amount_rules:
   - name: high
