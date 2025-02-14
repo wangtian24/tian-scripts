@@ -15,7 +15,7 @@ from ypl.backend.llm.reward import (
     create_reward,
     create_reward_action_log,
     feedback_based_reward,
-    get_referrer_user_id,
+    get_referrer_user_id_for_reward,
     get_reward_action_log_by_user_and_turn,
     process_reward_claim,
     qt_eval_reward,
@@ -261,7 +261,7 @@ async def handle_referral_bonus_reward(reward_action_log: RewardActionLog) -> Re
     if user_id is None or reward_action_log.turn_id is None:
         raise HTTPException(status_code=400, detail="User ID and turn ID are required for creating a referral bonus")
 
-    referrer_user_id = await get_referrer_user_id(user_id)
+    referrer_user_id = await get_referrer_user_id_for_reward(user_id)
     if referrer_user_id is None:
         return RewardCreationResponse(is_rewarded=False)
 

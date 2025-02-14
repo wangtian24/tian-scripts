@@ -35,7 +35,7 @@ from ypl.backend.llm.turn_quality import LOW_EVAL_QUALITY_SCORE, update_user_eva
 from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import Chat, Eval, EvalType, Turn, TurnQuality
-from ypl.db.invite_codes import SpecialInviteCodeClaimLog
+from ypl.db.invite_codes import SpecialInviteCode, SpecialInviteCodeClaimLog
 from ypl.db.point_transactions import PointsActionEnum, PointTransaction
 from ypl.db.rewards import (
     Reward,
@@ -965,7 +965,7 @@ async def sign_up_reward(user_id: str) -> tuple[bool, int, str, RewardAmountRule
     )
 
 
-async def get_referrer_user_id(user_id: str) -> str | None:
+async def get_referrer_user_id_for_reward(user_id: str) -> str | None:
     async with AsyncSession(get_async_engine()) as session:
         result = await session.execute(
             select(
@@ -973,7 +973,11 @@ async def get_referrer_user_id(user_id: str) -> str | None:
             )
             .join(User, User.email == WaitlistedUser.email)  # type: ignore
             .join(SpecialInviteCodeClaimLog, SpecialInviteCodeClaimLog.user_id == User.user_id)  # type: ignore
-            .where(User.user_id == user_id)
+            .join(
+                SpecialInviteCode,
+                SpecialInviteCode.special_invite_code_id == SpecialInviteCodeClaimLog.special_invite_code_id,  # type: ignore
+            )
+            .where(User.user_id == user_id, SpecialInviteCode.referral_bonus_eligible.is_(True))  # type: ignore
         )
         referrer_id = result.scalar_one_or_none()
         return referrer_id

@@ -2,7 +2,7 @@ import uuid
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from sqlalchemy import UniqueConstraint
+from sqlalchemy import Boolean, Column, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship
 
@@ -36,6 +36,9 @@ class SpecialInviteCode(BaseModel, table=True):
     # How many times this codes can be used in total. If null, this code is unlimited.
     # Note that this field does not represent the usage left
     usage_limit: int | None = Field(nullable=True)
+
+    # Whether this code is eligible for referral bonus.
+    referral_bonus_eligible: bool = Field(sa_column=Column(Boolean(), server_default="TRUE", nullable=False))
 
     claim_logs: list["SpecialInviteCodeClaimLog"] = Relationship(back_populates="special_invite_code")
 
