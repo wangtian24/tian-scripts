@@ -220,15 +220,16 @@ class PayPalFacilitator(BaseFacilitator):
                     destination_identifier=destination_identifier,
                 )
                 batch_id, batch_status = await process_paypal_payout(paypal_payout)
+                transaction_status = await get_transaction_status(batch_id)
 
                 await update_payment_transaction(
                     payment_transaction_id,
                     partner_reference_id=batch_id,
-                    status=self._map_paypal_status_to_internal(batch_status),
+                    status=self._map_paypal_status_to_internal(transaction_status),
                     customer_reference_id=batch_id,
                 )
 
-                if batch_status not in (TransactionStatus.SUCCESS, TransactionStatus.DENIED):
+                if transaction_status not in (TransactionStatus.SUCCESS):
                     # Start monitoring in background task
                     asyncio.create_task(
                         self._monitor_transaction_completion(
@@ -342,7 +343,12 @@ class PayPalFacilitator(BaseFacilitator):
         """
         if status == TransactionStatus.SUCCESS:
             return PaymentTransactionStatusEnum.SUCCESS
-        elif status == TransactionStatus.DENIED:
+        elif status in (
+            TransactionStatus.FAILED,
+            TransactionStatus.RETURNED,
+            TransactionStatus.REFUNDED,
+            TransactionStatus.REVERSED,
+        ):
             return PaymentTransactionStatusEnum.FAILED
         else:
             return PaymentTransactionStatusEnum.PENDING
@@ -438,7 +444,12 @@ class PayPalFacilitator(BaseFacilitator):
                     }
                     logging.info(json_dumps(log_dict))
                     return
-                elif status == TransactionStatus.DENIED:
+                elif status in (
+                    TransactionStatus.FAILED,
+                    TransactionStatus.RETURNED,
+                    TransactionStatus.REFUNDED,
+                    TransactionStatus.REVERSED,
+                ):
                     log_dict = {
                         "message": "PayPal payout failed",
                         "user_id": user_id,

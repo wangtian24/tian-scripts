@@ -22,9 +22,14 @@ class TransactionStatus(StrEnum):
     """Enum for PayPal transaction statuses."""
 
     SUCCESS = "SUCCESS"
+    FAILED = "FAILED"
     PENDING = "PENDING"
-    PROCESSING = "PROCESSING"
-    DENIED = "DENIED"
+    UNCLAIMED = "UNCLAIMED"
+    RETURNED = "RETURNED"
+    ONHOLD = "ONHOLD"
+    BLOCKED = "BLOCKED"
+    REFUNDED = "REFUNDED"
+    REVERSED = "REVERSED"
     UNKNOWN = "UNKNOWN"
 
 
@@ -242,22 +247,28 @@ async def get_transaction_status(batch_id: str) -> str:
         batch_id: The ID of the payout batch to check
 
     Returns:
-        str: The status of the payout batch
+        str: The status of the payout transaction
     """
     try:
         client = _get_paypal_client()
         request = PayoutsGetRequest(batch_id)
         response = client.execute(request)
-        status = response.result.batch_header.batch_status
+        batch_status = response.result.batch_header.batch_status
+        items = response.result.items
+
+        # Extract transaction status from the first item
+        transaction_status = items[0].transaction_status if items else "UNKNOWN"
 
         log_dict = {
-            "message": "PayPal: Retrieved transaction status",
+            "message": "PayPal: Retrieved batch status",
             "batch_id": batch_id,
-            "status": status,
+            "batch_status": batch_status,
+            "transaction_status": transaction_status,
+            "items": json_dumps(items),
         }
         logging.info(json_dumps(log_dict))
 
-        return str(status)
+        return str(transaction_status)
 
     except HttpError as e:
         details = {
