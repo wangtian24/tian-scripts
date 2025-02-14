@@ -14,7 +14,7 @@ from ypl.db.invite_codes import (
     SpecialInviteCodeClaimLog,
     SpecialInviteCodeState,
 )
-from ypl.db.users import User
+from ypl.db.users import User, UserStatus
 
 
 @dataclass
@@ -205,6 +205,7 @@ async def get_users_eligible_for_invite_codes(
         .where(
             User.created_at <= cutoff_date,  # type: ignore
             User.deleted_at.is_(None),  # type: ignore
+            User.status == UserStatus.ACTIVE,
             func.coalesce(feedback_stats.c.feedback_count, 0) >= min_feedback_count,
             # Exclude user that already have invite codes (both inactive or active)
             not_(

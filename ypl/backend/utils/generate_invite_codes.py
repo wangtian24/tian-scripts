@@ -61,9 +61,8 @@ async def generate_invite_code_for_top_users(
         await session.commit()
 
         if slack_messages:
-            message_to_post = (
-                f"Generated {codes_created} INACTIVE SICs. <@U07BX3T7YBV> needs to review and activate: \n\n"
-                + "\n".join(slack_messages)
+            message_to_post = f"Generated {codes_created} SICs. <@U07BX3T7YBV> to review: \n\n" + "\n".join(
+                slack_messages
             )
 
             await post_to_slack(
