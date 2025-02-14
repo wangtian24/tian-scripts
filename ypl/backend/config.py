@@ -204,7 +204,7 @@ class Settings(BaseSettings):
     @computed_field  # type: ignore[misc]
     @cached_property
     def partner_payments_api_url(self) -> str:
-        return self._get_gcp_secret("partner-payments-api-url")
+        return self._get_gcp_secret(f"partner-payments-api-url-{self.ENVIRONMENT}")
 
     @computed_field  # type: ignore[misc]
     @cached_property
