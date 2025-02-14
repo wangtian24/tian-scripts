@@ -23,7 +23,6 @@ on:
         options:
         - backend
         - backend-pytorch-service
-        - backend-pytorch-service-bleeding
       region:
         description: 'Region to deploy to'
         required: true
@@ -110,7 +109,7 @@ jobs:
           echo "CLOUD_SQL_CONNECTION_NAME=${{ secrets.CLOUD_SQL_CONNECTION_NAME_STAGING }}" >> $GITHUB_ENV
         fi
 
-        if [[ "${{ github.event.inputs.image }}" == "backend-pytorch-service" || "${{ github.event.inputs.image }}" == "backend-pytorch-service-bleeding" ]]; then
+        if [[ "${{ github.event.inputs.image }}" == "backend-pytorch-service" ]]; then
           echo "DOCKERFILE=Dockerfile.pytorch-service" >> $GITHUB_ENV
         else
           echo "DOCKERFILE=Dockerfile" >> $GITHUB_ENV

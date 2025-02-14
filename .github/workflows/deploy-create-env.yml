@@ -16,7 +16,6 @@ on:
         enum:
           - backend
           - backend-pytorch-service
-          - backend-pytorch-service-bleeding
           - webhooks
           - partner-payments-server
 
@@ -29,7 +28,7 @@ jobs:
           echo "ENVIRONMENT=${{ env.ENVIRONMENT }}" >> .env
 
       - name: Fill in the common backend .env variables for 'backend' service
-        if: inputs.service_name == 'backend' || inputs.service_name == 'backend-pytorch-service' || inputs.service_name == 'backend-pytorch-service-bleeding'
+        if: inputs.service_name == 'backend' || inputs.service_name == 'backend-pytorch-service'
         run: |
           echo "PROJECT_NAME=\"Yupp-Server\" " >> .env
           echo "NLTK_DATA=\"data/nltk_data\" " >> .env
@@ -50,7 +49,7 @@ jobs:
           echo "ROUTING_TIMEOUT_SECS=1.25" >> .env
 
       - name: Fill in the production backend .env variables for 'backend' service
-        if: (inputs.service_name == 'backend' || inputs.service_name == 'backend-pytorch-service' || inputs.service_name == 'backend-pytorch-service-bleeding') && inputs.environment == 'production'
+        if: (inputs.service_name == 'backend' || inputs.service_name == 'backend-pytorch-service') && inputs.environment == 'production'
         run: |
           echo "POSTGRES_USER=${{ secrets.POSTGRES_USER }}" >> .env
           echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD_PRODUCTION }}" >> .env
@@ -101,7 +100,7 @@ jobs:
           echo "WALLET_ENCRYPTION_KEY=${{ secrets.WALLET_ENCRYPTION_KEY_PRODUCTION }}" >> .env
 
       - name: Fill in the staging backend .env variables for 'backend' service
-        if: (inputs.service_name == 'backend' || inputs.service_name == 'backend-pytorch-service' || inputs.service_name == 'backend-pytorch-service-bleeding') && inputs.environment == 'staging'
+        if: (inputs.service_name == 'backend' || inputs.service_name == 'backend-pytorch-service') && inputs.environment == 'staging'
         run: |
           echo "OPENAI_API_KEY_ROUTING=${{ secrets.OPENAI_API_KEY_ROUTING }}" >> .env
           echo "POSTGRES_USER=${{ secrets.POSTGRES_USER_STAGING }}" >> .env
