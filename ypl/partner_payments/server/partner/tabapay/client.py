@@ -33,6 +33,21 @@ class TabapayStatusEnum(str, Enum):
     REVERSAL = "REVERSAL"
 
 
+class TabapayAccountTypeEnum(str, Enum):
+    """Account types for Tabapay transactions."""
+
+    C = "CHECKING"
+    S = "SAVINGS"
+
+
+class TabapayAchOptionsEnum(str, Enum):
+    """ACH Options for Tabapay transactions."""
+
+    R = "RTP"
+    N = "Next Day"
+    S = "Same Day"
+
+
 class TabapayAchEntryTypeEnum(str, Enum):
     """ACH Entry Types for Tabapay transactions."""
 
@@ -70,8 +85,8 @@ class TabapayBankInfo:
     """Bank account information for Tabapay transactions."""
 
     routingNumber: str
-    last4: str
-    accountType: str
+    accountNumber: str
+    accountType: TabapayAccountTypeEnum
 
 
 @dataclass(frozen=True)
@@ -175,10 +190,10 @@ class TabapayTransactionRequest:
     accounts: TabapayTransactionAccounts
     currency: str
     amount: Decimal
-    purposeOfPayment: str
-    memo: str
     type: str = "push"
-    achOptions: dict[str, Any] | None = None
+    memo: str | None = None
+    purposeOfPayment: str | None = None
+    achOptions: TabapayAchOptionsEnum | None = None
     achEntryType: TabapayAchEntryTypeEnum | None = None
 
 
@@ -286,6 +301,42 @@ class TabaPayClient(BasePartnerClient):
         return GetBalanceResponse(balance=Decimal(1000), ip_address="unknown")
 
     @require_initialization
+    async def get_rtp_details(self, routing_number: str) -> bool:
+        """Get the RTP details from Tabapay.
+
+        Args:
+            routing_number: The routing number to check for RTP details
+
+        Returns:
+            bool: True if RTP details were successfully retrieved
+
+        Raises:
+            TabapayError: If the RTP details request fails
+        """
+        logging.info(json_dumps({"message": "fetching rtp details from tabapay", "routing_number": routing_number}))
+        url = self._get_base_url("banks")
+        assert self.http_client is not None
+
+        try:
+            response = await self.http_client.post(
+                url, headers=self._get_headers(), json={"routingNumber": routing_number}
+            )
+            response.raise_for_status()
+            data = response.json()
+            logging.info(json_dumps({"message": "fetched rtp details from tabapay", "response": json_dumps(data)}))
+            return bool(data.get("RTP", False))
+        except httpx.HTTPError as e:
+            error_details = {
+                "routing_number": routing_number,
+                "error": str(e),
+                "status_code": getattr(e.response, "status_code", None)
+                if isinstance(e, httpx.HTTPStatusError)
+                else None,
+            }
+            logging.warning(json_dumps(error_details))
+            return False
+
+    @require_initialization
     async def get_account_details(self, account_id: str) -> TabapayAccountDetails:
         """Get the details of the account from Tabapay.
 
@@ -344,8 +395,8 @@ class TabaPayClient(BasePartnerClient):
             ),
             bank=TabapayBankInfo(
                 routingNumber=data.get("bank", {}).get("routingNumber", ""),
-                last4=data.get("bank", {}).get("last4", ""),
-                accountType=data.get("bank", {}).get("accountType", ""),
+                accountNumber=data.get("bank", {}).get("last4", ""),
+                accountType=TabapayAccountTypeEnum(data.get("bank", {}).get("accountType", "")),
             )
             if data.get("bank")
             else None,

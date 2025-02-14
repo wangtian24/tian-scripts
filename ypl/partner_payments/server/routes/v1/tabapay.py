@@ -29,6 +29,11 @@ async def get_transaction_status(transaction_id: str) -> TabapayStatusEnum:
     return await partner_clients.tabapay.get_transaction_status(transaction_id)
 
 
+@router.post("/rtp-details")
+async def get_rtp_details(routing_number: str) -> bool:
+    return await partner_clients.tabapay.get_rtp_details(routing_number)
+
+
 @router.post("/create-account")
 async def create_account(request: TabapayAccountDetails) -> TabapayCreateAccountResponse:
     return await partner_clients.tabapay.create_account(request)
