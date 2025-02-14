@@ -6,6 +6,7 @@ from ypl.partner_payments.server.common.types import (
 from ypl.partner_payments.server.partner.clients import partner_clients
 from ypl.partner_payments.server.partner.tabapay.client import (
     TabapayAccountDetails,
+    TabapayCreateAccountResponse,
     TabapayStatusEnum,
     TabapayTransactionRequest,
 )
@@ -29,7 +30,7 @@ async def get_transaction_status(transaction_id: str) -> TabapayStatusEnum:
 
 
 @router.post("/create-account")
-async def create_account(request: TabapayAccountDetails) -> str:
+async def create_account(request: TabapayAccountDetails) -> TabapayCreateAccountResponse:
     return await partner_clients.tabapay.create_account(request)
 
 

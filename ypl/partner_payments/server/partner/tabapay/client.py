@@ -182,6 +182,19 @@ class TabapayTransactionRequest:
     achEntryType: TabapayAchEntryTypeEnum | None = None
 
 
+@dataclass(frozen=True)
+class TabapayCreateAccountResponse:
+    """Response from Tabapay account creation.
+
+    Attributes:
+        account_id: The ID of the created account
+        metadata: Additional data returned by Tabapay (card or bank info)
+    """
+
+    account_id: str
+    metadata: dict[str, Any]
+
+
 class TabapayError(Exception):
     """Base exception class for Tabapay related errors."""
 
@@ -385,14 +398,14 @@ class TabaPayClient(BasePartnerClient):
             raise TabapayError("Error fetching transaction details from Tabapay", error_details) from e
 
     @require_initialization
-    async def create_account(self, request: TabapayAccountDetails) -> str:
+    async def create_account(self, request: TabapayAccountDetails) -> TabapayCreateAccountResponse:
         """Create an account in Tabapay.
 
         Args:
             request: Account details for creation
 
         Returns:
-            str: The ID of the created account
+            TabapayCreateAccountResponse containing the account ID and additional metadata
 
         Raises:
             TabapayError: If account creation fails
@@ -415,7 +428,19 @@ class TabaPayClient(BasePartnerClient):
             log_dict["response"] = json_dumps(data)
             logging.info(json_dumps(log_dict))
 
-            return str(data.get("accountId", ""))
+            # Extract metadata (everything except standard fields)
+            metadata = {k: v for k, v in data.items() if k not in ["SC", "EC", "accountID"]}
+
+            log_dict = {
+                "message": "Tabapay: Account created",
+                "response": json_dumps(data),
+            }
+            logging.info(json_dumps(log_dict))
+
+            return TabapayCreateAccountResponse(
+                account_id=str(data.get("accountID", "")),
+                metadata=metadata,
+            )
         except httpx.HTTPError as e:
             error_details = {
                 "request": json_dumps(request),
