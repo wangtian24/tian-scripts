@@ -236,6 +236,9 @@ class TabaPayClient(BasePartnerClient):
 
     async def initialize(self) -> None:
         """Initialize the client with configuration and HTTP client setup."""
+        if self.http_client is not None:
+            return
+
         self.config = await secret_manager.get_tabapay_config()
         config_obj = TabapayConfig(
             api_url=self.config["api_url"], client_id=self.config["client_id"], bearer_token=self.config["bearer_token"]
@@ -248,10 +251,11 @@ class TabaPayClient(BasePartnerClient):
         )
 
     async def cleanup(self) -> None:
-        """Clean up resources used by the client."""
+        """Clean up resources used by the client. Should be called when the client is no longer needed."""
         if self.http_client:
             await self.http_client.aclose()
             self.http_client = None
+            self._config_obj = None
 
     def _get_headers(self) -> dict[str, str]:
         """Get common headers for API requests."""

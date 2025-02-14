@@ -203,6 +203,11 @@ class Settings(BaseSettings):
 
     @computed_field  # type: ignore[misc]
     @cached_property
+    def partner_payments_api_url(self) -> str:
+        return self._get_gcp_secret("partner-payments-api-url")
+
+    @computed_field  # type: ignore[misc]
+    @cached_property
     def axis_upi_config(self) -> dict:
         secret = self._get_gcp_secret(f"axis-upi-config-{self.ENVIRONMENT}")
         # Let it fail silently if the secret is not found or is empty. It's not in the critical path.
@@ -418,4 +423,5 @@ async def preload_gcp_secrets() -> None:
         fetch_secret(lambda: settings.checkout_com_entity_id),
         fetch_secret(lambda: settings.vpnapi_api_key),
         fetch_secret(lambda: settings.ipinfo_api_key),
+        fetch_secret(lambda: settings.partner_payments_api_url),
     )
