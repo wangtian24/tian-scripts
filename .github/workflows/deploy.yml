@@ -274,36 +274,31 @@ jobs:
 
     - name: Deploy to Cloud Run
       run: |
+        COMMON_ARGS="\
+          --image ${{ env.IMAGE_NAME }} \
+          --region ${{ env.REGION }} \
+          --allow-unauthenticated \
+          --cpu ${{ env.CPU }} \
+          --memory ${{ env.MEMORY }} \
+          --args=service \
+          --add-cloudsql-instances=${{ env.CLOUD_SQL_CONNECTION_NAME }} \
+          --network=default \
+          --subnet=default \
+          --vpc-egress=private-ranges-only \
+          --timeout=10m \
+          "
         if [[ "${{ github.event.inputs.gpu }}" == "true" ]]; then
           gcloud beta run deploy ${{ env.SERVICE_NAME }} \
-            --image ${{ env.IMAGE_NAME }} \
-            --region ${{ env.REGION }} \
-            --allow-unauthenticated \
-            --cpu ${{ env.CPU }} \
-            --memory ${{ env.MEMORY }} \
+            $COMMON_ARGS \
             --gpu-type nvidia-l4 \
             --gpu 1 \
             --service-min-instances 1 \
-            --args=service \
             --no-cpu-throttling \
-            --add-cloudsql-instances=${{ env.CLOUD_SQL_CONNECTION_NAME }} \
-            --vpc-egress=private-ranges-only \
-            --network=default \
-            --subnet=default \
             --command="/app/ypl/pytorch/serve/entrypoint.sh"
         else
           gcloud run deploy ${{ env.SERVICE_NAME }} \
-            --image ${{ env.IMAGE_NAME }} \
+            $COMMON_ARGS \
             --platform managed \
-            --region ${{ env.REGION }} \
-            --allow-unauthenticated \
-            --cpu ${{ env.CPU }} \
-            --memory ${{ env.MEMORY }} \
-            --args=service \
-            --add-cloudsql-instances=${{ env.CLOUD_SQL_CONNECTION_NAME }} \
-            --vpc-egress=private-ranges-only \
-            --network=default \
-            --subnet=default \
             --command="/app/ypl/backend/entrypoint.sh"
         fi
 

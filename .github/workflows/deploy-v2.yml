@@ -181,53 +181,42 @@ jobs:
 
     - name: Deploy to Cloud Run
       run: |
+        COMMON_ARGS="\
+          --image ${{ env.IMAGE_NAME }} \
+          --region ${{ env.REGION }} \
+          --allow-unauthenticated \
+          --cpu ${{ env.CPU }} \
+          --memory ${{ env.MEMORY }} \
+          --args=service \
+          --add-cloudsql-instances=${{ env.CLOUD_SQL_CONNECTION_NAME }} \
+          --network=default \
+          --timeout=10m \
+          "
         if [[ "${{ github.event.inputs.gpu }}" == "true" ]]; then
           gcloud beta run deploy ${{ env.SERVICE_NAME }} \
-            --image ${{ env.IMAGE_NAME }} \
-            --region ${{ env.REGION }} \
-            --allow-unauthenticated \
-            --cpu ${{ env.CPU }} \
-            --memory ${{ env.MEMORY }} \
+            $COMMON_ARGS \
             --gpu-type nvidia-l4 \
             --gpu 1 \
             --service-min-instances 1 \
-            --args=service \
             --no-cpu-throttling \
-            --add-cloudsql-instances=${{ env.CLOUD_SQL_CONNECTION_NAME }} \
-            --vpc-egress=private-ranges-only \
-            --network=default \
             --subnet=default \
+            --vpc-egress=private-ranges-only \
             --command="/app/ypl/pytorch/serve/entrypoint.sh"
         elif [[ "${{ env.SERVICE_NAME }}" == "backend" ]]; then
           gcloud run deploy ${{ env.SERVICE_NAME }} \
-            --image ${{ env.IMAGE_NAME }} \
-            --set-env-vars-from-file=.env \
+            $COMMON_ARGS \
             --platform managed \
-            --region ${{ env.REGION }} \
-            --allow-unauthenticated \
-            --cpu ${{ env.CPU }} \
-            --memory ${{ env.MEMORY }} \
-            --args=service \
-            --add-cloudsql-instances=${{ env.CLOUD_SQL_CONNECTION_NAME }} \
-            --vpc-egress=private-ranges-only \
-            --network=default \
             --subnet=default \
+            --vpc-egress=private-ranges-only \
             --command="/app/ypl/backend/entrypoint.sh"
         elif [[ "${{ env.SERVICE_NAME }}" == "partner-payments-server" ]]; then
           gcloud run deploy ${{ env.SERVICE_NAME }} \
-            --image ${{ env.IMAGE_NAME }} \
+            $COMMON_ARGS \
             --set-env-vars-from-file=.env \
             --set-env-vars="SCRIPT_TO_RUN=/app/ypl/partner_payments/server/entrypoint.sh" \
             --platform managed \
-            --region ${{ env.REGION }} \
-            --allow-unauthenticated \
-            --cpu ${{ env.CPU }} \
-            --memory ${{ env.MEMORY }} \
-            --args=service \
-            --add-cloudsql-instances=${{ env.CLOUD_SQL_CONNECTION_NAME }} \
-            --vpc-egress=all-traffic \
-            --network=default \
             --subnet=payment-partners-staging \
+            --vpc-egress=all-traffic \
             --command="/app/ypl/partner_payments/server/entrypoint.sh"
         else
           echo "ERROR: Invalid service name"
