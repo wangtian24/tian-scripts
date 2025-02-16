@@ -1,6 +1,6 @@
 # Yupp LLMs
 
-Multi Intelligence Neural Distribution Service
+Multi Intelligence Neural Distribution (MIND) Service
 
 ## Purpose
 
@@ -66,6 +66,9 @@ Make sure Homebrew is installed. If not, follow instructions [here](https://brew
 
   # make sure you do this every time you start a new terminal session
   mamba activate ys-dev
+
+  # If this gives an error, you can also use conda to activate the environment
+  conda activate ys-dev
   ```
 
 - Confirm that the `ys-dev` environment is activated by running `mamba info --envs` and seeing `ys-dev` in the list with a `*` next to it. You will also see the text `(ys-dev)` in front of your command line prompt.
@@ -81,15 +84,16 @@ Make sure Homebrew is installed. If not, follow instructions [here](https://brew
 
 ### 2. Set Up Credentials
 
-The backend server needs to load all necessary credentials from `.env` file in the repo root to access various services. We have these secrets stored in 1Password (and Vercel for production). To run the server locally, you need to create this file by downloading it from 1Password (it's under the entry "yupp-mind .env file"). Here is the command lines to do it on macOS:
+The backend server needs to load all necessary credentials from `.env` file in the repo root to access various services. We have these secrets stored in 1Password (and Vercel for production). To run the server locally, you need to create this file by downloading it from 1Password (it's under the entry "yupp-mind .env file"). Here is the command lines to do it on macOS using the command line:
 
   ```sh
-  # Install 1Password CLI
+  # Install 1Password CLI, which installs the package 'op'
   brew install 1password-cli
-  # TODO: explain 'op' better
-  op --version
+  # Add your 1Password yupp.ai account. Have your 1Password signin details handy
+  # The sign-in address which will be asked is team-yupp.1password.com
+  op account add
 
-  # sign into the 1Password account, it will show some popup.
+  # sign into the 1Password account, it might show some popup or ask you for info in the command line
   # If you have multiple accounts, make sure you choose the Yupp one.
   eval $(op signin)
   ```
@@ -105,12 +109,12 @@ Alternately, download it from 1Password web-ui.
 #### Set Up GCP Service Account
 
 The service sends logs and metrics to GCP under `yupp-llms` project. You need to pass
-serice acount credentials for this project. Download `GCP service account key` under `Shared_dev`
-in 1Password and set `GOOGLE_APPLICATION_CREDENTIALS` to the path for the file.
+service acount credentials for this project. Download `GCP shared-local-dev service account`
+in the `Shared_dev` vault in 1Password and set `GOOGLE_APPLICATION_CREDENTIALS` to the path
+for the file.
 
 ```sh
-  export GOOGLE_APPLICATION_CREDENTIALS=$HOME/yupp-llms-832409585585.json
-```
+  export GOOGLE_APPLICATION_CREDENTIALS=$HOME/yupp-llms-shared-local-dev-service-account.json
 
 ### 3. Build and Run
 
@@ -138,7 +142,7 @@ You can start the server in any of these modes by specifying the `ENVIRONMENT` v
 
 - Local mode
   - Set up local database. See [here](ypl/db/local_pg_setup/README.md) for more details.
-  - Update `.env` file: Uncomment local DB configuration (`POSTGRES_HOST` etc) and comment out the same for staging.
+  - Update `.env` file: Uncomment local DB configuration (`POSTGRES_HOST` etc) and comment out the corresponding lines for staging.
   ```sh
   ENVIRONMENT=local uvicorn ypl.backend.server:app --reload
   ```
