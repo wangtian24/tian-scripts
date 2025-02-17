@@ -280,6 +280,11 @@ class Settings(BaseSettings):
 
     @computed_field  # type: ignore[misc]
     @cached_property
+    def paypal_webhook_id(self) -> str:
+        return self._get_gcp_secret(f"paypal-webhook-id-{self.ENVIRONMENT}")
+
+    @computed_field  # type: ignore[misc]
+    @cached_property
     def guest_management_slack_webhook_url(self) -> str:
         return self._get_gcp_secret(f"guest-mgmt-slack-webhook-url-{self.ENVIRONMENT}")
 
@@ -419,6 +424,7 @@ async def preload_gcp_secrets() -> None:
         fetch_secret(lambda: settings.vpnapi_api_key),
         fetch_secret(lambda: settings.ipinfo_api_key),
         fetch_secret(lambda: settings.partner_payments_api_url),
+        fetch_secret(lambda: settings.paypal_webhook_id),
         return_exceptions=True,
     )
 

@@ -23,6 +23,8 @@ class TransactionStatus(StrEnum):
 
     SUCCESS = "SUCCESS"
     FAILED = "FAILED"
+    CANCELED = "CANCELED"
+    DENIED = "DENIED"
     PENDING = "PENDING"
     UNCLAIMED = "UNCLAIMED"
     RETURNED = "RETURNED"

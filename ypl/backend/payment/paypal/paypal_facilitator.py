@@ -225,7 +225,7 @@ class PayPalFacilitator(BaseFacilitator):
                 await update_payment_transaction(
                     payment_transaction_id,
                     partner_reference_id=batch_id,
-                    status=self._map_paypal_status_to_internal(transaction_status),
+                    status=self.map_paypal_status_to_internal(transaction_status),
                     customer_reference_id=batch_id,
                 )
 
@@ -332,7 +332,7 @@ class PayPalFacilitator(BaseFacilitator):
             raise PaymentProcessingError("PayPal: Payout processing failed") from e
 
     @staticmethod
-    def _map_paypal_status_to_internal(status: str) -> PaymentTransactionStatusEnum:
+    def map_paypal_status_to_internal(status: str) -> PaymentTransactionStatusEnum:
         """Map PayPal's transaction status to our internal PaymentTransactionStatusEnum.
 
         Args:
@@ -390,7 +390,7 @@ class PayPalFacilitator(BaseFacilitator):
         logging.info(json_dumps(log_dict))
         return PaymentResponse(
             payment_transaction_id=payment_transaction_id,
-            transaction_status=self._map_paypal_status_to_internal(status),
+            transaction_status=self.map_paypal_status_to_internal(status),
             customer_reference_id=str(transaction.customer_reference_id),
         )
 
