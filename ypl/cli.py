@@ -90,6 +90,7 @@ from ypl.db.message_annotations import (
     update_message_annotations_in_chunks,
 )
 from ypl.db.oneoffs.reset_points import reset_points
+from ypl.db.payments import CurrencyEnum
 from ypl.db.rewards import RewardActionEnum, RewardAmountRule, RewardProbabilityRule, RewardRule
 from ypl.db.users import (
     SYSTEM_USER_ID,
@@ -1355,15 +1356,20 @@ def post_source_account_balances() -> None:
                         )
 
             for currency, details in accounts.items():
-                balance = details.get("balance", 0)
-                current_amount = Decimal(str(balance))
-                last_amount = last_coinbase_retail_balances.get(currency, Decimal("0"))
-                delta = current_amount - last_amount
+                try:
+                    # Skip if currency is not in CurrencyEnum
+                    _ = CurrencyEnum[currency]
+                    balance = details.get("balance", 0)
+                    current_amount = Decimal(str(balance))
+                    last_amount = last_coinbase_retail_balances.get(currency, Decimal("0"))
+                    delta = current_amount - last_amount
 
-                # Format amounts
-                formatted_current = f"{current_amount:.8f}".rstrip("0").rstrip(".")
-                formatted_delta = f"{delta:+.8f}".rstrip("0").rstrip(".")
-                message += f"| {currency:<5} | {formatted_current:>9} | {formatted_delta:>9} |\n"
+                    formatted_current = f"{current_amount:.8f}".rstrip("0").rstrip(".")
+                    formatted_delta = f"{delta:+.8f}".rstrip("0").rstrip(".")
+                    message += f"| {currency:<5} | {formatted_current:>9} | {formatted_delta:>9} |\n"
+                except KeyError:
+                    # Currency not in CurrencyEnum, skip it
+                    continue
             message += "```"
         except Exception as e:
             logging.error(f"Error getting coinbase retail wallet balance for daily posting: {e}")

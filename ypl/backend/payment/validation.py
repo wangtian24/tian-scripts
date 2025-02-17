@@ -8,23 +8,34 @@ supported_currency_to_instrument_identifier_type = {
         PaymentInstrumentIdentifierTypeEnum.PAYPAL_ID,
         PaymentInstrumentIdentifierTypeEnum.VENMO_ID,
     ],
-    CurrencyEnum.USDC: [
-        PaymentInstrumentIdentifierTypeEnum.PHONE_NUMBER,
-        PaymentInstrumentIdentifierTypeEnum.EMAIL,
-        PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS,
-    ],
     CurrencyEnum.BTC: [
         PaymentInstrumentIdentifierTypeEnum.PHONE_NUMBER,
         PaymentInstrumentIdentifierTypeEnum.EMAIL,
+    ],
+    CurrencyEnum.CBBTC: [
         PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS,
+    ],
+    CurrencyEnum.DOGE: [
+        PaymentInstrumentIdentifierTypeEnum.PHONE_NUMBER,
+        PaymentInstrumentIdentifierTypeEnum.EMAIL,
     ],
     CurrencyEnum.ETH: [
         PaymentInstrumentIdentifierTypeEnum.PHONE_NUMBER,
         PaymentInstrumentIdentifierTypeEnum.EMAIL,
         PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS,
     ],
-    CurrencyEnum.CBBTC: [
+    CurrencyEnum.SOL: [
+        PaymentInstrumentIdentifierTypeEnum.PHONE_NUMBER,
+        PaymentInstrumentIdentifierTypeEnum.EMAIL,
+    ],
+    CurrencyEnum.USDC: [
+        PaymentInstrumentIdentifierTypeEnum.PHONE_NUMBER,
+        PaymentInstrumentIdentifierTypeEnum.EMAIL,
         PaymentInstrumentIdentifierTypeEnum.CRYPTO_ADDRESS,
+    ],
+    CurrencyEnum.USDT: [
+        PaymentInstrumentIdentifierTypeEnum.PHONE_NUMBER,
+        PaymentInstrumentIdentifierTypeEnum.EMAIL,
     ],
 }
 

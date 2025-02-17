@@ -88,7 +88,7 @@ def get_network_for_currency(currency: str) -> str | None:
         return CRYPTO_NETWORKS[currency]
     except Exception as e:
         log_dict = {
-            "message": "Unsupported currency",
+            "message": "Use default network for currency",
             "currency": currency,
             "error": str(e),
         }
