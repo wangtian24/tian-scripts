@@ -779,7 +779,7 @@ async def generate_bounded_reward(lower_bound: int, upper_bound: int, quality_sc
     if not quality_score:
         # Default to middle range if no quality score
         mean = (lower_bound + upper_bound) / 2
-        std_dev = (upper_bound - lower_bound) / 6
+        std_dev = (upper_bound - lower_bound) / 4
         reward_amount = int(round(random.gauss(mean, std_dev), -1))
         return max(lower_bound, min(upper_bound, reward_amount))
 
