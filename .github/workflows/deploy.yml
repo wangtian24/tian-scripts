@@ -98,13 +98,13 @@ jobs:
         if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.event.inputs.environment }}" == "production" ]]; then
           echo "ENVIRONMENT=production" >> $GITHUB_ENV
           echo "SERVICE_NAME=${{ github.event.inputs.image || 'backend' }}" >> $GITHUB_ENV
-          echo "MEMORY=24Gi" >> $GITHUB_ENV
+          echo "MEMORY=16Gi" >> $GITHUB_ENV
           echo "CPU=4" >> $GITHUB_ENV
           echo "CLOUD_SQL_CONNECTION_NAME=${{ secrets.CLOUD_SQL_CONNECTION_NAME_PRODUCTION }}" >> $GITHUB_ENV
         else
           echo "ENVIRONMENT=staging" >> $GITHUB_ENV
           echo "SERVICE_NAME=${{ github.event.inputs.image || 'backend' }}-staging" >> $GITHUB_ENV
-          echo "MEMORY=24Gi" >> $GITHUB_ENV
+          echo "MEMORY=16Gi" >> $GITHUB_ENV
           echo "CPU=4" >> $GITHUB_ENV
           echo "CLOUD_SQL_CONNECTION_NAME=${{ secrets.CLOUD_SQL_CONNECTION_NAME_STAGING }}" >> $GITHUB_ENV
         fi
