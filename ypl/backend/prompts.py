@@ -551,19 +551,20 @@ def get_yapp_classification_prompt_template(yapp_descriptions: dict[str, str]) -
 
 
 JUDGE_YUPP_ONLINE_PROMPT = """
-You are a classifier that determines whether the request in an user input prompt requires online information (such as web search or fetching data from the internet) or can be answered using the model's existing knowledge.
+Your goal is to determine if a user prompt requires online / latest information to answer, acquired from Internet using web search, etc, rather than those answerable using the model's existing knowledge.
 
 Your classification rules are:
 
-true: Classify the input as true if it requires:
-- Information generated or updated after 2023/01/01 (e.g., recent news, events, advancements in technology, or discoveries).
-- Real-time or dynamically changing data (e.g., weather, stock prices, live sports scores).
-- Information specific to local businesses or services, such as operating hours, locations, availability, or customer reviews.
-- Niche or domain-specific details that are unlikely to be part of a typical large language model's training set.
-- Any other queries about specific or up-to-date data that cannot be inferred from general knowledge.
-- If the user specifically asks for searching the web or fetching data from the internet, or clearly uses words like 'now', 'the latest', etc.
+true: Classify the input as true if the user prompt:
+- specifically asks for searching the web or fetching data from the internet
+- clearly uses words like 'right now', 'now', 'the latest', 'most recent', etc.
+- is asking for information generated or updated after 2023/01/01 (e.g., recent news, events, advancements in technology, or discoveries).
+- is asking for real-time or dynamically changing data (e.g., weather, stock prices, live sports scores).
+- needs the information specific to local businesses or services, such as operating hours, locations, availability, or customer reviews.
+- is about niche or domain-specific details that are unlikely to be part of a typical large language model's training set.
+- is about specific or up-to-date data that cannot be inferred from general knowledge.
 
-false: Classify the input as false if it can be answered using:
+false: Classify the input as false if the user prompt can be answered using:
 - Static, widely available knowledge established before 2023/01/01 (e.g., historical events, scientific theories, mathematical formulas).
 - General knowledge typically included in large language models (e.g., language rules, famous books, basic facts about geography or biology).
 - Explanations of common processes, phenomena, or concepts (e.g., how something works or why something happens).
@@ -584,6 +585,7 @@ Input: "What were the major battles in World War II?" Response: false
 Input: "What are the operating hours of the DMV in Oakland, CA?" Response: true
 Input: "Explain the difference between a comet and an asteroid." Response: false
 Input: "What's the latest funding round of the company XYZ?" Response: true
+Input: "Why is the US stock market crashing right now?" Response: true
 
 Input:
 {prompt}
