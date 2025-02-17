@@ -19,14 +19,25 @@ if TYPE_CHECKING:
 class CurrencyEnum(enum.Enum):
     INR = "INR"
     USD = "USD"
-    USDC = "USDC"
-    ETH = "ETH"
-    BTC = "BTC"
     CBBTC = "CBBTC"
+    BTC = "BTC"
+    DOGE = "DOGE"
+    ETH = "ETH"
+    SOL = "SOL"
+    USDC = "USDC"
+    USDT = "USDT"
 
     # Keep these updated whenever a new crypto currency is added above.
     def is_crypto(self) -> bool:
-        return self in [CurrencyEnum.ETH, CurrencyEnum.BTC, CurrencyEnum.USDC, CurrencyEnum.CBBTC]
+        return self in [
+            CurrencyEnum.BTC,
+            CurrencyEnum.CBBTC,
+            CurrencyEnum.DOGE,
+            CurrencyEnum.ETH,
+            CurrencyEnum.SOL,
+            CurrencyEnum.USDC,
+            CurrencyEnum.USDT,
+        ]
 
 
 class PaymentInstrumentFacilitatorEnum(enum.Enum):
