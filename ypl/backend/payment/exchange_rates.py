@@ -30,11 +30,13 @@ async def get_crypto_exchange_rate(
     # Try primary API (Coinbase) first
     try:
         source_currency_id = source_currency.value.upper()
+        destination_currency_id = destination_currency.value.upper()
+
+        if source_currency == CurrencyEnum.CBBTC:
+            source_currency_id = "BTC"
 
         if destination_currency == CurrencyEnum.CBBTC:
             destination_currency_id = "BTC"
-        else:
-            destination_currency_id = destination_currency.value.upper()
 
         response = await client.get(
             settings.CRYPTO_EXCHANGE_PRICE_API_URL_COINBASE.format(source_currency_id, destination_currency_id)
