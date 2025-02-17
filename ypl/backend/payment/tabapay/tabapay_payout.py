@@ -2,18 +2,16 @@ import logging
 from dataclasses import asdict, dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Final
-from uuid import UUID
 
 import httpx
 from pydantic import BaseModel, Field
 from ypl.backend.config import settings
 from ypl.backend.utils.json import json_dumps
-from ypl.db.payments import CurrencyEnum, PaymentInstrumentIdentifierTypeEnum
 from ypl.partner_payments.server.common.types import GetBalanceRequest, GetBalanceResponse
 from ypl.partner_payments.server.partner.tabapay.client import (
     TabapayAccountDetails,
-    TabapayAchEntryTypeEnum,
     TabapayCreateAccountResponse,
+    TabapayTransactionRequest,
 )
 
 
@@ -107,76 +105,50 @@ class TabaPayClient:
 
     async def process_payout(
         self,
-        amount: Decimal,
-        source_account_id: str,
-        payment_transaction_id: UUID,
-        currency: CurrencyEnum,
-        destination_type: PaymentInstrumentIdentifierTypeEnum,
-        destination_identifier: str,
-        purpose_of_payment: str,
-        ach_entry_type: TabapayAchEntryTypeEnum,
+        tabapay_request: TabapayTransactionRequest,
     ) -> tuple[str, str]:
         """Process a payout transaction."""
         client = self._get_client()
 
         log_dict: dict[str, Any] = {
             "message": "TabaPay: Processing payout",
-            "source_account_id": source_account_id,
-            "amount": str(amount),
-            "currency": str(currency.value),
-            "payment_transaction_id": str(payment_transaction_id),
-            "destination_type": str(destination_type.value),
-            "destination_identifier": str(destination_identifier),
-            "purpose_of_payment": purpose_of_payment,
-            "ach_entry_type": str(ach_entry_type.value),
+            "tabapay_request": asdict(tabapay_request),
         }
+
         logging.info(json_dumps(log_dict))
 
         if not all(
             [
-                amount,
-                source_account_id,
-                currency,
-                payment_transaction_id,
-                destination_type,
-                destination_identifier,
+                tabapay_request.amount,
+                tabapay_request.accounts.sourceAccountID,
+                tabapay_request.currency,
+                tabapay_request.referenceID,
+                tabapay_request.accounts.destinationAccountID,
             ]
         ):
             validation_details: dict[str, Any] = {
                 "message": "TabaPay: Missing required fields",
-                "amount": str(amount),
-                "source_account_id": source_account_id,
-                "currency": str(currency.value),
-                "payment_transaction_id": str(payment_transaction_id),
-                "destination_type": str(destination_type.value),
-                "destination_identifier": str(destination_identifier),
+                "tabapay_request": asdict(tabapay_request),
                 "error": "Missing required fields",
             }
             raise TabaPayPayoutError(self.GENERIC_ERROR_MESSAGE, validation_details)
 
         # Round the amount to 2 decimal places for fiat currency
-        rounded_amount = amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        rounded_amount = tabapay_request.amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+        # Create new request with rounded amount and memo
+        request_dict = asdict(tabapay_request)
+        request_dict.update(
+            {
+                "amount": rounded_amount,
+                "memo": request_dict.get("memo") or f"{self.config.memo_template} - {tabapay_request.referenceID}",
+            }
+        )
 
         try:
-            payload = {
-                "referenceID": str(payment_transaction_id),
-                "accounts": {
-                    "sourceAccountID": source_account_id,
-                    "destinationAccountID": destination_identifier,
-                },
-                "currency": currency.value.upper(),
-                "amount": str(rounded_amount),
-                "purposeOfPayment": purpose_of_payment,
-                "memo": f"{self.config.memo_template} - {payment_transaction_id}",
-                "type": "push",
-            }
-
-            if ach_entry_type:
-                payload["achEntryType"] = ach_entry_type
-
             response = await client.post(
                 f"{self.config.api_url}/v1/tabapay/transactions",
-                json=payload,
+                json=request_dict,
                 headers=self._get_headers(),
             )
             response.raise_for_status()
@@ -187,18 +159,18 @@ class TabaPayClient:
 
             if not transaction_id:
                 details = {
-                    "payment_transaction_id": str(payment_transaction_id),
+                    "payment_transaction_id": str(transaction_id),
                     "error": "TabaPay: Missing transaction_id in payment response",
                 }
                 raise TabaPayPayoutError(self.GENERIC_ERROR_MESSAGE, details)
 
             log_dict = {
                 "message": "TabaPay: Payout created",
-                "amount": str(amount),
-                "currency": str(currency.value),
-                "payment_transaction_id": str(payment_transaction_id),
-                "destination_type": str(destination_type.value),
-                "destination_identifier": str(destination_identifier),
+                "amount": str(tabapay_request.amount),
+                "currency": str(tabapay_request.currency),
+                "payment_transaction_id": str(tabapay_request.referenceID),
+                "destination_type": str(tabapay_request.accounts.destinationAccountID),
+                "destination_identifier": str(tabapay_request.accounts.destinationAccountID),
                 "transaction_id": transaction_id,
                 "status": status,
             }
@@ -210,14 +182,14 @@ class TabaPayClient:
             status_code = e.response.status_code if hasattr(e, "response") else None
             details = {
                 "message": "TabaPay: Error processing payout",
-                "payment_transaction_id": str(payment_transaction_id),
+                "payment_transaction_id": str(tabapay_request.referenceID),
                 "error": str(e),
             }
             raise TabaPayPayoutError(str(e), details, status_code) from e
         except Exception as e:
             details = {
                 "message": "TabaPay: Error processing payout",
-                "payment_transaction_id": str(payment_transaction_id),
+                "payment_transaction_id": str(tabapay_request.referenceID),
                 "error": str(e),
             }
             raise TabaPayPayoutError(str(e), details) from e
@@ -329,107 +301,23 @@ class TabaPayClient:
             details = {"error": str(e)}
             raise TabaPayPayoutError("TabaPay: Error creating account", details) from e
 
+    async def get_rtp_details(self, routing_number: str) -> bool:
+        """Get the RTP details for a specific routing number."""
+        client = self._get_client()
 
-async def process_tabapay_payout(
-    amount: Decimal,
-    source_account_id: str,
-    payment_transaction_id: UUID,
-    currency: CurrencyEnum,
-    destination_type: PaymentInstrumentIdentifierTypeEnum,
-    destination_identifier: str,
-    purpose_of_payment: str,
-    ach_entry_type: TabapayAchEntryTypeEnum,
-) -> tuple[str, str]:
-    """Process a TabaPay payout by calling the payment service.
+        try:
+            response = await client.post(
+                f"{self.config.api_url}/v1/tabapay/rtp-details",
+                json={"routingNumber": routing_number},
+                headers=self._get_headers(),
+            )
+            response.raise_for_status()
+            return bool(response.json())
 
-    Args:
-        amount: Amount to be paid out
-        source_account_id: Source account identifier
-        payment_transaction_id: UUID of the payment transaction
-        currency: Type of currency
-        destination_type: Type of destination (Bank account or Card)
-        destination_identifier: Identifier of the destination
-        purpose_of_payment: Purpose of the payment
-        ach_entry_type: Type of ACH entry
-
-    Returns:
-        tuple[str, str]: A tuple containing (transaction_id, transaction_status)
-
-    Raises:
-        TabaPayPayoutError: If there's an error processing the payout
-    """
-    async with TabaPayClient() as client:
-        return await client.process_payout(
-            amount=amount,
-            source_account_id=source_account_id,
-            payment_transaction_id=payment_transaction_id,
-            currency=currency,
-            destination_type=destination_type,
-            destination_identifier=destination_identifier,
-            purpose_of_payment=purpose_of_payment,
-            ach_entry_type=ach_entry_type,
-        )
-
-
-async def get_transaction_status(transaction_id: str) -> str:
-    """Get the status of a specific TabaPay transaction from the payment service.
-
-    Args:
-        transaction_id: The ID of the transaction to check
-
-    Returns:
-        str: The status of the transaction
-
-    Raises:
-        TabaPayPayoutError: If there's an error getting the transaction status
-    """
-    async with TabaPayClient() as client:
-        return await client.get_transaction_status(transaction_id)
-
-
-async def get_balance(request: GetBalanceRequest) -> GetBalanceResponse:
-    """Get the balance for a TabaPay account.
-
-    Args:
-        request: The balance request containing account information
-
-    Returns:
-        GetBalanceResponse: The balance response containing available and pending amounts
-
-    Raises:
-        TabaPayPayoutError: If there's an error getting the balance
-    """
-    async with TabaPayClient() as client:
-        return await client.get_balance(request)
-
-
-async def get_account_details(account_id: str) -> TabapayAccountDetails:
-    """Get details for a specific TabaPay account.
-
-    Args:
-        account_id: The ID of the account to get details for
-
-    Returns:
-        TabapayAccountDetails: The account details including owner info and bank/card details
-
-    Raises:
-        TabaPayPayoutError: If there's an error getting account details
-    """
-    async with TabaPayClient() as client:
-        return await client.get_account_details(account_id)
-
-
-async def create_account(account_details: TabapayAccountDetails) -> TabapayCreateAccountResponse:
-    """Create a new TabaPay account.
-
-    Args:
-        account_details: The details for the account to be created
-
-    Returns:
-        TabapayCreateAccountResponse: The response from the account creation
-
-    Raises:
-        TabaPayPayoutError: If there's an error creating the account
-    """
-    async with TabaPayClient() as client:
-        return await client.create_account(account_details)
+        except httpx.HTTPError as e:
+            status_code = e.response.status_code if hasattr(e, "response") else None
+            details = {"error": str(e)}
+            raise TabaPayPayoutError("TabaPay: Error getting RTP details", details, status_code) from e
+        except Exception as e:
+            details = {"error": str(e)}
+            raise TabaPayPayoutError("TabaPay: Error getting RTP details", details) from e
