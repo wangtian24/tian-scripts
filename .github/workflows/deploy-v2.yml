@@ -1,10 +1,10 @@
-name: Build and Deploy Payment Service
+name: Build and Deploy v2 (WIP)
 
 on:
   push:
     branches: [ staging ]
   schedule:
-    - cron: '0 9,21 * * *'  # Runs at 9 AM/PM UTC (2 AM/PM PST) daily
+    - cron: '0 10,22 * * *'  # Runs at 10 AM/PM UTC (3 AM/PM PST) daily
   workflow_dispatch:
     inputs:
       environment:
@@ -62,6 +62,7 @@ env:
   GCP_REGION: ${{ github.event.inputs.llm_gcp_region || 'us-east4' }}
   GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   SERVICE_NAME: ${{ github.event.inputs.service_name || 'backend' }}
+  CLOUD_RUN_SERVICE_NAME: ${{ github.event.inputs.service_name || 'backend' }}${{ github.event.inputs.environment == 'staging' && '-staging' || '' }}
   IMAGE_NAME: "gcr.io/yupp-llms/${{ github.event.inputs.image || 'backend' }}:v2"
   REGION: ${{ github.event.inputs.region || 'us-east4' }}
 
@@ -103,17 +104,15 @@ jobs:
 
     - name: Set up environment
       run: |
+        echo "SERVICE_NAME=${{ env.SERVICE_NAME }}" >> $GITHUB_ENV
+        echo "MEMORY=24Gi" >> $GITHUB_ENV
+        echo "CPU=6" >> $GITHUB_ENV
+
         if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.event.inputs.environment }}" == "production" ]]; then
           echo "ENVIRONMENT=production" >> $GITHUB_ENV
-          echo "SERVICE_NAME=${{ github.event.inputs.image || 'backend' }}" >> $GITHUB_ENV
-          echo "MEMORY=24Gi" >> $GITHUB_ENV
-          echo "CPU=6" >> $GITHUB_ENV
           echo "CLOUD_SQL_CONNECTION_NAME=${{ secrets.CLOUD_SQL_CONNECTION_NAME_PRODUCTION }}" >> $GITHUB_ENV
         else
           echo "ENVIRONMENT=staging" >> $GITHUB_ENV
-          echo "SERVICE_NAME=${{ github.event.inputs.image || 'backend' }}-staging" >> $GITHUB_ENV #here
-          echo "MEMORY=24Gi" >> $GITHUB_ENV
-          echo "CPU=6" >> $GITHUB_ENV
           echo "CLOUD_SQL_CONNECTION_NAME=${{ secrets.CLOUD_SQL_CONNECTION_NAME_STAGING }}" >> $GITHUB_ENV
         fi
 
@@ -166,15 +165,145 @@ jobs:
         cache-to: type=gha,mode=max
         file: ${{ env.DOCKERFILE }}
 
-    # This will be only used while running the deploy command, and is not meant to be used for the build step.
-    - name: Create .env file
-      uses: ./.github/workflows/deploy-create-env.yml
-      with:
-        environment: ${{ env.ENVIRONMENT }}
-        service_name: ${{ env.SERVICE_NAME }}
-        inherit-secrets: true
-        inherit-env: true
+    - name: Create the .env and .env.yml files
+      run: |
+        echo "ENVIRONMENT=${{ env.ENVIRONMENT }}" >> .env
+        echo "ENVIRONMENT: '${{ env.ENVIRONMENT }}'" >> .env.yml
 
+
+    - name: Fill in the common backend ENV variables for 'backend' service in the .env.yml file
+      if: inputs.service_name == 'backend' || inputs.service_name == 'backend-pytorch-service'
+      run: |
+        echo "PROJECT_NAME: 'Yupp-Server' " >> .env.yml
+        echo "NLTK_DATA: 'data/nltk_data' " >> .env.yml
+        echo "BACKEND_CORS_ORIGINS: '${{ env.BACKEND_CORS_ORIGINS }}' " >> .env.yml
+        echo "GCP_PROJECT_ID: '${{ env.GCP_PROJECT_ID }}' " >> .env.yml
+        echo "GCP_REGION: '${{ env.GCP_REGION }}' " >> .env.yml
+        echo "PYTORCH_SERVE_GCP_URL: '${{ env.PYTORCH_SERVE_GCP_URL || 'https://backend-pytorch-service-staging-451082535721.us-central1.run.app/api/v1' }}'" >> .env.yml
+    
+        echo "X_API_KEY: '${{ secrets.X_API_KEY }}'" >> .env.yml
+        echo "X_ADMIN_API_KEY: '${{ secrets.X_ADMIN_API_KEY }}'" >> .env.yml
+        echo "ANALYTICS_SLACK_WEBHOOK_URL: '${{ secrets.ANALYTICS_SLACK_WEBHOOK_URL }}'" >> .env.yml
+        echo "CRYPTO_EXCHANGE_PRICE_API_URL_COINBASE: '${{ secrets.CRYPTO_EXCHANGE_PRICE_API_URL_COINBASE }}'" >> .env.yml
+        echo "CRYPTO_EXCHANGE_PRICE_API_KEY_COINBASE: '${{ secrets.CRYPTO_EXCHANGE_PRICE_API_KEY_COINBASE }}'" >> .env.yml
+    
+        echo "ROUTING_WEIGHTS: '{\"random\": 0.1, \"top\": 0.7, \"min_simple_cost\": 0.2}'" >> .env.yml
+        echo "ROUTING_GOOD_MODELS_ALWAYS: 'true'" >> .env.yml
+        echo "USE_GOOGLE_CLOUD_LOGGING: 'true'" >> .env.yml
+        echo "ROUTING_TIMEOUT_SECS: '1.25'" >> .env.yml
+    
+    - name: Fill in the production backend ENV variables for 'backend' service in the .env.yml file
+      if: (inputs.service_name == 'backend' || inputs.service_name == 'backend-pytorch-service') && inputs.environment == 'production'
+      run: |
+        echo "POSTGRES_USER: '${{ secrets.POSTGRES_USER }}'" >> .env.yml
+        echo "POSTGRES_PASSWORD: '$(echo "${{ secrets.POSTGRES_PASSWORD_PRODUCTION }}" | sed "s/'/''/g")'" >> .env.yml
+        echo "POSTGRES_HOST: '${{ secrets.POSTGRES_HOST_PRODUCTION }}'" >> .env.yml
+        echo "POSTGRES_DATABASE: '${{ secrets.POSTGRES_DATABASE }}'" >> .env.yml
+        echo "POSTGRES_HOST_NON_POOLING: '${{ secrets.POSTGRES_HOST_NON_POOLING_PRODUCTION }}'" >> .env.yml
+        echo "CLOUD_SQL_PROXY_INSTANCE_UNIX_SOCKET: '${{ secrets.CLOUD_SQL_PROXY_INSTANCE_UNIX_SOCKET_PRODUCTION }}'" >> .env.yml
+        echo "OPENAI_API_KEY: '${{ secrets.OPENAI_API_KEY_PRODUCTION }}'" >> .env.yml
+        echo "AMPLITUDE_API_KEY: '${{ secrets.AMPLITUDE_API_KEY_PRODUCTION }}'" >> .env.yml
+        echo "AMPLITUDE_API_SECRET: '${{ secrets.AMPLITUDE_API_SECRET_PRODUCTION }}'" >> .env.yml
+        echo "ALIBABA_API_KEY: '${{ secrets.ALIBABA_API_KEY_PRODUCTION }}'" >> .env.yml
+        echo "ANTHROPIC_API_KEY: '${{ secrets.ANTHROPIC_API_KEY_PRODUCTION }}'" >> .env.yml
+        echo "ANYSCALE_API_KEY: '${{ secrets.ANYSCALE_API_KEY_PRODUCTION }}'" >> .env.yml
+        echo "AZURE_API_KEY: '${{ secrets.AZURE_API_KEY_PRODUCTION }}'" >> .env.yml
+        echo "BASESCAN_API_KEY: '${{ secrets.BASESCAN_API_KEY_PRODUCTION }}'" >> .env.yml
+        echo "BASESCAN_API_URL: '${{ secrets.BASESCAN_API_URL_PRODUCTION }}'" >> .env.yml
+        echo "COINBASE_RETAIL_API_KEY_NAME: '${{ secrets.COINBASE_RETAIL_API_KEY_NAME_PRODUCTION }}'" >> .env.yml
+        echo "COINBASE_RETAIL_API_SECRET: '${{ secrets.COINBASE_RETAIL_API_SECRET_PRODUCTION }}'" >> .env.yml
+        echo "DEEPSEEK_API_KEY: '${{ secrets.DEEPSEEK_API_KEY_PRODUCTION }}'" >> .env.yml
+        echo "FIREWORKS_API_KEY: '${{ secrets.FIREWORKS_API_KEY_PRODUCTION }}'" >> .env.yml
+        echo "GOOGLE_API_KEY: '${{ secrets.GOOGLE_API_KEY_PRODUCTION }}'" >> .env.yml
+        echo "HUGGINGFACE_API_KEY: '${{ secrets.HUGGINGFACE_API_KEY_PRODUCTION }}'" >> .env.yml
+        echo "MISTRAL_API_KEY: '${{ secrets.MISTRAL_API_KEY_PRODUCTION }}'" >> .env.yml
+        echo "NVIDIA_API_KEY: '${{ secrets.NVIDIA_API_KEY_PRODUCTION }}'" >> .env.yml
+        echo "OPENROUTER_API_KEY: '${{ secrets.OPENROUTER_API_KEY_PRODUCTION }}'" >> .env.yml
+        echo "PERPLEXITY_API_KEY: '${{ secrets.PERPLEXITY_API_KEY_PRODUCTION }}'" >> .env.yml
+        echo "PLAID_CLIENT_ID: '${{ secrets.PLAID_CLIENT_ID_PRODUCTION }}'" >> .env.yml
+        echo "PLAID_SECRET: '${{ secrets.PLAID_SECRET_PRODUCTION }}'" >> .env.yml
+        echo "TOGETHER_API_KEY: '${{ secrets.TOGETHER_API_KEY_PRODUCTION }}'" >> .env.yml
+        echo "GROQ_API_KEY: '${{ secrets.GROQ_API_KEY_PRODUCTION }}'" >> .env.yml
+        echo "CEREBRAS_API_KEY: '${{ secrets.CEREBRAS_API_KEY_PRODUCTION }}'" >> .env.yml
+        echo "YAPP_TMP_API_KEY: '${{ secrets.YAPP_TMP_API_KEY_PRODUCTION }}'" >> .env.yml
+        echo "SAMBANOVA_API_KEY: '${{ secrets.SAMBANOVA_API_KEY_PRODUCTION }}'" >> .env.yml
+        echo "SLACK_WEBHOOK_URL: '${{ secrets.SLACK_WEBHOOK_URL_PRODUCTION }}'" >> .env.yml
+        echo "SLACK_WEBHOOK_CASHOUT: '${{ secrets.SLACK_WEBHOOK_CASHOUT_PRODUCTION }}'" >> .env.yml
+        echo "TWITTER_BEARER_TOKEN: '${{ secrets.TWITTER_BEARER_TOKEN_PRODUCTION }}'" >> .env.yml
+        echo "TWITTER_CONSUMER_KEY: '${{ secrets.TWITTER_CONSUMER_KEY_PRODUCTION }}'" >> .env.yml
+        echo "TWITTER_CONSUMER_SECRET: '${{ secrets.TWITTER_CONSUMER_SECRET_PRODUCTION }}'" >> .env.yml
+        echo "TWITTER_ACCESS_TOKEN: '${{ secrets.TWITTER_ACCESS_TOKEN_PRODUCTION }}'" >> .env.yml
+        echo "TWITTER_ACCESS_TOKEN_SECRET: '${{ secrets.TWITTER_ACCESS_TOKEN_SECRET_PRODUCTION }}'" >> .env.yml
+        echo "CDP_API_KEY_NAME: '${{ secrets.CDP_API_KEY_NAME_PRODUCTION }}'" >> .env.yml
+        echo "CDP_API_KEY_PRIVATE_KEY: '${{ secrets.CDP_API_KEY_PRIVATE_KEY_PRODUCTION }}'" >> .env.yml
+        echo "YUPP_HEAD_APP_BASE_URL: '${{ secrets.YUPP_HEAD_APP_BASE_URL_PRODUCTION }}'" >> .env.yml
+        echo "REWARDS_SLACK_WEBHOOK_URL: '${{ secrets.REWARDS_SLACK_WEBHOOK_URL }}'" >> .env.yml
+        echo "UPSTASH_REDIS_URL: '${{ secrets.UPSTASH_REDIS_URL_PRODUCTION }}'" >> .env.yml
+        echo "UPSTASH_REDIS_TOKEN: '${{ secrets.UPSTASH_REDIS_TOKEN_PRODUCTION }}'" >> .env.yml
+        echo "ATTACHMENT_BUCKET: '${{ secrets.ATTACHMENT_BUCKET_PROD }}'" >> .env.yml
+        echo "WALLET_ENCRYPTION_KEY: '${{ secrets.WALLET_ENCRYPTION_KEY_PRODUCTION }}'" >> .env.yml
+    
+    - name: Fill in the staging backend ENV variables for 'backend' service in the .env.yml file
+      if: (inputs.service_name == 'backend' || inputs.service_name == 'backend-pytorch-service') && inputs.environment == 'staging'
+      run: |
+        echo "OPENAI_API_KEY_ROUTING: '${{ secrets.OPENAI_API_KEY_ROUTING }}'" >> .env.yml
+        echo "POSTGRES_USER: '${{ secrets.POSTGRES_USER_STAGING }}'" >> .env.yml
+        echo "POSTGRES_PASSWORD: '$(echo "${{ secrets.POSTGRES_PASSWORD_STAGING }}" | sed "s/'/''/g")'" >> .env.yml
+        echo "POSTGRES_HOST: '${{ secrets.POSTGRES_HOST_STAGING }}'" >> .env.yml
+        echo "POSTGRES_DATABASE: '${{ secrets.POSTGRES_DATABASE_STAGING }}'" >> .env.yml
+        echo "POSTGRES_HOST_NON_POOLING: '${{ secrets.POSTGRES_HOST_NON_POOLING_STAGING }}'" >> .env.yml
+        echo "CLOUD_SQL_PROXY_INSTANCE_UNIX_SOCKET: '${{ secrets.CLOUD_SQL_PROXY_INSTANCE_UNIX_SOCKET_STAGING }}'" >> .env.yml
+        echo "OPENAI_API_KEY: '${{ secrets.OPENAI_API_KEY_STAGING }}'" >> .env.yml
+        echo "ALIBABA_API_KEY: '${{ secrets.ALIBABA_API_KEY_STAGING }}'" >> .env.yml
+        echo "ANTHROPIC_API_KEY: '${{ secrets.ANTHROPIC_API_KEY_STAGING }}'" >> .env.yml
+        echo "ANYSCALE_API_KEY: '${{ secrets.ANYSCALE_API_KEY_STAGING }}'" >> .env.yml
+        echo "AZURE_API_KEY: '${{ secrets.AZURE_API_KEY_STAGING }}'" >> .env.yml
+        echo "BASESCAN_API_KEY: '${{ secrets.BASESCAN_API_KEY_STAGING }}'" >> .env.yml
+        echo "BASESCAN_API_URL: '${{ secrets.BASESCAN_API_URL_STAGING }}'" >> .env.yml
+        echo "COINBASE_RETAIL_API_KEY_NAME: '${{ secrets.COINBASE_RETAIL_API_KEY_NAME_STAGING }}'" >> .env.yml
+        echo "COINBASE_RETAIL_API_SECRET: '${{ secrets.COINBASE_RETAIL_API_SECRET_STAGING }}'" >> .env.yml
+        echo "DEEPSEEK_API_KEY: '${{ secrets.DEEPSEEK_API_KEY_STAGING }}'" >> .env.yml
+        echo "FIREWORKS_API_KEY: '${{ secrets.FIREWORKS_API_KEY_STAGING }}'" >> .env.yml
+        echo "GOOGLE_API_KEY: '${{ secrets.GOOGLE_API_KEY_STAGING }}'" >> .env.yml
+        echo "HUGGINGFACE_API_KEY: '${{ secrets.HUGGINGFACE_API_KEY_STAGING }}'" >> .env.yml
+        echo "MISTRAL_API_KEY: '${{ secrets.MISTRAL_API_KEY_STAGING }}'" >> .env.yml
+        echo "NVIDIA_API_KEY: '${{ secrets.NVIDIA_API_KEY_STAGING }}'" >> .env.yml
+        echo "OPENROUTER_API_KEY: '${{ secrets.OPENROUTER_API_KEY_STAGING }}'" >> .env.yml
+        echo "PERPLEXITY_API_KEY: '${{ secrets.PERPLEXITY_API_KEY_STAGING }}'" >> .env.yml
+        echo "PLAID_CLIENT_ID: '${{ secrets.PLAID_CLIENT_ID_STAGING }}'" >> .env.yml
+        echo "PLAID_SECRET: '${{ secrets.PLAID_SECRET_STAGING }}'" >> .env.yml
+        echo "TOGETHER_API_KEY: '${{ secrets.TOGETHER_API_KEY_STAGING }}'" >> .env.yml
+        echo "GROQ_API_KEY: '${{ secrets.GROQ_API_KEY_STAGING }}'" >> .env.yml
+        echo "CEREBRAS_API_KEY: '${{ secrets.CEREBRAS_API_KEY_STAGING }}'" >> .env.yml
+        echo "YAPP_TMP_API_KEY: '${{ secrets.YAPP_TMP_API_KEY_STAGING }}'" >> .env.yml
+        echo "SAMBANOVA_API_KEY: '${{ secrets.SAMBANOVA_API_KEY_PRODUCTION }}'" >> .env.yml
+        echo "SLACK_WEBHOOK_URL: '${{ secrets.SLACK_WEBHOOK_URL_STAGING }}'" >> .env.yml
+        echo "SLACK_WEBHOOK_CASHOUT: '${{ secrets.SLACK_WEBHOOK_CASHOUT_STAGING }}'" >> .env.yml
+        echo "TWITTER_BEARER_TOKEN: '${{ secrets.TWITTER_BEARER_TOKEN_STAGING }}'" >> .env.yml
+        echo "TWITTER_CONSUMER_KEY: '${{ secrets.TWITTER_CONSUMER_KEY_STAGING }}'" >> .env.yml
+        echo "TWITTER_CONSUMER_SECRET: '${{ secrets.TWITTER_CONSUMER_SECRET_STAGING }}'" >> .env.yml
+        echo "TWITTER_ACCESS_TOKEN: '${{ secrets.TWITTER_ACCESS_TOKEN_STAGING }}'" >> .env.yml
+        echo "TWITTER_ACCESS_TOKEN_SECRET: '${{ secrets.TWITTER_ACCESS_TOKEN_SECRET_STAGING }}'" >> .env.yml
+        echo "YUPP_HEAD_APP_BASE_URL: '${{ secrets.YUPP_HEAD_APP_BASE_URL_STAGING }}'" >> .env.yml
+        echo "CDP_API_KEY_NAME: '${{ secrets.CDP_API_KEY_NAME_STAGING }}'" >> .env.yml
+        echo "CDP_API_KEY_PRIVATE_KEY: '${{ secrets.CDP_API_KEY_PRIVATE_KEY_STAGING }}'" >> .env.yml
+        echo "UPSTASH_REDIS_URL: '${{ secrets.UPSTASH_REDIS_URL_STAGING }}'" >> .env.yml
+        echo "UPSTASH_REDIS_TOKEN: '${{ secrets.UPSTASH_REDIS_TOKEN_STAGING }}'" >> .env.yml
+        echo "ATTACHMENT_BUCKET: '${{ secrets.ATTACHMENT_BUCKET_STAGING }}'" >> .env.yml
+        echo "WALLET_ENCRYPTION_KEY: '${{ secrets.WALLET_ENCRYPTION_KEY_STAGING }}'" >> .env.yml
+    
+        echo "ROUTING_ERROR_FILTER_SOFT_THRESHOLD: '0.3'" >> .env.yml
+        echo "ROUTING_ERROR_FILTER_HARD_THRESHOLD: '0.6'" >> .env.yml
+    
+    - name: Fill in the partner payments server ENV variables for 'partner-payments-server' service in the .env.yml file
+      if: inputs.service_name == 'partner-payments-server'
+      run: |
+        echo "PROJECT_NAME: 'Yupp Partner Payments Server'" >> .env.yml
+        echo "GCP_PROJECT_ID: '${{ env.GCP_PROJECT_ID }}'" >> .env.yml
+        echo "X_API_KEY: '${{ secrets.X_API_KEY }}'" >> .env.yml
+        echo "USE_GOOGLE_CLOUD_LOGGING: 'true'" >> .env.yml
+        echo "SCRIPT_TO_RUN: '/app/ypl/partner_payments/server/entrypoint.sh'" >> .env.yml
+ 
     - name: Install gcloud beta
       if: github.event.inputs.gpu == 'true'
       run: gcloud components install beta
@@ -184,6 +313,7 @@ jobs:
         COMMON_ARGS="\
           --image ${{ env.IMAGE_NAME }} \
           --region ${{ env.REGION }} \
+          --env-vars-file=.env.yml \
           --allow-unauthenticated \
           --cpu ${{ env.CPU }} \
           --memory ${{ env.MEMORY }} \
@@ -193,7 +323,7 @@ jobs:
           --timeout=10m \
           "
         if [[ "${{ github.event.inputs.gpu }}" == "true" ]]; then
-          gcloud beta run deploy ${{ env.SERVICE_NAME }} \
+          gcloud beta run deploy ${{ env.CLOUD_RUN_SERVICE_NAME }} \
             $COMMON_ARGS \
             --gpu-type nvidia-l4 \
             --gpu 1 \
@@ -203,19 +333,17 @@ jobs:
             --vpc-egress=private-ranges-only \
             --command="/app/ypl/pytorch/serve/entrypoint.sh"
         elif [[ "${{ env.SERVICE_NAME }}" == "backend" ]]; then
-          gcloud run deploy ${{ env.SERVICE_NAME }} \
+          gcloud run deploy ${{ env.CLOUD_RUN_SERVICE_NAME }} \
             $COMMON_ARGS \
             --platform managed \
             --subnet=default \
             --vpc-egress=private-ranges-only \
             --command="/app/ypl/backend/entrypoint.sh"
         elif [[ "${{ env.SERVICE_NAME }}" == "partner-payments-server" ]]; then
-          gcloud run deploy ${{ env.SERVICE_NAME }} \
+          gcloud run deploy ${{ env.CLOUD_RUN_SERVICE_NAME }} \
             $COMMON_ARGS \
-            --set-env-vars-from-file=.env \
-            --set-env-vars="SCRIPT_TO_RUN=/app/ypl/partner_payments/server/entrypoint.sh" \
             --platform managed \
-            --subnet=payment-partners-staging \
+            --subnet=payment-partners-staging-24 \
             --vpc-egress=all-traffic \
             --command="/app/ypl/partner_payments/server/entrypoint.sh"
         else
@@ -225,7 +353,7 @@ jobs:
 
     - name: Update traffic to latest version
       run: |
-        gcloud run services update-traffic ${{ env.SERVICE_NAME }} \
+        gcloud run services update-traffic ${{ env.CLOUD_RUN_SERVICE_NAME }} \
           --to-latest \
           --region ${{ env.REGION }} \
           --platform managed

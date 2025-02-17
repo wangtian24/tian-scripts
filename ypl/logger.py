@@ -8,13 +8,11 @@ from google.cloud import logging as google_logging
 from google.cloud.logging.handlers import CloudLoggingHandler
 from google.cloud.logging_v2.handlers.transports.background_thread import BackgroundThreadTransport
 
-from ypl.backend.config import settings
-
 MAX_LOGGED_FIELD_LENGTH_CHARS = 32000
 
 
 def redact_sensitive_data(text: str) -> str:
-    if settings.ENVIRONMENT == "local":
+    if os.environ.get("ENVIRONMENT") == "local":
         return text
 
     # Email pattern
@@ -162,7 +160,7 @@ def setup_google_cloud_logging() -> None:
         logging.error(f"Google Cloud Logging setup failed: {e}")
 
 
-if settings.USE_GOOGLE_CLOUD_LOGGING:
+if os.environ.get("USE_GOOGLE_CLOUD_LOGGING") == "true":
     setup_google_cloud_logging()
 else:
     root_logger = logging.getLogger()
