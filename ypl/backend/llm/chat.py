@@ -1103,7 +1103,6 @@ def get_qt_llms() -> Mapping[str, BaseChatModel]:
         QT_LLMS = {
             "gpt-4o": get_gpt_4o_llm(MAX_TOKENS),
             "gpt-4o-mini": get_gpt_4o_mini_llm(MAX_TOKENS),
-            MODEL_FOR_FINETUNE_QT_FULL_NAME: get_fine_tuned_gpt_4o_llm(MAX_TOKENS),
             "gemini-1.5-flash-002": get_gemini_15_flash_llm(MAX_TOKENS),
             "gemini-2.0-flash-exp": get_gemini_2_flash_llm(MAX_TOKENS),
         }
@@ -1284,9 +1283,7 @@ async def generate_quicktake(
         else:
             raise ValueError(f"Unsupported model: {preferred_models}; supported: {','.join(get_qt_llms().keys())}")
 
-        secondary_models = (
-            [MODEL_FOR_PROMPT_ONLY_FULL_NAME, MODEL_FOR_FINETUNE_QT_FULL_NAME] if not has_attachments else []
-        )
+        secondary_models = [MODEL_FOR_PROMPT_ONLY_FULL_NAME] if not has_attachments else []
         fallback_models = fallback_models if not has_attachments else []
 
         # We have three tiers of QT models (labelers)
@@ -1311,12 +1308,6 @@ async def generate_quicktake(
                     MODEL_FOR_PROMPT_ONLY,
                     chat_history,
                     prompt_only=True,
-                    user_prompt=USER_QUICKTAKE_PROMPT,
-                    system_prompt=SYSTEM_QUICKTAKE_PROMPT,
-                ),
-                MODEL_FOR_FINETUNE_QT_FULL_NAME: create_quicktake_generator(
-                    MODEL_FOR_FINETUNE_QT_FULL_NAME,
-                    chat_history,
                     user_prompt=USER_QUICKTAKE_PROMPT,
                     system_prompt=SYSTEM_QUICKTAKE_PROMPT,
                 ),
