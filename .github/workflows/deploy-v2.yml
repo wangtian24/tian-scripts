@@ -106,7 +106,7 @@ jobs:
       run: |
         echo "SERVICE_NAME=${{ env.SERVICE_NAME }}" >> $GITHUB_ENV
         echo "MEMORY=24Gi" >> $GITHUB_ENV
-        echo "CPU=6" >> $GITHUB_ENV
+        echo "CPU=4" >> $GITHUB_ENV
 
         if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.event.inputs.environment }}" == "production" ]]; then
           echo "ENVIRONMENT=production" >> $GITHUB_ENV
