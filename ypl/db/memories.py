@@ -3,7 +3,6 @@ import uuid
 from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
-from pgvector.sqlalchemy import Vector
 from sqlalchemy import Column
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlmodel import Field, Relationship
@@ -12,6 +11,7 @@ from ypl.db.base import BaseModel
 
 if TYPE_CHECKING:
     from ypl.db.chats import ChatMessage
+    from ypl.db.embeddings import MemoryEmbedding
     from ypl.db.users import User
 
 
@@ -34,7 +34,7 @@ class Memory(BaseModel, table=True):
 
     __tablename__ = "memories"
 
-    # Needed for sa_type=Vector
+    # Needed for sa_type=TSVECTOR
     class Config:
         arbitrary_types_allowed = True
 
@@ -45,12 +45,8 @@ class Memory(BaseModel, table=True):
     # Content of the memory
     memory_content: str | None = Field(sa_column=Column(sa.Text, nullable=True), default=None)
 
-    # The embedding vector. Requires the 'pgvector' extension in PostgreSQL.
-    content_pgvector: Vector | None = Field(sa_column=Column(Vector(1536), nullable=True), default=None)
+    # The embedding vector.
     content_tsvector: TSVECTOR | None = Field(default=None, sa_column=Column(TSVECTOR))
-
-    # Which embedding model was used?
-    embedding_model_id: uuid.UUID | None = Field(foreign_key="embedding_models.embedding_model_id", default=None)
 
     # Reference to the original chat message
     source_message_id: uuid.UUID | None = Field(default=None, foreign_key="chat_messages.message_id")
@@ -71,5 +67,8 @@ class Memory(BaseModel, table=True):
     # -------------------------------------------------------------------------
     user: "User" = Relationship(back_populates="memories")
     source_message: "ChatMessage" = Relationship(back_populates="memories")
+    content_embedding: "MemoryEmbedding" = Relationship(
+        back_populates="memory", sa_relationship_kwargs={"uselist": False}
+    )
     # TODO(amin): implement the relationship below
     # agent_language_model: "LanguageModel" = Relationship()

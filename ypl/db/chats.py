@@ -3,7 +3,6 @@ import uuid
 from typing import TYPE_CHECKING, Any, TypeVar
 
 import yaml
-from pgvector.sqlalchemy import Vector
 from sqlalchemy import ARRAY, JSON, Boolean, Column, Index, Text, UniqueConstraint, text
 from sqlalchemy import Enum as SQLAlchemyEnum
 from sqlalchemy.dialects.postgresql import ENUM as PostgresEnum
@@ -20,6 +19,7 @@ from ypl.db.users import User
 if TYPE_CHECKING:
     from ypl.db.attachments import Attachment
     from ypl.db.chats import Category
+    from ypl.db.embeddings import ChatMessageEmbedding
     from ypl.db.rewards import Reward, RewardActionLog
 
 
@@ -233,7 +233,7 @@ class ChatMessage(BaseModel, table=True):
     # Deprecated: Use assistant_language_model_id instead.
     assistant_model_name: str | None = Field()
     content_tsvector: TSVECTOR | None = Field(default=None, sa_column=Column(TSVECTOR))
-    content_pgvector: Vector | None = Field(default=None, sa_column=Column(Vector(1536)))
+    content_embeddings: list["ChatMessageEmbedding"] = Relationship(back_populates="message")
     category_id: uuid.UUID | None = Field(foreign_key="categories.category_id", nullable=True)
     category: "Category" = Relationship(back_populates="chat_messages")
     language_code: LanguageCode | None = Field(
