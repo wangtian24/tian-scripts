@@ -283,3 +283,78 @@ async def get_transaction_status(batch_id: str) -> str:
     except Exception as e:
         details = {"batch_id": batch_id, "error": str(e)}
         raise PayPalPayoutError("PayPal: Error getting payout status", details) from e
+
+
+class BalanceRequest:
+    """Request class for PayPal balance endpoint."""
+
+    def __init__(self) -> None:
+        self.path = "/v1/reporting/balances"
+        self.verb = "GET"
+        self.headers = {"Content-Type": "application/json"}
+        self.params = {"currency_code": "ALL", "include_crypto_currencies": "true"}
+
+
+async def get_paypal_balances() -> dict[str, Any]:
+    """Get the balances of a PayPal account.
+
+    Returns:
+        dict[str, Any]: Dictionary containing PayPal account balances
+    """
+    try:
+        log_dict = {"message": "PayPal: Getting account balances"}
+        logging.info(json_dumps(log_dict))
+
+        client = _get_paypal_client()
+        request = BalanceRequest()
+        try:
+            response = client.execute(request)
+        except HttpError as e:
+            log_dict = {
+                "message": "PayPal: HTTP error getting account balances",
+                "status_code": str(getattr(e, "status_code", None)),
+                "error": str(e),
+            }
+            logging.error(json_dumps(log_dict))
+            return {}
+
+        balances: dict[str, Any] = {}
+
+        # Handle the nested response structure
+        if hasattr(response.result, "_dict"):
+            response_balances = response.result._dict.get("balances", [])
+        else:
+            response_balances = getattr(response.result, "balances", [])
+
+        for balance in response_balances:
+            currency = balance.get("currency")
+            if currency:
+                available_balance = balance.get("available_balance", {}).get("value", "0")
+                balances[currency] = {
+                    "available": Decimal(available_balance),
+                }
+
+        log_dict = {"message": "PayPal: Retrieved account balances", "balances": json_dumps(balances)}
+        logging.info(json_dumps(log_dict))
+
+        return balances
+
+    except Exception as e:
+        log_dict = {"message": "PayPal: Error getting account balances", "error": str(e)}
+        logging.warning(json_dumps(log_dict))
+        return {}
+
+
+async def get_paypal_balance(currency: CurrencyEnum) -> Decimal:
+    """Get the balance of a PayPal account for a specific currency.
+
+    Args:
+        currency: The currency to get the balance for
+
+    Returns:
+        Decimal: The balance of the PayPal account for the specified currency
+    """
+    balances = await get_paypal_balances()
+    balance_dict = balances.get(currency.value, {})
+    balance_str = str(balance_dict.get("available", "0"))
+    return Decimal(balance_str)

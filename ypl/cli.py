@@ -67,6 +67,7 @@ from ypl.backend.payment.payment import (
     validate_ledger_balance_all_users,
 )
 from ypl.backend.payment.payout_utils import validate_pending_cashouts_async
+from ypl.backend.payment.paypal.paypal_payout import get_paypal_balances
 from ypl.backend.payment.plaid.plaid_payout import PlaidPayout, process_plaid_payout
 from ypl.backend.utils.analytics import post_analytics_to_slack
 from ypl.backend.utils.generate_invite_codes import generate_invite_code_for_top_users
@@ -1278,6 +1279,13 @@ def calculate_coinbase_signature_for_test() -> None:
 
 
 @cli.command()
+def get_paypal_balances_cli() -> None:
+    """Get PayPal balances."""
+
+    asyncio.run(get_paypal_balances())
+
+
+@cli.command()
 def post_source_account_balances() -> None:
     """Get funding source account balances."""
     from ypl.backend.llm.utils import post_to_slack
@@ -1378,6 +1386,21 @@ def post_source_account_balances() -> None:
             message += "```"
         except Exception as e:
             logging.error(f"Error getting axis upi balance for daily posting: {e}")
+
+        # Get PayPal balance
+        try:
+            balances = await get_paypal_balances()
+            message += "\n*PayPal Balance*\n"
+            message += "```\n"
+            message += "| Asset | Balance |\n"
+            message += "|-------|----------|\n"
+            for currency, balance_info in balances.items():
+                available_balance = balance_info.get("available", Decimal("0"))
+                formatted_balance = f"{available_balance:.8f}".rstrip("0").rstrip(".")
+                message += f"| {currency:<5} | {formatted_balance:>9} |\n"
+            message += "```"
+        except Exception as e:
+            logging.error(f"Error getting paypal balance for daily posting: {e}")
 
         await post_to_slack(message, os.environ.get("ANALYTICS_SLACK_WEBHOOK_URL"))
 

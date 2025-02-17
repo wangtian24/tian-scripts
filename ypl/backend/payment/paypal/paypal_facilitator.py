@@ -35,6 +35,7 @@ from ypl.backend.payment.paypal.paypal_payout import (
     PayPalPayout,
     PayPalPayoutError,
     TransactionStatus,
+    get_paypal_balance,
     get_transaction_status,
     process_paypal_payout,
 )
@@ -95,8 +96,7 @@ class PayPalFacilitator(BaseFacilitator):
         Returns:
             Decimal: The balance amount
         """
-        # TODO: Implement this
-        return Decimal(0)
+        return await get_paypal_balance(currency)
 
     async def _send_payment_request(
         self,
@@ -114,6 +114,7 @@ class PayPalFacilitator(BaseFacilitator):
         try:
             try:
                 credits_to_cashout += CASHOUT_TXN_COST
+
                 source_instrument_id = await self.get_source_instrument_id()
                 destination_instrument_id = await self.get_destination_instrument_id(
                     user_id, destination_identifier, destination_identifier_type
