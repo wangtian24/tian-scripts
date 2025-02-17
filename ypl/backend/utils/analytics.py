@@ -359,9 +359,6 @@ async def post_data_from_cohorts(auth: str, start_date: datetime, end_date: date
                 if cohort_name.startswith("daily_"):
                     user_names_dict = await fetch_user_names(user_ids)
                     message += f"\n{', '.join(sorted(user_names_dict.values(), key=lambda name: name.lower()))}"
-                elif cohort_name.startswith("weekly_") and start_date.weekday() == 6:
-                    user_names_dict = await fetch_user_names(user_ids)
-                    message += f"\n{', '.join(sorted(user_names_dict.values(), key=lambda name: name.lower()))}"
 
             except (KeyError, RequestException) as e:
                 logging.error(f"Failed to process data for cohort {cohort_name}: {e}")
