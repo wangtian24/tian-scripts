@@ -1315,8 +1315,9 @@ Based on the the discussion, suggest a placeholder text for a box used by the us
 The placeholder text should broadly be related to the conversation, but not be a specific follow-up question;
 instead, it should provide a generic follow-up encouragement related to the conversation.
 Do not explain; only return the placeholder text as a string. Do not include markup in your response.
+The placeholder text should be brief, ideally 10 words or less, and phrased as a suggestion to the user.
 
-For example, if the conversation is about career opportunities, the placeholder text could be "Ask a follow-up on the topic of careers"
+For example, if the conversation is about career opportunities, the placeholder text could be "Ask a follow-up career question"
 If the user has asked about antibiotics, the placeholder text could be "Anything else you'd like to know about antibiotics?"
 And so on. Keep it very short and concise.
 
