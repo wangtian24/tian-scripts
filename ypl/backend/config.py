@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     TOGETHERAI_API_KEY: str = ""
     GROQ_API_KEY: str = ""
     CEREBRAS_API_KEY: str = ""
+    SAMBANOVA_API_KEY: str = ""
 
     DOMAIN: str = "localhost"
     ENVIRONMENT: Literal["test", "local", "staging", "production"] = "local"

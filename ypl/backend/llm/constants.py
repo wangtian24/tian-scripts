@@ -627,6 +627,7 @@ PROVIDER_KEY_MAPPING = {
     "perplexity": "PERPLEXITY_API_KEY",
     "groq": "GROQ_API_KEY",
     "cerebras": "CEREBRAS_API_KEY",
+    "sambanova": "SAMBANOVA_API_KEY",
 }
 
 PROVIDER_MODEL_PATTERNS = {
@@ -649,6 +650,7 @@ PROVIDER_MODEL_PATTERNS = {
     re.compile(r"^(nvidia).*$", re.IGNORECASE): "nvidia",
     re.compile(r"^(x-ai).*$", re.IGNORECASE): "x-ai",
     re.compile(r"^(gryphe).*$", re.IGNORECASE): "gryphe",
+    re.compile(r"^(sambanova).*$", re.IGNORECASE): "sambanova",
 }
 
 
