@@ -255,6 +255,12 @@ class LanguageModel(BaseModel, table=True):
     # Model-specific parameters, allowing us to configure virutal models
     parameters: dict[str, Any] = Field(default_factory=dict, sa_type=JSONB, nullable=True)
 
+    # taxonomy id
+    taxonomy_id: uuid.UUID | None = Field(
+        foreign_key="language_model_taxonomy.language_model_taxonomy_id", nullable=True, default=None
+    )
+    taxonomy: "LanguageModelTaxonomy" = Relationship(back_populates="language_model")
+
     # --- Relationships ---
     promotions: list["ModelPromotion"] = Relationship(back_populates="language_model")
     yapps: list["Yapp"] = Relationship(back_populates="language_model")
@@ -266,6 +272,62 @@ class LanguageModel(BaseModel, table=True):
             return False
         pattern = "|".join([m.replace("*", ".*") for m in self.supported_attachment_mime_types])
         return re.match(pattern, mime_type) is not None
+
+
+class LanguageModelTaxonomyStatusEnum(Enum):
+    ACTIVE = "ACTIVE"
+    INACTIVE = "INACTIVE"
+
+
+class LanguageModelTaxonomy(BaseModel, table=True):
+    """
+    Represents a taxonomy tree for a language model. Each row is a node in the tree.
+    Each model in the language_models tables must map to a leaf node here.
+    """
+
+    __tablename__ = "language_model_taxonomy"
+
+    language_model_taxonomy_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, index=True)
+    # whether this node is a leaf node, all language models must map to a leaf node.
+    is_leaf_node: bool = Field(nullable=True, default=False)
+
+    # whether this node can be displayed in the model picker for users to choose,
+    # we can support both leaf and non-leaf nodes.
+    is_pickable: bool = Field(nullable=True, default=False)
+
+    # the human-readable label for this taxonomy node (regardless leaf of non-leaf)
+    taxo_label: str = Field(nullable=False)
+
+    # the status of this taxonomy node, we can set it to INACTIVE to disable the whole subtree.
+    status: LanguageModelTaxonomyStatusEnum = Field(
+        default=LanguageModelTaxonomyStatusEnum.ACTIVE,
+        sa_column=Column(
+            sa_Enum(LanguageModelTaxonomyStatusEnum), server_default=LanguageModelTaxonomyStatusEnum.ACTIVE.name
+        ),
+    )
+
+    # 5-layer model taxonomy info
+    model_publisher: str = Field(nullable=False, index=True)
+    model_family: str | None = Field(nullable=True, index=True)
+    model_class: str | None = Field(nullable=True, index=True)
+    model_version: str | None = Field(nullable=True, index=True)
+    model_release: str | None = Field(nullable=True, index=True)
+
+    # provider-independent model attributes
+    # These are migrated from the language_models table, we will store all provider-independent attributes here.
+    is_strong: bool | None = Field(nullable=True, default=False)
+    is_pro: bool | None = Field(nullable=True, default=False)
+    is_live: bool | None = Field(nullable=True, default=False)
+    context_window_tokens: int | None = Field(nullable=True)
+    parameter_count: int | None = Field(nullable=True)
+    knowledge_cutoff_date: date | None = Field(nullable=True)
+    avatar_url: str | None = Field(nullable=True)
+    supported_attachment_mime_types: list[str] | None = Field(
+        default=None, sa_column=Column(ARRAY(String), nullable=True)
+    )
+
+    # relationships
+    language_model: LanguageModel = Relationship(back_populates="taxonomy")
 
 
 class EmbeddingModel(BaseModel, table=True):
