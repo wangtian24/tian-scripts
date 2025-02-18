@@ -11,6 +11,7 @@ from sqlalchemy.exc import DatabaseError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 from tenacity import after_log, retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 from ypl.backend.db import get_async_session
+from ypl.backend.llm.utils import post_to_slack_with_user_name
 from ypl.backend.user.vendor_details import AdditionalDetails
 from ypl.backend.user.vendor_registration import VendorRegistrationError, get_vendor_registration
 from ypl.backend.utils.json import json_dumps
@@ -252,30 +253,9 @@ async def _deactivate_user_invite_codes_status(session: AsyncSession, user_id: s
 
 async def deactivate_user(user_id: str, creator_user_email: str) -> None:
     try:
+        await validate_not_self_action(user_id, creator_user_email)
+
         async with get_async_session() as session:
-            creator_stmt = select(User).where(
-                func.lower(User.email) == func.lower(creator_user_email),
-                User.deleted_at.is_(None),  # type: ignore
-            )
-            creator = (await session.execute(creator_stmt)).scalar_one_or_none()
-
-            if not creator:
-                log_dict = {
-                    "message": "Error: Creator user not found",
-                    "creator_user_email": creator_user_email,
-                }
-                logging.warning(json_dumps(log_dict))
-                raise HTTPException(status_code=404, detail="Creator user not found")
-
-            if creator.user_id == user_id:
-                log_dict = {
-                    "message": "Error: User cannot deactivate themselves",
-                    "user_id": user_id,
-                    "creator_user_email": creator_user_email,
-                }
-                logging.error(json_dumps(log_dict))
-                raise HTTPException(status_code=400, detail="Users cannot deactivate themselves")
-
             stmt = select(User).where(User.user_id == user_id)  # type: ignore
             result = await session.execute(stmt)
             user = result.scalar_one_or_none()
@@ -309,3 +289,43 @@ async def deactivate_user(user_id: str, creator_user_email: str) -> None:
         }
         logging.error(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+async def validate_not_self_action(user_id: str, creator_user_email: str) -> None:
+    """Validate that a user is not trying to perform an action on themselves.
+
+    Args:
+        user_id: The ID of the user the action is being performed on
+        creator_user_email: Email of the user performing the action
+
+    Raises:
+        HTTPException: If the creator is trying to perform an action on themselves
+    """
+
+    if user_id is None or creator_user_email is None:
+        raise HTTPException(status_code=400, detail="User ID and creator user email are required")
+
+    async with get_async_session() as session:
+        creator_stmt = select(User).where(
+            func.lower(User.email) == func.lower(creator_user_email),
+            User.deleted_at.is_(None),  # type: ignore
+        )
+        creator = (await session.execute(creator_stmt)).scalar_one_or_none()
+
+        if not creator:
+            log_dict = {
+                "message": "Error: Creator user not found",
+                "creator_user_email": creator_user_email,
+            }
+            logging.warning(json_dumps(log_dict))
+            raise HTTPException(status_code=404, detail="Creator user not found")
+
+        if creator.user_id == user_id:
+            log_dict = {
+                "message": "Error: User cannot perform action on themselves",
+                "user_id": user_id,
+                "creator_user_email": creator_user_email,
+            }
+            logging.error(json_dumps(log_dict))
+            await post_to_slack_with_user_name(user_id, json_dumps(log_dict))
+            raise HTTPException(status_code=400, detail="Users cannot perform this action on themselves")

@@ -1,7 +1,10 @@
+import asyncio
+import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 
+from ypl.backend.llm.utils import post_to_slack_with_user_name
 from ypl.backend.payment.payment import (
     CashoutsHistoryResponse,
     PointTransactionsHistoryResponse,
@@ -9,6 +12,8 @@ from ypl.backend.payment.payment import (
     get_cashouts,
     get_points_transactions,
 )
+from ypl.backend.user.user import validate_not_self_action
+from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.soul_utils import SoulPermission, validate_permissions
 
 router = APIRouter()
@@ -64,6 +69,22 @@ async def adjust_points_route(
     user_id: str = Query(..., description="User ID"),
     point_delta: int = Query(..., description="Points delta"),
     reason: str = Query(..., description="Reason for the adjustment"),
+    x_creator_email: str | None = Header(None, alias="X-Creator-Email"),
 ) -> UUID:
     """Adjust points for a user."""
+    if not x_creator_email or not user_id or not point_delta or not reason:
+        raise HTTPException(status_code=400, detail="X-Creator-Email, User ID, point delta, and reason are required")
+
+    log_dict = {
+        "message": "Adjusting points for a user",
+        "user_id": user_id,
+        "point_delta": point_delta,
+        "reason": reason,
+        "x_creator_email": x_creator_email,
+    }
+    logging.info(json_dumps(log_dict))
+    if point_delta > 0:
+        asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict)))
+
+    await validate_not_self_action(user_id=user_id, creator_user_email=x_creator_email)
     return await adjust_points(user_id=user_id, point_delta=point_delta, reason=reason)
