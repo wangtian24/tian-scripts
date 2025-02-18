@@ -71,6 +71,7 @@ AMPLITUDE_CHARTS: Final[dict[str, ChartInfo]] = {
     "feedbacks_pref": {"id": "784miua4", "description": "feedbacks pref", "series_number": 0},
     "feedbacks_mof": {"id": "784miua4", "description": "feedbacks mof", "series_number": 1},
     "feedbacks_af": {"id": "784miua4", "description": "feedbacks af", "series_number": 2},
+    "feedbacks_nope": {"id": "784miua4", "description": "feedbacks nope", "series_number": 3},
     "credits_total": {"id": "7ukm5tc7", "description": "credits total", "series_number": 0},
     "credits_af": {"id": "7ukm5tc7", "description": "credits af", "series_number": 1},
     "credits_pref": {"id": "7ukm5tc7", "description": "credits pref", "series_number": 2},
@@ -246,6 +247,7 @@ async def post_data_from_charts(auth: str, start_date: datetime, end_date: datet
         ratio_tracker.add_ratio("PREF/Total Feedbacks", metrics.get("feedbacks_pref", 0), total_feedbacks)
         ratio_tracker.add_ratio("MOF/Total Feedbacks", metrics.get("feedbacks_mof", 0), total_feedbacks)
         ratio_tracker.add_ratio("AF/Total Feedbacks", metrics.get("feedbacks_af", 0), total_feedbacks)
+        ratio_tracker.add_ratio("NOPE/Total Feedbacks", metrics.get("feedbacks_nope", 0), total_feedbacks)
 
         # Add SIC ratios
         ratio_tracker.add_ratio(
