@@ -62,7 +62,7 @@ env:
   GCP_REGION: ${{ github.event.inputs.llm_gcp_region || 'us-east4' }}
   GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   SERVICE_NAME: ${{ github.event.inputs.service_name || 'backend' }}
-  CLOUD_RUN_SERVICE_NAME: ${{ github.event.inputs.service_name || 'backend' }}${{ github.event.inputs.environment == 'staging' && '-staging' || '' }}
+  CLOUD_RUN_SERVICE_NAME: ${{ github.event.inputs.service_name || 'backend' }}${{ github.event.inputs.environment == 'production' && '' || '-staging' }}
   IMAGE_NAME: "gcr.io/yupp-llms/${{ github.event.inputs.image || 'backend' }}:v2"
   REGION: ${{ github.event.inputs.region || 'us-east4' }}
 
@@ -172,7 +172,7 @@ jobs:
 
 
     - name: Fill in the common backend ENV variables for 'backend' service in the .env.yml file
-      if: inputs.service_name == 'backend' || inputs.service_name == 'backend-pytorch-service'
+      if: env.SERVICE_NAME == 'backend' || env.SERVICE_NAME == 'backend-pytorch-service'
       run: |
         echo "PROJECT_NAME: 'Yupp-Server' " >> .env.yml
         echo "NLTK_DATA: 'data/nltk_data' " >> .env.yml
@@ -193,7 +193,7 @@ jobs:
         echo "ROUTING_TIMEOUT_SECS: '1.25'" >> .env.yml
     
     - name: Fill in the production backend ENV variables for 'backend' service in the .env.yml file
-      if: (inputs.service_name == 'backend' || inputs.service_name == 'backend-pytorch-service') && inputs.environment == 'production'
+      if: env.ENVIRONMENT == 'production' && (env.SERVICE_NAME == 'backend' || env.SERVICE_NAME == 'backend-pytorch-service')
       run: |
         echo "POSTGRES_USER: '${{ secrets.POSTGRES_USER }}'" >> .env.yml
         echo "POSTGRES_PASSWORD: '$(echo "${{ secrets.POSTGRES_PASSWORD_PRODUCTION }}" | sed "s/'/''/g")'" >> .env.yml
@@ -244,7 +244,7 @@ jobs:
         echo "WALLET_ENCRYPTION_KEY: '${{ secrets.WALLET_ENCRYPTION_KEY_PRODUCTION }}'" >> .env.yml
     
     - name: Fill in the staging backend ENV variables for 'backend' service in the .env.yml file
-      if: (inputs.service_name == 'backend' || inputs.service_name == 'backend-pytorch-service') && inputs.environment == 'staging'
+      if: env.ENVIRONMENT == 'staging' && (env.SERVICE_NAME == 'backend' || env.SERVICE_NAME == 'backend-pytorch-service')
       run: |
         echo "OPENAI_API_KEY_ROUTING: '${{ secrets.OPENAI_API_KEY_ROUTING }}'" >> .env.yml
         echo "POSTGRES_USER: '${{ secrets.POSTGRES_USER_STAGING }}'" >> .env.yml
@@ -296,7 +296,7 @@ jobs:
         echo "ROUTING_ERROR_FILTER_HARD_THRESHOLD: '0.6'" >> .env.yml
     
     - name: Fill in the partner payments server ENV variables for 'partner-payments-server' service in the .env.yml file
-      if: inputs.service_name == 'partner-payments-server'
+      if: env.SERVICE_NAME == 'partner-payments-server'
       run: |
         echo "PROJECT_NAME: 'Yupp Partner Payments Server'" >> .env.yml
         echo "GCP_PROJECT_ID: '${{ env.GCP_PROJECT_ID }}'" >> .env.yml
