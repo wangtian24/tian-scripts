@@ -13,7 +13,6 @@ from uuid import UUID
 import httpx
 import jwt
 from cryptography.hazmat.primitives import serialization
-from httpcore import ReadTimeout
 from ypl.backend.llm.utils import post_to_slack
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import CurrencyEnum
@@ -424,29 +423,19 @@ async def create_transaction(
 
             return {"id": transaction_data["id"], "status": transaction_data["status"]}
 
-    except ReadTimeout:
-        # In case of timeout, return blank id and pending status
-        # as it's possible that the transaction could have been created on coinbase side
-        log_dict = {
-            "message": ":x: *Coinbase Retail: Timeout while creating transaction \n"
-            + "returning blank id and pending status - Check if transaction was created on Coinbase side*",
-            "to_address": str(to_address),
-            "amount": str(amount),
-            "currency": str(currency),
-            "network": str(network),
-        }
-        logging.warning(json_dumps(log_dict))
-        asyncio.create_task(post_to_slack(json_dumps(log_dict)))
-        return {"id": "", "status": TransactionStatus.PENDING.value}
     except Exception as e:
-        details = {
+        log_dict = {
+            "message": ":x: *Coinbase Retail: Exception while creating transaction \n"
+            + "returning blank id and pending status - Check if transaction was created on Coinbase side*",
             "to_address": str(to_address),
             "amount": str(amount),
             "currency": str(currency),
             "network": str(network),
             "error": str(e),
         }
-        raise CoinbaseRetailPayoutError(str(e), details) from e
+        logging.warning(json_dumps(log_dict))
+        asyncio.create_task(post_to_slack(json_dumps(log_dict)))
+        return {"id": "", "status": TransactionStatus.PENDING.value}
 
 
 async def get_transaction_status(account_id: str, transaction_id: str) -> str:
