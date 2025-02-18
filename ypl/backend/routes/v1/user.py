@@ -150,16 +150,20 @@ async def get_users(query: str) -> UserSearchResponse:
     try:
         async with get_async_session() as session:
             search = f"%{query}%"
-            stmt = select(User).where(
-                or_(
-                    col(User.name).ilike(search),
-                    col(User.user_id).ilike(search),
-                    col(User.email).ilike(search),
-                    col(User.discord_id).ilike(search),
-                    col(User.discord_username).ilike(search),
-                    col(User.city).ilike(search),
-                    col(User.country_code).ilike(search),
-                    col(User.educational_institution).ilike(search),
+            stmt = (
+                select(User)
+                .distinct()
+                .where(
+                    or_(
+                        col(User.name).ilike(search),
+                        col(User.user_id).ilike(search),
+                        col(User.email).ilike(search),
+                        col(User.discord_id).ilike(search),
+                        col(User.discord_username).ilike(search),
+                        col(User.city).ilike(search),
+                        col(User.country_code).ilike(search),
+                        col(User.educational_institution).ilike(search),
+                    )
                 )
             )
 
@@ -177,7 +181,9 @@ async def get_users(query: str) -> UserSearchResponse:
                 return _create_user_search_response(users)
 
             # if this is not a user related data point, look for payment instrument
-            stmt = select(User).join(PaymentInstrument).where(col(PaymentInstrument.identifier).ilike(search))
+            stmt = (
+                select(User).distinct().join(PaymentInstrument).where(col(PaymentInstrument.identifier).ilike(search))
+            )
 
             result = await session.execute(stmt)
             users = result.scalars().all()
@@ -195,6 +201,7 @@ async def get_users(query: str) -> UserSearchResponse:
             # if this is not a payment instrument then search for payment transaction id
             stmt = (
                 select(User)
+                .distinct()
                 .join(PaymentInstrument, User.user_id == PaymentInstrument.user_id)  # type: ignore
                 .join(
                     PaymentTransaction,
@@ -218,6 +225,7 @@ async def get_users(query: str) -> UserSearchResponse:
             #  if none of the above then search for IP address
             stmt = (
                 select(User)
+                .distinct()
                 .join(UserIPDetails, User.user_id == UserIPDetails.user_id)  # type: ignore
                 .where(col(UserIPDetails.ip).ilike(search))
             )
