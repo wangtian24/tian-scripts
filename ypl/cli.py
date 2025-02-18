@@ -89,6 +89,7 @@ from ypl.db.message_annotations import (
     get_turns_to_evaluate,
     update_message_annotations_in_chunks,
 )
+from ypl.db.oneoffs.backfill_chat_message_embeddings import backfill_chat_message_embeddings
 from ypl.db.oneoffs.reset_points import reset_points
 from ypl.db.payments import CurrencyEnum
 from ypl.db.rewards import RewardActionEnum, RewardAmountRule, RewardProbabilityRule, RewardRule
@@ -1790,6 +1791,13 @@ def get_paypal_transaction_status(batch_id: str) -> None:
     from ypl.backend.payment.paypal.paypal_payout import get_transaction_status
 
     asyncio.run(get_transaction_status(batch_id))
+
+
+@cli.command()
+@click.option("--max-messages", type=int, help="The maximum number of messages to backfill")
+def backfill_message_embeddings(max_messages: int | None = None) -> None:
+    """Backfill chat message embeddings."""
+    asyncio.run(backfill_chat_message_embeddings(get_engine(), max_messages))  # type: ignore
 
 
 if __name__ == "__main__":
