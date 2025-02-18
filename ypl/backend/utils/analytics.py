@@ -56,6 +56,7 @@ AMPLITUDE_CHARTS: Final[dict[str, ChartInfo]] = {
     "users_start_chat": {"id": "ruptpxku", "description": "users start chat", "series_number": 2},
     "users_pref": {"id": "ruptpxku", "description": "users pref", "series_number": 3},
     "users_mof": {"id": "ruptpxku", "description": "users mof", "series_number": 4},
+    "users_nope": {"id": "ruptpxku", "description": "users nope", "series_number": 5},
     "conversations": {"id": "ekszggrp", "description": "conversations", "series_number": 0},
     "follow_up": {"id": "ekszggrp", "description": "follow up", "series_number": 1},
     "show_more": {"id": "ekszggrp", "description": "show more", "series_number": 2},
@@ -242,7 +243,10 @@ async def post_data_from_charts(auth: str, start_date: datetime, end_date: datet
 
         # Add feedback ratios
         total_feedbacks = (
-            metrics.get("feedbacks_pref", 0) + metrics.get("feedbacks_mof", 0) + metrics.get("feedbacks_af", 0)
+            metrics.get("feedbacks_pref", 0)
+            + metrics.get("feedbacks_mof", 0)
+            + metrics.get("feedbacks_af", 0)
+            + metrics.get("feedbacks_nope", 0)
         )
         ratio_tracker.add_ratio("PREF/Total Feedbacks", metrics.get("feedbacks_pref", 0), total_feedbacks)
         ratio_tracker.add_ratio("MOF/Total Feedbacks", metrics.get("feedbacks_mof", 0), total_feedbacks)
@@ -263,7 +267,8 @@ async def post_data_from_charts(auth: str, start_date: datetime, end_date: datet
             f"{metrics.get('users_any_chat', 0)} had a new or follow up chat, "
             f"{metrics.get('users_start_chat', 0)} started a new chat, "
             f"{metrics.get('users_pref', 0)} did PREF, "
-            f"{metrics.get('users_mof', 0)} did MOF\n"
+            f"{metrics.get('users_mof', 0)} did MOF, "
+            f"{metrics.get('users_nope', 0)} did NOPE\n"
         )
 
         # b. Conversations section
@@ -295,10 +300,11 @@ async def post_data_from_charts(auth: str, start_date: datetime, end_date: datet
         message += (
             f"e. Feedbacks: {metrics.get('feedbacks_pref', 0)} PREF, "
             f"{metrics.get('feedbacks_mof', 0)} MOFs, "
-            f"{metrics.get('feedbacks_af', 0)} AF\n"
+            f"{metrics.get('feedbacks_af', 0)} AF, "
+            f"{metrics.get('feedbacks_nope', 0)} NOPE\n"
         )
 
-        # f. Credits section
+        # Credits section
         message += (
             f"f. Credits: {metrics.get('credits_qt',0)} QT, "
             f"{metrics.get('credits_af', 0)} AF, "
