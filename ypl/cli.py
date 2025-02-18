@@ -1682,6 +1682,7 @@ def test_send_email(campaign: str, to_address: str, print_only: bool) -> None:
         poetry run python -m ypl.cli test-send-email --campaign signup
         poetry run python -m ypl.cli test-send-email --campaign sic_availability --print-only
         poetry run python -m ypl.cli test-send-email --campaign monthly_summary --to-address spherecollider@gmail.com
+        poetry run python -m ypl.cli test-send-email --campaign old_account_inactive --print-only
     """
 
     asyncio.run(

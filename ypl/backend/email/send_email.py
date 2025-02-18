@@ -8,6 +8,7 @@ from sqlalchemy import select
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
 from ypl.backend.email.campaigns.nudge import (
+    OLD_ACCOUNT_INACTIVE_EMAIL_CONTENT,
     WEEK_1_CHECKIN_EMAIL_CONTENT,
     WEEK_1_INACTIVE_EMAIL_CONTENT,
     WEEK_5_INACTIVE_EMAIL_CONTENT,
@@ -42,6 +43,7 @@ EMAIL_CAMPAIGNS = {
     # templates. On the EmailLogs table, we store the campaign name
     # as "monthly_summary_{year}_{month}_{day}".
     "monthly_summary": MONTHLY_SUMMARY_EMAIL_CONTENT,
+    "old_account_inactive": OLD_ACCOUNT_INACTIVE_EMAIL_CONTENT,
 }
 
 REPLY_TO_ADDRESS = "gcmouli+yupp@yupp.ai"

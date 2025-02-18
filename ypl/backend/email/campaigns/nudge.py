@@ -24,3 +24,9 @@ WEEK_6_DEACTIVATION_EMAIL_CONTENT = EmailContent(
     preview="Due to inactivity, we've deactivated your account—but you can always come back!",
     body_html=load_html_template("week_6_deactivation_content.html"),
 )
+
+OLD_ACCOUNT_INACTIVE_EMAIL_CONTENT = EmailContent(
+    subject="It's been a while",
+    preview="We noticed you haven't used {brand_name} yet. Let's get you started!",
+    body_html=load_html_template("old_account_inactive_content.html"),
+)
