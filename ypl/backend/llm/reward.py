@@ -53,9 +53,9 @@ load_dotenv()
 
 # Define mean reward for evals, baseline value for medium tier (method="mean")
 FEEDBACK_REWARD_LOWER_BOUND = 100
-FEEDBACK_REWARD_UPPER_BOUND = 500
+FEEDBACK_REWARD_UPPER_BOUND = 150
 QT_EVAL_REWARD_LOWER_BOUND = 50
-QT_EVAL_REWARD_UPPER_BOUND = 250
+QT_EVAL_REWARD_UPPER_BOUND = 100
 
 FEEDBACK_QUALITY_JUDGING_TIMEOUT = 0.4
 VERY_POOR_FEEDBACK_SCORE = 1
@@ -90,7 +90,7 @@ FEEDBACK_QUALITY_MULTIPLIER = {
     5: 1.0,
 }
 
-FALLBACK_QUALITY_SCORE = 2
+FALLBACK_QUALITY_SCORE = AVERAGE_FEEDBACK_SCORE
 
 _JUDGE_4O_MINI: BaseChatModel | None = None
 _JUDGE_GEMINI: GeminiLangChainAdapter | None = None
@@ -812,7 +812,9 @@ async def feedback_based_reward(
         feedback_comment: The feedback comment
     """
     # Get quality score for the comment
-    quality_score = await get_feedback_quality_score(user_id, feedback_comment)
+    quality_score = FALLBACK_QUALITY_SCORE
+    # COMMENTING THIS BECAUSE THIS TIMES OUT ANYWAY AND WASTES TIME
+    # await get_feedback_quality_score(user_id, feedback_comment)
     action_type = RewardActionEnum.FEEDBACK
 
     reward_params = {

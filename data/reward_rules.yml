@@ -121,7 +121,7 @@ amount_rules:
           operator: less_than
           value: *monthly_points_limit
     min_value: 100
-    max_value: 500
+    max_value: 150
     comments:
       - "Thank you for your feedback."
 
@@ -142,7 +142,7 @@ amount_rules:
           operator: less_than
           value: *monthly_points_limit
     min_value: 50
-    max_value: 250
+    max_value: 100
     comments:
       - "Thank you. Your feedback makes this AI serve you better!"
 
