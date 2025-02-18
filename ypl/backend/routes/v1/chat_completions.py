@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator
 from datetime import datetime
 from typing import Any
 
+from cachetools import TTLCache
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -55,6 +56,7 @@ from ypl.db.chats import (
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum
 
 CITATION_EXTRACTION_TIMEOUT = 20.0
+BILLING_ERROR_CACHE: TTLCache = TTLCache(maxsize=100, ttl=7200)  # 2 hours
 
 
 class StreamResponse:
@@ -401,7 +403,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
             ).encode()
             log_attachments_in_conversation(messages, chat_request.message_id, chat_request.chat_id)
             # check if it's a potential billing error & async post to Slack
-            if contains_billing_keywords(str(e)):
+            if contains_billing_keywords(str(e)) and not recently_posted_billing_error(chat_request.model):
                 asyncio.create_task(
                     post_to_slack(
                         f"Potential Billing error, for model {chat_request.model} , chat_id {chat_request.chat_id},"
@@ -634,3 +636,11 @@ def log_attachments_in_conversation(messages: list[BaseMessage], message_id: uui
     logs.append(f"Attachments: Total attachments in the conversation: {total_attachments_in_conversation}")
     log_dict = {"attachments": logs, "message_id": str(message_id), "chat_id": str(chat_id)}
     logging.info(json_dumps(log_dict))
+
+
+def recently_posted_billing_error(model: str) -> bool:
+    # Returns True if a billing error has been posted to Slack recently for the model.
+    if model in BILLING_ERROR_CACHE:
+        return True
+    BILLING_ERROR_CACHE[model] = True
+    return False
