@@ -8,14 +8,13 @@
         margin: 0;
         padding: 0;
         font-family: Arial, sans-serif;
-        background-color: #f6f6f6;
+        background-color: #efefef;
       }
       .container {
         max-width: 600px;
         margin: 0 auto;
         background-color: #ffffff;
         padding: 20px;
-        border-radius: 8px;
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
       }
       .header {
@@ -71,30 +70,52 @@
       }
     </style>
   </head>
-  <body>
-    <div class="container">
-      <!-- <div class="header">
-        <img
-          src="https://7s8qtap8fabg3zyw.public.blob.vercel-storage.com/assets/yupp-alpha-MvzSFPFZxAPhfev2tEGNBqO5oU2jUN.png"
-          height="46"
-          alt="Yupp Logo"
-        />
-      </div> -->
-      {{content}}
-      <div class="discord">
-        <a href="https://discord.gg/AGHSbyqgXP">
-          <!-- TODO: Figure out how to do this or replace with image */ -->
-          <!-- <img
-            src="https://7s8qtap8fabg3zyw.public.blob.vercel-storage.com/assets/discord-logo-4DVadu3saUBAM5LsWwxkwgEfpKi2GU.png"
-            width="26"
-            height="26"
-            alt="Discord Logo"
-          /> -->
-          <span>Join the Yupp team on Discord</span>
-        </a>
-      </div>
-      <!-- Only appears if unsubscribe_link is provided -->
-      <div class="footer">{{unsubscribe_link}}</div>
-    </div>
+  <!-- 
+    Email clients like gmail strip the background-color property from CSS.
+    So we use bgcolor to set the background color.
+  -->
+  <body bgcolor="#efefef">
+    <!-- 
+      Tables are used for layout in HTML emails because:
+      1. They have consistent support across all email clients
+      2. Modern CSS (flexbox, grid) is often stripped by email clients
+      3. Background colors and widths are more reliably rendered in table elements
+    -->
+    <table
+      width="100%"
+      bgcolor="#efefef"
+      cellpadding="0"
+      cellspacing="0"
+      border="0"
+    >
+      <tr>
+        <td>
+          <div class="container">
+            <!-- <div class="header">
+              <img
+                src="https://7s8qtap8fabg3zyw.public.blob.vercel-storage.com/assets/yupp-alpha-MvzSFPFZxAPhfev2tEGNBqO5oU2jUN.png"
+                height="46"
+                alt="Yupp Logo"
+              />
+            </div> -->
+            {{content}}
+            <div class="discord">
+              <a href="https://discord.gg/AGHSbyqgXP">
+                <!-- TODO: Figure out how to do this or replace with image */ -->
+                <!-- <img
+                  src="https://7s8qtap8fabg3zyw.public.blob.vercel-storage.com/assets/discord-logo-4DVadu3saUBAM5LsWwxkwgEfpKi2GU.png"
+                  width="26"
+                  height="26"
+                  alt="Discord Logo"
+                /> -->
+                <span>Join the Yupp team on Discord</span>
+              </a>
+            </div>
+            <!-- Only appears if unsubscribe_link is provided -->
+            <div class="footer">{{unsubscribe_link}}</div>
+          </div>
+        </td>
+      </tr>
+    </table>
   </body>
 </html>
