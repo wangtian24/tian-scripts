@@ -871,3 +871,26 @@ async def get_last_successful_transaction_and_instrument(
         )
         result = await session.exec(query)
         return result.one_or_none()
+
+
+async def adjust_points(user_id: str, point_delta: int, reason: str) -> UUID:
+    """Adjust points for a user."""
+    async with get_async_session() as session:
+        result = await session.exec(select(User).where(User.user_id == user_id))
+        user = result.one_or_none()
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        user.points += point_delta
+
+        adjustment = PointTransaction(
+            user_id=user.user_id,
+            point_delta=point_delta,
+            action_type=PointsActionEnum.ADJUSTMENT,
+            action_details={"adjustment_reason": reason},
+        )
+        session.add(adjustment)
+
+        await session.commit()
+
+        return adjustment.transaction_id
