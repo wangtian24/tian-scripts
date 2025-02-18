@@ -4,10 +4,10 @@ import asyncio
 import enum
 import logging
 import time
-from collections.abc import Mapping
 from typing import Any, Generic, TypeVar, cast
 from uuid import UUID
 
+from async_lru import alru_cache
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
@@ -33,6 +33,7 @@ from ypl.backend.prompts import (
 )
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import Turn
+from ypl.db.language_models import LanguageModel
 
 # Type variable for review results
 ReviewResultType = TypeVar("ReviewResultType", bool, str, list[dict[str, str]])
@@ -60,6 +61,7 @@ class ReviewRequest(BaseModel):
     review_types: list[ReviewType] | None = None
     prompt: str | None = None
     reviewer_model: str | None = None
+    reviewer_model_preference: list[str] | None = None
     timeout_secs: float = settings.DEFAULT_REVIEW_TIMEOUT_SECS
 
 
@@ -118,18 +120,40 @@ REVIEW_CONFIGS: dict[ReviewType, ReviewConfig] = {
 }
 
 
+@alru_cache(maxsize=None, ttl=86400)  # 24-hour cache, now async-compatible
+async def get_model_family(model_name: str) -> str:
+    """Get model family from database with 24-hour caching."""
+    async with get_async_session() as session:
+        try:
+            stmt = select(LanguageModel.family).where(LanguageModel.internal_name == model_name)  # type: ignore
+            result = await session.execute(stmt)
+            family = result.scalar_one_or_none()
+            if family is None:
+                logging.warning(f"Model {model_name} not found")
+                raise ValueError(f"Model {model_name} not found")
+            return str(family)
+        except Exception as e:
+            logging.exception(f"Error getting model family for {model_name}: {e}")
+            raise e
+
+
+async def get_model_families(model_names: list[str]) -> dict[str, str]:
+    """Get model families from database by looking up each model individually."""
+    return {model_name: await get_model_family(model_name) for model_name in model_names}
+
+
 REVIEW_LLMS: dict[ReviewType, dict[str, BaseChatModel]] = {}
 
 
-def get_review_llms(review_type: ReviewType = ReviewType.BINARY) -> Mapping[str, BaseChatModel]:
+def get_review_llms(review_type: ReviewType = ReviewType.BINARY) -> dict[str, BaseChatModel]:
     """Get all review LLM instances."""
     global REVIEW_LLMS
     if review_type not in REVIEW_LLMS:
         REVIEW_LLMS[review_type] = {
             "gpt-4o": get_gpt_4o_llm(REVIEW_CONFIGS[review_type].max_tokens),
             "gpt-4o-mini": get_gpt_4o_mini_llm(REVIEW_CONFIGS[review_type].max_tokens),
-            "gemini-15-flash": get_gemini_15_flash_llm(REVIEW_CONFIGS[review_type].max_tokens),
-            "gemini-2-flash": get_gemini_2_flash_llm(REVIEW_CONFIGS[review_type].max_tokens),
+            "gemini-1.5-flash-002": get_gemini_15_flash_llm(REVIEW_CONFIGS[review_type].max_tokens),
+            "gemini-2.0-flash-exp": get_gemini_2_flash_llm(REVIEW_CONFIGS[review_type].max_tokens),
         }
     return REVIEW_LLMS[review_type]
 
@@ -356,6 +380,38 @@ def _extract_conversation_until_last_user_message(chat_history_messages: list[Ba
     return conversation_until_last_user_message
 
 
+def _select_reviewer_model(
+    response_model_family: str | None,
+    reviewer_model_preference: list[str] | None,
+    default_model: str = "gpt-4o",
+    review_llms_model_family_map: dict[str, str] | None = None,
+) -> str:
+    """Select appropriate reviewer model based on response model family, preferences, and review LLMs model family map.
+
+    Args:
+        response_model_family: Family of the model that generated the response
+        reviewer_model_preference: Ordered list of preferred reviewer models
+        default_model: Default model to use if no preference matches
+        review_llms_model_family_map: Map of review LLM model to its family
+
+    Returns:
+        Selected reviewer model name
+    """
+    if not response_model_family or not reviewer_model_preference:
+        return default_model
+
+    # Find first preferred model from a different family
+    for model in reviewer_model_preference:
+        if (
+            review_llms_model_family_map
+            and model in review_llms_model_family_map
+            and review_llms_model_family_map[model] != response_model_family
+        ):
+            return model
+
+    return default_model
+
+
 async def generate_reviews(
     request: ReviewRequest,
 ) -> ReviewResponse:
@@ -370,7 +426,6 @@ async def generate_reviews(
             - critique: dict[str, CritiqueResult] if critique review was requested
             - segmented: dict[str, SegmentedResult] if segmented review was requested
     """
-
     async with get_async_session() as session:
         stmt = select(Turn.chat_id).where(Turn.turn_id == request.turn_id)  # type: ignore
         result = await session.execute(stmt)
@@ -378,7 +433,6 @@ async def generate_reviews(
         if chat_id_result is None:
             raise ValueError(f"Turn {request.turn_id} not found")
         chat_id = str(chat_id_result)
-
     start_time = time.time()
     turn_id = UUID(request.turn_id) if request.turn_id else None
     chat_history = await get_curated_chat_context(
@@ -412,42 +466,70 @@ async def generate_reviews(
             binary={},
             status=ReviewStatus.UNSUPPORTED,
         )
-
     # Extract conversation history until last user message from chat history
     conversation_until_last_user_message = _extract_conversation_until_last_user_message(chat_history.messages)
     last_assistant_responses = responses
     # Default to all review types if none specified
     review_types = request.review_types or list(ReviewType)
+    review_llms = get_review_llms()
+    # Get response_model_family_map and review_llms_model_family_map from DB
+    all_models: set[str] = set()
+    if responses:
+        all_models.update(responses.keys())
+    if review_llms:
+        all_models.update(review_llms.keys())
 
-    # Initialize reviewer with specified model
-    logging.info(f"Initializing reviewers with model {request.reviewer_model or 'gpt-4o'}")
-    binary_reviewer = get_binary_reviewer(request.reviewer_model or "gpt-4o")
-    critique_reviewer = get_critique_reviewer(request.reviewer_model or "gpt-4o")
-    segmented_reviewer = get_segmented_reviewer(request.reviewer_model or "gpt-4o")
+    if all_models:
+        all_model_families = await get_model_families(list(all_models))
+        response_model_family_map = {k: v for k, v in all_model_families.items() if k in responses} if responses else {}
+        review_llms_model_family_map = (
+            {k: v for k, v in all_model_families.items() if k in review_llms} if review_llms else {}
+        )
+    else:
+        response_model_family_map = {}
+        review_llms_model_family_map = {}
+
+    # Create reviewers for each response model based on family
+    binary_reviewers: dict[str, BaseReviewLabeler[bool]] = {}
+    critique_reviewers: dict[str, BaseReviewLabeler[str]] = {}
+    segmented_reviewers: dict[str, BaseReviewLabeler[list[dict[str, str]]]] = {}
+
+    if last_assistant_responses:
+        for model in last_assistant_responses.keys():
+            model_family = response_model_family_map.get(model)
+            reviewer_model = _select_reviewer_model(
+                model_family,
+                request.reviewer_model_preference or ["gpt-4o", "gemini-2.0-flash-exp"],
+                request.reviewer_model or "gpt-4o",
+                review_llms_model_family_map,
+            )
+            binary_reviewers[model] = get_binary_reviewer(reviewer_model)
+            critique_reviewers[model] = get_critique_reviewer(reviewer_model)
+            segmented_reviewers[model] = get_segmented_reviewer(reviewer_model)
 
     async def _run_pointwise_review(
         review_type: ReviewType,
-        reviewer: BaseReviewLabeler[ReviewResultType],
+        reviewers: dict[str, BaseReviewLabeler[ReviewResultType]],
     ) -> tuple[ReviewType, dict[str, BinaryResult | CritiqueResult | SegmentedResult]]:
         """Generic function to run pointwise reviews.
 
         Args:
             review_type: Type of review being performed
-            reviewer: The reviewer instance to use
+            reviewers: Dict mapping response model to its reviewer
 
         Returns:
             Tuple of review type and results dictionary
         """
-        assert isinstance(
-            reviewer, (BinaryReviewLabeler | CritiqueReviewLabeler | SegmentedReviewLabeler)
-        ), f"Reviewer {reviewer} is not a valid review labeler type"
-        model_name = reviewer.model
-
+        for reviewer in reviewers.values():
+            assert isinstance(
+                reviewer, (BinaryReviewLabeler | CritiqueReviewLabeler | SegmentedReviewLabeler)
+            ), f"Reviewer {reviewer} is not a valid review labeler type"
         try:
             # Run review for each response concurrently
             review_tasks = []
             if last_assistant_responses:
                 for model, response in last_assistant_responses.items():
+                    reviewer = reviewers[model]
                     task = reviewer.alabel((conversation_until_last_user_message, response))
                     review_tasks.append((model, task))
             else:
@@ -463,18 +545,18 @@ async def generate_reviews(
                 if isinstance(result, bool) or isinstance(result, str):  # Handle both bool and str results
                     if review_type == ReviewType.BINARY and isinstance(result, bool):
                         pointwise_results[model] = cast(
-                            BinaryResult, {"response": result, "reviewer_model": model_name}
+                            BinaryResult, {"response": result, "reviewer_model": reviewers[model].model}
                         )
                     elif review_type == ReviewType.CRITIQUE and isinstance(result, str):
                         pointwise_results[model] = cast(
-                            CritiqueResult, {"response": result, "reviewer_model": model_name}
+                            CritiqueResult, {"response": result, "reviewer_model": reviewers[model].model}
                         )
                     else:
                         logging.warning(f"run_{review_type}: {model} returned {result} of type {type(result)}")
                 elif isinstance(result, list):  # Check for list type first
                     if review_type == ReviewType.SEGMENTED and all(isinstance(x, dict) for x in result):
                         pointwise_results[model] = cast(
-                            SegmentedResult, {"segments": result, "reviewer_model": model_name}
+                            SegmentedResult, {"segments": result, "reviewer_model": reviewers[model].model}
                         )
                     else:
                         logging.warning(f"run_{review_type}: {model} returned invalid list result {result}")
@@ -495,7 +577,7 @@ async def generate_reviews(
         """Run binary review."""
         result = await _run_pointwise_review(
             ReviewType.BINARY,
-            binary_reviewer,
+            binary_reviewers,
         )
         return cast(tuple[ReviewType, dict[str, BinaryResult]], result)
 
@@ -503,7 +585,7 @@ async def generate_reviews(
         """Run critique review."""
         result = await _run_pointwise_review(
             ReviewType.CRITIQUE,
-            critique_reviewer,
+            critique_reviewers,
         )
         return cast(tuple[ReviewType, dict[str, CritiqueResult]], result)
 
@@ -511,7 +593,7 @@ async def generate_reviews(
         """Run segmented review."""
         result = await _run_pointwise_review(
             ReviewType.SEGMENTED,
-            segmented_reviewer,
+            segmented_reviewers,
         )
         return cast(tuple[ReviewType, dict[str, SegmentedResult]], result)
 
