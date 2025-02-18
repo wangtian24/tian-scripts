@@ -87,7 +87,7 @@ admin_router.include_router(points_route.router, prefix="/v1", tags=["admin"])
 admin_router.include_router(user_capability_route.router, prefix="/v1", tags=["admin"])
 admin_router.include_router(message_route.router, prefix="/v1", tags=["admin"])
 admin_router.include_router(system_route.router, prefix="/v1", tags=["admin"])
-admin_router.include_router(invite_route.router, prefix="/v1", tags=["admin"])
+admin_router.include_router(invite_route.admin_router, prefix="/v1", tags=["admin"])
 admin_router.include_router(model_promotions_route.router, prefix="/v1", tags=["model_promotions"])
 
 api_router.include_router(admin_router)

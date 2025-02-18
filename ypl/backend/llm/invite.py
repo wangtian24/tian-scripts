@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
@@ -7,6 +8,7 @@ from sqlalchemy import String, cast, desc, exists, func, not_
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from ypl.backend.email.send_email import EmailConfig, send_email_async
 from ypl.db.app_feedback import AppFeedback
 from ypl.db.chats import Eval
 from ypl.db.invite_codes import (
@@ -15,6 +17,7 @@ from ypl.db.invite_codes import (
     SpecialInviteCodeState,
 )
 from ypl.db.users import User, UserStatus
+from ypl.random_word_slugs.generate import Options, generate_slug
 
 
 @dataclass
@@ -240,3 +243,92 @@ async def get_users_eligible_for_invite_codes(
         for row in users_with_evals
     ]
     return eligible_users
+
+
+SLUG_OPTIONS: Options = {
+    "format": "kebab",
+}
+
+
+async def get_new_invite_code(session: AsyncSession) -> str:
+    """Suggests a new invite code using word slugs without recording it in the database."""
+    retry_remaining = 3
+    while retry_remaining > 0:
+        code = generate_slug(num_of_words=3, options=SLUG_OPTIONS)
+
+        # Check if code already exists
+        query = select(SpecialInviteCode).where(SpecialInviteCode.code == code)
+        result = await session.execute(query)
+        if result.first() is None:
+            return code
+        retry_remaining -= 1
+    raise ValueError("Retry limit reached. Failed to generate a unique invite code after 3 attempts.")
+
+
+async def create_invite_code_for_user(
+    code: str,
+    user_id: str,
+    session: AsyncSession,
+    usage_limit: int | None = None,
+    referral_bonus_eligible: bool = True,
+) -> UUID:
+    """Create a new invite code with the specified code string and creator user ID.
+
+    Args:
+        code: The invite code string
+        user_id: The ID of the user creating the invite code
+        session: Database session
+        usage_limit: Optional limit on number of times this code can be used
+        referral_bonus_eligible: Whether users who use this code are eligible for referral bonus
+
+    Returns:
+        The UUID of the created invite code
+
+    Raises:
+        IntegrityError: If the invite code already exists (unique constraint violation)
+        ValueError: If user already has active invite codes
+    """
+    # Query number of active invite codes for this user
+    existing_codes_query = (
+        select(func.count())
+        .select_from(SpecialInviteCode)
+        .where(
+            SpecialInviteCode.creator_user_id == user_id,
+            SpecialInviteCode.state == SpecialInviteCodeState.ACTIVE,
+            SpecialInviteCode.deleted_at.is_(None),  # type: ignore
+        )
+    )
+    result = await session.execute(existing_codes_query)
+    existing_codes_count = result.scalar_one()
+
+    invite_code = SpecialInviteCode(
+        code=code,
+        creator_user_id=user_id,
+        usage_limit=usage_limit,
+        referral_bonus_eligible=referral_bonus_eligible,
+        state=SpecialInviteCodeState.ACTIVE,
+    )
+    session.add(invite_code)
+    await session.commit()
+
+    if existing_codes_count == 0:
+        asyncio.create_task(send_sic_availability_email(session, user_id))
+
+    return invite_code.special_invite_code_id
+
+
+async def send_sic_availability_email(session: AsyncSession, user_id: str) -> None:
+    # Send the sic_availability email for users getting an invite code for the first time.
+    user_query = select(User).where(User.user_id == user_id)
+    user_result = await session.execute(user_query)
+    user = user_result.scalar_one_or_none()
+    if user:
+        await send_email_async(
+            EmailConfig(
+                campaign="sic_availability",
+                to_address=user.email,
+                template_params={
+                    "email_recipient_name": user.name,
+                },
+            )
+        )
