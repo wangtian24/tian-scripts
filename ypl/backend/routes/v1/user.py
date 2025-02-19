@@ -18,6 +18,7 @@ from ypl.backend.user.user import (
     VendorProfileResponse,
     deactivate_user,
     get_all_users,
+    reactivate_user,
     register_user_with_vendor,
 )
 from ypl.backend.utils.ip_utils import UserIPDetailsResponse, get_user_ip_details
@@ -123,6 +124,13 @@ async def validate_read_users(
 ) -> None:
     """Validate that the user has READ_USERS permission."""
     await validate_permissions([SoulPermission.READ_USERS], x_creator_email)
+
+
+async def validate_write_users(
+    x_creator_email: str | None = Header(None, alias="X-Creator-Email"),
+) -> None:
+    """Validate that the user has WRITE_USERS permission."""
+    await validate_permissions([SoulPermission.WRITE_USERS], x_creator_email)
 
 
 async def validate_delete_users(
@@ -588,6 +596,35 @@ async def deactivate_user_route(
     except Exception as e:
         log_dict = {
             "message": "Error deactivating user",
+            "user_id": user_id,
+            "error": str(e),
+        }
+        logging.error(json_dumps(log_dict))
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@admin_router.post("/admin/users/{user_id}/reactivate", dependencies=[Depends(validate_write_users)])
+async def reactivate_user_route(
+    user_id: str = Path(..., description="User ID"),
+    creator_user_email: str = Query(..., description="Email of the user performing the reactivation"),
+) -> None:
+    """Reactivate a user by setting their status to ACTIVE.
+
+    Args:
+        user_id: The ID of the user to reactivate
+        creator_user_email: Email of the user performing the reactivation
+    """
+    log_dict = {
+        "message": "Reactivating user",
+        "user_id": user_id,
+        "creator_user_email": creator_user_email,
+    }
+    logging.info(json_dumps(log_dict))
+    try:
+        await reactivate_user(user_id, creator_user_email)
+    except Exception as e:
+        log_dict = {
+            "message": "Error reactivating user",
             "user_id": user_id,
             "error": str(e),
         }

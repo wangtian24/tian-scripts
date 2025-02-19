@@ -251,6 +251,40 @@ async def _deactivate_user_invite_codes_status(session: AsyncSession, user_id: s
     return invite_codes
 
 
+async def reactivate_user(user_id: str, creator_user_email: str) -> None:
+    try:
+        await validate_not_self_action(user_id, creator_user_email)
+
+        async with get_async_session() as session:
+            stmt = select(User).where(User.user_id == user_id)  # type: ignore
+            result = await session.execute(stmt)
+            user = result.scalar_one_or_none()
+
+            if not user:
+                raise HTTPException(status_code=404, detail="User not found")
+
+            user.status = UserStatus.ACTIVE
+            user.deleted_at = None
+
+            await session.commit()
+
+            log_dict = {
+                "message": "User reactivated successfully",
+                "user_id": user_id,
+                "creator_user_email": creator_user_email,
+            }
+            logging.info(json_dumps(log_dict))
+    except Exception as e:
+        log_dict = {
+            "message": "Error reactivating user",
+            "user_id": user_id,
+            "creator_user_email": creator_user_email,
+            "error": str(e),
+        }
+        logging.error(json_dumps(log_dict))
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 async def deactivate_user(user_id: str, creator_user_email: str) -> None:
     try:
         await validate_not_self_action(user_id, creator_user_email)
