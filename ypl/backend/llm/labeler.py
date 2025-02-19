@@ -14,8 +14,6 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fi
 from tqdm.asyncio import tqdm_asyncio
 
 from ypl.backend.prompts import (
-    QUICKTAKE_SUMMARIZING_PROMPT_TEMPLATE_1,
-    QUICKTAKE_SUMMARIZING_PROMPT_TEMPLATE_2,
     SYSTEM_QUICKTAKE_PROMPT,
     USER_QUICKTAKE_PROMPT,
 )
@@ -429,46 +427,6 @@ class MultistepLLMLabeler(Generic[InputType, OutputType]):
         sem = asyncio.Semaphore(num_parallel)
 
         return await tqdm_asyncio.gather(*[_do_label(input, sem) for input in inputs])  # type: ignore
-
-
-class SummarizingQuicktakeLabeler(MultistepLLMLabeler[str, str]):
-    """
-    Represents an LLM annotator for producing quicktake summaries.
-    """
-
-    @property
-    def error_value(self) -> str:
-        return ""
-
-    @property
-    def num_steps(self) -> int:
-        return 2
-
-    def _prepare_initial_input(self, input: str) -> dict[str, Any]:
-        return dict(prompt=input)
-
-    def _prepare_intermediate(self, step_no: int, base_message: BaseMessage, state: dict[str, Any]) -> dict[str, Any]:
-        match step_no:
-            case 1:
-                state["long_response"] = str(base_message.content).strip()
-            case 2:
-                state["short_response"] = str(base_message.content).strip()
-            case _:
-                raise ValueError(f"Invalid step number: {step_no}")
-
-        return state
-
-    def _parse_final_output(self, state: dict[str, Any]) -> str:
-        return str(state["short_response"])
-
-    def _prepare_llm(self, step_no: int, llm: BaseChatModel) -> BaseChatModel:
-        match step_no:
-            case 1:
-                return QUICKTAKE_SUMMARIZING_PROMPT_TEMPLATE_1 | llm  # type: ignore
-            case 2:
-                return QUICKTAKE_SUMMARIZING_PROMPT_TEMPLATE_2 | llm  # type: ignore
-            case _:
-                raise ValueError(f"Invalid step number: {step_no}")
 
 
 class QuickTakeRequest(BaseModel):

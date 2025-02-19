@@ -131,7 +131,7 @@ class Settings(BaseSettings):
     SLACK_WEBHOOK_URL: str = os.getenv("SLACK_WEBHOOK_URL", "")
 
     DEFAULT_QT_TIMEOUT_SECS: float = 1.5
-
+    RETAKE_QT_TIMEOUT_SECS: float = 5.0
     ATTACHMENT_QUICKTAKE_TIMEOUT_SECS: float = 1.5
 
     DEFAULT_REVIEW_TIMEOUT_SECS: float = 20.0

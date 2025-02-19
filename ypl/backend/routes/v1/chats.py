@@ -1,4 +1,3 @@
-import asyncio
 import json
 import logging
 from datetime import datetime
@@ -6,8 +5,6 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
-
-# from google.cloud import storage
 from pydantic import BaseModel, validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,7 +26,7 @@ from ypl.backend.llm.review import (
     generate_reviews,
 )
 from ypl.backend.llm.search import ChatMessageSearchResult, search_chat_messages, search_chats
-from ypl.backend.llm.turn_quality import TurnAnnotations, get_turn_annotations, label_turn_quality
+from ypl.backend.llm.turn_quality import TurnAnnotations, get_turn_annotations
 from ypl.backend.rw_cache import TurnQualityCache
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import (
@@ -74,20 +71,6 @@ async def generate_quicktake_turn_id(
         return await generate_quicktake(request)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@router.post("/chats/{chat_id}/turns/{turn_id}:label_quality", response_model=TurnQuality)
-async def label_quality(chat_id: UUID, turn_id: UUID) -> TurnQuality:
-    try:
-        # TODO(gilad): Now that the backend handles streaming, it also initiates quality labeling directly, and the
-        # client no longer needs to call this endpoint.
-        # Until the call to this endpoint from the client is removed, add a short delay here (the client is not waiting
-        # for a response), so that the turn quality is more likely to be cached by the time the client makes the call.
-        # Once the client no longer calls this endpoint, remove this endpoint entirely.
-        await asyncio.sleep(5)
-        return await label_turn_quality(turn_id, chat_id)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.get("/chats/{chat_id}/turns/{turn_id}/quality", response_model=TurnQuality)

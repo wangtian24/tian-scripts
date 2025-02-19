@@ -51,7 +51,6 @@ from ypl.backend.llm.judge import (
     YuppQualityLabeler,
     YuppSingleDifficultyLabeler,
 )
-from ypl.backend.llm.labeler import SummarizingQuicktakeLabeler
 from ypl.backend.llm.model.model_management import validate_active_onboarded_models
 from ypl.backend.llm.model.model_onboarding import verify_onboard_submitted_models
 from ypl.backend.llm.model_data_type import ModelInfo
@@ -521,45 +520,6 @@ def update_ranking_all_categories() -> None:
         _update_ranking(category_names=[category_name])
     logging.info("Updating ranking with no categories")
     _update_ranking()
-
-
-@cli.command(help="Generate QuickTakes from a list of prompts")
-@click.option("-i", "--json-file", required=True, help="The JSON file to read prompts from")
-@click.option("-o", "--output-file", required=True, help="The JSON file to write quicktakes to")
-@click_provider_option("--provider", help="LLM and embeddings provider")
-@click.option("--api-key", help="API key", required=True)
-@click.option("--language-model", default="gpt-4o", help="The LLM to use for generating quicktakes")
-@click.option("--limit", default=200, help="The number of prompts to generate quicktakes for")
-@click.option("--num-parallel", default=16, help="The number of jobs to run in parallel")
-def generate_quicktakes(
-    json_file: str, output_file: str, provider: str, api_key: str, language_model: str, limit: int, num_parallel: int
-) -> None:
-    llm = get_chat_model(ModelInfo(provider=provider, model=language_model, api_key=api_key), temperature=0.0)
-    judge = SummarizingQuicktakeLabeler(llm)
-
-    prompts = []
-    objects = []
-
-    for idx, line in enumerate(open(json_file)):
-        if idx >= limit:
-            break
-
-        try:
-            data = json.loads(line)
-            prompts.append(data["prompt"])
-            objects.append(data)
-        except KeyError:
-            continue
-
-    quicktakes = asyncio.run(judge.abatch_label(prompts, num_parallel=num_parallel))
-
-    with open(output_file, "w") as outf:
-        for obj, quicktake in zip(objects, quicktakes, strict=False):
-            if not quicktake:
-                continue
-
-            obj["quicktake"] = quicktake
-            print(json.dumps(obj), file=outf)
 
 
 @cli.command(help="Evaluate the traits of prompts and LLM responses read in from a JSON file")

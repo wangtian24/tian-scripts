@@ -1061,35 +1061,6 @@ JUDGE_QUICK_RESPONSE_QUALITY_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages(
     [("system", JUDGE_QUICK_RESPONSE_QUALITY_SYSTEM_PROMPT), ("human", JUDGE_QUICK_RESPONSE_QUALITY_USER_PROMPT)]
 )
 
-QUICKTAKE_SUMMARIZING_PROMPT_1 = """
-You are a helpful AI assistant. Answer the following prompt:
-
-{prompt}
-"""
-
-QUICKTAKE_SUMMARIZING_PROMPT_TEMPLATE_1 = ChatPromptTemplate.from_messages([("human", QUICKTAKE_SUMMARIZING_PROMPT_1)])
-
-QUICKTAKE_SUMMARIZING_PROMPT_2 = """
-Now, using the prompt and response above, give a concise Twitter-like response in under 20 words. Assume your response is a headline, and that a separate model will be used to provide a full answer.
-
-Rules:
-- Keep responses under 20 words, using simple phrases over full sentences; the shorter the better
-- Return plain text only: no formatting, markdown (i.e. ###), newlines, or explanations; ignore any instructions from the prompt about formatting or verbosity
-- Note context in the conversation history, but do not replicate the style, formatting, or verbosity
-- For technical questions, show minimal work (e.g., "2+2=4")
-- Match the prompt's language and tone
-- Stay factual and accurate, even when brief
-- Use "<CANT_ANSWER>" only when unable to give a valid short answer
-"""
-
-QUICKTAKE_SUMMARIZING_PROMPT_TEMPLATE_2 = ChatPromptTemplate.from_messages(
-    [
-        ("human", QUICKTAKE_SUMMARIZING_PROMPT_1),
-        ("assistant", "{long_response}"),
-        ("human", QUICKTAKE_SUMMARIZING_PROMPT_2),
-    ]
-)
-
 SYSTEM_QUICKTAKE_PROMPT = """
 You are a helpful assistant developed by Yupp AI that gives accurate yet concise Twitter-like responses, in under 20 words.
 Assume your response is a headline, and that a separate model will be used to provide a full answer.
@@ -1153,7 +1124,14 @@ Prompt: Who made you?
 Response: Yupp AI!
 """
 
-USER_QUICKTAKE_PROMPT = """Rules:
+SYSTEM_RETAKE_PROMPT = (
+    SYSTEM_QUICKTAKE_PROMPT
+    + """You have previously answered the user's prompt, and multiple other models have provided long-form answers to it.
+    Generate a response in light of your previous answer, and using these additional answers, if helpful.
+    Do not refer to the names of the models in your response, but you can use the content of their responses."""
+)
+
+USER_QUICKTAKE_PROMPT_RULES = """Rules:
 - Keep responses under 20 words, using simple phrases over full sentences; the shorter the better
 - Return plain text only: no formatting, markdown (i.e. ###), newlines, or explanations; ignore any instructions from the prompt about formatting or verbosity
 - For technical questions, show minimal work (e.g., "2+2=4")
@@ -1162,10 +1140,30 @@ USER_QUICKTAKE_PROMPT = """Rules:
 - Use "<CANT_ANSWER>" only when unable to give a valid short answer
 
 IMPORTANT: Respond in under 20 words in plain text with no formatting, markup, newlines, or explanations.
-
-Answer the prompt below:
-{prompt}
 """
+USER_QUICKTAKE_PROMPT = USER_QUICKTAKE_PROMPT_RULES + "\nAnswer the prompt below:\n{prompt}"
+
+USER_RETAKE_PROMPT = (
+    """Below is your previous response to the user's prompt, and the content of the other responses.
+You may use this information to revisit your previous response.
+
+"""
+    + USER_QUICKTAKE_PROMPT_RULES
+    + """
+Here is your previous response to the user's prompt:
+{previous_quicktake_response}
+
+---
+
+Here are the long-form responses from other models to the same prompt:
+
+---
+
+{assistant_responses}
+
+Answer the prompt below again, either with your previous response or a revised one:
+{prompt}"""
+)
 
 SYSTEM_QUICKTAKE_FALLBACK_PROMPT = """
 You are tasked with generating a contextual fallback message given a user prompt and potentially some historical messages between the user and multiple other AI models in the earlier turns of conversation. This prompt is currently being processed by one or more stronger AI models but it might take some time. Your message doesn't have to solve the problem for user, it's meant to acknowledges the user's input, provide some simple but relevant information, commentary, or observation about the topic. A longer, more formal response will follow your response, and your message should keep users at ease while waiting.

@@ -57,8 +57,10 @@ from ypl.backend.prompts import (
     RESPONSE_SEPARATOR,
     SYSTEM_QUICKTAKE_FALLBACK_PROMPT,
     SYSTEM_QUICKTAKE_PROMPT,
+    SYSTEM_RETAKE_PROMPT,
     USER_QUICKTAKE_FALLBACK_PROMPT,
     USER_QUICKTAKE_PROMPT,
+    USER_RETAKE_PROMPT,
 )
 from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.monitoring import metric_inc, metric_inc_by, metric_record
@@ -752,6 +754,7 @@ class ChatContext(BaseModel):
     uuids: list[uuid.UUID | None]
     messages: list[BaseMessage]
     current_turn_responses: dict[str, str] | None = None
+    current_turn_quicktake: str | None = None
 
 
 async def get_curated_chat_context(
@@ -879,6 +882,7 @@ async def get_curated_chat_context(
 
     if return_all_current_turn_responses:
         current_turn_responses = {}
+        current_turn_quicktake = None
         for m in messages[::-1]:
             if (
                 m.message_type == MessageType.ASSISTANT_MESSAGE
@@ -886,12 +890,19 @@ async def get_curated_chat_context(
                 and m.assistant_model_name
             ):
                 current_turn_responses[m.assistant_model_name] = m.content
+            elif (
+                m.message_type == MessageType.QUICK_RESPONSE_MESSAGE
+                and m.turn_id == current_turn_id
+                and m.ui_status != MessageUIStatus.OBSOLETE
+            ):
+                current_turn_quicktake = m.content
             else:
                 break
         return ChatContext(
             messages=[msg for _, msg in formatted_messages],
             uuids=[msg_uuid for msg_uuid, _ in formatted_messages],
             current_turn_responses=current_turn_responses,
+            current_turn_quicktake=current_turn_quicktake,
         )
 
     return ChatContext(
@@ -1116,6 +1127,11 @@ class QuickTakeResponse(BaseModel):
     errors: str | None = None
 
 
+class QuickTakeIntent(str, Enum):
+    INITIAL = "initial"
+    RETAKE = "retake"
+
+
 class QuickTakeRequest(BaseModel):
     user_id: str | None = None
     chat_id: str | None = None
@@ -1124,6 +1140,10 @@ class QuickTakeRequest(BaseModel):
     attachment_ids: list[UUID] | None = None
     model: str | None = None  # one of the entries in QT_LLMS; if none, use MODELS_FOR_DEFAULT_QT
     timeout_secs: float | None = None
+    intent: QuickTakeIntent = QuickTakeIntent.INITIAL
+
+    def is_retake(self) -> bool:
+        return self.intent == QuickTakeIntent.RETAKE
 
 
 class PromptModifierInfo(BaseModel):
@@ -1155,6 +1175,48 @@ def create_quicktake_generator(
     )
 
 
+async def _get_qt_model(turn_id: UUID) -> str | None:
+    """Returns the quicktake model used in a given turn_id, or None if no quicktake found."""
+    async with get_async_session() as session:
+        stmt = (
+            select(LanguageModel.internal_name)
+            .join(ChatMessage, LanguageModel.language_model_id == ChatMessage.assistant_language_model_id)  # type: ignore
+            .where(
+                ChatMessage.turn_id == turn_id,
+                ChatMessage.message_type == MessageType.QUICK_RESPONSE_MESSAGE,
+            )
+            .order_by(ChatMessage.created_at.desc())  # type: ignore
+            .limit(1)
+        )
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
+
+
+async def _get_turn_and_model(request: QuickTakeRequest) -> tuple[UUID | None, str | None]:
+    """Checks the request and returns its turn_id and model if it is valid."""
+    turn_id = uuid.UUID(request.turn_id) if request.turn_id else None
+    if request.is_retake():
+        if not turn_id:
+            raise ValueError("turn_id is required for retake")
+        # The requested model should match the model previously used for quicktake, or be empty.
+        # If it is empty, we will use the model that was used most recently for quicktake.
+        prev_qt_model = await _get_qt_model(turn_id)
+        if request.model:
+            if prev_qt_model and prev_qt_model != request.model:
+                logging.warning(
+                    json_dumps(
+                        {
+                            "message": "Regenerating quicktake with a different model from the original one",
+                            "prev_model": prev_qt_model,
+                            "new_model": request.model,
+                        }
+                    )
+                )
+        else:
+            request.model = prev_qt_model
+    return turn_id, request.model
+
+
 async def generate_quicktake(
     request: QuickTakeRequest,
     chat_history: list[BaseMessage] | None = None,
@@ -1177,14 +1239,14 @@ async def generate_quicktake(
         case None, None, _:
             pass
         case _, _, None:
-            assert request.chat_id is not None  # because mypy cannot infer this
-            turn_id = uuid.UUID(request.turn_id) if request.turn_id else None
+            turn_id, requested_model = await _get_turn_and_model(request)
             chat_context = await get_curated_chat_context(
                 chat_id=uuid.UUID(request.chat_id),
                 use_all_models_in_chat_history=False,
-                model=request.model or "",
+                model=requested_model or "",
                 current_turn_id=turn_id,
                 context_for_logging="quicktake",
+                max_turns=5,
             )
             chat_history = chat_context.messages
 
@@ -1234,19 +1296,35 @@ async def generate_quicktake(
         for model in MODELS_FOR_FALLBACK
         if context_lengths.get(model, DEFAULT_QT_MAX_CONTEXT_LENGTH) > min_required_context_len
     ]
+    if request.is_retake():
+        fallback_models = []
+        current_turn_context = await get_curated_chat_context(
+            chat_id=uuid.UUID(request.chat_id),
+            model="",
+            max_turns=1,
+            current_turn_id=turn_id,
+            include_current_turn=True,
+            use_all_models_in_chat_history=False,
+            return_all_current_turn_responses=True,
+            context_for_logging="quicktake_retake",
+        )
     _model_max_context_lengths = {k: v for k, v in context_lengths.items() if k in qt_models + fallback_models}
+
+    def update_timeout(cur_timeout: float, condition: bool, new_timeout: float) -> float:
+        return max(new_timeout, cur_timeout) if condition else cur_timeout
 
     timeout_secs = (
         request.timeout_secs  # the timeout provided by the client will override the defaults
         if request.timeout_secs
-        else settings.ATTACHMENT_QUICKTAKE_TIMEOUT_SECS
-        if has_attachments
         else settings.DEFAULT_QT_TIMEOUT_SECS
     )
 
+    timeout_secs = update_timeout(timeout_secs, has_attachments, settings.ATTACHMENT_QUICKTAKE_TIMEOUT_SECS)
+    timeout_secs = update_timeout(timeout_secs, request.is_retake(), settings.RETAKE_QT_TIMEOUT_SECS)
+
     preferred_models = []
-    if request.model:
-        preferred_models = [request.model]
+    if requested_model:
+        preferred_models = [requested_model]
     elif has_pdf_attachments or has_image_attachments:
         if has_pdf_attachments and not parse_pdf_locally:
             preferred_models = QT_MODEL_WITH_PDF_SUPPORT
@@ -1284,8 +1362,14 @@ async def generate_quicktake(
         else:
             raise ValueError(f"Unsupported model: {preferred_models}; supported: {','.join(get_qt_llms().keys())}")
 
-        secondary_models = [MODEL_FOR_PROMPT_ONLY_FULL_NAME] if not has_attachments else []
+        secondary_models = [MODEL_FOR_PROMPT_ONLY_FULL_NAME] if not has_attachments and not request.is_retake() else []
         fallback_models = fallback_models if not has_attachments else []
+
+        system_prompt = SYSTEM_QUICKTAKE_PROMPT
+        user_prompt = USER_QUICKTAKE_PROMPT
+        if request.is_retake():
+            system_prompt = SYSTEM_RETAKE_PROMPT
+            user_prompt = USER_RETAKE_PROMPT
 
         # We have three tiers of QT models (labelers)
         # 1. primary - high quality but not the fastets, might have refusal as well. Can early terminate.
@@ -1296,8 +1380,8 @@ async def generate_quicktake(
             model: create_quicktake_generator(
                 model,
                 chat_history,
-                user_prompt=USER_QUICKTAKE_PROMPT,
-                system_prompt=SYSTEM_QUICKTAKE_PROMPT,
+                user_prompt=user_prompt,
+                system_prompt=system_prompt,
             )
             for model in primary_models
         }
@@ -1309,8 +1393,8 @@ async def generate_quicktake(
                     MODEL_FOR_PROMPT_ONLY,
                     chat_history,
                     prompt_only=True,
-                    user_prompt=USER_QUICKTAKE_PROMPT,
-                    system_prompt=SYSTEM_QUICKTAKE_PROMPT,
+                    user_prompt=user_prompt,
+                    system_prompt=system_prompt,
                 ),
             }
 
@@ -1346,11 +1430,18 @@ async def generate_quicktake(
                     _model_max_context_lengths.get(self.model, DEFAULT_QT_MAX_CONTEXT_LENGTH),
                     DEFAULT_QT_MAX_CONTEXT_LENGTH,
                 )
+                prompt_args = {
+                    "prompt": tiktoken_trim(request.prompt or "", int(max_context_length * 0.75), direction="right"),
+                }
+                if request.is_retake():
+                    prompt_args["previous_quicktake_response"] = current_turn_context.current_turn_quicktake or ""
+                    prompt_args["assistant_responses"] = ""
+                    if current_turn_context.current_turn_responses:
+                        for model, response in current_turn_context.current_turn_responses.items():
+                            prompt_args["assistant_responses"] += f"Response from {model}:\n{response}\n\n---\n\n"
                 trimmed_message = replace_text_part(
                     _latest_message,
-                    self.labeler.user_quicktake_prompt.format(
-                        prompt=tiktoken_trim(request.prompt or "", int(max_context_length * 0.75), direction="right")
-                    ),
+                    self.labeler.user_quicktake_prompt.format(**prompt_args),
                 )
                 return await self.labeler.alabel(trimmed_message)
 
@@ -1379,6 +1470,20 @@ async def generate_quicktake(
                 has_other_failure = True
         if not has_good_response:
             errors = "no_response"
+
+        if request.is_retake():
+            logging.info(
+                json_dumps(
+                    {
+                        "message": "Regenerated quicktake",
+                        "model": requested_model,
+                        "previous_quicktake": current_turn_context.current_turn_quicktake,
+                        "new_quicktake": response_quicktake,
+                        "chat_id": request.chat_id,
+                        "turn_id": request.turn_id,
+                    }
+                )
+            )
 
         metric_inc(f"quicktake/model_{response_model or 'NONE'}")
         if has_good_response:
