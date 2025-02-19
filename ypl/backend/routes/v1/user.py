@@ -251,7 +251,13 @@ async def get_users(query: str) -> UserSearchResponse:
                 return _create_user_search_response(users)
 
             # if none of the above then search for special invite code
-            stmt = select(User).join(SpecialInviteCode).where(col(SpecialInviteCode.code).ilike(search))
+            stmt = (
+                select(User)
+                .distinct()
+                .join(SpecialInviteCodeClaimLog)
+                .join(SpecialInviteCode)
+                .where(col(SpecialInviteCode.code).ilike(search))
+            )
             result = await session.execute(stmt)
             users = result.scalars().all()
 
