@@ -52,6 +52,16 @@ RETRY_WAIT_MAX = 15
 SLACK_WEBHOOK_CASHOUT = settings.SLACK_WEBHOOK_CASHOUT
 CASHOUT_TXN_COST = 0
 
+MIN_BALANCES: dict[CurrencyEnum, Decimal] = {
+    CurrencyEnum.BTC: Decimal(0.00005),
+    CurrencyEnum.CBBTC: Decimal(0.001),
+    CurrencyEnum.DOGE: Decimal(100),
+    CurrencyEnum.ETH: Decimal(0.25),
+    CurrencyEnum.SOL: Decimal(0.1),
+    CurrencyEnum.USDC: Decimal(200),
+    CurrencyEnum.USDT: Decimal(200),
+}
+
 
 async def async_retry_decorator() -> AsyncRetrying:
     return AsyncRetrying(

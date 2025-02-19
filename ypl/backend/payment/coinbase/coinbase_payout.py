@@ -14,6 +14,7 @@ import httpx
 import jwt
 from cryptography.hazmat.primitives import serialization
 from ypl.backend.llm.utils import post_to_slack
+from ypl.backend.payment.payout_utils import MIN_BALANCES
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import CurrencyEnum
 
@@ -21,11 +22,6 @@ API_VERSION: Final[str] = "v2"
 BASE_URL: Final[str] = f"https://api.coinbase.com/{API_VERSION}"
 REQUEST_HOST: Final[str] = "api.coinbase.com"
 ENVIRONMENT: Final[str] = os.getenv("ENVIRONMENT", "staging")
-
-MIN_BALANCES: dict[CurrencyEnum, Decimal] = {
-    CurrencyEnum.ETH: Decimal(0.25),
-    CurrencyEnum.USDC: Decimal(200),
-}
 
 
 class TransactionStatus(StrEnum):

@@ -11,17 +11,13 @@ from cdp import Cdp, Transfer, Wallet
 from ypl.backend.config import settings
 from ypl.backend.llm.utils import post_to_slack
 from ypl.backend.payment.crypto.crypto_wallet import load_wallet_data
+from ypl.backend.payment.payout_utils import MIN_BALANCES
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import CurrencyEnum, PaymentTransactionStatusEnum
 from ypl.db.redis import get_upstash_redis_client
 
 POLL_INTERVAL_SECONDS = 5
 MAX_WAIT_TIME_SECONDS = 60
-
-MIN_BALANCES: dict[CurrencyEnum, Decimal] = {
-    CurrencyEnum.ETH: Decimal(0.25),
-    CurrencyEnum.USDC: Decimal(200),
-}
 
 # Rate limiter for Basescan API - max 4 calls per second
 BASESCAN_RATE_LIMIT: Final[int] = 4
