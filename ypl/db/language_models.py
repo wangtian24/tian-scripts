@@ -318,8 +318,8 @@ class LanguageModelTaxonomy(BaseModel, table=True):
     is_strong: bool | None = Field(nullable=True, default=False)
     is_pro: bool | None = Field(nullable=True, default=False)
     is_live: bool | None = Field(nullable=True, default=False)
-    context_window_tokens: int | None = Field(nullable=True)
-    parameter_count: int | None = Field(nullable=True)
+    parameter_count: int | None = Field(sa_column=Column(BigInteger(), nullable=True), default=None)
+    context_window_tokens: int | None = Field(sa_column=Column(BigInteger(), nullable=True), default=None)
     knowledge_cutoff_date: date | None = Field(nullable=True)
     avatar_url: str | None = Field(nullable=True)
     supported_attachment_mime_types: list[str] | None = Field(
