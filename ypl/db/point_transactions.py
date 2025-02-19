@@ -59,6 +59,19 @@ class PointTransaction(BaseModel, table=True):
     )
     cashout_payment_transaction: "PaymentTransaction" = Relationship(back_populates="credits_transaction")
 
+    # Set if this transaction is a reversal of a prior transaction.
+    reversed_transaction_id: uuid.UUID | None = Field(
+        foreign_key="point_transactions.transaction_id", nullable=True, index=True
+    )
+    reversed_transaction: "PointTransaction" = Relationship(
+        back_populates="reversals",
+        sa_relationship_kwargs={
+            "primaryjoin": "PointTransaction.reversed_transaction_id==PointTransaction.transaction_id",
+            "remote_side": "[PointTransaction.transaction_id]",
+        },
+    )
+    reversals: list["PointTransaction"] = Relationship(back_populates="reversed_transaction")
+
     # Needed for Column(JSON)
     class Config:
         arbitrary_types_allowed = True
