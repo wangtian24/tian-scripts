@@ -32,6 +32,7 @@ from ypl.backend.llm.chat import (
 )
 from ypl.backend.llm.chat_title import maybe_set_chat_title
 from ypl.backend.llm.crawl import enhance_citations
+from ypl.backend.llm.embedding import embed_and_store_chat_message_embeddings
 from ypl.backend.llm.memory_extraction import maybe_extract_memories
 from ypl.backend.llm.model.model import ModelResponseTelemetry
 from ypl.backend.llm.model_heuristics import ModelHeuristics
@@ -113,7 +114,7 @@ router = APIRouter()
 model_heuristics = ModelHeuristics(tokenizer_type="tiktoken")
 
 
-async def _message_completed(chat_request: ChatRequest) -> None:
+async def _message_completed(chat_request: ChatRequest, message_id: uuid.UUID, full_response: str) -> None:
     """Called when a message is completed successfully."""
     asyncio.create_task(maybe_add_suggested_followups(chat_request.chat_id, chat_request.turn_id))
     asyncio.create_task(
@@ -121,8 +122,9 @@ async def _message_completed(chat_request: ChatRequest) -> None:
     )
     # Wait a bit before the title update to allow cache hits on the chat history.
     asyncio.create_task(maybe_set_chat_title(chat_request.chat_id, chat_request.turn_id, sleep_secs=1.5))
-    asyncio.create_task(astore_language_code(str(chat_request.message_id), chat_request.prompt, sleep_secs=1.0))
-    # asyncio.create_task(maybe_update_user_memory(chat_request.chat_id, chat_request.turn_id))
+    asyncio.create_task(astore_language_code(str(chat_request.message_id), full_response, sleep_secs=1.0))
+    if settings.EMBED_MESSAGES_UPON_COMPLETION:
+        asyncio.create_task(embed_and_store_chat_message_embeddings(message_id, full_response))
 
 
 @router.post("/chat/completions")
@@ -451,7 +453,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                 yield StreamResponse({"metadata": message_metadata, "model": chat_request.model}).encode()
 
             # upsert
-            await upsert_chat_message(
+            message_id = await upsert_chat_message(
                 intent=Intent.FINAL_PERSIST,
                 turn_id=chat_request.turn_id,
                 message_id=chat_request.message_id,
@@ -472,7 +474,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                 # and check status later.
                 await link_attachments(chat_request.user_message_id, chat_request.attachment_ids)
             if stream_completion_status == CompletionStatus.SUCCESS:
-                await _message_completed(chat_request)
+                await _message_completed(chat_request, message_id, full_response)
             # Send persistence success status
             yield StreamResponse(
                 {"status": "message_persisted", "timestamp": datetime.now().isoformat(), "model": chat_request.model},

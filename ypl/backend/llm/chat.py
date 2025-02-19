@@ -919,7 +919,7 @@ async def upsert_chat_message(
     message_metadata: dict[str, str] | None = None,
     completion_status: CompletionStatus | None = None,
     modifier_status: MessageModifierStatus | None = None,
-) -> None:
+) -> UUID:
     """
     We have split the columns into two parts.
     items that are available before streaming - turn_id, message_id, message_type, turn_sequence_number,
@@ -986,6 +986,7 @@ async def upsert_chat_message(
                 await session.exec(assoc_stmt)  # type: ignore[call-overload]
 
             await session.commit()
+            return message_id
 
         except Exception as e:
             await session.rollback()

@@ -1,12 +1,15 @@
 import logging
 import os
+import uuid
 
 from langchain_text_splitters import TokenTextSplitter
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 from together import AsyncTogether
 
+from ypl.backend.db import get_async_session
 from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.utils import StopWatch
+from ypl.db.embeddings import ChatMessageEmbedding
 
 BGE_LARGE_EN_V1_5 = "BAAI/bge-large-en-v1.5"
 M2_BERT_80M_8K_RETRIEVAL = "togethercomputer/m2-bert-80M-8k-retrieval"
@@ -18,6 +21,7 @@ SUPPORTED_EMBEDDING_MODELS_CONTEXT_LENGTHS = {
 }
 DEFAULT_TOGETHER_MODEL = BGE_LARGE_EN_V1_5
 DEFAULT_TOKENIZATION_MODEL = "gpt-4"
+DEFAULT_EMBEDDING_DIMENSION = 1536
 
 # Multipliers to decrease the context length for input length validation exceptions.
 CONTEXT_LENGTH_MULTIPLIERS = [0.9, 0.75, 0.5]
@@ -111,3 +115,19 @@ async def embed(
     if pad_to_length:
         embeddings = [x + [0.0] * (pad_to_length - len(x)) for x in embeddings]
     return embeddings
+
+
+async def embed_and_store_chat_message_embeddings(message_id: uuid.UUID, message_content: str) -> None:
+    """Embed the message content and store the resulting embeddings."""
+    embeddings = await embed(
+        message_content, embedding_model=DEFAULT_TOGETHER_MODEL, pad_to_length=DEFAULT_EMBEDDING_DIMENSION
+    )
+    async with get_async_session() as session:
+        for embedding in embeddings:
+            cme = ChatMessageEmbedding(
+                message_id=message_id,
+                embedding=embedding,
+                embedding_model_name=DEFAULT_TOGETHER_MODEL,
+            )
+            session.add(cme)
+        await session.commit()
