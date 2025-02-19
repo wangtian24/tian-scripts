@@ -4,13 +4,14 @@ import os
 import re
 from typing import Any
 
+from dotenv import load_dotenv
 from google.cloud import logging as google_logging
 from google.cloud.logging.handlers import CloudLoggingHandler
 from google.cloud.logging_v2.handlers.transports.background_thread import BackgroundThreadTransport
 
-from ypl.backend.config import settings
-
 MAX_LOGGED_FIELD_LENGTH_CHARS = 32000
+
+load_dotenv()
 
 
 def redact_sensitive_data(text: str) -> str:
@@ -162,7 +163,7 @@ def setup_google_cloud_logging() -> None:
         logging.error(f"Google Cloud Logging setup failed: {e}")
 
 
-if os.environ.get("USE_GOOGLE_CLOUD_LOGGING") == "true" or settings.USE_GOOGLE_CLOUD_LOGGING:
+if os.environ.get("USE_GOOGLE_CLOUD_LOGGING", "").lower() in ("true", "1", "yes", "on"):
     setup_google_cloud_logging()
 else:
     root_logger = logging.getLogger()
