@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
@@ -66,9 +67,12 @@ async def get_cashouts_route(
 
 @router.post("/admin/points/adjust", dependencies=[Depends(validate_manage_points)])
 async def adjust_points_route(
-    user_id: str = Query(..., description="User ID"),
-    point_delta: int = Query(..., description="Points delta"),
-    reason: str = Query(..., description="Reason for the adjustment"),
+    user_id: Annotated[str, Query(description="User ID")],
+    point_delta: Annotated[int, Query(description="Points delta")],
+    reason: Annotated[str, Query(description="Reason for the adjustment")],
+    reversed_transaction_id: Annotated[
+        UUID | None, Query(description="Optional ID of the transaction being reversed")
+    ] = None,
     x_creator_email: str | None = Header(None, alias="X-Creator-Email"),
 ) -> UUID:
     """Adjust points for a user."""
@@ -80,6 +84,7 @@ async def adjust_points_route(
         "user_id": user_id,
         "point_delta": point_delta,
         "reason": reason,
+        "reversed_transaction_id": str(reversed_transaction_id) if reversed_transaction_id else None,
         "x_creator_email": x_creator_email,
     }
     logging.info(json_dumps(log_dict))
@@ -87,4 +92,9 @@ async def adjust_points_route(
         asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict)))
 
     await validate_not_self_action(user_id=user_id, creator_user_email=x_creator_email)
-    return await adjust_points(user_id=user_id, point_delta=point_delta, reason=reason)
+    return await adjust_points(
+        user_id=user_id,
+        point_delta=point_delta,
+        reason=reason,
+        reversed_transaction_id=reversed_transaction_id,
+    )

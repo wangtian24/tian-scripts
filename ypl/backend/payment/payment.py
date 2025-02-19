@@ -56,6 +56,8 @@ class PointTransactionResponse:
     action_details: dict
     created_at: datetime
     deleted_at: datetime | None
+    cashout_payment_transaction_id: UUID | None
+    reversed_transaction_id: UUID | None
 
 
 @dataclass
@@ -253,6 +255,8 @@ async def get_points_transactions(
                         action_details=tx.action_details,
                         created_at=tx.created_at,
                         deleted_at=tx.deleted_at,
+                        cashout_payment_transaction_id=tx.cashout_payment_transaction_id,
+                        reversed_transaction_id=tx.reversed_transaction_id,
                     )
                     for tx in transactions
                 ],
@@ -873,7 +877,9 @@ async def get_last_successful_transaction_and_instrument(
         return result.one_or_none()
 
 
-async def adjust_points(user_id: str, point_delta: int, reason: str) -> UUID:
+async def adjust_points(
+    user_id: str, point_delta: int, reason: str, reversed_transaction_id: UUID | None = None
+) -> UUID:
     """Adjust points for a user."""
     async with get_async_session() as session:
         result = await session.exec(select(User).where(User.user_id == user_id))
@@ -888,6 +894,7 @@ async def adjust_points(user_id: str, point_delta: int, reason: str) -> UUID:
             point_delta=point_delta,
             action_type=PointsActionEnum.ADJUSTMENT,
             action_details={"adjustment_reason": reason},
+            reversed_transaction_id=reversed_transaction_id,
         )
         session.add(adjustment)
 
