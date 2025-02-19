@@ -280,7 +280,7 @@ jobs:
           --allow-unauthenticated \
           --cpu ${{ env.CPU }} \
           --memory ${{ env.MEMORY }} \
-          --set-env-vars=ENVIRONMENT=${{ env.ENVIRONMENT }} \
+          --set-env-vars=ENVIRONMENT=${{ env.ENVIRONMENT }},USE_GOOGLE_CLOUD_LOGGING=true \
           --args=service \
           --add-cloudsql-instances=${{ env.CLOUD_SQL_CONNECTION_NAME }} \
           --network=default \
