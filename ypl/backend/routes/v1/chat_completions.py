@@ -41,7 +41,7 @@ from ypl.backend.llm.provider.provider_clients import get_language_model, get_pr
 from ypl.backend.llm.sanitize_messages import DEFAULT_MAX_TOKENS, sanitize_messages
 from ypl.backend.llm.transform_messages import TransformOptions, transform_user_messages
 from ypl.backend.llm.utils import post_to_slack
-from ypl.backend.prompts import get_system_prompt_with_modifiers
+from ypl.backend.prompts import get_system_prompt_with_modifiers, talk_to_other_models_system_prompt
 from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.monitoring import metric_inc
 from ypl.backend.utils.utils import StopWatch
@@ -138,10 +138,14 @@ async def chat_completions(
         chat_request: The chat prompt with model selection
         background_tasks: FastAPI background tasks
     """
-    if len(chat_request.prompt.strip()) == 0 and not chat_request.attachment_ids:
+    if (
+        len(chat_request.prompt.strip()) == 0
+        and not chat_request.attachment_ids
+        and not chat_request.intent == SelectIntent.TALK_TO_OTHER_MODELS
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Prompt cannot be empty",
+            detail="User prompt must have either text or attachment",
         )
     try:
         client: BaseChatModel = await get_provider_client(chat_request.model)
@@ -214,7 +218,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
         final_status = {"status": "completed", "model": chat_request.model}
 
         existing_message = None
-        if chat_request.load_existing:
+        if chat_request.load_existing and chat_request.intent != SelectIntent.TALK_TO_OTHER_MODELS:
             existing_message = await _get_message(chat_request)
 
         if existing_message:
@@ -247,20 +251,27 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
             )
         )
         # Mark other messages from the same model in the same turn as HIDDEN.
-        asyncio.create_task(update_modifier_status(chat_request))
+        if chat_request.intent != SelectIntent.TALK_TO_OTHER_MODELS:
+            asyncio.create_task(update_modifier_status(chat_request))
 
         # Send initial status
         yield StreamResponse(intial_status, "status").encode()
-        system_prompt = get_system_prompt_with_modifiers(
-            chat_request.model, chat_request.prompt_modifier_ids, chat_request.use_all_models_in_chat_history
-        )
+        if chat_request.intent == SelectIntent.TALK_TO_OTHER_MODELS:
+            system_prompt = await talk_to_other_models_system_prompt(chat_request.model, chat_request.turn_id)
+        else:
+            system_prompt = get_system_prompt_with_modifiers(
+                chat_request.model, chat_request.prompt_modifier_ids, chat_request.use_all_models_in_chat_history
+            )
 
         messages: list[BaseMessage] = []
         should_append_message = True
-        if system_prompt and not chat_request.model.startswith("o1"):
-            # use system prompt for non o1 models. o1 doesn't support system prompt
-            messages.append(SystemMessage(content=system_prompt))
-        if not chat_request.is_new_chat:
+        if chat_request.intent == SelectIntent.TALK_TO_OTHER_MODELS:
+            messages.append(HumanMessage(content=system_prompt))
+        else:
+            if system_prompt and not chat_request.model.startswith("o1"):
+                # use system prompt for non o1 models. o1 doesn't support system prompt
+                messages.append(SystemMessage(content=system_prompt))
+        if not chat_request.is_new_chat and chat_request.intent != SelectIntent.TALK_TO_OTHER_MODELS:
             chat_history = await get_curated_chat_context(
                 chat_request.chat_id,
                 chat_request.use_all_models_in_chat_history,
@@ -287,7 +298,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
         if chat_request.attachment_ids:
             latest_attachments = await get_attachments(chat_request.attachment_ids)
 
-        if should_append_message:
+        if should_append_message and chat_request.intent != SelectIntent.TALK_TO_OTHER_MODELS:
             latest_message = HumanMessage(
                 content=chat_request.prompt,
                 additional_kwargs={
@@ -415,7 +426,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
         stopwatch.record_split("stream_message_chunks")
 
         # once streaming is done, update the status of the failed message
-        if chat_request.intent == "retry" and chat_request.retry_message_id:
+        if chat_request.intent == SelectIntent.RETRY and chat_request.retry_message_id:
             asyncio.create_task(update_failed_message_status(chat_request.retry_message_id))
 
         # Send completion status

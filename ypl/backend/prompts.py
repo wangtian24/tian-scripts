@@ -1,3 +1,4 @@
+import logging
 import re
 import uuid
 from datetime import datetime
@@ -6,10 +7,12 @@ from zoneinfo import ZoneInfo
 
 from cachetools.func import ttl_cache
 from langchain_core.prompts import ChatPromptTemplate
-from sqlmodel import Session, select
+from sqlalchemy.orm import joinedload
+from sqlmodel import Session, or_, select
 
-from ypl.backend.db import get_engine
-from ypl.db.chats import PromptModifier
+from ypl.backend.db import get_async_session, get_engine
+from ypl.backend.utils.json import json_dumps
+from ypl.db.chats import ChatMessage, CompletionStatus, MessageModifierStatus, MessageType, PromptModifier
 
 RESPONSES_USER_PROMPT = """
 
@@ -995,6 +998,100 @@ def get_prompt_modifiers(prompt_modifier_ids: list[uuid.UUID]) -> str:
     return "\n".join(
         all_modifiers[modifier_id].text for modifier_id in prompt_modifier_ids if modifier_id in all_modifiers
     )
+
+
+TALK_TO_OTHER_MODELS_SYSTEM_PROMPT_TEMPLATE = """You are a helpful assistant.
+A user has previously asked both you and other assistant, {other_model_names}, to respond to a prompt, and you both responded.
+You can now see the other assistants' responses to the user's prompt.
+Your job is to react to the other assistant response, reflecting on your own response if needed.
+Direct your reaction to the user, not to the other assistant.
+
+You may do things like confirm the accuracy of the other assistant's response, challenge it if you think it's incorrect,
+point out contradictions and differences between your responses, and so on. The user will benefit from a meaningful critique
+of the other assistant's response - try to be critical and point out flaws in the other assistant's response, but don't be too mean.
+You may also point out flaws in your own response in light of the other assistant's response, if you think that's useful.
+
+When referring to the other assistant's response, you may use their name, {other_model_names}.
+Refer to the response provided by your model in the first person -- "my response", "my answer", or "me", and so on
+Be brief and concise, ideally respond in one or two sentences. You may use bullet points if you think it makes your response clearer.
+
+The user's prompt was {user_prompt}.
+
+Your previous response to the user's prompt was {response_from_cur_model}.
+
+The other assistant responses to the user were:
+
+{responses_from_other_models}
+
+Now, react to the other assistant's response, directly to the user.
+"""
+
+
+async def talk_to_other_models_system_prompt(cur_model: str, turn_id: uuid.UUID) -> str:
+    async with get_async_session() as session:
+        messages_in_same_turn_query = (
+            select(ChatMessage)
+            .options(
+                joinedload(ChatMessage.assistant_language_model),  # type: ignore
+            )
+            .where(
+                ChatMessage.turn_id == turn_id,
+                ChatMessage.message_type.in_([MessageType.USER_MESSAGE, MessageType.ASSISTANT_MESSAGE]),  # type: ignore
+                or_(
+                    ChatMessage.modifier_status == MessageModifierStatus.SELECTED,
+                    ChatMessage.modifier_status.is_(None),  # type: ignore
+                ),
+            )
+        )
+        result = await session.exec(messages_in_same_turn_query)
+        chat_messages = result.unique().all()
+
+        # Collect the user prompt and the responses from the other models.
+        user_prompt = ""
+        response_from_cur_model = ""
+        responses_from_other_models: dict[str, str] = {}
+
+        for chat_message in chat_messages:
+            if chat_message.message_type == MessageType.USER_MESSAGE:
+                user_prompt = chat_message.content
+            elif (
+                chat_message.message_type == MessageType.ASSISTANT_MESSAGE
+                and chat_message.completion_status == CompletionStatus.SUCCESS
+            ):
+                if chat_message.assistant_language_model.internal_name == cur_model:
+                    response_from_cur_model = chat_message.content
+                else:
+                    # Note: this label is only used in the system prompt to refer to the other model.
+                    label = (
+                        chat_message.assistant_language_model.label
+                        or chat_message.assistant_language_model.internal_name
+                    )
+                    responses_from_other_models[label] = chat_message.content
+
+        if not (user_prompt and response_from_cur_model and responses_from_other_models):
+            raise ValueError("Missing required fields for system prompt")
+
+        formatted_responses_from_other_models = "\n---\n".join(
+            [f"Response from {model_name}:\n{response}" for model_name, response in responses_from_other_models.items()]
+        )
+        other_model_names = ", ".join(responses_from_other_models.keys())
+
+        logging.info(
+            json_dumps(
+                {
+                    "message": "respoding to other models",
+                    "cur_model": cur_model,
+                    "other_models": other_model_names,
+                }
+            )
+        )
+
+        return TALK_TO_OTHER_MODELS_SYSTEM_PROMPT_TEMPLATE.format(
+            user_prompt=user_prompt,
+            response_from_cur_model=response_from_cur_model,
+            responses_from_other_models=formatted_responses_from_other_models,
+            other_model_names=other_model_names,
+        )
 
 
 def get_system_prompt_with_modifiers(
