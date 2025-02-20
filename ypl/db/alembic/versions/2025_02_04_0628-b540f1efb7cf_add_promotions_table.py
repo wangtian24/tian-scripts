@@ -32,7 +32,7 @@ def upgrade() -> None:
     sa.Column('promo_end_date', sa.DateTime(timezone=True), nullable=True),
     sa.Column('promo_strength', sa.Float(), nullable=True),
     sa.CheckConstraint('(promo_start_date IS NULL OR promo_end_date IS NULL) OR promo_end_date > promo_start_date', name=op.f('ck_model_promotions_model_promotions_date_order')),
-    sa.CheckConstraint('promo_strength >= 0.0 AND promo_strength <= 1.0', name=op.f('ck_model_promotions_model_promotions_promo_strength_range')),
+    sa.CheckConstraint('promo_strength > 0.0', name=op.f('ck_model_promotions_model_promotions_promo_strength_range')),
     sa.ForeignKeyConstraint(['language_model_id'], ['language_models.language_model_id'], name=op.f('fk_model_promotions_language_model_id_language_models')),
     sa.PrimaryKeyConstraint('promotion_id', name=op.f('pk_model_promotions'))
     )

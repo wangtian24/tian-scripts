@@ -34,11 +34,11 @@ class ModelPromotion(BaseModel, table=True):
     promo_start_date: datetime | None = Field(sa_column=Column(sa.DateTime(timezone=True), nullable=True, default=None))
     # When the promotion ends
     promo_end_date: datetime | None = Field(sa_column=Column(sa.DateTime(timezone=True), nullable=True, default=None))
-    # Strength of promotion (higher = stronger promotion, range = [0.0, 1.0])
+    # Strength of promotion (higher = stronger promotion, must be positive. 1.0 mean regular exposure)
     promo_strength: float | None = Field(sa_column=Column(sa.Float, nullable=True, default=None))
     __table_args__ = (
         sa.CheckConstraint(
-            "promo_strength >= 0.0 AND promo_strength <= 1.0",
+            "promo_strength > 0.0",
             name="model_promotions_promo_strength_range",
         ),
         sa.CheckConstraint(
