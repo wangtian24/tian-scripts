@@ -212,14 +212,30 @@ class Exclude(ModelFilter):
     Represents a filter to remove certain models and models from certain providers.
     """
 
-    def __init__(self, *, name: str | None = None, models: set[str] | None = None, providers: set[str] | None = None):
+    def __init__(
+        self,
+        *,
+        name: str | None = None,
+        exclude_models: set[str] | None = None,
+        whitelisted_models: set[str] | None = None,
+        providers: set[str] | None = None,
+    ):
         super().__init__(name=name or "-exclude", persist=True)
-        self.models = models or set()
+        self.exclude_models = exclude_models or set()
+        self.whitelisted_models = whitelisted_models or set()
         self.providers = providers or set()
 
     def _filter(self, state: RouterState) -> tuple[RouterState, set[str]]:
         state = state.deepcopy()
-        excl_models = self.models
+
+        # start with explicitly given excluded models.
+        excl_models = self.exclude_models
+
+        # if there are whitelisted models, exclude any models that's not in this list as well.
+        if self.whitelisted_models:
+            excl_models = excl_models | {
+                model for model in state.selected_models.keys() if model not in self.whitelisted_models
+            }
 
         if self.providers:
             provider_map = deduce_original_providers(tuple(state.selected_models.keys()))
@@ -240,7 +256,7 @@ class StreamableModelFilter(Exclude):
 
     def __init__(self) -> None:
         non_streaming_models = {model for model, heuristics in MODEL_HEURISTICS.items() if not heuristics.can_stream}
-        super().__init__(name="-nonStreamable", models=non_streaming_models)
+        super().__init__(name="-nonStreamable", exclude_models=non_streaming_models)
 
 
 class SupportsImageAttachmentModelFilter(Exclude):
@@ -248,7 +264,7 @@ class SupportsImageAttachmentModelFilter(Exclude):
 
     def __init__(self) -> None:
         non_image_attachment_models = set(get_active_models()) - set(get_image_attachment_models())
-        super().__init__(name="-noImageAttachment", models=non_image_attachment_models)
+        super().__init__(name="-noImageAttachment", exclude_models=non_image_attachment_models)
 
 
 class SupportsPdfAttachmentModelFilter(Exclude):
@@ -256,7 +272,7 @@ class SupportsPdfAttachmentModelFilter(Exclude):
 
     def __init__(self) -> None:
         non_pdf_attachment_models = set(get_active_models()) - set(get_pdf_attachment_models())
-        super().__init__(name="-noPdfAttachment", models=non_pdf_attachment_models)
+        super().__init__(name="-noPdfAttachment", exclude_models=non_pdf_attachment_models)
 
 
 class ContextLengthFilter(Exclude):
@@ -278,7 +294,7 @@ class ContextLengthFilter(Exclude):
             for model, context_length in context_lengths.items()
             if context_length < prompt_length * max_length_fraction
         }
-        super().__init__(name="-contextLength", models=excluded_models)
+        super().__init__(name="-contextLength", exclude_models=excluded_models)
 
 
 def group_models_by_key(model_to_key_map: dict[str, str], sorted_model_list: list[str]) -> dict[str | None, list[str]]:
@@ -490,4 +506,4 @@ class HighErrorRateFilter(RNGMixin, ModelFilter):
             or error_rates.get(model, 0) > self.hard_threshold
         }
 
-        return Exclude(name="-highErrorRate", models=rejected_models)._filter(state)
+        return Exclude(name="-highErrorRate", exclude_models=rejected_models)._filter(state)

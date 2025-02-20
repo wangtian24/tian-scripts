@@ -46,6 +46,7 @@ from ypl.backend.llm.routing.modules.rankers import (
 )
 from ypl.backend.llm.routing.policy import SelectionCriteria, decayed_random_fraction
 from ypl.backend.llm.routing.route_data_type import RoutingPreference
+from ypl.backend.llm.routing.router_state import RouterState
 from ypl.backend.llm.routing.rule_router import RoutingRuleFilter, RoutingRuleProposer
 from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter, OpenAILangChainAdapter
 from ypl.backend.utils.monitoring import metric_inc_by
@@ -63,6 +64,25 @@ def needs_special_ability(categories: list[str]) -> bool:
     # TODO(tian) - this might be a bit hacky, here we manually maintain a list we know that the routing chain is using.
     # we will change this to a more proper model ability check in the future.
     return needs_attachment(categories) or categories in ["coding", ONLINE_CATEGORY]
+
+
+def _get_good_and_bad_models(preference: RoutingPreference) -> tuple[set[str], set[str]]:
+    """
+    Go through all previous turns and split models into a good set and a bad set based on their user evaluation.
+    good = preferred
+    bad = downvoted or failed or user-stopped
+    """
+    all_good_models = set()
+    all_bad_models = set()
+    for turn in preference.turns or []:
+        if turn.preferred:
+            all_good_models.add(turn.preferred)
+        if turn.failed_models:
+            all_bad_models.update(turn.failed_models)
+        if turn.downvoted:
+            all_bad_models.update(turn.downvoted)
+    all_good_models = all_good_models - all_bad_models
+    return all_good_models, all_bad_models
 
 
 async def get_simple_pro_router(
@@ -118,9 +138,12 @@ async def get_simple_pro_router(
         semantic_group_filter = OnePerSemanticGroupFilter(priority_models=required_models)
         return (
             # -- filter stage --
-            Exclude(name="-exSMM", providers=show_me_more_providers, models=exclude_models)
+            Exclude(name="-exSMM", providers=show_me_more_providers, exclude_models=exclude_models)
             # Inject required models, even if they don't have attachment capabilities.
             | Inject(required_models or [], score=50000000)
+            # exclude inactive models after injection, this is necessary in case we are injecting models inferred
+            # from the history of the chat but they are no longer active.
+            | Exclude(name="-inactive", whitelisted_models=RouterState.get_all_models())
             # remove models that don't support needed attachment
             | attachment_filter
             # Don't apply semantic group filter for image turns, since we don't have many supporting models.
@@ -224,7 +247,7 @@ async def get_simple_pro_router(
                 & (
                     (
                         pro_proposer
-                        | Exclude(name="-ex-NF", models=all_bad_models)
+                        | Exclude(name="-ex-NF", exclude_models=all_bad_models)
                         | error_filter
                         | TopK(1, name="pro-NF")
                     ).with_flags(always_include=True, offset=10000)
@@ -254,25 +277,6 @@ async def get_simple_pro_router(
         )
 
     return router
-
-
-def _get_good_and_bad_models(preference: RoutingPreference) -> tuple[set[str], set[str]]:
-    """
-    Go through all previous turns and split models into a good set and a bad set based on their user evaluation.
-    good = preferred
-    bad = downvoted or failed or user-stopped
-    """
-    all_good_models = set()
-    all_bad_models = set()
-    for turn in preference.turns or []:
-        if turn.preferred:
-            all_good_models.add(turn.preferred)
-        if turn.failed_models:
-            all_bad_models.update(turn.failed_models)
-        if turn.downvoted:
-            all_bad_models.update(turn.downvoted)
-    all_good_models = all_good_models - all_bad_models
-    return all_good_models, all_bad_models
 
 
 def _get_routing_llm() -> BaseChatModel:

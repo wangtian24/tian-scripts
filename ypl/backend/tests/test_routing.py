@@ -497,6 +497,7 @@ def test_fast_compute_all_conf_overlap_diffs() -> None:
 @patch("ypl.backend.llm.promotions.get_model_creation_dates", return_value={})
 @patch("ypl.backend.llm.promotions.get_active_model_promotions", return_value=[])
 @patch("ypl.backend.llm.routing.router.HighErrorRateFilter.select_models")
+@patch("ypl.backend.llm.routing.router.RouterState.get_all_models")
 @patch("ypl.backend.llm.routing.modules.proposers.get_all_strong_models")
 @patch("ypl.backend.llm.routing.modules.proposers.get_all_pro_models")
 @patch("ypl.backend.llm.routing.modules.rankers.deduce_model_speed_scores")
@@ -525,6 +526,7 @@ async def test_simple_pro_router(
     mock_deduce_speed_scores: Mock,
     mock_get_all_pro_models: Mock,
     mock_get_all_strong_models: Mock,
+    mock_get_all_models: Mock,
     mock_error_filter: Mock,
     mock_get_active_model_promotions: Mock,
     mock_get_model_creation_dates: Mock,
@@ -544,6 +546,7 @@ async def test_simple_pro_router(
     all_models = models | pro_models
     mock_active_models.return_value = all_models
     mock_image_attachment_models.return_value = all_models
+    mock_get_all_models.return_value = set(all_models)
     state = RouterState(all_models=all_models)
     # Just make a provider for each model named after the model.
     mock_deduce_providers1.return_value = {model: model for model in all_models}
