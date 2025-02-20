@@ -419,8 +419,9 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
             if contains_billing_keywords(str(e)) and not recently_posted_billing_error(chat_request.model):
                 asyncio.create_task(
                     post_to_slack(
-                        f"Potential Billing error, for model {chat_request.model} , chat_id {chat_request.chat_id},"
-                        f" client {str(client)}"
+                        f"Potential billing error for model: {chat_request.model}: `{str(e)}`\n"
+                        f"Chat ID: {chat_request.chat_id}\n"
+                        f"Client: {str(client)}"
                     )
                 )
         stopwatch.record_split("stream_message_chunks")
