@@ -1,19 +1,14 @@
 # Standard library imports
 import logging
 import os
-import time
 from datetime import UTC, datetime
-from functools import cache
+from enum import Enum
 from typing import Any
 from uuid import UUID
 
 # Third-party imports
-import anthropic
-import google.generativeai as genai
 import httpx
-from huggingface_hub import HfApi, InferenceClient, ModelInfo
-from huggingface_hub.utils import HfHubHTTPError
-from openai import OpenAI
+from langchain_core.language_models.chat_models import BaseChatModel
 from sqlalchemy.exc import DatabaseError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -30,10 +25,10 @@ from tenacity.asyncio import AsyncRetrying
 # Local imports
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine
-from ypl.backend.llm.constants import PROVIDER_KEY_MAPPING
-from ypl.backend.llm.db_helpers import standardize_provider_name
-from ypl.backend.llm.utils import post_to_slack, post_to_x
+from ypl.backend.llm.provider.provider_clients import get_provider_client
+from ypl.backend.llm.utils import post_to_slack
 from ypl.backend.utils.json import json_dumps
+from ypl.backend.utils.utils import StopWatch
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
 
 # Constants
@@ -65,29 +60,19 @@ BILLING_ERROR_KEYWORDS = [
 provider_clients: dict[str, Any] = {}
 
 
-def contains_billing_error_keywords(error_message: str) -> bool:
-    return any(keyword.lower() in error_message.lower() for keyword in BILLING_ERROR_KEYWORDS)
+def _contains_billing_error_keywords(error_message: str) -> tuple[bool, str]:
+    for keyword in BILLING_ERROR_KEYWORDS:
+        if keyword.lower() in error_message.lower():
+            # Find index of first match
+            match_idx = error_message.lower().find(keyword.lower())
+            # Extract 30 chars before and after, handling string bounds
+            start = max(0, match_idx - 30)
+            end = min(len(error_message), match_idx + len(keyword) + 30)
+            return True, error_message[start:end]
+    return False, ""
 
 
-@cache
-def get_provider_client(
-    provider_name: str, api_key: str, model_name: str | None = None, base_url: str | None = None
-) -> Any:
-    """Get or create a client for the specified provider."""
-    if provider_name not in provider_clients:
-        if provider_name == "google":
-            genai.configure(api_key=api_key)
-            provider_clients[provider_name] = genai.GenerativeModel(model_name)
-        elif provider_name == "huggingface":
-            provider_clients[provider_name] = InferenceClient(token=api_key)
-        elif provider_name == "anthropic":
-            provider_clients[provider_name] = anthropic.Anthropic(api_key=api_key)
-        else:  # assumes OpenAI and compatible providers
-            provider_clients[provider_name] = OpenAI(api_key=api_key, base_url=base_url)
-    return provider_clients[provider_name]
-
-
-async def async_retry_decorator() -> AsyncRetrying:
+async def _async_retry_decorator() -> AsyncRetrying:
     return AsyncRetrying(
         stop=stop_after_attempt(MAX_RETRIES),
         wait=wait_fixed(WAIT_TIME),
@@ -96,18 +81,19 @@ async def async_retry_decorator() -> AsyncRetrying:
     )
 
 
-async def verify_onboard_submitted_models() -> None:
+async def do_verify_submitted_models() -> None:
     """
     Verify and onboard submitted models.
 
     This function should be run periodically to check and update the status of submitted models.
     It queries for submitted models, verifies them, and updates their status accordingly.
     """
-    async for attempt in await async_retry_decorator():
+    async for attempt in await _async_retry_decorator():
         with attempt:
             async with AsyncSession(get_async_engine()) as session:
+                # Get all submitted models and their provider names
                 query = (
-                    select(LanguageModel, Provider.name.label("provider_name"), Provider.base_api_url.label("base_url"))  # type: ignore
+                    select(LanguageModel, Provider.name.label("provider_name"))  # type: ignore
                     .join(Provider, LanguageModel.provider_id == Provider.provider_id)  # type: ignore
                     .where(
                         LanguageModel.status == LanguageModelStatusEnum.SUBMITTED,
@@ -116,10 +102,15 @@ async def verify_onboard_submitted_models() -> None:
                 )
                 submitted_models = await session.execute(query)
 
-            for model, provider_name, base_url in submitted_models:
-                await verify_and_update_model_status(model, provider_name, base_url)
+            rows = list(submitted_models)
+            print(f"Found {len(rows)} submitted models:")
+            for model, provider_name in rows:
+                print(f"    {provider_name:20}: {model.internal_name}")
 
-            await revalidate_yupp_head_model_info()
+            for model, _ in rows:
+                await _verify_one_submitted_model(model)
+
+            await _revalidate_yupp_head_model_info()
 
 
 async def verify_onboard_specific_model(model_id: UUID) -> None:
@@ -129,11 +120,11 @@ async def verify_onboard_specific_model(model_id: UUID) -> None:
     This function should be called to check and update the status of a specific model.
     It queries for the model, verifies it, and updates its status accordingly.
     """
-    async for attempt in await async_retry_decorator():
+    async for attempt in await _async_retry_decorator():
         with attempt:
             async with AsyncSession(get_async_engine()) as session:
                 query = (
-                    select(LanguageModel, Provider.name.label("provider_name"), Provider.base_api_url.label("base_url"))  # type: ignore
+                    select(LanguageModel, Provider.name.label("provider_name"))  # type: ignore
                     .join(Provider, LanguageModel.provider_id == Provider.provider_id)  # type: ignore
                     .where(
                         LanguageModel.language_model_id == model_id,
@@ -145,256 +136,132 @@ async def verify_onboard_specific_model(model_id: UUID) -> None:
                 row = result.first()
 
             if row:
-                model, provider_name, base_url = row
-                await verify_and_update_model_status(model, provider_name, base_url)
+                model, _ = row
+                await _verify_one_submitted_model(model)
 
-                await revalidate_yupp_head_model_info()
+                await _revalidate_yupp_head_model_info()
             else:
                 log_dict = {"message": f"No submitted model found with id {model_id}", "model_id": model_id}
                 logging.warning(json_dumps(log_dict))
 
 
-async def verify_and_update_model_status(model: LanguageModel, provider_name: str, base_url: str) -> None:
+class ModelManagementStatus(Enum):
+    VALIDATED = "VALIDATED"
+    REJECTED = "REJECTED"
+    DEACTIVATED = "DEACTIVATED"
+    BILLING_ERROR = "BILLING_ERROR"
+    NOTIFY_NOT_RUNNING = "NOTIFY_NOT_RUNNING"
+    NOTIFY_RECOVERED = "NOTIFY_RECOVERED"
+    NOTIFY_MORE_CHANCE = "NOTIFY_MORE_CHANCE"
+    ERROR = "FAILED"
+
+
+MODEL_MANAGEMENT_STATUS_MESSAGES = {
+    ModelManagementStatus.VALIDATED: "Set to ACTIVE after having been validated successfully",
+    ModelManagementStatus.REJECTED: f"Set to REJECTED due to not being validated after {REJECT_AFTER_DAYS} days",
+    ModelManagementStatus.DEACTIVATED: "Set to INACTIVE due to consecutive inference failures",
+    ModelManagementStatus.BILLING_ERROR: "Billing error detected",
+    ModelManagementStatus.NOTIFY_NOT_RUNNING: "Not running on the provider's endpoint, please investigate",
+    ModelManagementStatus.NOTIFY_RECOVERED: "Recovered and is now running again on the provider's endpoint",
+    ModelManagementStatus.NOTIFY_MORE_CHANCE: f"Still more chances for verification, not yet {REJECT_AFTER_DAYS} days",
+    ModelManagementStatus.ERROR: "Error occurred while validating model",
+}
+
+
+async def _log_and_post(status: ModelManagementStatus, model_name: str, extra_msg: str | None = None) -> None:
+    log_dict = {
+        "message": f"Model Management: [{model_name}] - {MODEL_MANAGEMENT_STATUS_MESSAGES[status]}",
+        "details": extra_msg,
+    }
+    if status == ModelManagementStatus.ERROR:
+        logging.error(json_dumps(log_dict))
+    else:
+        logging.info(json_dumps(log_dict))
+
+    print(f">> [log/slack] Model {model_name}: {MODEL_MANAGEMENT_STATUS_MESSAGES[status]} - {extra_msg or ''}")
+
+    slack_msg = f"Model {model_name}: {MODEL_MANAGEMENT_STATUS_MESSAGES[status]} \n {extra_msg or ''} \n"
+    f"[Environment: ]{os.environ.get('ENVIRONMENT')}]"
+
+    await post_to_slack(slack_msg)
+
+
+async def _verify_one_submitted_model(model: LanguageModel) -> None:
     """
     Verify and update the status of a single model.
 
     Args:
         model (LanguageModel): The model to verify and update.
-        provider_name (str): The name of the provider.
-        base_url (str): The base URL for the provider's API.
+        provider_name (str): The name of the provider, this is mostly for display
     """
-    async for attempt in await async_retry_decorator():
+    async for attempt in await _async_retry_decorator():
         with attempt:
             async with AsyncSession(get_async_engine()) as session:
                 try:
-                    is_inference_running, has_billing_error = verify_inference_running(model, provider_name, base_url)
+                    model_name = model.name  # just for the reference in error handling part
+                    print(f"\nModel {model.name}: starting verifying submission")
+                    is_inference_running, has_billing_error, excerpt = await _verify_inference_running(model)
 
                     if has_billing_error:
-                        log_message = (
-                            f"Environment {os.environ.get('ENVIRONMENT')} - "
-                            f"Billing error detected for model {model.name}"
-                        )
-                        await post_to_slack(log_message)
+                        await _log_and_post(ModelManagementStatus.BILLING_ERROR, model_name, excerpt)
 
                     if is_inference_running:
+                        print(f"Model {model.name}: submission verification done: Success")
+                        print(f">> [DB] updating model {model.name} status to ACTIVE")
                         model.status = LanguageModelStatusEnum.ACTIVE
-                        model.modified_at = datetime.utcnow()
+                        model.modified_at = datetime.now(UTC)
                         session.add(model)
-                        log_dict = {
-                            "message": "Model validated successfully and set to ACTIVE",
-                            "model_name": model.name,
-                        }
-                        logging.info(json_dumps(log_dict))
-                        log_message = (
-                            f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} from "
-                            f"{provider_name} validated successfully and set to ACTIVE."
-                        )
                         await session.commit()
-                        await post_to_slack(log_message)
-                        await post_to_x(log_message)
+                        await _log_and_post(ModelManagementStatus.VALIDATED, model_name)
                     else:
-                        is_hf_verified = verify_hf_model(model)
-                        if is_hf_verified:
-                            model.status = LanguageModelStatusEnum.VERIFIED_PENDING_ACTIVATION
-                            model.modified_at = datetime.utcnow()
+                        # reject if the model was submitted more than 3 days ago
+                        print(f"Model {model.name}: submission verification done: Failed")
+                        if (
+                            model.created_at
+                            and (datetime.now(UTC) - model.created_at.replace(tzinfo=UTC)).days > REJECT_AFTER_DAYS
+                        ):
+                            print(f"Model {model.name}: already failed for {REJECT_AFTER_DAYS} days, rejecting")
+                            print(f">> [DB] updating model {model.name} status to REJECTED")
+                            model.status = LanguageModelStatusEnum.REJECTED
+                            model.modified_at = datetime.now(UTC)
                             session.add(model)
                             await session.commit()
-                            log_dict = {
-                                "message": "Model validated successfully and set to VERIFIED_PENDING_ACTIVATION",
-                                "model_name": model.name,
-                            }
-                            logging.info(json_dumps(log_dict))
-                            log_message = (
-                                f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} from "
-                                f"{provider_name} validated successfully and set to VERIFIED_PENDING_ACTIVATION."
-                            )
-                            await post_to_slack(log_message)
-                            await post_to_x(log_message)
+                            await _log_and_post(ModelManagementStatus.REJECTED, model_name)
                         else:
-                            # reject if the model was submitted more than 3 days ago
-                            if (
-                                model.created_at
-                                and (datetime.now(UTC) - model.created_at.replace(tzinfo=UTC)).days > REJECT_AFTER_DAYS
-                            ):
-                                model.status = LanguageModelStatusEnum.REJECTED
-                                model.modified_at = datetime.utcnow()
-                                session.add(model)
-                                await session.commit()
-                                log_dict = {
-                                    "message": "Model not validated after 3 days. Setting status to REJECTED",
-                                    "model_name": model.name,
-                                }
-                                logging.info(json_dumps(log_dict))
-                                log_message = (
-                                    f"Environment {os.environ.get('ENVIRONMENT')} - "
-                                    f"Model {model.name} from {provider_name} not validated after 3 days. "
-                                    "Setting status to REJECTED."
-                                )
-                                await post_to_slack(log_message)
+                            print(f"Model {model.name}: not yet {REJECT_AFTER_DAYS} days, giving it more chances")
+                            await _log_and_post(ModelManagementStatus.NOTIFY_MORE_CHANCE, model_name)
 
                 except Exception as e:
-                    log_dict = {
-                        "message": "Model validation failed",
-                        "model_name": model.name,
-                        "error": str(e),
-                    }
-                    logging.exception(json_dumps(log_dict))
-                    await post_to_slack(
-                        f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} from "
-                        f"{provider_name} validation failed: {str(e)}"
-                    )
-                    # Re-raise the exception to trigger a retry
-                    raise
-
-
-def verify_hf_model(model: LanguageModel) -> bool:
-    """
-    Verify a model on Hugging Face.
-
-    Args:
-        model (LanguageModel): The model to verify.
-
-    Returns:
-        bool: True if the model is verified, False otherwise.
-
-    Raises:
-        HfHubHTTPError: If there's an error accessing the Hugging Face API.
-    """
-    try:
-        api = HfApi()
-        model_info = api.model_info(model.internal_name)
-        mmlu_pro_score = get_mmlu_pro_score(model_info)
-
-        # Check for specific tags
-        tags = model_info.tags or []
-        has_text_generation = "text-generation" in tags
-        has_conversational = "conversational" in tags
-        has_endpoints_compatible = "endpoints_compatible" in tags
-
-        downloads = model_info.downloads or 0
-        likes = model_info.likes or 0
-
-        log_dict = {
-            "message": "Model characteristics",
-            "model_name": model.name,
-            "tags": tags,
-            "has_text_generation": has_text_generation,
-            "has_conversational": has_conversational,
-            "has_endpoints_compatible": has_endpoints_compatible,
-            "downloads": downloads,
-            "likes": likes,
-            "mmlu_pro_score": mmlu_pro_score,
-        }
-        logging.info(json_dumps(log_dict))
-        # Return true if the model has more than 1000 downloads and 100 likes
-        # and has the required tags for text-generation, conversational and endpoints_compatible
-        is_verified = (
-            downloads > DOWNLOADS_THRESHOLD
-            and likes > LIKES_THRESHOLD
-            and all([has_text_generation, has_conversational, has_endpoints_compatible])
-        )
-
-        # Return true if the model has more than 50 MMLU-PRO score
-        # and has the required tags for text-generation, conversational and endpoints_compatible
-        is_verified = is_verified or (
-            mmlu_pro_score > MMLU_PRO_THRESHOLD
-            and all([has_text_generation, has_conversational, has_endpoints_compatible])
-        )
-
-        return is_verified
-    except HfHubHTTPError as e:
-        log_dict = {
-            "message": "Error accessing Hugging Face API for model",
-            "model_name": model.name,
-            "error": str(e),
-        }
-        logging.exception(json_dumps(log_dict))
-        return False
-    except Exception as e:
-        log_dict = {
-            "message": "Unexpected error verifying model on Hugging Face",
-            "model_name": model.name,
-            "error": str(e),
-        }
-        logging.exception(json_dumps(log_dict))
-        return False
-
-
-def get_mmlu_pro_score(model_info: ModelInfo) -> float:
-    """
-    Extract the MMLU-PRO score from the model info.
-
-    Args:
-        model_info (ModelInfo): The model information from Hugging Face.
-
-    Returns:
-        float: The MMLU-PRO score, or 0 if not found.
-    """
-    if isinstance(model_info.model_index, list) and model_info.model_index:
-        for result in model_info.model_index[0].get("results", []):
-            dataset = result.get("dataset", {})
-            if dataset.get("name", "").startswith("MMLU-PRO"):
-                for metric in result.get("metrics", []):
-                    if metric.get("type") == "acc":
-                        return float(metric.get("value", 0))
-    return 0
+                    print(f"Model {model.name}: error while verifying submission: {e}")
+                    await _log_and_post(ModelManagementStatus.ERROR, model_name, str(e))
+                    raise  # trigger retry
 
 
 INFERENCE_ATTEMPTS = 3
 
 
 @retry(stop=stop_after_attempt(INFERENCE_ATTEMPTS), wait=wait_exponential(multiplier=1, min=4, max=10), reraise=True)
-def check_inference_with_retries(
-    client: Any,
-    model: LanguageModel,
-    cleaned_provider_name: str,
-) -> bool:
+async def check_inference_with_retries(client: BaseChatModel, model: LanguageModel) -> bool:
     attempt_number = check_inference_with_retries.statistics["attempt_number"]  # type: ignore
     log_dict = {
-        "message": f"Starting inference attempt {attempt_number}/{INFERENCE_ATTEMPTS} for model {model.name}",
+        "message": f"Model {model.name}: check inference, attempt {attempt_number}/{INFERENCE_ATTEMPTS}",
         "attempt": attempt_number,
-        "model_name": model.name,
-        "cleaned_provider_name": cleaned_provider_name,
     }
     logging.info(json_dumps(log_dict))
 
-    start_time = time.time()
+    stopwatch = StopWatch()
     try:
-        if cleaned_provider_name == "anthropic":
-            is_inference_running = anthropic_api_call(client, model.internal_name)
-        elif cleaned_provider_name == "huggingface":
-            is_inference_running = huggingface_api_call(client, model.internal_name)
-        elif cleaned_provider_name == "google":
-            content = google_ai_api_call(client, model.internal_name)
-            is_inference_running = bool(content.text and len(content.text) > 0)
-        else:  # OpenAI and compatible providers
-            completion = openai_api_call(client, model.internal_name, model.provider_settings)
-            # Some OpenAI compatible providers return None for choices. This will help us debug the response.
-            if completion.choices is None:
-                log_dict = {
-                    "message": (
-                        f"Attempt {attempt_number}/{INFERENCE_ATTEMPTS}: No choices returned from the provider. "
-                        f"Completion call output: {completion}"
-                    ),
-                    "attempt": attempt_number,
-                    "model_name": model.name,
-                    "cleaned_provider_name": cleaned_provider_name,
-                }
-                logging.warning(json_dumps(log_dict))
-                is_inference_running = False
-            else:
-                is_inference_running = bool(
-                    completion.choices[0].message.content and len(completion.choices[0].message.content) > 0
-                )
+        results = client.invoke(INFERENCE_VERIFICATION_PROMPT)
+        is_inference_running = results is not None and results.content is not None
+        print(f"... response: {results.content if results and results.content else '[no response]'}")
 
-        latency = round(time.time() - start_time, 3)
+        stopwatch.end(f"latency_{model.name}")
         log_dict = {
             "message": f"Attempt {attempt_number}/{INFERENCE_ATTEMPTS} completed for model {model.name}",
             "attempt": attempt_number,
-            "model_name": model.name,
-            "cleaned_provider_name": cleaned_provider_name,
+            "model": f"{model.name}",
             "success": is_inference_running,
-            "latency": latency,
+            "latency": stopwatch.get_splits(),
         }
         logging.info(json_dumps(log_dict))
         # If the inference failed and it's not the last attempt, raise an exception to trigger a retry.
@@ -403,18 +270,18 @@ def check_inference_with_retries(
         return is_inference_running
 
     except Exception as e:
+        print(f"Error in check_inference_with_retries: {e}")
         log_dict = {
-            "message": f"Attempt {attempt_number}/{INFERENCE_ATTEMPTS} failed for model {model.name}",
+            "message": f"Model Management: Attempt {attempt_number}/{INFERENCE_ATTEMPTS} failed for model {model.name}",
             "attempt": attempt_number,
-            "model_name": model.name,
-            "cleaned_provider_name": cleaned_provider_name,
+            "model": f"{model.name}",
             "error": str(e),
         }
         logging.error(json_dumps(log_dict))
         raise
 
 
-def verify_inference_running(model: LanguageModel, provider_name: str, base_url: str) -> tuple[bool, bool]:
+async def _verify_inference_running(model: LanguageModel) -> tuple[bool, bool, str | None]:
     """
     Verify if the model is running on the provider's endpoint.
 
@@ -422,85 +289,32 @@ def verify_inference_running(model: LanguageModel, provider_name: str, base_url:
         tuple[bool, bool]: (is_inference_running, has_billing_error)
     """
     try:
-        api_key = get_provider_api_key(provider_name)
-        cleaned_provider_name = standardize_provider_name(provider_name)
-        internal_name = model.internal_name
-        # internal_name might have ":" in it for variants, consider variants when check for -online suffix.
-        internal_name_base = internal_name.split(":", 1)[0]
-        if internal_name_base.endswith("-online") and internal_name_base.startswith("gemini-"):
-            internal_name = internal_name.replace("-online", "")
-        client = get_provider_client(cleaned_provider_name, api_key, internal_name, base_url)
+        chat_model_client = await get_provider_client(model.internal_name, include_all_models=True)
+        if not chat_model_client:
+            raise Exception(f"Model {model.name} not found from any active provider")
 
-        is_inference_running = check_inference_with_retries(
-            client=client,
-            model=model,
-            cleaned_provider_name=cleaned_provider_name,
-        )
+        is_inference_running = await check_inference_with_retries(client=chat_model_client, model=model)
 
-        return is_inference_running, False  # No billing error
+        return is_inference_running, False, None  # No billing error
 
     except Exception as e:
+        print(f"Error in _verify_inference_running: {e}")
         log_dict = {
-            "message": "All inference attempts failed for model",
+            "message": "Model Management: All inference attempts failed for model",
             "model_name": model.name,
-            "provider_name": provider_name,
             "error": str(e),
         }
         logging.exception(json_dumps(log_dict))
 
-        has_billing_error = contains_billing_error_keywords(str(e))
+        has_billing_error, excerpt = _contains_billing_error_keywords(str(e))
         if has_billing_error:
             log_dict = {
-                "message": "Potential billing error detected",
+                "message": f"Model Management: Potential billing error detected: ... {excerpt} ...",
                 "model_name": model.name,
-                "provider_name": provider_name,
             }
             logging.error(json_dumps(log_dict))
 
-        return False, has_billing_error
-
-
-def get_provider_api_key(provider_name: str) -> str:
-    """
-    Get the API key for a specific provider.
-
-    Args:
-        provider_name (str): The name of the provider.
-
-    Returns:
-        str: The API key for the specified provider.
-
-    Raises:
-        ValueError: If the API key for the provider is not found.
-    """
-    # Remove any blank characters within the provider_name as DB has blank spaces
-    cleaned_provider_name = standardize_provider_name(provider_name)
-    env_var_name = PROVIDER_KEY_MAPPING.get(cleaned_provider_name)
-    log_dict = {
-        "message": "API key environment variable name for provider",
-        "provider_name": provider_name,
-        "env_var_name": env_var_name,
-    }
-    logging.debug(json_dumps(log_dict))
-
-    if not env_var_name:
-        log_dict = {
-            "message": "Unknown provider name",
-            "provider_name": provider_name,
-        }
-        logging.error(json_dumps(log_dict))
-        raise ValueError(f"Unknown provider name: {provider_name}")
-
-    api_key = os.environ.get(env_var_name)
-    if not api_key:
-        log_dict = {
-            "message": "API key not found for provider",
-            "provider_name": provider_name,
-        }
-        logging.error(json_dumps(log_dict))
-        raise ValueError(f"API key not found for provider: {provider_name}")
-
-    return api_key
+        return False, has_billing_error, excerpt
 
 
 @retry(
@@ -508,70 +322,21 @@ def get_provider_api_key(provider_name: str) -> str:
     wait=wait_fixed(WAIT_TIME),
     retry=retry_if_exception_type((Exception, TimeoutError)),
 )
-def openai_api_call(client: Any, model_name: str, extra_body: dict[str, Any] | None = None) -> Any:
-    """
-    extra_body is used to pass additional parameters to the API call.
-    E.g. for OpenRouter, we send provider.ignore to ignore a list of providers.
-    """
-    return client.chat.completions.create(
-        model=model_name,
-        messages=[{"role": "user", "content": INFERENCE_VERIFICATION_PROMPT}],
-        timeout=INFERENCE_TIMEOUT,
-        extra_body=extra_body,
-    )
-
-
-@retry(
-    stop=stop_after_attempt(MAX_RETRIES),
-    wait=wait_fixed(WAIT_TIME),
-    retry=retry_if_exception_type((Exception, TimeoutError)),
-)
-def google_ai_api_call(client: Any, model_name: str) -> Any:
-    return client.generate_content(INFERENCE_VERIFICATION_PROMPT)
-
-
-@retry(
-    stop=stop_after_attempt(MAX_RETRIES),
-    wait=wait_fixed(WAIT_TIME),
-    retry=retry_if_exception_type((Exception, TimeoutError)),
-)
-def huggingface_api_call(client: Any, model_name: str) -> bool:
-    messages = [
-        {"role": "user", "content": INFERENCE_VERIFICATION_PROMPT},
-    ]
-    completion = client.chat.completions.create(model=model_name, messages=messages, stream=True)
-
-    for chunk in completion:
-        if chunk.choices[0].delta.content and len(chunk.choices[0].delta.content) > 0:
-            return True
-    return False
-
-
-@retry(
-    stop=stop_after_attempt(MAX_RETRIES),
-    wait=wait_fixed(WAIT_TIME),
-    retry=retry_if_exception_type((Exception, TimeoutError)),
-)
-def anthropic_api_call(client: Any, model_name: str) -> bool:
-    message = client.messages.create(
-        model=model_name,
-        max_tokens=1024,
-        messages=[{"role": "user", "content": INFERENCE_VERIFICATION_PROMPT}],
-        timeout=INFERENCE_TIMEOUT,
-    )
-    return bool(message.content and len(message.content) > 0)
-
-
-async def revalidate_yupp_head_model_info() -> None:
+async def _revalidate_yupp_head_model_info() -> None:
     """Notify yupp-head when model ."""
     yupp_head_base_url = settings.YUPP_HEAD_APP_BASE_URL
     if not yupp_head_base_url:
-        logging.error(json_dumps({"message": "yupp-head base url not found for revalidation"}))
+        logging.error(json_dumps({"message": "Model Management: yupp-head base url not found for revalidation"}))
         return
 
     async with httpx.AsyncClient() as client:
         logging.info(
-            json_dumps({"message": "Revalidating yupp-head model info", "yupp_head_base_url": yupp_head_base_url})
+            json_dumps(
+                {
+                    "message": "Model Management: Revalidating yupp-head model info",
+                    "yupp_head_base_url": yupp_head_base_url,
+                }
+            )
         )
         try:
             response = await client.get(
@@ -581,7 +346,14 @@ async def revalidate_yupp_head_model_info() -> None:
             )
             response.raise_for_status()
             logging.info(
-                json_dumps({"message": "yupp-head model revalidation call succeeded", "response": response.json()})
+                json_dumps(
+                    {
+                        "message": "Model Management: yupp-head model revalidation call succeeded",
+                        "response": response.json(),
+                    }
+                )
             )
         except httpx.HTTPError as e:
-            logging.error(json_dumps({"message": "yupp-head model revalidation call failed", "error": str(e)}))
+            logging.error(
+                json_dumps({"message": "Model Management: yupp-head model revalidation call failed", "error": str(e)})
+            )

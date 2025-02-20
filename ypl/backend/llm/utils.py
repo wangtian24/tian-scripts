@@ -1,4 +1,3 @@
-import datetime
 import json
 import logging
 import math
@@ -10,7 +9,6 @@ from functools import cache
 from typing import Any, TypeVar
 
 import numpy as np
-import tweepy
 from slack_sdk.webhook import WebhookClient
 from sqlmodel import select
 
@@ -210,40 +208,6 @@ async def post_to_slack(message: str | None = None, webhook_url: str | None = No
             "message": f"Failed to post message to Slack: {str(e)}",
         }
         logging.exception(json_dumps(log_dict))
-
-
-async def post_to_x(message: str) -> None:
-    """Post a message to X."""
-    bearer_token = os.environ.get("TWITTER_BEARER_TOKEN")
-    consumer_key = os.environ.get("TWITTER_CONSUMER_KEY")
-    consumer_secret = os.environ.get("TWITTER_CONSUMER_SECRET")
-    access_token = os.environ.get("TWITTER_ACCESS_TOKEN")
-    access_token_secret = os.environ.get("TWITTER_ACCESS_TOKEN_SECRET")
-    if bearer_token and consumer_key and consumer_secret and access_token and access_token_secret:
-        try:
-            client = tweepy.Client(
-                bearer_token=bearer_token,
-                access_token=access_token,
-                access_token_secret=access_token_secret,
-                consumer_key=consumer_key,
-                consumer_secret=consumer_secret,
-            )
-            # TODO: Use some random number to avoid duplicate tweets.
-            # Uncomment the following line to tweet the actual message.
-            # tweet = datetime.datetime.now(datetime.UTC).isoformat() + " " + message
-            tweet = datetime.datetime.now(datetime.UTC).isoformat() + " " + "Hello...something magical just happened!"
-            client.create_tweet(text=tweet)
-        except Exception as e:
-            log_dict = {
-                "message": f"Failed to post message to X: {str(e)}",
-            }
-            logging.exception(json_dumps(log_dict))
-    else:
-        log_dict = {
-            "message": "TWITTER_BEARER_TOKEN, TWITTER_CONSUMER_KEY, TWITTER_CONSUMER_SECRET, TWITTER_ACCESS_TOKEN, or "
-            "TWITTER_ACCESS_TOKEN_SECRET environment variable is not set",
-        }
-        logging.warning(json_dumps(log_dict))
 
 
 T = TypeVar("T")

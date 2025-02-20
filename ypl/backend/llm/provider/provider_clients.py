@@ -39,14 +39,14 @@ PROVIDER_KWARGS = {
 # TODO(bhanu) - this should auto refresh every 10 minutes and at startup
 # TODO(bhanu) - test new model info is hot reloaded in under 10mins (refresh interval)
 @ttl_cache(ttl=600)  # 600 seconds = 10 minutes
-def load_active_models_with_providers() -> dict[str, tuple[LanguageModel, Provider]]:
+def load_active_models_with_providers(include_all_models: bool = False) -> dict[str, tuple[LanguageModel, Provider]]:
     """Load all active language models with their provider information from the database."""
     with Session(get_engine()) as session:
         query = (
             select(LanguageModel, Provider)
             .join(Provider, LanguageModel.provider_id == Provider.provider_id)  # type: ignore
             .where(
-                LanguageModel.status == LanguageModelStatusEnum.ACTIVE,
+                LanguageModel.status == LanguageModelStatusEnum.ACTIVE if not include_all_models else True,
                 Provider.is_active == True,  # noqa: E712
             )
         )
@@ -58,27 +58,30 @@ def load_active_models_with_providers() -> dict[str, tuple[LanguageModel, Provid
 
 
 # TODO: Ralph's comment: probably want to standardize the provider name using `standardize_provider_name`
-def get_model_provider_tuple(model_name: str) -> tuple[LanguageModel, Provider] | None:
+def get_model_provider_tuple(
+    model_name: str, include_all_models: bool = False
+) -> tuple[LanguageModel, Provider] | None:
     """
     Look up the (model, provider) tuple for a given model name.
     Cache results for 10 minutes using ttl_cache.
     Returns None if the model is not found.
     """
-    model_provider_map = load_active_models_with_providers()
+    model_provider_map = load_active_models_with_providers(include_all_models)
     return model_provider_map.get(model_name)
 
 
 # TODO(bhanu) - add provider to client mapping in DB and remove switch cases (pre-work API key storage)
 # TODO(bhanu) - use keys from ypl/backend/config.py
-async def get_provider_client(model_name: str) -> BaseChatModel:
+async def get_provider_client(model_name: str, include_all_models: bool = False) -> BaseChatModel:
     """
     Initialize a LangChain client based on model name.
     Uses cached model and provider details to configure appropriate client.
 
     Args:
         model_name: Name of the model to initialize client for
+        include_all: If True, include all models, even if they are not active
     """
-    model_provider = get_model_provider_tuple(model_name)
+    model_provider = get_model_provider_tuple(model_name, include_all_models)
     if not model_provider:
         raise ValueError(f"No model-provider configuration found for: {model_name}")
 

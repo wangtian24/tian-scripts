@@ -1,15 +1,12 @@
 # Standard library imports
 import logging
-import os
 from collections.abc import Sequence
 
 from sqlalchemy.exc import DatabaseError, OperationalError
 from sqlmodel import desc, select, update
 from tenacity import after_log, retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 from ypl.backend.db import get_async_session
-from ypl.backend.llm.model.model_onboarding import verify_inference_running
-from ypl.backend.llm.utils import post_to_slack
-from ypl.backend.utils.json import json_dumps
+from ypl.backend.llm.model.model_onboarding import ModelManagementStatus, _log_and_post, _verify_inference_running
 from ypl.db.language_models import (
     LanguageModel,
     LanguageModelResponseStatus,
@@ -34,10 +31,10 @@ DATABASE_RETRY_IF_EXCEPTION_TYPE = (OperationalError, DatabaseError)
     after=after_log(logging.getLogger(), logging.WARNING),
     retry=retry_if_exception_type(DATABASE_RETRY_IF_EXCEPTION_TYPE),
 )
-async def _get_active_models() -> Sequence[tuple[LanguageModel, str, str]]:
+async def _get_active_models() -> Sequence[tuple[LanguageModel, str]]:
     async with get_async_session() as session:
         query = (
-            select(LanguageModel, Provider.name.label("provider_name"), Provider.base_api_url.label("base_url"))  # type: ignore
+            select(LanguageModel, Provider.name.label("provider_name"))  # type: ignore
             .join(Provider, LanguageModel.provider_id == Provider.provider_id)  # type: ignore
             .where(
                 LanguageModel.status == LanguageModelStatusEnum.ACTIVE,
@@ -50,7 +47,7 @@ async def _get_active_models() -> Sequence[tuple[LanguageModel, str, str]]:
         return result.all()
 
 
-async def validate_active_onboarded_models() -> None:
+async def do_validate_active_models() -> None:
     """
     Validate active models.
 
@@ -58,8 +55,10 @@ async def validate_active_onboarded_models() -> None:
     It queries for active models, verifies them, and logs an error if any validation fails.
     """
     active_models = await _get_active_models()
-    for model, provider_name, base_url in active_models:
-        await verify_and_update_model_status(model, provider_name, base_url)
+    print(f"Found {len(active_models)} active models: {', '.join([model.name for model, _ in active_models])}\n\n")
+
+    for model, provider_name in active_models:
+        await _validate_one_active_model(model, provider_name)
 
 
 @retry(
@@ -70,6 +69,7 @@ async def validate_active_onboarded_models() -> None:
 )
 async def _update_model_status(model: LanguageModel, status: LanguageModelStatusEnum) -> None:
     async with get_async_session() as session:
+        print(f">> [DB] updating model {model.name} status to {status}")
         await session.exec(
             update(LanguageModel)
             .values(status=status)
@@ -88,6 +88,7 @@ async def _insert_language_model_response_status(
     model: LanguageModel, status_type: LanguageModelResponseStatusEnum
 ) -> None:
     async with get_async_session() as session:
+        print(f">> [DB] updating model {model.name} response status to {status_type}")
         new_language_model_response_record = LanguageModelResponseStatus(
             language_model_id=model.language_model_id,
             status_type=status_type,
@@ -96,7 +97,7 @@ async def _insert_language_model_response_status(
         await session.commit()
 
 
-async def verify_and_update_model_status(model: LanguageModel, provider_name: str, base_url: str) -> None:
+async def _validate_one_active_model(model: LanguageModel, provider_name: str) -> None:
     """
     Verify and update the status of a single active model.
     If the model is not running on 2 consecutive runs, set the model to INACTIVE.
@@ -107,6 +108,8 @@ async def verify_and_update_model_status(model: LanguageModel, provider_name: st
         base_url (str): The base URL for the provider's API.
     """
     try:
+        model_name = model.name
+        print(f"\nModel {model.name}: starting validation")
         async with get_async_session() as session:
             last_status_query = (
                 select(LanguageModelResponseStatus)
@@ -120,7 +123,7 @@ async def verify_and_update_model_status(model: LanguageModel, provider_name: st
             last_status_result = await session.exec(last_status_query)
             last_status = last_status_result.one_or_none()
 
-        is_inference_running, has_billing_error = verify_inference_running(model, provider_name, base_url)
+        is_inference_running, has_billing_error, excerpt = await _verify_inference_running(model)
 
         current_status_type = (
             LanguageModelResponseStatusEnum.INFERENCE_SUCCEEDED
@@ -138,60 +141,25 @@ async def verify_and_update_model_status(model: LanguageModel, provider_name: st
             await _insert_language_model_response_status(model, current_status_type)
 
         if not is_inference_running:
+            # The model is not running!
+            print(f"Model {model_name}: done validation: Failed")
             if last_status and last_status.status_type == LanguageModelResponseStatusEnum.INFERENCE_FAILED:
+                # deactivate if it also failed last time
                 await _update_model_status(model, LanguageModelStatusEnum.INACTIVE)
-                log_dict = {
-                    "message": "Model has been set to inactive due to consecutive inference failures",
-                    "model_name": model.name,
-                    "provider_name": provider_name,
-                    "base_url": base_url,
-                }
-                logging.error(json_dumps(log_dict))
-
-                slack_message = (
-                    f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} "
-                    f"has been set to INACTIVE due to consecutive inference failures on {provider_name}."
-                )
+                await _log_and_post(ModelManagementStatus.DEACTIVATED, model_name)
             else:
-                log_dict = {
-                    "message": "Model is not running at the inference endpoint",
-                    "model_name": model.name,
-                    "provider_name": provider_name,
-                    "base_url": base_url,
-                }
-                logging.error(json_dumps(log_dict))
-
-                slack_message = (
-                    f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} "
-                    f"is not running at the inference endpoint on {provider_name}. Please investigate."
-                )
+                await _log_and_post(ModelManagementStatus.NOTIFY_NOT_RUNNING, model_name)
 
             if has_billing_error:
-                slack_message += " (Potential billing error detected)"
+                await _log_and_post(ModelManagementStatus.BILLING_ERROR, model_name, excerpt)
 
-            await post_to_slack(f":warning: {slack_message}")
-        elif last_status and last_status.status_type == LanguageModelResponseStatusEnum.INFERENCE_FAILED:
-            slack_message = (
-                f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} "
-                f"has recovered and is now running successfully on {provider_name}."
-            )
-            await post_to_slack(f":white_check_mark: {slack_message}")
+        else:
+            # The model is running now!
+            print(f"Model {model_name}: done validation: Success")
+            if last_status and last_status.status_type == LanguageModelResponseStatusEnum.INFERENCE_FAILED:
+                await _log_and_post(ModelManagementStatus.NOTIFY_RECOVERED, model_name)
 
     except Exception as e:
-        log_dict = {
-            "message": f"Inference validation failed for model {model.name}",
-            "model_name": model.name,
-            "model_internal_name": model.internal_name,
-            "provider_name": provider_name,
-            "base_url": base_url,
-            "error": str(e),
-        }
-        logging.exception(json_dumps(log_dict))
-
+        print(f"Model {model_name}: error during validation: {e}")
         await _insert_language_model_response_status(model, LanguageModelResponseStatusEnum.INFERENCE_FAILED)
-
-        slack_message = (
-            f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} from "
-            f"{provider_name} inference validation failed: {str(e)}"
-        )
-        await post_to_slack(f":x: {slack_message}")
+        await _log_and_post(ModelManagementStatus.ERROR, model_name, str(e))

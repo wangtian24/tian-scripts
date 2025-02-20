@@ -51,8 +51,8 @@ from ypl.backend.llm.judge import (
     YuppQualityLabeler,
     YuppSingleDifficultyLabeler,
 )
-from ypl.backend.llm.model.model_management import validate_active_onboarded_models
-from ypl.backend.llm.model.model_onboarding import verify_onboard_submitted_models
+from ypl.backend.llm.model.model_management import do_validate_active_models
+from ypl.backend.llm.model.model_onboarding import do_verify_submitted_models
 from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.moderation import LLAMA_GUARD_3_8B_MODEL_NAME, ModerationReason, moderate
 from ypl.backend.llm.prompt_classifiers import categorize_user_messages
@@ -749,14 +749,14 @@ def categorize_messages(update_all_messages: bool) -> None:
 @db_cmd
 def verify_submitted_models() -> None:
     """Verify and onboard submitted language models."""
-    asyncio.run(verify_onboard_submitted_models())
+    asyncio.run(do_verify_submitted_models())
 
 
 @cli.command()
 @db_cmd
 def validate_active_models() -> None:
     """Validate active language models."""
-    asyncio.run(validate_active_onboarded_models())
+    asyncio.run(do_validate_active_models())
 
 
 @cli.command()

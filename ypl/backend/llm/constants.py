@@ -609,27 +609,6 @@ MODEL_HEURISTICS.update(
 MODEL_HEURISTICS["gpt-4o-mini-2024-07-18"] = MODEL_HEURISTICS["gpt-4o-mini"]
 MODEL_HEURISTICS["gemini-1.5-pro-exp-0827"] = MODEL_HEURISTICS["gemini-1.5-pro"]
 
-
-PROVIDER_KEY_MAPPING = {
-    "alibaba": "ALIBABA_API_KEY",
-    "anthropic": "ANTHROPIC_API_KEY",
-    "anyscale": "ANYSCALE_API_KEY",
-    "azure": "AZURE_API_KEY",
-    "deepseek": "DEEPSEEK_API_KEY",
-    "fireworks": "FIREWORKS_API_KEY",
-    "google": "GOOGLE_API_KEY",
-    "huggingface": "HUGGINGFACE_API_KEY",
-    "mistralai": "MISTRAL_API_KEY",
-    "nvidia": "NVIDIA_API_KEY",
-    "openai": "OPENAI_API_KEY",
-    "openrouter": "OPENROUTER_API_KEY",
-    "togetherai": "TOGETHER_API_KEY",
-    "perplexity": "PERPLEXITY_API_KEY",
-    "groq": "GROQ_API_KEY",
-    "cerebras": "CEREBRAS_API_KEY",
-    "sambanova": "SAMBANOVA_API_KEY",
-}
-
 PROVIDER_MODEL_PATTERNS = {
     re.compile(r".*-sonar-.*$", re.IGNORECASE): "perplexity",
     re.compile(r"^(openai|chatgpt|gpt-[34]|o1|o3).*$", re.IGNORECASE): "openai",
