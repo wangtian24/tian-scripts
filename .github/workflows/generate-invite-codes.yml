@@ -1,6 +1,8 @@
 name: Generate invite codes based on criteria
 
 on:
+  schedule:
+    - cron: '0 21 * * *'  # Runs at 9 PM UTC / 1PM PST / 2PM PDT every day
   workflow_dispatch:
     inputs:
         environment:
@@ -14,7 +16,7 @@ on:
         min_age_days:
           description: 'Minimum age in days for eligible users'
           required: true
-          default: '2'
+          default: '7'
           type: string
         min_eval_days:
           description: 'Minimum number of evaluation days'
@@ -29,12 +31,12 @@ on:
         limit:
           description: 'Maximum number of users to generate codes for'
           required: true
-          default: '10'
+          default: '30'
           type: string
         default_active:
           description: 'Whether generated codes should be enabled'
           required: false
-          default: false
+          default: true
           type: boolean
 
 jobs:
@@ -43,10 +45,10 @@ jobs:
     with:
       command: generate-invite-codes-for-top-users
       args: >-
-        --min-age-days=${{ inputs.min_age_days }}
-        --min-eval-days=${{ inputs.min_eval_days }}
-        --min-feedback-count=${{ inputs.min_feedback_count }}
-        --limit=${{ inputs.limit }}
-        ${{ inputs.default_active && '--default-active' || '' }}
-      environment: ${{ inputs.environment }}
+        --min-age-days=${{ inputs.min_age_days || '7' }}
+        --min-eval-days=${{ inputs.min_eval_days || '2' }}
+        --min-feedback-count=${{ inputs.min_feedback_count || '0' }}
+        --limit=${{ inputs.limit || '30' }}
+        ${{ !inputs.default_active && '--no-default-active' || '--default-active' }}
+      environment: ${{ inputs.environment || 'production' }}
     secrets: inherit

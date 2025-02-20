@@ -5,7 +5,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel.ext.asyncio.session import AsyncSession
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine
-from ypl.backend.llm.invite import get_users_eligible_for_invite_codes
+from ypl.backend.llm.invite import get_users_eligible_for_invite_codes, send_sic_availability_email
 from ypl.backend.llm.utils import post_to_slack
 from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.soul_utils import get_soul_url
@@ -57,6 +57,8 @@ async def generate_invite_code_for_top_users(
                 logging.info(json_dumps(generation_info))
                 slack_messages.append(f"SIC for {user.name} {get_soul_url(user.user_id)} created: {code.code}")
                 codes_created += 1
+                if default_active:
+                    asyncio.create_task(send_sic_availability_email(session, user.user_id))
 
         await session.commit()
 
