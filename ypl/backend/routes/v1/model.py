@@ -5,13 +5,16 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from pydantic import BaseModel
 
-import ypl.db.all_models  # noqa: F401
 from ypl.backend.llm.error_logger import DatabaseLanguageModelStatusLogger, DefaultLanguageModelStatusLogger
 from ypl.backend.llm.model.model import (
     LanguageModelStruct,
+    ModelTaxonomyQuery,
+    ModelTaxonomyResponse,
     create_model,
+    create_model_taxonomy,
     delete_model,
     get_model_details,
+    get_model_taxonomies,
     get_models,
     update_model,
 )
@@ -25,6 +28,7 @@ from ypl.db.language_models import (
     LanguageModelResponseStatus,
     LanguageModelResponseStatusEnum,
     LanguageModelStatusEnum,
+    LanguageModelTaxonomy,
     LicenseEnum,
 )
 
@@ -44,11 +48,11 @@ async def async_verify_onboard_specific_models(model_id: UUID) -> None:
 @router.post("/models", response_model=str)
 async def create_model_route(model: LanguageModel, background_tasks: BackgroundTasks) -> str:
     try:
-        model_id = create_model(model)
+        model_id = await create_model(model)
         background_tasks.add_task(async_verify_onboard_specific_models, model_id)
         background_tasks.add_task(
             post_to_slack,
-            f"Environment {os.environ.get('ENVIRONMENT')} - Model {model.name} ({model.internal_name}) "
+            f"[{os.environ.get('ENVIRONMENT')}] - Model {model.name} ({model.internal_name}) "
             "submitted for validation.",
         )
         return str(model_id)
@@ -71,7 +75,7 @@ async def read_models_route(
 ) -> list[LanguageModelStruct]:
     try:
         params = locals()
-        return get_models(**params)
+        return await get_models(**params)
     except Exception as e:
         log_dict = {
             "message": f"Error getting models - {str(e)}",
@@ -83,7 +87,7 @@ async def read_models_route(
 @router.get("/model/{model_id}", response_model=LanguageModelStruct | None)
 async def read_model_route(model_id: str) -> LanguageModelStruct | None:
     try:
-        model = get_model_details(model_id)
+        model = await get_model_details(model_id)
         return model
     except Exception as e:
         log_dict = {
@@ -96,7 +100,7 @@ async def read_model_route(model_id: str) -> LanguageModelStruct | None:
 @router.patch("/models/{model_id}", response_model=LanguageModelStruct)
 async def update_model_route(model_id: str, updated_model: LanguageModel) -> LanguageModelStruct:
     try:
-        return update_model(model_id, updated_model)
+        return await update_model(model_id, updated_model)
     except Exception as e:
         log_dict = {
             "message": f"Error updating model - {str(e)}",
@@ -108,7 +112,7 @@ async def update_model_route(model_id: str, updated_model: LanguageModel) -> Lan
 @router.delete("/models/{model_id}", status_code=204)
 async def delete_model_route(model_id: str) -> None:
     try:
-        delete_model(model_id)
+        await delete_model(model_id)
     except Exception as e:
         log_dict = {
             "message": f"Error deleting model - {str(e)}",
@@ -150,7 +154,7 @@ class LanguageModelStatusPayload(BaseModel):
 
 
 @router.post("/models/{model_id}/statuses", response_model=None)
-def log_model_status_route(model_id: str, payload: LanguageModelStatusPayload) -> None:
+async def log_model_status_route(model_id: str, payload: LanguageModelStatusPayload) -> None:
     try:
         status = LanguageModelResponseStatus(
             language_model_id=model_id,
@@ -162,4 +166,37 @@ def log_model_status_route(model_id: str, payload: LanguageModelStatusPayload) -
         log_dict = {"message": f"Error logging model status - {str(e)}"}
         logging.exception(json_dumps(log_dict))
 
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/models/taxonomy/create", response_model=str)
+async def create_model_taxonomy_route(model_taxonomy: LanguageModelTaxonomy, background_tasks: BackgroundTasks) -> str:
+    try:
+        model_taxonomy_id = await create_model_taxonomy(model_taxonomy)
+        if model_taxonomy_id is None:
+            raise HTTPException(status_code=409, detail="Taxonomy already exists")
+        background_tasks.add_task(
+            post_to_slack,
+            f"[{os.environ.get('ENVIRONMENT')}] - Created new model taxonomy node: "
+            f"{model_taxonomy.model_publisher}/{model_taxonomy.model_family}/{model_taxonomy.model_class}/"
+            f"{model_taxonomy.model_version}/{model_taxonomy.model_release}",
+        )
+        return str(model_taxonomy_id)
+    except Exception as e:
+        log_dict = {
+            "message": f"Error creating model taxonomy - {str(e)}",
+        }
+        logging.exception(json_dumps(log_dict))
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/models/taxonomy/query", response_model=list[ModelTaxonomyResponse])
+async def get_model_taxonomy_route(query: ModelTaxonomyQuery) -> list[ModelTaxonomyResponse]:
+    try:
+        return await get_model_taxonomies(query)
+    except Exception as e:
+        log_dict = {
+            "message": f"Error getting model taxonomies - {str(e)}",
+        }
+        logging.exception(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
