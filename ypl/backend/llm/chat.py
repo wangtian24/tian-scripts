@@ -4,7 +4,7 @@ import time
 import traceback
 import uuid
 from collections import defaultdict
-from collections.abc import Generator, Mapping
+from collections.abc import Generator
 from enum import Enum
 from pathlib import Path
 from typing import Any, Generic, TypeVar
@@ -44,7 +44,7 @@ from ypl.backend.llm.prompt_selector import (
     get_modifiers_by_model_and_position,
     store_modifiers,
 )
-from ypl.backend.llm.provider.provider_clients import get_model_provider_tuple
+from ypl.backend.llm.provider.provider_clients import get_model_provider_tuple, get_provider_client
 from ypl.backend.llm.routing.debug import RoutingDebugInfo, build_routing_debug_info
 from ypl.backend.llm.routing.route_data_type import RoutingPreference
 from ypl.backend.llm.routing.router import needs_special_ability
@@ -1061,7 +1061,14 @@ async def get_active_prompt_modifiers() -> list[PromptModifier]:
 
 
 # Models to use if no specific model was requested.
-MODELS_FOR_DEFAULT_QT = ["gpt-4o", "gpt-4o-mini", "gemini-2.0-flash-exp"]
+MODELS_FOR_DEFAULT_QT = [
+    "llama-3.3-70b",  # TODO(Tian): from cerebras, trial until 3/3
+    "Meta-Llama-3.3-70B-Instruct",  # from Sambanova
+    "gpt-4o",
+    "gpt-4o-mini",
+    "gemini-2.0-flash-exp",
+]
+# MODELS_FOR_DEFAULT_QT = ["Meta-Llama-3.3-70B-Instruct", "gpt-4o", "gpt-4o-mini", "gemini-2.0-flash-exp"]
 # Model to use while supplying only the prompts from the chat history, instead of the full chat history.
 MODEL_FOR_PROMPT_ONLY = "gpt-4o"
 MODEL_FOR_PROMPT_ONLY_FULL_NAME = MODEL_FOR_PROMPT_ONLY + ":prompt-only"
@@ -1158,7 +1165,7 @@ QT_LLMS: dict[str, BaseChatModel] | None = None
 DEFAULT_QT_MAX_CONTEXT_LENGTH = 128000  # gpt-4o-mini
 
 
-def get_qt_llms() -> Mapping[str, BaseChatModel]:
+async def get_qt_llm(model_name: str) -> BaseChatModel:
     global QT_LLMS
     if QT_LLMS is None:
         QT_LLMS = {
@@ -1167,7 +1174,10 @@ def get_qt_llms() -> Mapping[str, BaseChatModel]:
             "gemini-1.5-flash-002": get_gemini_15_flash_llm(MAX_TOKENS),
             "gemini-2.0-flash-exp": get_gemini_2_flash_llm(MAX_TOKENS),
         }
-    return QT_LLMS
+    if model_name in QT_LLMS:
+        return QT_LLMS[model_name]
+    else:
+        return await get_provider_client(model_name)
 
 
 class QuickTakeResponse(BaseModel):
@@ -1201,7 +1211,7 @@ class PromptModifierInfo(BaseModel):
     description: str | None = None
 
 
-def create_quicktake_generator(
+async def create_quicktake_generator(
     model: str,
     chat_history: list[BaseMessage],
     prompt_only: bool = False,
@@ -1214,7 +1224,7 @@ def create_quicktake_generator(
         # Use only the prompts from the chat history.
         chat_history = [m for m in chat_history if isinstance(m, HumanMessage)]
     return QuickTakeGenerator(
-        get_qt_llms()[model],
+        await get_qt_llm(model),
         chat_history,
         model_name=model,
         timeout_secs=timeout_secs,
@@ -1406,10 +1416,8 @@ async def generate_quicktake(
         primary_models = []  # we only early terminate on these models
         if not preferred_models:
             primary_models.extend(qt_models)
-        elif preferred_models and all(model in get_qt_llms() for model in preferred_models):
-            primary_models.extend(preferred_models)
         else:
-            raise ValueError(f"Unsupported model: {preferred_models}; supported: {','.join(get_qt_llms().keys())}")
+            primary_models.extend(preferred_models)
 
         secondary_models = [MODEL_FOR_PROMPT_ONLY_FULL_NAME] if not has_attachments and not request.is_retake() else []
         fallback_models = fallback_models if not has_attachments else []
@@ -1426,7 +1434,7 @@ async def generate_quicktake(
         # 3. fallback - fastest but may not fully answer the question, just contextual commentaries.
         all_labelers: dict[str, Any] = {
             # primary labelers
-            model: create_quicktake_generator(
+            model: await create_quicktake_generator(
                 model,
                 chat_history,
                 user_prompt=user_prompt,
@@ -1438,7 +1446,7 @@ async def generate_quicktake(
         if secondary_models:
             all_labelers = all_labelers | {
                 # secondary labelers
-                MODEL_FOR_PROMPT_ONLY_FULL_NAME: create_quicktake_generator(
+                MODEL_FOR_PROMPT_ONLY_FULL_NAME: await create_quicktake_generator(
                     MODEL_FOR_PROMPT_ONLY,
                     chat_history,
                     prompt_only=True,
@@ -1450,7 +1458,7 @@ async def generate_quicktake(
         if fallback_models:
             all_labelers = all_labelers | {
                 # fallback labelers
-                model: create_quicktake_generator(
+                model: await create_quicktake_generator(
                     model,
                     chat_history,
                     user_prompt=USER_QUICKTAKE_FALLBACK_PROMPT,
@@ -1492,7 +1500,8 @@ async def generate_quicktake(
                     _latest_message,
                     self.labeler.user_quicktake_prompt.format(**prompt_args),
                 )
-                return await self.labeler.alabel(trimmed_message)
+                result = await self.labeler.alabel(trimmed_message)
+                return result
 
         labeler_tasks = {m: LabelerTask(m, labeler) for m, labeler in all_labelers.items()}
         all_quicktakes: dict[str, Any] = await Delegator(
