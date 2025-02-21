@@ -1,7 +1,7 @@
 import logging
 from collections import OrderedDict, deque
 
-from ypl.backend.llm.db_helpers import deduce_model_speed_scores, deduce_semantic_groups
+from ypl.backend.llm.db_helpers import deduce_model_speed_scores, deduce_original_providers, deduce_semantic_groups
 from ypl.backend.llm.routing.modules.base import RouterModule
 from ypl.backend.llm.routing.policy import SelectionCriteria
 from ypl.backend.llm.routing.route_data_type import RoutingPreference
@@ -228,32 +228,32 @@ class PromotionModelReranker(Reranker, RNGMixin):
         return self._select_models(state)
 
 
-class SemanticGroupReranker(Reranker):
+class AttributeScatterer(Reranker):
     """
-    Scatter models with same semantic group so they are not next to each other.
-    This is needed for routings for prompts with attachments, as we don't do semantic group
-    deduping for these prompts.
+    Scatter models with a certain attribute so they are not next to each other.
     """
 
     DEFAULT_DISTANCE = 4  # keep models with the same SG at least this distance apart if possible
 
-    def __init__(self, min_dist: int | None) -> None:
-        super().__init__(name="semGrpRanker")
+    def __init__(self, name: str, min_dist: int | None) -> None:
+        super().__init__(name=name)
         self.min_dist = min_dist or self.DEFAULT_DISTANCE
 
-    def rerank(self, model_names: list[str], state: RouterState) -> list[str]:
-        semantic_group_map = deduce_semantic_groups(tuple(model_names))
+    def get_attr_map(self, models: list[str]) -> dict[str, str]:
+        raise NotImplementedError
 
-        # Track models seen in last num_models_to_select positions by semantic group
+    def rerank(self, model_names: list[str], state: RouterState) -> list[str]:
+        attr_map = self.get_attr_map(model_names)
+
         recent_groups: deque[str] = deque(maxlen=self.min_dist)
         reranked: list[str] = []
         deferred: list[str] = []
 
         # Process each model
         for model in model_names:
-            group = semantic_group_map.get(model)
+            group = attr_map.get(model)
 
-            # If no semantic group or group not recently seen, add to result
+            # If no attribute or the attribute group is not recently seen, add to result
             if group is None or group not in recent_groups:
                 reranked.append(model)
                 if group is not None:
@@ -266,3 +266,29 @@ class SemanticGroupReranker(Reranker):
         reranked.extend(deferred)
 
         return reranked
+
+
+class SemanticGroupScatterer(AttributeScatterer):
+    """
+    Scatter models with same semantic group so they are not next to each other.
+    This is needed for routings for prompts with attachments, as we don't do semantic group
+    deduping for these prompts.
+    """
+
+    def __init__(self, min_dist: int | None) -> None:
+        super().__init__(name="scatterSemGrp", min_dist=min_dist)
+
+    def get_attr_map(self, models: list[str]) -> dict[str, str]:
+        return deduce_semantic_groups(tuple(models))
+
+
+class ProviderScatterer(AttributeScatterer):
+    """
+    Scatter models with same semantic group so they are not next to each other.
+    """
+
+    def __init__(self, min_dist: int | None) -> None:
+        super().__init__(name="scatterProvider", min_dist=min_dist)
+
+    def get_attr_map(self, models: list[str]) -> dict[str, str]:
+        return deduce_original_providers(tuple(models))
