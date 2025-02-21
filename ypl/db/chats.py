@@ -111,6 +111,8 @@ class MessageUIStatus(enum.Enum):
     DISMISSED = "dismissed"
     # The user has selected the message.
     SELECTED = "selected"
+    # The user has downvoted the message.
+    DOWNVOTED = "downvoted"
     # This message is obsolete, e.g. a previous version of a newer message.
     OBSOLETE = "obsolete"
 
