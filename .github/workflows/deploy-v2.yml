@@ -191,7 +191,7 @@ jobs:
         echo "ROUTING_GOOD_MODELS_ALWAYS: 'true'" >> .env.yml
         echo "USE_GOOGLE_CLOUD_LOGGING: 'true'" >> .env.yml
         echo "ROUTING_TIMEOUT_SECS: '1.25'" >> .env.yml
-        echo "EMBED_MESSAGES_UPON_COMPLETION: 'true'" >> .env.yml
+        echo "EMBED_MESSAGES_UPON_COMPLETION: 'false'" >> .env.yml
 
     - name: Fill in the production backend ENV variables for 'backend' service in the .env.yml file
       if: env.ENVIRONMENT == 'production' && (env.SERVICE_NAME == 'backend' || env.SERVICE_NAME == 'backend-pytorch-service')
