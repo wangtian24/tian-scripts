@@ -60,14 +60,14 @@ BILLING_ERROR_KEYWORDS = [
 provider_clients: dict[str, Any] = {}
 
 
-def _contains_billing_error_keywords(error_message: str) -> tuple[bool, str]:
+def contains_billing_error_keywords(error_message: str) -> tuple[bool, str]:
     for keyword in BILLING_ERROR_KEYWORDS:
         if keyword.lower() in error_message.lower():
             # Find index of first match
             match_idx = error_message.lower().find(keyword.lower())
             # Extract 30 chars before and after, handling string bounds
-            start = max(0, match_idx - 30)
-            end = min(len(error_message), match_idx + len(keyword) + 30)
+            start = max(0, match_idx - 50)
+            end = min(len(error_message), match_idx + len(keyword) + 50)
             return True, error_message[start:end]
     return False, ""
 
@@ -180,7 +180,7 @@ async def _log_and_post(status: ModelManagementStatus, model_name: str, extra_ms
 
     print(f">> [log/slack] Model {model_name}: {MODEL_MANAGEMENT_STATUS_MESSAGES[status]} - {extra_msg or ''}")
 
-    slack_msg = f"Model {model_name}: {MODEL_MANAGEMENT_STATUS_MESSAGES[status]} \n {extra_msg or ''} \n"
+    slack_msg = f"*Model {model_name}: {MODEL_MANAGEMENT_STATUS_MESSAGES[status]} *\n {extra_msg or ''} \n"
     f"[Environment: ]{os.environ.get('ENVIRONMENT')}]"
 
     await post_to_slack(slack_msg)
@@ -306,7 +306,7 @@ async def _verify_inference_running(model: LanguageModel) -> tuple[bool, bool, s
         }
         logging.exception(json_dumps(log_dict))
 
-        has_billing_error, excerpt = _contains_billing_error_keywords(str(e))
+        has_billing_error, excerpt = contains_billing_error_keywords(str(e))
         if has_billing_error:
             log_dict = {
                 "message": f"Model Management: Potential billing error detected: ... {excerpt} ...",

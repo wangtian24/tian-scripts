@@ -25,7 +25,6 @@ from ypl.backend.llm.chat import (
     Intent,
     SelectIntent,
     check_for_stop_request,
-    contains_billing_keywords,
     get_curated_chat_context,
     update_failed_message_status,
     upsert_chat_message,
@@ -35,6 +34,7 @@ from ypl.backend.llm.crawl import enhance_citations
 from ypl.backend.llm.embedding import embed_and_store_chat_message_embeddings
 from ypl.backend.llm.memory_extraction import maybe_extract_memories
 from ypl.backend.llm.model.model import ModelResponseTelemetry
+from ypl.backend.llm.model.model_onboarding import contains_billing_error_keywords
 from ypl.backend.llm.model_heuristics import ModelHeuristics
 from ypl.backend.llm.prompt_suggestions import maybe_add_suggested_followups
 from ypl.backend.llm.provider.provider_clients import get_language_model, get_provider_client
@@ -416,12 +416,14 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
             ).encode()
             log_attachments_in_conversation(messages, chat_request.message_id, chat_request.chat_id)
             # check if it's a potential billing error & async post to Slack
-            if contains_billing_keywords(str(e)) and not recently_posted_billing_error(chat_request.model):
+            error_message = str(e)
+            has_billing_error, excerpt = contains_billing_error_keywords(error_message)
+            if has_billing_error and not recently_posted_billing_error(chat_request.model):
                 asyncio.create_task(
                     post_to_slack(
-                        f"Potential billing error for model: {chat_request.model}: `{str(e)}`\n"
+                        f"*Potential billing error for model*: {chat_request.model}: `{excerpt} ...`\n"
                         f"Chat ID: {chat_request.chat_id}\n"
-                        f"Client: {str(client)}"
+                        f"Client: {str(client)}\n"
                     )
                 )
         stopwatch.record_split("stream_message_chunks")
