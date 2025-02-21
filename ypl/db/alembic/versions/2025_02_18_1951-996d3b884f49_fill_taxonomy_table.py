@@ -24,11 +24,11 @@ depends_on: str | Sequence[str] | None = None
 #                    knowledge_cutoff_date, avatar_url)
 
 TAXONOMY_DATA = [
-  (True, True, 'Claude 3 Haiku', 'Claude', 'Claude', 'Haiku', '3', '20240307', False, False, False, None, 200000, None, None, 'https://7s8qtap8fabg3zyw.public.blob.vercel-storage.com/qwen-5Jz2blSb03vSB8pTdfJ4yppXQEp00P.svg'),
-  (True, True, 'Claude 3 Opus', 'Claude', 'Claude', 'Opus', '3', '20240229', False, True, False, None, 200000, '{image/*}', None, 'https://7s8qtap8fabg3zyw.public.blob.vercel-storage.com/gryphe-AvLBWAam6ANMneC064efbJLFOMalw6.png'),
-  (True, True, 'Claude 3 Sonnet', 'Claude', 'Claude', 'Sonnet', '3', '', False, False, False, None, 200000, None, None, 'https://7s8qtap8fabg3zyw.public.blob.vercel-storage.com/qwen-5Jz2blSb03vSB8pTdfJ4yppXQEp00P.svg'),
-  (True, True, 'Claude 3.5 Haiku', 'Claude', 'Claude', 'Haiku', '3.5', '20241022', False, False, False, None, 200000, '{""}', None, 'https://7s8qtap8fabg3zyw.public.blob.vercel-storage.com/qwen-5Jz2blSb03vSB8pTdfJ4yppXQEp00P.svg'),
-  (True, True, 'Claude 3.5 Sonnet', 'Claude', 'Claude', 'Sonnet', '3.5', '20241022', False, True, False, None, 200000, '{image/*,application/pdf}', None, 'https://7s8qtap8fabg3zyw.public.blob.vercel-storage.com/gryphe-AvLBWAam6ANMneC064efbJLFOMalw6.png'),
+  (True, True, 'Claude 3 Haiku', 'Anthropic', 'Claude', 'Haiku', '3', '20240307', False, False, False, None, 200000, None, None, 'https://7s8qtap8fabg3zyw.public.blob.vercel-storage.com/qwen-5Jz2blSb03vSB8pTdfJ4yppXQEp00P.svg'),
+  (True, True, 'Claude 3 Opus', 'Anthropic', 'Claude', 'Opus', '3', '20240229', False, True, False, None, 200000, '{image/*}', None, 'https://7s8qtap8fabg3zyw.public.blob.vercel-storage.com/gryphe-AvLBWAam6ANMneC064efbJLFOMalw6.png'),
+  (True, True, 'Claude 3 Sonnet', 'Anthropic', 'Claude', 'Sonnet', '3', '', False, False, False, None, 200000, None, None, 'https://7s8qtap8fabg3zyw.public.blob.vercel-storage.com/qwen-5Jz2blSb03vSB8pTdfJ4yppXQEp00P.svg'),
+  (True, True, 'Claude 3.5 Haiku', 'Anthropic', 'Claude', 'Haiku', '3.5', '20241022', False, False, False, None, 200000, '{""}', None, 'https://7s8qtap8fabg3zyw.public.blob.vercel-storage.com/qwen-5Jz2blSb03vSB8pTdfJ4yppXQEp00P.svg'),
+  (True, True, 'Claude 3.5 Sonnet', 'Anthropic', 'Claude', 'Sonnet', '3.5', '20241022', False, True, False, None, 200000, '{image/*,application/pdf}', None, 'https://7s8qtap8fabg3zyw.public.blob.vercel-storage.com/gryphe-AvLBWAam6ANMneC064efbJLFOMalw6.png'),
   (True, True, 'Command R', 'Cohere', 'Command', 'R', '', '202408', False, False, False, None, 128000, None, None, 'https://7s8qtap8fabg3zyw.public.blob.vercel-storage.com/qwen-5Jz2blSb03vSB8pTdfJ4yppXQEp00P.svg'),
   (True, True, 'Command R+', 'Cohere', 'Command', 'R+', '', '202408', False, False, False, None, 128000, None, None, 'https://7s8qtap8fabg3zyw.public.blob.vercel-storage.com/qwen-5Jz2blSb03vSB8pTdfJ4yppXQEp00P.svg'),
   (True, True, 'DBRX Instruct', 'Databricks', 'DBRX', 'Instruct', '', '', False, False, False, None, 32768, None, None, 'https://7s8qtap8fabg3zyw.public.blob.vercel-storage.com/qwen-5Jz2blSb03vSB8pTdfJ4yppXQEp00P.svg'),
