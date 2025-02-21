@@ -149,6 +149,7 @@ class PromotionModelProposer(RNGMixin, ModelProposer):
                     "promo_start_date": promo.promo_start_date.isoformat() if promo.promo_start_date else None,
                     "promo_end_date": promo.promo_end_date.isoformat() if promo.promo_end_date else None,
                     "promo_strength": promo.promo_strength,
+                    "proposal_strength": promo.proposal_strength,
                 }
                 for model, promo in promoted_models
             },
@@ -157,7 +158,8 @@ class PromotionModelProposer(RNGMixin, ModelProposer):
 
         # Calculate the age-in-window dependent dampings for all eligible models
         dampings: dict[str, float] = {}  # time-window dependent damping factor
-        strengths: dict[str, float] = {}  # promotion strength
+        proposal_weights: dict[str, float] = {}  # proposal weights
+        promo_strengths: dict[str, float] = {}  # promotion strength
         current_time = datetime.now(UTC)
         for model, promotion in promoted_models:
             if model in dampings:
@@ -174,17 +176,18 @@ class PromotionModelProposer(RNGMixin, ModelProposer):
                 window_size = MODEL_PROMO_DEFAULT_RANGE_HRS
 
             dampings[model] = self._calc_damping(age_in_window, window_size)
-            strengths[model] = promotion.promo_strength or 1.0
+            proposal_weights[model] = dampings[model] * (promotion.proposal_strength or 1.0)
+            promo_strengths[model] = promotion.promo_strength or 1.0
 
         # Sample from all promotion candidate models based on their time window damping.
-        candidates_names = list(dampings.keys())
-        candidates_weights = list(dampings.values())
+        candidates_names = list(proposal_weights.keys())
+        candidates_weights = list(proposal_weights.values())
         candidates_weights_sum = sum(candidates_weights)
         candidates_weights_normalized = [w / candidates_weights_sum for w in candidates_weights]  # normalize
         chosen_model = str(self.get_rng().choice(candidates_names, p=candidates_weights_normalized))
 
         # The final show probability depends on where a promotion is in its time window and its strength.
-        show_probability = min(1.0, MODEL_PROMO_MAX_SHOW_PROB * dampings[chosen_model] * strengths[chosen_model])
+        show_probability = min(1.0, MODEL_PROMO_MAX_SHOW_PROB * dampings[chosen_model] * promo_strengths[chosen_model])
         if self.get_rng().random() > show_probability:
             ld2 = {
                 "message": f"Model Promotion: chosen model [{chosen_model}] didn't win proposal, "
@@ -203,10 +206,11 @@ class PromotionModelProposer(RNGMixin, ModelProposer):
             "promo_id": promotion.promotion_id,
             "promo_start_date": promotion.promo_start_date.isoformat() if promotion.promo_start_date else None,
             "promo_end_date": promotion.promo_end_date.isoformat() if promotion.promo_end_date else None,
-            "promo_strength": strengths[chosen_model],
+            "promo_strength": promo_strengths[chosen_model],
             "age_in_window_hrs": age_in_window,
             "window_size_hrs": window_size,
             "damping": dampings[chosen_model],
+            "proposal_weight": proposal_weights[chosen_model],
         }
         logging.info(json_dumps(ld3))
 

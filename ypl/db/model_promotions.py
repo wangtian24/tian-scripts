@@ -34,12 +34,27 @@ class ModelPromotion(BaseModel, table=True):
     promo_start_date: datetime | None = Field(sa_column=Column(sa.DateTime(timezone=True), nullable=True, default=None))
     # When the promotion ends
     promo_end_date: datetime | None = Field(sa_column=Column(sa.DateTime(timezone=True), nullable=True, default=None))
-    # Strength of promotion (higher = stronger promotion, must be positive. 1.0 mean regular exposure)
-    promo_strength: float | None = Field(sa_column=Column(sa.Float, nullable=True, default=None))
+
+    # Strength of selection: controls how likely this model will be proposed over other promoted models, > 0
+    # if model A has value 0.5 and model B has value 1.0, they will be proposed at probability of 1/3 vs 2/3 if they are
+    # both at the beginning of their promotion window.
+    # The value should be > 0
+    proposal_strength: float | None = Field(sa_column=Column(sa.Float, nullable=True, default=1.0))
+
+    # Promotion strength: controls how likely this model will actually show up once proposed
+    # if model A has value 0.3, after it has won the proposal, it will have a X*0.3 chance to actually be injected.
+    # The value of X is defined in MODEL_PROMO_MAX_SHOW_PROB in promotions.py.
+    # The value should be > 0
+    promo_strength: float | None = Field(sa_column=Column(sa.Float, nullable=True, default=1.0))
+
     __table_args__ = (
         sa.CheckConstraint(
             "promo_strength > 0.0",
             name="model_promotions_promo_strength_range",
+        ),
+        sa.CheckConstraint(
+            "proposal_strength > 0.0",
+            name="model_promotions_proposal_strength_range",
         ),
         sa.CheckConstraint(
             "(promo_start_date IS NULL OR promo_end_date IS NULL) OR promo_end_date > promo_start_date",
