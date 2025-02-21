@@ -467,7 +467,15 @@ class TabaPayClient(BasePartnerClient):
         """
         log_dict = {
             "message": "Tabapay: Creating account",
-            "request": json_dumps(request),
+            "request": {
+                "owner": {
+                    "name": {"first": request.owner.name.first, "last": request.owner.name.last},
+                    "phone": {"number": request.owner.phone.number},
+                    "address": request.owner.address.__dict__ if request.owner.address else None,
+                },
+                "bank": request.bank.__dict__ if request.bank else None,
+                "card": request.card.__dict__ if request.card else None,
+            },
         }
         logging.info(json_dumps(log_dict))
 
@@ -498,7 +506,15 @@ class TabaPayClient(BasePartnerClient):
             )
         except httpx.HTTPError as e:
             error_details = {
-                "request": json_dumps(request),
+                "request": {
+                    "owner": {
+                        "name": {"first": request.owner.name.first, "last": request.owner.name.last},
+                        "phone": {"number": request.owner.phone.number},
+                        "address": request.owner.address.__dict__ if request.owner.address else None,
+                    },
+                    "bank": request.bank.__dict__ if request.bank else None,
+                    "card": request.card.__dict__ if request.card else None,
+                },
                 "error": str(e),
                 "status_code": getattr(e.response, "status_code", None)
                 if isinstance(e, httpx.HTTPStatusError)
@@ -523,7 +539,17 @@ class TabaPayClient(BasePartnerClient):
         """
         log_dict = {
             "message": "Tabapay: Creating transaction",
-            "request": json_dumps(request),
+            "request": {
+                "referenceID": request.referenceID,
+                "accounts": request.accounts.__dict__,
+                "currency": request.currency,
+                "amount": str(request.amount),
+                "type": request.type,
+                "memo": request.memo,
+                "purposeOfPayment": request.purposeOfPayment,
+                "achOptions": request.achOptions.value if request.achOptions else None,
+                "achEntryType": request.achEntryType.value if request.achEntryType else None,
+            },
         }
         logging.info(json_dumps(log_dict))
 
@@ -542,7 +568,17 @@ class TabaPayClient(BasePartnerClient):
             return str(data.get("transactionId", "")), TabapayStatusEnum(str(data.get("status", "")))
         except httpx.HTTPError as e:
             error_details = {
-                "request": json_dumps(request),
+                "request": {
+                    "referenceID": request.referenceID,
+                    "accounts": request.accounts.__dict__,
+                    "currency": request.currency,
+                    "amount": str(request.amount),
+                    "type": request.type,
+                    "memo": request.memo,
+                    "purposeOfPayment": request.purposeOfPayment,
+                    "achOptions": request.achOptions.value if request.achOptions else None,
+                    "achEntryType": request.achEntryType.value if request.achEntryType else None,
+                },
                 "error": str(e),
                 "status_code": getattr(e.response, "status_code", None)
                 if isinstance(e, httpx.HTTPStatusError)
