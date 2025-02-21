@@ -264,7 +264,7 @@ async def post_data_from_charts(auth: str, start_date: datetime, end_date: datet
         # a. Users section
         message += (
             f"a. Users: {metrics.get('users', 0)} active, "
-            f"{metrics.get('users_any_chat', 0)} had a new or follow up chat, "
+            f"{metrics.get('users_any_chat', 0)} had any chat, "
             f"{metrics.get('users_start_chat', 0)} started a new chat, "
             f"{metrics.get('users_pref', 0)} did PREF, "
             f"{metrics.get('users_mof', 0)} did MOF, "
@@ -276,7 +276,7 @@ async def post_data_from_charts(auth: str, start_date: datetime, end_date: datet
             f"b. Convos: {metrics.get('conversations', 0) + metrics.get('follow_up', 0)}, "
             f"{metrics.get('conversations', 0)} new chats, "
             f"{metrics.get('follow_up', 0)} follow ups, "
-            f"{metrics.get('show_more', 0)} SM\n"
+            f"{metrics.get('show_more', 0)} Show More\n"
         )
 
         # c. Models section
@@ -299,18 +299,18 @@ async def post_data_from_charts(auth: str, start_date: datetime, end_date: datet
         # e. Feedbacks section
         message += (
             f"e. Feedbacks: {metrics.get('feedbacks_pref', 0)} PREF, "
-            f"{metrics.get('feedbacks_mof', 0)} MOFs, "
+            f"{metrics.get('feedbacks_mof', 0)} MOF, "
             f"{metrics.get('feedbacks_af', 0)} AF, "
             f"{metrics.get('feedbacks_nope', 0)} NOPE\n"
         )
 
         # Credits section
         message += (
-            f"f. Credits: {metrics.get('credits_qt',0)} QT, "
-            f"{metrics.get('credits_af', 0)} AF, "
-            f"{metrics.get('credits_pref', 0)} PREF, "
-            f"{metrics.get('credits_sign_up', 0)} Sign-up, "
-            f"{metrics.get('credits_total', 0)} Total\n"
+            f"f. Credits: {metrics.get('credits_qt',0):,} QT, "
+            f"{metrics.get('credits_af', 0):,} AF, "
+            f"{metrics.get('credits_pref', 0):,} PREF, "
+            f"{metrics.get('credits_sign_up', 0):,} Sign-up, "
+            f"{metrics.get('credits_total', 0):,} Total\n"
         )
 
         # g. Cashout section
@@ -364,7 +364,7 @@ async def post_data_from_cohorts(auth: str, start_date: datetime, end_date: date
                 metrics[cohort_name] = total_users
                 message += f"\n\n*{cohort_info['description']}: {total_users}*"
 
-                if cohort_name.startswith("daily_"):
+                if cohort_name.startswith("daily_transacting"):
                     user_names_dict = await fetch_user_names(user_ids)
                     message += f"\n{', '.join(sorted(user_names_dict.values(), key=lambda name: name.lower()))}"
 
@@ -449,7 +449,7 @@ async def post_user_base_metrics(report_date: datetime) -> None:
             message = f"*User and Waitlist Metrics for {report_date.date()}*\n"
             if len(user_data) >= 1:
                 yesterday_metrics = user_data[0]
-                message += f"Total users granted accecss: {yesterday_metrics.total_users:,.0f}"
+                message += f"Total users granted access: {yesterday_metrics.total_users:,.0f}"
                 message += f" ({yesterday_metrics.new_actives:,.0f} new yesterday)\n"
                 message += f"Total deactivated users: {yesterday_metrics.total_users_deactivated:,.0f}\n"
             if len(waitlist_data) >= 1:
@@ -461,7 +461,7 @@ async def post_user_base_metrics(report_date: datetime) -> None:
             referral_data = list(referral_data_results)
 
             if len(referral_data) >= 1:
-                message += f"\nNew users were invited by these {len(referral_data)} existing users:\n"
+                message += f"\nNew users were invited by these {len(referral_data)} referrers:\n"
                 referral_names = [f"{referral.name} ({referral.referred_user_count})" for referral in referral_data]
                 message += ", ".join(referral_names)
             else:
@@ -970,6 +970,8 @@ async def post_cashout_metrics(start_date: datetime, end_date: datetime) -> None
 
                 # Display daily metrics by currency
                 message += "Daily Cashouts:\n"
+                grand_total_cashout_usd = 0
+                grand_total_cashout_txns = 0
                 for currency, metrics in daily_by_currency.items():
                     total_amount = sum(m.total_amount for m in metrics)
                     total_amount_usd = (
@@ -980,6 +982,8 @@ async def post_cashout_metrics(start_date: datetime, end_date: datetime) -> None
                         * total_amount
                     )
                     total_transactions = sum(m.transaction_count for m in metrics)
+                    grand_total_cashout_usd += total_amount_usd
+                    grand_total_cashout_txns += total_transactions
                     message += (
                         f"• {currency}: {total_transactions:,} transactions, " f"{total_amount:,.8f}".rstrip(
                             "0"
@@ -990,6 +994,8 @@ async def post_cashout_metrics(start_date: datetime, end_date: datetime) -> None
                 daily_cashedout_no_prompt_results = session.execute(
                     text(daily_cashedout_no_prompt_query)
                 ).scalar_one_or_none()
+                message += f"• Total cashouts: {grand_total_cashout_txns:,} transactions, "
+                message += f"${grand_total_cashout_usd:,.2f} USD\n"
                 message += f"• Number of users who cashed out but did not prompt: {daily_cashedout_no_prompt_results}\n"
             else:
                 message = "⚠️ No cashout metrics data available"
