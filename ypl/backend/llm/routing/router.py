@@ -67,7 +67,7 @@ def needs_special_ability(categories: list[str]) -> bool:
     return needs_attachment(categories) or categories in ["coding", ONLINE_CATEGORY]
 
 
-def _get_good_and_bad_models(preference: RoutingPreference) -> tuple[set[str], set[str]]:
+def _get_good_and_bad_models(preference: RoutingPreference, has_pdf: bool) -> tuple[set[str], set[str]]:
     """
     Go through all previous turns and split models into a good set and a bad set based on their user evaluation.
     good = preferred
@@ -78,9 +78,9 @@ def _get_good_and_bad_models(preference: RoutingPreference) -> tuple[set[str], s
     for turn in preference.turns or []:
         if turn.preferred:
             all_good_models.add(turn.preferred)
-        if turn.failed_models:
+        if turn.failed_models and not has_pdf:
             all_bad_models.update(turn.failed_models)
-        if turn.downvoted:
+        if turn.downvoted and not has_pdf:
             all_bad_models.update(turn.downvoted)
     all_good_models = all_good_models - all_bad_models
     return all_good_models, all_bad_models
@@ -139,7 +139,7 @@ async def get_simple_pro_router(
         semantic_group_filter = OnePerSemanticGroupFilter(priority_models=required_models)
         return (
             # -- filter stage --
-            Exclude(name="-exSMM", providers=show_me_more_providers, exclude_models=exclude_models)
+            Exclude(name="-exclBad", providers=show_me_more_providers, exclude_models=exclude_models)
             # Inject required models, even if they don't have attachment capabilities.
             | Inject(required_models or [], score=50000000)
             # exclude inactive models after injection, this is necessary in case we are injecting models inferred
@@ -221,7 +221,7 @@ async def get_simple_pro_router(
         )
     else:
         # --- Non-First Turn (NEW_TURN or SHOW_ME_MORE) ---
-        all_good_models, all_bad_models = _get_good_and_bad_models(preference)
+        all_good_models, all_bad_models = _get_good_and_bad_models(preference, has_pdf=has_pdf)
         rule_filter.exempt_models = all_good_models
         no_proposal_prob = 1.0 / (len(all_good_models) + 1)
 
