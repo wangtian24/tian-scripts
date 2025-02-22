@@ -296,10 +296,10 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
             )
         case SelectIntent.NEW_TURN:
             prompt = kick_off_label_turn_quality(notnull(request.prompt), request.chat_id, request.turn_id)
-            preference = get_preferences(request.user_id, request.chat_id, request.turn_id)
+            preference = get_preferences(request.user_id, request.chat_id, request.turn_id, request.required_models)
         case SelectIntent.SHOW_ME_MORE:
             prompt = get_user_message(request.turn_id)
-            preference = get_preferences(request.user_id, request.chat_id, request.turn_id)
+            preference = get_preferences(request.user_id, request.chat_id, request.turn_id, request.required_models)
         case _:
             raise ValueError(f"Unsupported intent {request.intent} for select_models_plus()")
     preference.debug_level = request.debug_level

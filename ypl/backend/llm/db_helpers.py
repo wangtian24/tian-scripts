@@ -291,7 +291,9 @@ def get_model_context_lengths() -> dict[str, int]:
         return {name: length for name, length in results if length is not None}
 
 
-def get_preferences(user_id: str | None, chat_id: str, turn_id: str) -> RoutingPreference:
+def get_preferences(
+    user_id: str | None, chat_id: str, turn_id: str, required_models_from_req: list[str] | None = None
+) -> RoutingPreference:
     """Returns the preferences and user-selected models for the given chat ID."""
 
     # Use chat id to get all turns happened previously in this chat, oldest first.
@@ -367,24 +369,29 @@ def get_preferences(user_id: str | None, chat_id: str, turn_id: str) -> RoutingP
         if user_id is None:
             user_id = messages[0].creator_user_id
 
-    # Collect user-selected models from all turns. this way to infer the user-selected models is not ideal, as
-    # not all user-selected models are necessarily shown before (if we allow more user selected models than we display).
-    # TODO(Tian): this will be deprecated once FE starts to write user selected models to DB.
-    user_selected_models = list(
-        dict.fromkeys(  # dedupe and preserve order
-            [
-                msg.assistant_model_name
-                for _, messages in turns_row_list
-                for msg in messages
-                if msg.assistant_selection_source == AssistantSelectionSource.USER_SELECTED
-            ]
+    user_selected_models = []
+    if required_models_from_req is not None:
+        user_selected_models.extend(required_models_from_req)
+    else:
+        # Collect user-selected models from all turns. this way to infer the user-selected models is not ideal, as
+        # not all user-selected models are necessarily shown before (if we allow more user selected models than we
+        # display).
+        # TODO(Tian): this will be deprecated once FE starts to write user selected models to DB.
+        user_selected_models = list(
+            dict.fromkeys(  # dedupe and preserve order
+                [
+                    msg.assistant_model_name
+                    for _, messages in turns_row_list
+                    for msg in messages
+                    if msg.assistant_selection_source == AssistantSelectionSource.USER_SELECTED
+                ]
+            )
         )
-    )
 
     return RoutingPreference(
         turns=turns_list,
         user_id=user_id,
-        user_selected_models=user_selected_models,
+        user_selected_models=required_models_from_req,
         same_turn_shown_models=same_turn_shown_models,
     )
 
