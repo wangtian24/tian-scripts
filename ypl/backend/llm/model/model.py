@@ -48,7 +48,6 @@ async def create_model(model: LanguageModel) -> UUID:
     # automatically later using the provider name and internal name.
     if not model.internal_name:
         model.internal_name = model.name
-    model.status = LanguageModelStatusEnum.SUBMITTED
 
     async with get_async_session() as session:
         # Set model's name to "provider_name/model_name" if provider_id is set
@@ -368,7 +367,7 @@ async def update_model(model_id: str, updated_model: LanguageModel) -> LanguageM
         for field, value in model_data.items():
             setattr(existing_model, field, value)
 
-        existing_model.modified_at = datetime.now(UTC)
+        existing_model.modified_at = func.now()  # type: ignore
 
         await session.commit()
         await session.refresh(existing_model)
@@ -390,7 +389,7 @@ async def delete_model(model_id: str) -> None:
         result: Result = await session.exec(
             update(LanguageModel)
             .where(LanguageModel.language_model_id == model_id)  # type: ignore
-            .values(deleted_at=datetime.now(UTC))
+            .values(deleted_at=func.now())
         )
 
         if result.rowcount == 0:  # type: ignore
