@@ -57,11 +57,11 @@ SIGNATURE = """
 """
 INVITE_FRIEND_BONUS_CREDITS = "10,000"
 YUPP_LINK = """
-See you at <a href="https://gg.yupp.ai?utm_source=emails&utm_medium=email&utm_campaign=gnr">Yupp</a> 👋
+Try <a href="https://gg.yupp.ai?utm_source=emails&utm_medium=email&utm_campaign=gnr">Yupp</a> now! 👋
 """
 CONFIDENTIALITY_FOOTER = """
-<p>Thanks for being a part of our small, invite-only alpha.</p>
-<p>We really appreciate your trust and ask for your strict confidentiality.</p>
+<p>Thanks for being a part of our small, invite-only Alpha.
+We really appreciate your trust and ask for your strict confidentiality.</p>
 """
 UNSUBSCRIBE_LINK = """
   <p>
