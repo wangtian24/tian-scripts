@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_google_vertexai import ChatVertexAI
 from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
 from langchain_mistralai import ChatMistralAI
 from langchain_openai import ChatOpenAI
@@ -105,6 +106,8 @@ async def get_provider_client(model_name: str, include_all_models: bool = False)
     # model_variant = model.internal_name.split(":")[1] if ":" in model.internal_name else None
 
     match provider.name:
+        case "VertexAI":
+            return ChatVertexAI(model_name=model_name, **kwargs)
         case "Google":
             return ChatGoogleGenerativeAI(
                 model=model_name,

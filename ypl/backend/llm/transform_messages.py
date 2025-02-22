@@ -105,7 +105,7 @@ async def generate_pdf_part(attachment: Attachment, provider: Provider) -> dict[
                 "media_type": attachment.content_type,
             },
         }
-    elif provider.name == "Google":
+    elif provider.name in ("Google", "VertexAI"):
         return {
             "type": "media",
             "mime_type": attachment.content_type,
