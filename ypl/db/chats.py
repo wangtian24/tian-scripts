@@ -14,6 +14,7 @@ from ypl.db.base import BaseModel
 from ypl.db.language_models import LanguageModel
 from ypl.db.memories import Memory
 from ypl.db.ratings import Category
+from ypl.db.reviews import MessageReview
 from ypl.db.users import User
 
 if TYPE_CHECKING:
@@ -295,6 +296,8 @@ class ChatMessage(BaseModel, table=True):
     attachments: list["Attachment"] = Relationship(back_populates="chat_message")
 
     memories: list["Memory"] = Relationship(back_populates="source_message")
+
+    reviews: list["MessageReview"] = Relationship(back_populates="message")
 
     # to track the status of the stream completion.
     completion_status: CompletionStatus = Field(sa_column=Column(SQLAlchemyEnum(CompletionStatus), nullable=True))

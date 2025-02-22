@@ -568,7 +568,8 @@ async def generate_reviews_turn_id(
 ) -> ReviewResponse:
     """Get all types of reviews for a turn's messages."""
     try:
-        request.turn_id = turn_id if turn_id else request.turn_id
+        request.turn_id = UUID(turn_id) if turn_id else request.turn_id
+        logging.info(f"Generating reviews for turn {request.turn_id}")
         return await generate_reviews(request)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

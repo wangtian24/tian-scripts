@@ -1,19 +1,16 @@
 """Module for reviewing message accuracy."""
 
 import asyncio
-import enum
 import logging
 import time
-from typing import Any, Generic, TypeVar, cast
+from typing import Any, Generic, cast
 from uuid import UUID
 
 from async_lru import alru_cache
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
-from pydantic import BaseModel
 from sqlalchemy import select
-from typing_extensions import TypedDict
 
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
@@ -25,6 +22,18 @@ from ypl.backend.llm.chat import (
     get_gpt_4o_mini_llm,
 )
 from ypl.backend.llm.labeler import LLMLabeler
+from ypl.backend.llm.review_types import (
+    BinaryResult,
+    CritiqueResult,
+    ReviewConfig,
+    ReviewRequest,
+    ReviewResponse,
+    ReviewResult,
+    ReviewResultType,
+    ReviewStatus,
+    ReviewType,
+    SegmentedResult,
+)
 from ypl.backend.prompts import (
     BINARY_REVIEW_PROMPT,
     CRITIQUE_REVIEW_PROMPT,
@@ -34,75 +43,6 @@ from ypl.backend.prompts import (
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import Turn
 from ypl.db.language_models import LanguageModel
-
-# Type variable for review results
-ReviewResultType = TypeVar("ReviewResultType", bool, str, list[dict[str, str]])
-
-
-class ReviewType(str, enum.Enum):
-    """Type of review to perform."""
-
-    BINARY = "binary"
-    CRITIQUE = "critique"
-    SEGMENTED = "segmented"
-
-
-class ReviewStatus(str, enum.Enum):
-    """Status of the review operation."""
-
-    SUCCESS = "success"
-    UNSUPPORTED = "unsupported"
-    ERROR = "error"
-
-
-class ReviewRequest(BaseModel):
-    user_id: str | None = None
-    turn_id: str | None = None
-    review_types: list[ReviewType] | None = None
-    prompt: str | None = None
-    reviewer_model: str | None = None
-    reviewer_model_preference: list[str] | None = None
-    timeout_secs: float = settings.DEFAULT_REVIEW_TIMEOUT_SECS
-
-
-class BinaryResult(TypedDict):
-    """Result from binary review."""
-
-    response: bool
-    reviewer_model: str
-
-
-class CritiqueResult(TypedDict):
-    """Result from critique review."""
-
-    response: str
-    reviewer_model: str
-
-
-class SegmentedResult(TypedDict):
-    """Result from segmented review."""
-
-    segments: list[dict[str, str]]  # List of segments with their updates and reviews
-    reviewer_model: str
-
-
-class ReviewResponse(BaseModel):
-    """Response model for all review types."""
-
-    binary: dict[str, BinaryResult] | None = None
-    critique: dict[str, CritiqueResult] | None = None
-    segmented: dict[str, SegmentedResult] | None = None
-    status: ReviewStatus = ReviewStatus.SUCCESS
-
-
-class ReviewConfig(BaseModel):
-    """Configuration for a review type."""
-
-    max_tokens: int
-    prompt_template: str
-
-
-ReviewResult = dict[str, BinaryResult]
 
 REVIEW_CONFIGS: dict[ReviewType, ReviewConfig] = {
     ReviewType.BINARY: ReviewConfig(
@@ -434,18 +374,17 @@ async def generate_reviews(
             raise ValueError(f"Turn {request.turn_id} not found")
         chat_id = str(chat_id_result)
     start_time = time.time()
-    turn_id = UUID(request.turn_id) if request.turn_id else None
+    turn_id = request.turn_id
     chat_history = await get_curated_chat_context(
         chat_id=UUID(chat_id),
         use_all_models_in_chat_history=False,
-        model=request.reviewer_model or "gpt-4o",
+        model=request.fallback_reviewer_model_name or "gpt-4o",
         current_turn_id=turn_id,
         context_for_logging="review",
         include_current_turn=True,
         return_all_current_turn_responses=True,
     )
     responses = chat_history.current_turn_responses
-
     if not responses:
         logging.warning(f"generate_reviews: No messages found for turn {request.turn_id}")
     if not chat_history.messages:
@@ -500,7 +439,7 @@ async def generate_reviews(
             reviewer_model = _select_reviewer_model(
                 model_family,
                 request.reviewer_model_preference or ["gpt-4o", "gemini-2.0-flash-exp"],
-                request.reviewer_model or "gpt-4o",
+                request.fallback_reviewer_model_name or "gpt-4o",
                 review_llms_model_family_map,
             )
             binary_reviewers[model] = get_binary_reviewer(reviewer_model)
@@ -630,12 +569,11 @@ async def generate_reviews(
         "chat_history_time_ms": str(int(chat_history_time * 1000)),
         "chat_id": chat_id,
         "turn_id": request.turn_id,
-        "reviewer_model": request.reviewer_model,
+        "reviewer_model": request.fallback_reviewer_model_name,
         "duration_secs": str(end_time - start_time),
         "review_types": [rt.value for rt in review_types],
     }
     logging.info(json_dumps(log_dict))
-    logging.info(f"Processed results: {processed_results}")
     # Convert dict[ReviewType, ReviewResult] to ReviewResponse
     return ReviewResponse(
         binary=cast(dict[str, BinaryResult], processed_results.get(ReviewType.BINARY)),
