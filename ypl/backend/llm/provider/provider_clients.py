@@ -15,6 +15,7 @@ from ypl.backend.config import settings
 from ypl.backend.db import get_engine
 from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.provider.google_grounded_gemini import GoogleGroundedGemini
+from ypl.backend.llm.provider.google_grounded_vertex_ai import GroundedVertexAI
 from ypl.backend.llm.provider.perplexity import CustomChatPerplexity
 from ypl.backend.utils.utils import merge_base_url_with_port
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
@@ -108,6 +109,8 @@ async def get_provider_client(model_name: str, include_all_models: bool = False)
     match provider.name:
         case "VertexAI":
             return ChatVertexAI(model_name=model_name, **kwargs)
+        case "GroundedVertexAI":
+            return GroundedVertexAI(model=model_name.replace("-online", ""), **kwargs)
         case "Google":
             return ChatGoogleGenerativeAI(
                 model=model_name,
