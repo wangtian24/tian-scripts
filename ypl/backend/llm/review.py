@@ -34,6 +34,7 @@ from ypl.backend.llm.review_types import (
     ReviewType,
     SegmentedResult,
 )
+from ypl.backend.llm.transform_messages import TransformOptions, transform_user_messages
 from ypl.backend.prompts import (
     BINARY_REVIEW_PROMPT,
     CRITIQUE_REVIEW_PROMPT,
@@ -59,6 +60,8 @@ REVIEW_CONFIGS: dict[ReviewType, ReviewConfig] = {
     ),
 }
 
+REVIEW_MODEL_WITH_PDF_SUPPORT = ["gemini-2.0-flash-exp"]
+
 
 @alru_cache(maxsize=None, ttl=86400)  # 24-hour cache, now async-compatible
 async def get_model_family(model_name: str) -> str:
@@ -67,7 +70,7 @@ async def get_model_family(model_name: str) -> str:
         try:
             stmt = select(LanguageModel.family).where(LanguageModel.internal_name == model_name)  # type: ignore
             result = await session.execute(stmt)
-            family = result.scalar_one_or_none()
+            family = result.scalar()
             if family is None:
                 logging.warning(f"Model {model_name} not found")
                 raise ValueError(f"Model {model_name} not found")
@@ -395,15 +398,19 @@ async def generate_reviews(
     attachments = [
         attachment for m in chat_history.messages for attachment in m.additional_kwargs.get("attachments", [])
     ]
-
-    if len(attachments) > 0:
-        logging.warning(
-            f"generate_reviews: Attachments not implemented for review, "
-            f"returning empty review response for turn {request.turn_id}"
-        )
-        return ReviewResponse(
-            binary={},
-            status=ReviewStatus.UNSUPPORTED,
+    has_attachments = len(attachments) > 0
+    has_pdf_attachments = False
+    parse_pdf_locally = settings.PARSE_PDF_LOCALLY_FOR_REVIEW
+    if has_attachments:
+        has_pdf_attachments = any(attachment.content_type == "application/pdf" for attachment in attachments)
+        transform_options: TransformOptions = {
+            "image_type": "thumbnail",
+            "use_signed_url": False,
+            "parse_pdf_locally": parse_pdf_locally,
+            "max_pdf_text": settings.MAX_TEXT_TO_EXTRACT_FROM_PDF,
+        }
+        chat_history.messages = await transform_user_messages(
+            chat_history.messages, REVIEW_MODEL_WITH_PDF_SUPPORT[0], options=transform_options
         )
     # Extract conversation history until last user message from chat history
     conversation_until_last_user_message = _extract_conversation_until_last_user_message(chat_history.messages)
@@ -436,10 +443,15 @@ async def generate_reviews(
     if last_assistant_responses:
         for model in last_assistant_responses.keys():
             model_family = response_model_family_map.get(model)
+            reviewer_model_preference = request.reviewer_model_preference or ["gpt-4o", "gemini-2.0-flash-exp"]
+            fallback_reviewer_model_name_default = request.fallback_reviewer_model_name or "gpt-4o"
+            if has_pdf_attachments and not parse_pdf_locally:
+                reviewer_model_preference = REVIEW_MODEL_WITH_PDF_SUPPORT
+                fallback_reviewer_model_name_default = REVIEW_MODEL_WITH_PDF_SUPPORT[0]
             reviewer_model = _select_reviewer_model(
                 model_family,
-                request.reviewer_model_preference or ["gpt-4o", "gemini-2.0-flash-exp"],
-                request.fallback_reviewer_model_name or "gpt-4o",
+                reviewer_model_preference,
+                fallback_reviewer_model_name_default,
                 review_llms_model_family_map,
             )
             binary_reviewers[model] = get_binary_reviewer(reviewer_model)

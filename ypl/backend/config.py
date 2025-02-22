@@ -137,6 +137,7 @@ class Settings(BaseSettings):
     DEFAULT_REVIEW_TIMEOUT_SECS: float = 20.0
 
     PARSE_PDF_LOCALLY_FOR_QUICKTAKE: bool = True
+    PARSE_PDF_LOCALLY_FOR_REVIEW: bool = False
     MAX_TEXT_TO_EXTRACT_FROM_PDF: int = 16000
 
     # Whether to compute and store embeddings for message content upon their completion.
