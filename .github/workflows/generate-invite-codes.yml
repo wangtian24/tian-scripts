@@ -49,6 +49,6 @@ jobs:
         --min-eval-days=${{ inputs.min_eval_days || '2' }}
         --min-feedback-count=${{ inputs.min_feedback_count || '0' }}
         --limit=${{ inputs.limit || '30' }}
-        ${{ !inputs.default_active && '--no-default-active' || '--default-active' }}
+        ${{ github.event_name == 'workflow_dispatch' && !inputs.default_active && '' || ' --default-active' }}
       environment: ${{ inputs.environment || 'production' }}
     secrets: inherit
