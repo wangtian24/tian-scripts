@@ -77,6 +77,10 @@ The user has uploaded one or more PDF files, here is the extracted text from one
 <PDF_END>
 """  # noqa: E501
 
+ATTACHMENT_PREFACE_TEMPLATE = """
+Here are {num_attachments} attachments user has uploaded. If the user prompt is empty, summarize the content of the attachments or respond to any requests in them; otherwise use attachments as context for the user's prompt.
+"""  # noqa: E501
+
 
 async def generate_pdf_part_locally(attachment: Attachment, transform_options: TransformOptions) -> dict[str, Any]:
     file_bytes = await download_attachment(attachment, transform_options=None)
@@ -200,8 +204,6 @@ async def transform_user_messages(
     if not filtered_attachments:
         return [m if not isinstance(m, HumanMessage) else HumanMessage(content=m.content) for m in messages]
 
-    transformed_messages: list[BaseMessage] = []
-
     attachment_id_to_content_dict: dict[str, dict[str, Any]] = {}
     attachment_tasks = [
         generate_part(attachment, provider=model_provider[1], options=options) for attachment in filtered_attachments
@@ -214,11 +216,14 @@ async def transform_user_messages(
             continue
         attachment_id_to_content_dict[attachment.attachment_id] = result
 
+    transformed_messages: list[BaseMessage] = []
     for message in messages:
+        # if it's not a human message (from AI responses), just added it.
         if not isinstance(message, HumanMessage):
             transformed_messages.append(message)
             continue
 
+        # attachments in kwargs
         attachments = message.additional_kwargs.get("attachments", [])
         if len(attachments) == 0:
             transformed_messages.append(HumanMessage(content=message.content))
@@ -226,10 +231,30 @@ async def transform_user_messages(
 
         content: list[dict[str, Any]] = []
 
-        for attachment in attachments:
-            image_content = attachment_id_to_content_dict.get(attachment.attachment_id)
-            if image_content:
-                content.append(image_content)
+        # attachments we just processed / transformed above
+        # First check if we have any valid attachments to process
+        valid_attachments = [a for a in attachments if attachment_id_to_content_dict.get(a.attachment_id)]
+        if valid_attachments:
+            content.append(
+                {
+                    "type": "text",
+                    "text": ATTACHMENT_PREFACE_TEMPLATE.format(num_attachments=len(valid_attachments)),
+                }
+            )
+
+        for idx, attachment in enumerate(attachments, 1):
+            attachment_content = attachment_id_to_content_dict.get(attachment.attachment_id)
+            if attachment_content:
+                content.append(
+                    {
+                        "type": "text",
+                        "text": f"This is attachment no. {idx}, its type is {attachment.content_type} "
+                        f"and its filename is {attachment.file_name}",
+                    }
+                )
+                content.append(attachment_content)
+
+        # The text content of the human message
         content.append({"type": "text", "text": str(message.content)})
 
         transformed_messages.append(HumanMessage(content=content))  # type: ignore
