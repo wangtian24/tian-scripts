@@ -108,9 +108,29 @@ async def get_provider_client(model_name: str, include_all_models: bool = False)
 
     match provider.name:
         case "VertexAI":
-            return ChatVertexAI(model_name=model_name, **kwargs)
+            # experimental and preview models are not available in all AZs resulting in 404 model-not-found.
+            # to avoid this we are sending them to the default location of us-central1.
+            # Gemini 1.5 & 2 are available in multiple AZs (including us-east4), we are not specifying project and LOC.
+            # Ref - https://cloud.google.com/vertex-ai/generative-ai/docs/learn/locations#available-regions
+            if "exp" in model_name or "preview" in model_name:
+                return ChatVertexAI(
+                    model_name=model_name,
+                    project=settings.GCP_PROJECT_ID,
+                    location=settings.GCP_REGION_GEMINI_2,
+                    **kwargs,
+                )
+            else:
+                return ChatVertexAI(model_name=model_name, **kwargs)
         case "GroundedVertexAI":
-            return GroundedVertexAI(model=model_name.replace("-online", ""), **kwargs)
+            if "exp" in model_name or "preview" in model_name:
+                return GroundedVertexAI(
+                    model=model_name.replace("-online", ""),
+                    project=settings.GCP_PROJECT_ID,
+                    location=settings.GCP_REGION_GEMINI_2,
+                    **kwargs,
+                )
+            else:
+                return GroundedVertexAI(model=model_name.replace("-online", ""), **kwargs)
         case "Google":
             return ChatGoogleGenerativeAI(
                 model=model_name,
