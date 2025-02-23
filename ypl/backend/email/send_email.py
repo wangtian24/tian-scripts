@@ -7,22 +7,20 @@ from resend.emails._email import Email
 from sqlalchemy import select
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
-from ypl.backend.email.campaigns.nudge import (
+from ypl.backend.email.campaigns.templates.email_templates import (
+    FIRST_PREF_BONUS_EMAIL_CONTENT,
+    MONTHLY_SUMMARY_EMAIL_CONTENT,
     OLD_ACCOUNT_INACTIVE_EMAIL_CONTENT,
+    REFFERAL_BONUS_EMAIL_CONTENT,
+    SIC_AVAILABILITY_EMAIL_CONTENT,
+    SIGN_UP_EMAIL_CONTENT,
     WEEK_1_CHECKIN_EMAIL_CONTENT,
     WEEK_1_INACTIVE_EMAIL_CONTENT,
     WEEK_5_INACTIVE_EMAIL_CONTENT,
     WEEK_6_DEACTIVATION_EMAIL_CONTENT,
-)
-from ypl.backend.email.campaigns.signup import (
-    FIRST_PREF_BONUS_EMAIL_CONTENT,
-    REFFERAL_BONUS_EMAIL_CONTENT,
-    SIC_AVAILABILITY_EMAIL_CONTENT,
-    SIGN_UP_EMAIL_CONTENT,
     YOUR_FRIEND_JOINED_EMAIL_CONTENT,
 )
-from ypl.backend.email.campaigns.summary import MONTHLY_SUMMARY_EMAIL_CONTENT
-from ypl.backend.email.campaigns.utils import html_to_plaintext, load_html_wrapper
+from ypl.backend.email.campaigns.templates.utils import html_to_plaintext, load_html_wrapper
 from ypl.backend.email.email_types import EmailConfig, EmailContent
 from ypl.backend.utils.json import json_dumps
 from ypl.db.emails import EmailLogs
