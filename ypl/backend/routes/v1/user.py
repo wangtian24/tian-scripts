@@ -1,23 +1,21 @@
 import logging
-from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query
-from sqlalchemy import String, cast
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import col, or_, select
+from sqlmodel import select
 
 from ypl.backend.db import get_async_session
 from ypl.backend.payment.hyperwallet.hyperwallet_utils import UserTokensResponse, get_hyperwallet_user_tokens
 from ypl.backend.user.user import (
     RegisterVendorRequest,
     UserSearchResponse,
-    UserSearchResult,
     VendorProfileResponse,
     deactivate_user,
     get_all_users,
+    get_users,
     reactivate_user,
     register_user_with_vendor,
 )
@@ -25,8 +23,7 @@ from ypl.backend.utils.ip_utils import UserIPDetailsResponse, get_user_ip_detail
 from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.soul_utils import SoulPermission, validate_permissions
 from ypl.db.invite_codes import SpecialInviteCode, SpecialInviteCodeClaimLog
-from ypl.db.payments import PaymentInstrument, PaymentTransaction
-from ypl.db.users import User, UserIPDetails, VendorNameEnum, WaitlistedUser
+from ypl.db.users import User, VendorNameEnum, WaitlistedUser
 
 router = APIRouter()
 admin_router = APIRouter()
@@ -141,7 +138,7 @@ async def validate_delete_users(
 
 
 @admin_router.get("/admin/users/search", dependencies=[Depends(validate_read_users)])
-async def get_users(query: str) -> UserSearchResponse:
+async def get_users_route(query: str) -> UserSearchResponse:
     """Search for users where name or user_id partially matches the query string.
 
     Args:
@@ -150,158 +147,7 @@ async def get_users(query: str) -> UserSearchResponse:
     Returns:
         List of matching users with their ID, name, email, created_at, deleted_at, points and status
     """
-    log_dict = {
-        "message": "Searching for users",
-        "query": query,
-    }
-    logging.info(json_dumps(log_dict))
-    try:
-        async with get_async_session() as session:
-            search = f"%{query}%"
-            stmt = (
-                select(User)
-                .distinct()
-                .where(
-                    or_(
-                        col(User.name).ilike(search),
-                        col(User.user_id).ilike(search),
-                        col(User.email).ilike(search),
-                        col(User.discord_id).ilike(search),
-                        col(User.discord_username).ilike(search),
-                        col(User.city).ilike(search),
-                        col(User.country_code).ilike(search),
-                        col(User.educational_institution).ilike(search),
-                    )
-                )
-            )
-
-            result = await session.execute(stmt)
-            users = result.scalars().all()
-
-            log_dict = {
-                "message": "Users found for search query in users table",
-                "query": query,
-                "users_count": str(len(users)),
-            }
-            logging.info(json_dumps(log_dict))
-
-            if len(users) > 0:
-                return _create_user_search_response(users)
-
-            # if this is not a user related data point, look for payment instrument
-            stmt = (
-                select(User).distinct().join(PaymentInstrument).where(col(PaymentInstrument.identifier).ilike(search))
-            )
-
-            result = await session.execute(stmt)
-            users = result.scalars().all()
-
-            log_dict = {
-                "message": "Users found for search query in payment instruments",
-                "query": query,
-                "users_count": str(len(users)),
-            }
-            logging.info(json_dumps(log_dict))
-
-            if len(users) > 0:
-                return _create_user_search_response(users)
-
-            # if this is not a payment instrument then search for payment transaction id
-            stmt = (
-                select(User)
-                .distinct()
-                .join(PaymentInstrument, User.user_id == PaymentInstrument.user_id)  # type: ignore
-                .join(
-                    PaymentTransaction,
-                    PaymentInstrument.payment_instrument_id == PaymentTransaction.destination_instrument_id,  # type: ignore
-                )
-                .where(cast(PaymentTransaction.payment_transaction_id, String).ilike(search))
-            )
-            result = await session.execute(stmt)
-            users = result.scalars().all()
-
-            log_dict = {
-                "message": "Users found for search query in payment transactions",
-                "query": query,
-                "users_count": str(len(users)),
-            }
-            logging.info(json_dumps(log_dict))
-
-            if len(users) > 0:
-                return _create_user_search_response(users)
-
-            #  if none of the above then search for IP address
-            stmt = (
-                select(User)
-                .distinct()
-                .join(UserIPDetails, User.user_id == UserIPDetails.user_id)  # type: ignore
-                .where(col(UserIPDetails.ip).ilike(search))
-            )
-            result = await session.execute(stmt)
-            users = result.scalars().all()
-
-            log_dict = {
-                "message": "Users found for search query in user IP details",
-                "query": query,
-                "users_count": str(len(users)),
-            }
-            logging.info(json_dumps(log_dict))
-
-            if len(users) > 0:
-                return _create_user_search_response(users)
-
-            # if none of the above then search for special invite code
-            stmt = (
-                select(User)
-                .distinct()
-                .join(SpecialInviteCodeClaimLog)
-                .join(SpecialInviteCode)
-                .where(col(SpecialInviteCode.code).ilike(search))
-            )
-            result = await session.execute(stmt)
-            users = result.scalars().all()
-
-            log_dict = {
-                "message": "Users found for search query in special invite codes",
-                "query": query,
-                "users_count": str(len(users)),
-            }
-            logging.info(json_dumps(log_dict))
-
-            if len(users) > 0:
-                return _create_user_search_response(users)
-
-            return UserSearchResponse(users=[], has_more_rows=False)
-    except Exception as e:
-        log_dict = {
-            "message": "Error searching for users",
-            "query": query,
-            "error": str(e),
-        }
-        logging.error(json_dumps(log_dict))
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-def _create_user_search_response(users: Sequence[User]) -> UserSearchResponse:
-    """Create a UserSearchResponse from a list of users."""
-    return UserSearchResponse(
-        users=[
-            UserSearchResult(
-                user_id=user.user_id,
-                name=user.name,
-                email=user.email,
-                created_at=user.created_at,
-                deleted_at=user.deleted_at,
-                points=user.points,
-                status=user.status,
-                discord_id=user.discord_id,
-                discord_username=user.discord_username,
-                image_url=user.image,
-            )
-            for user in users
-        ],
-        has_more_rows=False,
-    )
+    return await get_users(query)
 
 
 @admin_router.get("/admin/users/{user_id}/related", dependencies=[Depends(validate_read_users)])

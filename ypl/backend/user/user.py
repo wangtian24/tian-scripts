@@ -1,22 +1,38 @@
 import logging
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, cast
 from uuid import UUID
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
-from sqlalchemy.exc import DatabaseError, OperationalError
+from sqlalchemy import String, and_, case, func, or_, select, true
+from sqlalchemy.exc import DatabaseError, OperationalError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql import Select
+from sqlalchemy.sql.elements import BinaryExpression
+from sqlmodel import col
 from tenacity import after_log, retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 from ypl.backend.db import get_async_session
 from ypl.backend.llm.utils import post_to_slack_with_user_name
 from ypl.backend.user.vendor_details import AdditionalDetails
 from ypl.backend.user.vendor_registration import VendorRegistrationError, get_vendor_registration
 from ypl.backend.utils.json import json_dumps
-from ypl.db.invite_codes import SpecialInviteCode, SpecialInviteCodeState
-from ypl.db.users import User, UserStatus, UserVendorProfile, VendorNameEnum
+from ypl.backend.utils.utils import CapabilityType
+from ypl.db.invite_codes import SpecialInviteCode, SpecialInviteCodeClaimLog, SpecialInviteCodeState
+from ypl.db.payments import PaymentInstrument, PaymentTransaction
+from ypl.db.users import (
+    Capability,
+    CapabilityStatus,
+    User,
+    UserCapabilityOverride,
+    UserCapabilityStatus,
+    UserIPDetails,
+    UserStatus,
+    UserVendorProfile,
+    VendorNameEnum,
+)
 
 
 @dataclass
@@ -31,6 +47,7 @@ class UserSearchResult:
     discord_id: str | None
     discord_username: str | None
     image_url: str | None
+    cashout_allowed: bool
 
 
 @dataclass
@@ -207,18 +224,279 @@ async def get_user(user_id: str) -> User:
         return cast(User, user)
 
 
+def _build_search_pattern(query: str) -> str:
+    """Build the SQL LIKE pattern for searching."""
+    return f"%{query}%"
+
+
+def _build_base_query_with_cashout(capability: Capability | None) -> Select:
+    """Build the base query with cashout capability check.
+
+    Args:
+        capability: The cashout capability if it exists
+
+    Returns:
+        SQLAlchemy select statement with user and cashout check
+    """
+    if not capability:
+        return select(User, true().label("cashout_allowed"))
+
+    cashout_check = (
+        select(1)
+        .where(
+            and_(
+                UserCapabilityOverride.user_id == User.user_id,  # type: ignore
+                UserCapabilityOverride.capability_id == capability.capability_id,  # type: ignore
+                UserCapabilityOverride.deleted_at.is_(None),  # type: ignore
+                UserCapabilityOverride.status == UserCapabilityStatus.DISABLED,  # type: ignore
+            )
+        )
+        .exists()
+    )
+    return select(User, (~cashout_check).label("cashout_allowed"))
+
+
+def _build_user_search_conditions(search_pattern: str) -> BinaryExpression:
+    """Build the search conditions for the user table.
+
+    Args:
+        search_pattern: The pattern to search for
+
+    Returns:
+        SQLAlchemy OR clause with all search conditions
+    """
+    return or_(
+        col(User.name).ilike(search_pattern),  # type: ignore
+        col(User.user_id).ilike(search_pattern),
+        col(User.email).ilike(search_pattern),
+        col(User.discord_id).ilike(search_pattern),
+        col(User.discord_username).ilike(search_pattern),
+        col(User.city).ilike(search_pattern),
+        col(User.country_code).ilike(search_pattern),
+        col(User.educational_institution).ilike(search_pattern),
+    )
+
+
+async def _execute_search_query(
+    session: AsyncSession, base_query: Any, additional_conditions: Any, query: str, search_type: str
+) -> UserSearchResponse | None:
+    """Execute a search query and return results if found.
+
+    Args:
+        session: The database session
+        base_query: The base query to execute
+        additional_conditions: Additional WHERE conditions
+        query: The original search query
+        search_type: The type of search being performed for logging
+
+    Returns:
+        UserSearchResponse if results found, None otherwise
+    """
+    stmt = base_query.where(additional_conditions)
+    result = await session.execute(stmt)
+    users_with_cashout = result.all()
+
+    log_dict = {
+        "message": f"Users found for search query in {search_type}",
+        "query": query,
+        "users_count": str(len(users_with_cashout)),
+    }
+    logging.info(json_dumps(log_dict))
+
+    if len(users_with_cashout) > 0:
+        return _create_user_search_response_with_cashout(users_with_cashout)
+    return None
+
+
+async def get_users(query: str) -> UserSearchResponse:
+    """Search for users to support universal search.
+
+    Args:
+        query: Search string to match against user name or ID
+
+    Returns:
+        List of matching users with their ID, name, email, created_at, deleted_at, points and status
+
+    Raises:
+        HTTPException: If there's an error executing the search
+    """
+    log_dict = {
+        "message": "Searching for users",
+        "query": query,
+    }
+    logging.info(json_dumps(log_dict))
+
+    try:
+        async with get_async_session() as session:
+            # Get cashout capability
+            capability = await _get_cashout_capability(session)
+
+            # Build base query and search pattern
+            base_query = _build_base_query_with_cashout(capability)
+            search_pattern = _build_search_pattern(query)
+
+            # Try each search type in sequence
+            # 1. Search in users table
+            result = await _execute_search_query(
+                session, base_query, _build_user_search_conditions(search_pattern), query, "users table"
+            )
+            if result:
+                return result
+
+            # 2. Search in payment instruments
+            result = await _execute_search_query(
+                session,
+                base_query.join(PaymentInstrument),
+                col(PaymentInstrument.identifier).ilike(search_pattern),
+                query,
+                "payment instruments",
+            )
+            if result:
+                return result
+
+            # 3. Search in payment transactions
+            result = await _execute_search_query(
+                session,
+                base_query.join(PaymentInstrument, User.user_id == PaymentInstrument.user_id).join(  # type: ignore
+                    PaymentTransaction,
+                    PaymentInstrument.payment_instrument_id == PaymentTransaction.destination_instrument_id,  # type: ignore
+                ),
+                func.cast(col(PaymentTransaction.payment_transaction_id), String).ilike(search_pattern),
+                query,
+                "payment transactions",
+            )
+            if result:
+                return result
+
+            # 4. Search in IP addresses
+            result = await _execute_search_query(
+                session,
+                base_query.join(UserIPDetails, User.user_id == UserIPDetails.user_id),  # type: ignore
+                col(UserIPDetails.ip).ilike(search_pattern),
+                query,
+                "user IP details",
+            )
+            if result:
+                return result
+
+            # 5. Search in special invite codes
+            result = await _execute_search_query(
+                session,
+                base_query.join(SpecialInviteCodeClaimLog).join(SpecialInviteCode),
+                col(SpecialInviteCode.code).ilike(search_pattern),
+                query,
+                "special invite codes",
+            )
+            if result:
+                return result
+
+            return UserSearchResponse(users=[], has_more_rows=False)
+
+    except SQLAlchemyError as e:
+        log_dict = {
+            "message": "Database error while searching for users",
+            "query": query,
+            "error": str(e),
+        }
+        logging.error(json_dumps(log_dict))
+        raise HTTPException(status_code=500, detail="Database error occurred") from e
+    except Exception as e:
+        log_dict = {
+            "message": "Error searching for users",
+            "query": query,
+            "error": str(e),
+        }
+        logging.error(json_dumps(log_dict))
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+async def _get_cashout_capability(session: AsyncSession) -> Capability | None:
+    """Get the cashout capability if it exists.
+
+    Args:
+        session: The database session
+
+    Returns:
+        The cashout capability if it exists and is active
+    """
+    capability_stmt = select(Capability).where(
+        Capability.capability_name == CapabilityType.CASHOUT.value,  # type: ignore
+        Capability.deleted_at.is_(None),  # type: ignore
+        Capability.status == CapabilityStatus.ACTIVE,  # type: ignore
+    )
+    return (await session.execute(capability_stmt)).scalar_one_or_none()
+
+
+def _create_user_search_response_with_cashout(
+    users_with_cashout: Sequence[Any],
+) -> UserSearchResponse:
+    """Create a UserSearchResponse from a list of users with their cashout status."""
+    return UserSearchResponse(
+        users=[
+            UserSearchResult(
+                user_id=row[0].user_id,
+                name=row[0].name,
+                email=row[0].email,
+                created_at=row[0].created_at,
+                deleted_at=row[0].deleted_at,
+                points=row[0].points,
+                status=row[0].status,
+                discord_id=row[0].discord_id,
+                discord_username=row[0].discord_username,
+                image_url=row[0].image,
+                cashout_allowed=True if row[1] else False,
+            )
+            for row in users_with_cashout
+        ],
+        has_more_rows=False,
+    )
+
+
 async def get_all_users(limit: int = 100, offset: int = 0) -> UserSearchResponse:
     async with get_async_session() as session:
+        # First get the capability ID for cashout
+        capability_stmt = select(Capability).where(
+            Capability.capability_name == CapabilityType.CASHOUT.value,  # type: ignore
+            Capability.deleted_at.is_(None),  # type: ignore
+            Capability.status == CapabilityStatus.ACTIVE,  # type: ignore
+        )
+        capability = (await session.execute(capability_stmt)).scalar_one_or_none()
+
+        # Get users with a subquery for their cashout override status
         stmt = (
-            select(User)
+            select(
+                User,
+                case(
+                    (
+                        and_(
+                            UserCapabilityOverride.capability_id == capability.capability_id if capability else None,  # type: ignore
+                            UserCapabilityOverride.deleted_at.is_(None),  # type: ignore
+                            UserCapabilityOverride.status == UserCapabilityStatus.DISABLED,  # type: ignore
+                        ),
+                        False,
+                    ),
+                    else_=True,
+                ).label("cashout_allowed"),
+            )
+            .outerjoin(
+                UserCapabilityOverride,
+                and_(
+                    User.user_id == UserCapabilityOverride.user_id,  # type: ignore
+                    UserCapabilityOverride.capability_id == capability.capability_id if capability else None,  # type: ignore
+                    UserCapabilityOverride.deleted_at.is_(None),  # type: ignore
+                ),
+            )
             .order_by(User.created_at.desc())  # type: ignore
             .limit(limit + 1)
             .offset(offset)
         )
-        users = (await session.execute(stmt)).scalars().all()
-        has_more_rows = len(users) > limit
+
+        results = (await session.execute(stmt)).all()
+        has_more_rows = len(results) > limit
         user_search_results = []
-        for user in users:
+        for result in results[:limit]:
+            user = result[0]  # User object
+            cashout_allowed = result[1]  # cashout_allowed value
             user_search_results.append(
                 UserSearchResult(
                     user_id=user.user_id,
@@ -231,6 +509,7 @@ async def get_all_users(limit: int = 100, offset: int = 0) -> UserSearchResponse
                     discord_id=user.discord_id,
                     discord_username=user.discord_username,
                     image_url=user.image,
+                    cashout_allowed=cashout_allowed,
                 )
             )
         return UserSearchResponse(users=user_search_results, has_more_rows=has_more_rows)
