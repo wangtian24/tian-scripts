@@ -1177,7 +1177,7 @@ async def get_qt_llm(model_name: str) -> BaseChatModel:
     if model_name in QT_LLMS:
         return QT_LLMS[model_name]
     else:
-        return await get_provider_client(model_name)
+        return await get_provider_client(model_name, include_all_models=True)
 
 
 class QuickTakeResponse(BaseModel):
