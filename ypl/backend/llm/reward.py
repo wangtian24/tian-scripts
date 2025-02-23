@@ -779,8 +779,8 @@ async def generate_bounded_reward(lower_bound: int, upper_bound: int, quality_sc
     if not quality_score:
         # Default to middle range if no quality score
         mean = (lower_bound + upper_bound) / 2
-        std_dev = (upper_bound - lower_bound) / 4
-        reward_amount = int(round(random.gauss(mean, std_dev), -1))
+        std_dev = (upper_bound - lower_bound) / 2
+        reward_amount = int(round(random.gauss(mean, std_dev)))
         return max(lower_bound, min(upper_bound, reward_amount))
 
     range_size = upper_bound - lower_bound
@@ -788,7 +788,7 @@ async def generate_bounded_reward(lower_bound: int, upper_bound: int, quality_sc
     # Calculate score-based bounds while ensuring they stay within global bounds
     default_multiplier = FEEDBACK_QUALITY_MULTIPLIER[FALLBACK_QUALITY_SCORE]
     quality_multiplier = FEEDBACK_QUALITY_MULTIPLIER.get(quality_score, default_multiplier)
-    score_min = lower_bound + (range_size * quality_multiplier * 0.8)
+    score_min = lower_bound + (range_size * quality_multiplier * 0.7)
     score_max = lower_bound + (range_size * quality_multiplier)
 
     # Ensure score-based bounds don't exceed global bounds
@@ -796,7 +796,7 @@ async def generate_bounded_reward(lower_bound: int, upper_bound: int, quality_sc
     score_max = max(lower_bound, min(upper_bound, score_max))
 
     # Add small random variation within the quality score's range
-    reward_amount = int(round(random.uniform(score_min, score_max), -1))
+    reward_amount = int(round(random.uniform(score_min, score_max)))
     return max(lower_bound, min(upper_bound, reward_amount))
 
 

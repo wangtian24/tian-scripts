@@ -120,8 +120,8 @@ amount_rules:
         - name: points_last_month
           operator: less_than
           value: *monthly_points_limit
-    min_value: 100
-    max_value: 150
+    min_value: 75
+    max_value: 175
     comments:
       - "Thank you for your feedback."
 
