@@ -13,7 +13,7 @@ def load_html_template(filename: str) -> str:
         The template contents as a string
     """
     # Points to ypl/backend/email/campaigns/templates
-    template_dir = os.path.join(os.path.dirname(__file__), "templates")
+    template_dir = os.path.join(os.path.dirname(__file__))
     template_path = os.path.join(template_dir, filename)
 
     logging.info(f"Loading template from: {template_path}")
@@ -28,7 +28,7 @@ def load_html_template(filename: str) -> str:
 
 def load_html_wrapper() -> str:
     """Load the HTML template from file."""
-    template_path = os.path.join(os.path.dirname(__file__), "templates", "html_wrapper.html")
+    template_path = os.path.join(os.path.dirname(__file__), "html_wrapper.html")
     with open(template_path, encoding="utf-8") as f:
         return f.read()
 
