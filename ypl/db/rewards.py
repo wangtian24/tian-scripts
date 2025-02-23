@@ -26,6 +26,8 @@ class RewardActionEnum(Enum):
     TURN = "turn"
     # Feedback on the app.
     FEEDBACK = "feedback"
+    # Downvote feedback (NOPE)
+    NOPE_FEEDBACK = "nope_feedback"
     # Selection of a canned response (On target! Too long. etc) from the model feedback box.
     MODEL_FEEDBACK = "model_feedback"
     # Referral bonus for completing onboarding tasks as a referred user. Can only be awarded once.
