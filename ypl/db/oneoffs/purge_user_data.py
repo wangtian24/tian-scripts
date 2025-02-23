@@ -16,7 +16,6 @@ Note:
 
 import argparse
 
-import sqlalchemy as sa
 from sqlmodel import Session, delete, select
 
 import ypl.db.all_models  # noqa: F401
@@ -89,7 +88,6 @@ def delete_user_cascade(session: Session, user_id: str) -> None:
         # 12. Delete chats created by the user
         session.exec(delete(Chat).where(Chat.creator_user_id == user_id))
 
-        session.exec(sa.text("ALTER TABLE user_capability_overrides REPLICA IDENTITY FULL"))
         session.exec(delete(UserCapabilityOverride).where(UserCapabilityOverride.user_id == user_id))
 
         # 13. Finally delete the user
