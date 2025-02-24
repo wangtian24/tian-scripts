@@ -4,7 +4,7 @@ from ypl.backend.config import settings
 from ypl.backend.llm.judge import PromptModifierLabeler
 from ypl.backend.llm.provider.provider_clients import get_provider_client
 from ypl.backend.llm.routing.modules.base import RouterModule
-from ypl.backend.llm.routing.router import _get_routing_llm
+from ypl.backend.llm.routing.router import get_default_routing_llm
 from ypl.backend.llm.routing.router_state import RouterState
 
 MODIFIER_LABELER: PromptModifierLabeler | None = None
@@ -60,4 +60,4 @@ async def get_prompt_modifier_llm(model_name: str | None = None) -> BaseChatMode
     if model_name:
         return await get_provider_client(model_name)
     else:
-        return _get_routing_llm()
+        return await get_default_routing_llm()

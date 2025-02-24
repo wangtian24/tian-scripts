@@ -1,4 +1,5 @@
 import os
+from typing import Any
 
 from cachetools.func import ttl_cache
 from dotenv import load_dotenv
@@ -9,14 +10,16 @@ from langchain_google_vertexai import ChatVertexAI
 from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
 from langchain_mistralai import ChatMistralAI
 from langchain_openai import ChatOpenAI
-from pydantic import SecretStr
+from pydantic import BaseModel, SecretStr
 from sqlmodel import Session, select
 from ypl.backend.config import settings
 from ypl.backend.db import get_engine
+from ypl.backend.llm.constants import ChatProvider
 from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.provider.google_grounded_gemini import GoogleGroundedGemini
 from ypl.backend.llm.provider.google_grounded_vertex_ai import GroundedVertexAI
 from ypl.backend.llm.provider.perplexity import CustomChatPerplexity
+from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter, OpenAILangChainAdapter
 from ypl.backend.utils.utils import merge_base_url_with_port
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
 
@@ -74,7 +77,7 @@ def get_model_provider_tuple(
 
 # TODO(bhanu) - add provider to client mapping in DB and remove switch cases (pre-work API key storage)
 # TODO(bhanu) - use keys from ypl/backend/config.py
-async def get_provider_client(model_name: str, include_all_models: bool = False) -> BaseChatModel:
+async def get_provider_client(model_name: str, include_all_models: bool = False, **func_kwargs: Any) -> BaseChatModel:
     """
     Initialize a LangChain client based on model name.
     Uses cached model and provider details to configure appropriate client.
@@ -88,18 +91,19 @@ async def get_provider_client(model_name: str, include_all_models: bool = False)
         raise ValueError(f"No model-provider configuration found for: {model_name}")
 
     model, provider = model_provider
-    model_parameters = model.parameters
-    model_kwargs = {}
+    model_db_parameters = model.parameters
+    model_db_kwargs = {}
     # some model might want to specify a different port on the provider, this is mostly for internal testing providers
     provider_port = None
-    if model_parameters:
-        if "kwargs" in model_parameters:
-            model_kwargs.update(model_parameters["kwargs"])
-        if "port" in model_parameters:
-            provider_port = model_parameters["port"]
+    if model_db_parameters:
+        if "kwargs" in model_db_parameters:
+            model_db_kwargs.update(model_db_parameters["kwargs"])
+        if "port" in model_db_parameters:
+            provider_port = model_db_parameters["port"]
 
-    # combine extra args for provider and model.
-    kwargs = {**PROVIDER_KWARGS.get(provider.name, {}), **model_kwargs}
+    # combine extra args for provider and model, the latter overrides the former, the order is
+    #    hardcoded < those from DB < those from function caller
+    combined_kwargs = {**PROVIDER_KWARGS.get(provider.name, {}), **model_db_kwargs, **func_kwargs}
 
     # Split the model name into base and variant. The variant is not directly used, variant-specific parameters
     # are stored in the LanguageModel.parameters field.
@@ -117,25 +121,25 @@ async def get_provider_client(model_name: str, include_all_models: bool = False)
                     model_name=model_name,
                     project=settings.GCP_PROJECT_ID,
                     location=settings.GCP_REGION_GEMINI_2,
-                    **kwargs,
+                    **combined_kwargs,
                 )
             else:
-                return ChatVertexAI(model_name=model_name, **kwargs)
+                return ChatVertexAI(model_name=model_name, **combined_kwargs)
         case "GroundedVertexAI":
             if "exp" in model_name or "preview" in model_name:
                 return GroundedVertexAI(
                     model=model_name.replace("-online", ""),
                     project=settings.GCP_PROJECT_ID,
                     location=settings.GCP_REGION_GEMINI_2,
-                    **kwargs,
+                    **combined_kwargs,
                 )
             else:
-                return GroundedVertexAI(model=model_name.replace("-online", ""), **kwargs)
+                return GroundedVertexAI(model=model_name.replace("-online", ""), **combined_kwargs)
         case "Google":
             return ChatGoogleGenerativeAI(
                 model=model_name,
                 api_key=SecretStr(os.getenv("GOOGLE_API_KEY", "")),
-                **model_kwargs,
+                **combined_kwargs,
             )
 
         case "GoogleGrounded":
@@ -149,26 +153,32 @@ async def get_provider_client(model_name: str, include_all_models: bool = False)
                     project_id=settings.GCP_PROJECT_ID,
                     region=settings.GCP_REGION_GEMINI_2,
                     temperature=0.0,
-                    **model_kwargs,
+                    **combined_kwargs,
                 ),
             )
 
         case "OpenAI":
-            return ChatOpenAI(model=model_name, api_key=SecretStr(os.getenv("OPENAI_API_KEY", "")), **kwargs)
+            return ChatOpenAI(model=model_name, api_key=SecretStr(os.getenv("OPENAI_API_KEY", "")), **combined_kwargs)
 
         case "Anthropic":
-            return ChatAnthropic(model_name=model_name, api_key=SecretStr(os.getenv("ANTHROPIC_API_KEY", "")), **kwargs)
+            return ChatAnthropic(
+                model_name=model_name, api_key=SecretStr(os.getenv("ANTHROPIC_API_KEY", "")), **combined_kwargs
+            )
 
         case "Mistral AI":
-            return ChatMistralAI(model_name=model_name, api_key=SecretStr(os.getenv("MISTRAL_API_KEY", "")), **kwargs)
+            return ChatMistralAI(
+                model_name=model_name, api_key=SecretStr(os.getenv("MISTRAL_API_KEY", "")), **combined_kwargs
+            )
         # TODO(bhanu) - the current API key is throwing 403
         case "Hugging Face":
             llm = HuggingFaceEndpoint(
-                model=model_name, huggingfacehub_api_token=os.getenv("HUGGINGFACE_API_KEY", ""), **kwargs
+                model=model_name, huggingfacehub_api_token=os.getenv("HUGGINGFACE_API_KEY", ""), **combined_kwargs
             )
             return ChatHuggingFace(llm=llm)
         case "Perplexity":
-            return CustomChatPerplexity(model=model_name, api_key=os.getenv("PERPLEXITY_API_KEY", ""), **kwargs)
+            return CustomChatPerplexity(
+                model=model_name, api_key=os.getenv("PERPLEXITY_API_KEY", ""), **combined_kwargs
+            )
 
         case provider_name if provider_name in [
             "Alibaba",
@@ -186,7 +196,7 @@ async def get_provider_client(model_name: str, include_all_models: bool = False)
                 model=model_name,
                 api_key=SecretStr(os.getenv(provider.api_key_env_name or API_KEY_MAP[provider_name], "")),
                 base_url=merge_base_url_with_port(provider.base_api_url, provider_port),
-                **kwargs,
+                **combined_kwargs,
             )
         # TODO(bhanu) - review inactive providers in DB - Azure, Nvidia, Fireworks
         case _:
@@ -211,3 +221,98 @@ async def get_language_model(model_name: str) -> LanguageModel:
 
     language_model, _ = result
     return language_model
+
+
+# -----------------------------------
+# TODO(Tian): Below are special provider client getters for various internal uses, we should properly
+# support them with get_provider_client() function instead of creating these specialized functions
+# that might go out of sync with our main logic.
+
+
+class InternalLLMParams(BaseModel):
+    max_tokens: int
+    temperature_times_100: int
+
+    class Config:
+        frozen = True  # Make the class immutable and hashable
+
+
+# Cached specialized LLMs from (name, params) to LLM client objects
+COMMON_INTERNAL_LLMS: dict[tuple[str, InternalLLMParams], BaseChatModel] = {}
+
+
+def get_gemini_2_flash_llm(max_tokens: int) -> GeminiLangChainAdapter:
+    return GeminiLangChainAdapter(
+        model_info=ModelInfo(
+            provider=ChatProvider.GOOGLE,
+            model="gemini-2.0-flash-exp",
+            api_key=settings.GOOGLE_API_KEY,
+        ),
+        model_config_=dict(
+            project_id=settings.GCP_PROJECT_ID,
+            region=settings.GCP_REGION_GEMINI_2,
+            temperature=0.0,
+            max_output_tokens=max_tokens,
+            top_k=1,
+        ),
+    )
+
+
+def get_gemini_15_flash_llm(max_tokens: int) -> GeminiLangChainAdapter:
+    return GeminiLangChainAdapter(
+        model_info=ModelInfo(
+            provider=ChatProvider.GOOGLE,
+            model="gemini-1.5-flash-002",
+            api_key=settings.GOOGLE_API_KEY,
+        ),
+        model_config_=dict(
+            project_id=settings.GCP_PROJECT_ID,
+            region=settings.GCP_REGION,
+            temperature=0.0,
+            max_output_tokens=max_tokens,
+            top_k=1,
+        ),
+    )
+
+
+def _get_gpt_llm(model: str, max_tokens: int) -> OpenAILangChainAdapter:
+    return OpenAILangChainAdapter(
+        model_info=ModelInfo(
+            provider=ChatProvider.OPENAI,
+            model=model,
+            api_key=settings.OPENAI_API_KEY,
+        ),
+        model_config_=dict(
+            temperature=0.0,
+            max_tokens=max_tokens,
+        ),
+    )
+
+
+def get_gpt_4o_llm(max_tokens: int) -> OpenAILangChainAdapter:
+    return _get_gpt_llm("gpt-4o", max_tokens)
+
+
+def get_gpt_4o_mini_llm(max_tokens: int) -> OpenAILangChainAdapter:
+    return _get_gpt_llm("gpt-4o-mini", max_tokens)
+
+
+# TODO(Tian): for backward compatibility, but we probably should remove these soon.
+SPECIAL_INTERNAL_LLM_GETTERS = {
+    "gpt-4o": get_gpt_4o_llm,
+    "gpt-4o-mini": get_gpt_4o_mini_llm,
+    "gemini-1.5-flash-002": get_gemini_15_flash_llm,
+    "gemini-2.0-flash-exp": get_gemini_2_flash_llm,
+}
+
+
+async def get_internal_provider_client(model_name: str, max_tokens: int, temperature: float = 0.0) -> BaseChatModel:
+    params = InternalLLMParams(temperature_times_100=int(temperature * 100), max_tokens=max_tokens)
+    if (model_name, params) not in COMMON_INTERNAL_LLMS:
+        if model_name in SPECIAL_INTERNAL_LLM_GETTERS:
+            COMMON_INTERNAL_LLMS[(model_name, params)] = SPECIAL_INTERNAL_LLM_GETTERS[model_name](max_tokens)
+        else:
+            COMMON_INTERNAL_LLMS[(model_name, params)] = await get_provider_client(
+                model_name, include_all_models=True, temperature=temperature, max_tokens=max_tokens
+            )
+    return COMMON_INTERNAL_LLMS[(model_name, params)]

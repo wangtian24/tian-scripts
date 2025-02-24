@@ -3,10 +3,10 @@ from google.cloud import run_v2
 from langchain_core.language_models.chat_models import BaseChatModel
 
 from ypl.backend.config import settings
-from ypl.backend.llm.constants import IMAGE_CATEGORY, ONLINE_CATEGORY, PDF_CATEGORY, ChatProvider
+from ypl.backend.llm.constants import IMAGE_CATEGORY, ONLINE_CATEGORY, PDF_CATEGORY
 from ypl.backend.llm.db_helpers import deduce_original_providers
-from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.promotions import PromotionModelProposer
+from ypl.backend.llm.provider.provider_clients import get_internal_provider_client
 from ypl.backend.llm.ranking import Ranker, get_ranker
 from ypl.backend.llm.routing.modules.base import RouterModule
 from ypl.backend.llm.routing.modules.decision import RoutingDecisionLogger
@@ -49,7 +49,6 @@ from ypl.backend.llm.routing.policy import SelectionCriteria, decayed_random_fra
 from ypl.backend.llm.routing.route_data_type import RoutingPreference
 from ypl.backend.llm.routing.router_state import RouterState
 from ypl.backend.llm.routing.rule_router import RoutingRuleFilter, RoutingRuleProposer
-from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter, OpenAILangChainAdapter
 from ypl.backend.utils.monitoring import metric_inc_by
 
 # Begin pro router logic and routine
@@ -281,38 +280,11 @@ async def get_simple_pro_router(
     return router
 
 
-def _get_routing_llm() -> BaseChatModel:
-    global ROUTING_LLM
-    if ROUTING_LLM is None:
-        if USE_GEMINI_FOR_ROUTING:
-            ROUTING_LLM = GeminiLangChainAdapter(
-                model_info=ModelInfo(
-                    provider=ChatProvider.GOOGLE,
-                    model="gemini-2.0-flash-exp",
-                    api_key=settings.GOOGLE_API_KEY,
-                ),
-                model_config_=dict(
-                    project_id=settings.GCP_PROJECT_ID,
-                    region=settings.GCP_REGION_GEMINI_2,
-                    temperature=0.0,
-                    max_output_tokens=32,
-                    top_k=1,
-                ),
-            )
-        else:
-            ROUTING_LLM = OpenAILangChainAdapter(
-                model_info=ModelInfo(
-                    provider=ChatProvider.OPENAI,
-                    model="gpt-4o-mini",
-                    api_key=settings.OPENAI_API_KEY,
-                ),
-                model_config_=dict(
-                    temperature=0.0,
-                    max_tokens=40,
-                ),
-            )
-
-    return ROUTING_LLM
+async def get_default_routing_llm() -> BaseChatModel:
+    if USE_GEMINI_FOR_ROUTING:
+        return await get_internal_provider_client("gemini-2.0-flash-001", max_tokens=32)
+    else:
+        return await get_internal_provider_client("gpt-4o-mini", max_tokens=40)
 
 
 """

@@ -6,8 +6,9 @@ from sqlalchemy import delete
 from sqlmodel import select
 
 from ypl.backend.db import get_async_session
-from ypl.backend.llm.chat import get_curated_chat_context, get_gpt_4o_mini_llm
+from ypl.backend.llm.chat import get_curated_chat_context
 from ypl.backend.llm.judge import ConversationStartersLabeler, SuggestedFollowupsLabeler, SuggestedPromptboxLabeler
+from ypl.backend.llm.provider.provider_clients import get_internal_provider_client
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import Chat, SuggestedPromptType, SuggestedTurnPrompt, SuggestedUserPrompt
 
@@ -27,7 +28,7 @@ async def maybe_add_suggested_followups(chat_id: uuid.UUID, turn_id: uuid.UUID) 
             context_for_logging="add_suggested_followups",
         )
 
-        llm = get_gpt_4o_mini_llm(MAX_TOKENS)
+        llm = await get_internal_provider_client("gpt-4o-mini", max_tokens=MAX_TOKENS)
         followup_labeler = SuggestedFollowupsLabeler(llm, timeout_secs=3)
         promptbox_labeler = SuggestedPromptboxLabeler(llm, timeout_secs=3)
         suggested_followups, suggested_placeholder = await asyncio.gather(
@@ -154,7 +155,9 @@ async def refresh_conversation_starters(
                 full_chat_context.append(chat_context.messages)
 
             # Actually get conversation starters.
-            labeler = ConversationStartersLabeler(get_gpt_4o_mini_llm(MAX_TOKENS))
+            labeler = ConversationStartersLabeler(
+                await get_internal_provider_client("gpt-4o-mini", max_tokens=MAX_TOKENS)
+            )
             conversation_starters = labeler.label(full_chat_context)
 
             if not conversation_starters:

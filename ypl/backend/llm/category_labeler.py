@@ -6,7 +6,7 @@ from ypl.backend.config import settings
 from ypl.backend.llm.constants import OFFLINE_CATEGORY, ONLINE_CATEGORY
 from ypl.backend.llm.judge import YappAgentClassifier, YuppMultilabelClassifier, YuppOnlinePromptLabeler
 from ypl.backend.llm.provider.provider_clients import get_provider_client
-from ypl.backend.llm.routing.router import _get_routing_llm
+from ypl.backend.llm.routing.router import get_default_routing_llm
 
 ONLINE_LABELER: YuppOnlinePromptLabeler | None = None
 TOPIC_LABELER: YuppMultilabelClassifier | None = None
@@ -76,18 +76,18 @@ async def get_prompt_category_classifier_llm(model_name: str | None = None) -> B
     if model_name:
         return await get_provider_client(model_name)
     else:
-        return _get_routing_llm()
+        return await get_default_routing_llm()
 
 
 async def get_prompt_online_classifier_llm(model_name: str | None = None) -> BaseChatModel:
     if model_name:
         return await get_provider_client(model_name)
     else:
-        return _get_routing_llm()
+        return await get_default_routing_llm()
 
 
 async def get_yapp_agent_classifier_llm(model_name: str | None = None) -> BaseChatModel:
     if model_name:
         return await get_provider_client(model_name)
     else:
-        return _get_routing_llm()
+        return await get_default_routing_llm()

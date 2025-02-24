@@ -14,14 +14,14 @@ from sqlalchemy import select
 
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
-from ypl.backend.llm.chat import (
-    get_curated_chat_context,
+from ypl.backend.llm.chat import get_curated_chat_context
+from ypl.backend.llm.labeler import LLMLabeler
+from ypl.backend.llm.provider.provider_clients import (
     get_gemini_2_flash_llm,
     get_gemini_15_flash_llm,
     get_gpt_4o_llm,
     get_gpt_4o_mini_llm,
 )
-from ypl.backend.llm.labeler import LLMLabeler
 from ypl.backend.llm.review_types import (
     BinaryResult,
     CritiqueResult,
@@ -88,6 +88,10 @@ async def get_model_families(model_names: list[str]) -> dict[str, str]:
 REVIEW_LLMS: dict[ReviewType, dict[str, BaseChatModel]] = {}
 
 
+# TODO(Tian): This probably needs some refactoring to use get_internal_provider_client(), but it's not
+# an async function due to the way BaseReviewLabeler is constructed. This needs some bigger refactoring
+# to make all get_xxx_reviewer() functions async and pass LLM clients from outside rather than
+# having each labeler class getting its own LLM clients. Keep as is for now.
 def get_review_llms(review_type: ReviewType = ReviewType.BINARY) -> dict[str, BaseChatModel]:
     """Get all review LLM instances."""
     global REVIEW_LLMS

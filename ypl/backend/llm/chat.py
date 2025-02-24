@@ -44,14 +44,16 @@ from ypl.backend.llm.prompt_selector import (
     get_modifiers_by_model_and_position,
     store_modifiers,
 )
-from ypl.backend.llm.provider.provider_clients import get_model_provider_tuple, get_provider_client
+from ypl.backend.llm.provider.provider_clients import (
+    get_internal_provider_client,
+    get_model_provider_tuple,
+)
 from ypl.backend.llm.routing.debug import RoutingDebugInfo, build_routing_debug_info
 from ypl.backend.llm.routing.route_data_type import RoutingPreference
 from ypl.backend.llm.routing.router import needs_special_ability
 from ypl.backend.llm.routing.router_state import RouterState
 from ypl.backend.llm.transform_messages import TransformOptions, transform_user_messages
 from ypl.backend.llm.turn_quality import label_turn_quality
-from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter, OpenAILangChainAdapter
 from ypl.backend.prompts import (
     ALL_MODELS_IN_CHAT_HISTORY_PREAMBLE,
     RESPONSE_SEPARATOR,
@@ -1018,7 +1020,7 @@ MODELS_FOR_DEFAULT_QT = [
     "Meta-Llama-3.3-70B-Instruct",  # from Sambanova
     "gpt-4o",
     "gpt-4o-mini",
-    "gemini-2.0-flash-exp",
+    "gemini-2.0-flash-001",
 ]
 # MODELS_FOR_DEFAULT_QT = ["Meta-Llama-3.3-70B-Instruct", "gpt-4o", "gpt-4o-mini", "gemini-2.0-flash-exp"]
 # Model to use while supplying only the prompts from the chat history, instead of the full chat history.
@@ -1033,103 +1035,16 @@ MODEL_FOR_FINETUNE_QT_FULL_NAME = "ft:gpt-4o-2024-08-06:yupp::AgJJZBsG"
 MODELS_FOR_FALLBACK = ["gemini-1.5-flash-002"]  # can add others later
 
 # Attachment support
-QT_MODEL_WITH_PDF_SUPPORT = ["gemini-2.0-flash-exp"]
-QT_MODEL_WITH_IMAGE_SUPPORT = ["gpt-4o", "gpt-4o-mini", "gemini-2.0-flash-exp"]
+QT_MODEL_WITH_PDF_SUPPORT = ["gemini-2.0-flash-001"]
+QT_MODEL_WITH_IMAGE_SUPPORT = ["gpt-4o", "gpt-4o-mini", "gemini-2.0-flash-001"]
 
 
-GPT_4O_MINI_LLM: OpenAILangChainAdapter | None = None
-GPT_4O_LLM: OpenAILangChainAdapter | None = None
-FINE_TUNED_GPT_4O_LLM: OpenAILangChainAdapter | None = None
-GEMINI_15_FLASH_LLM: GeminiLangChainAdapter | None = None
-GEMINI_2_FLASH_LLM: GeminiLangChainAdapter | None = None
-
-
-MAX_TOKENS = 40
-
-
-def get_gpt_llm(model: str, max_tokens: int) -> OpenAILangChainAdapter:
-    return OpenAILangChainAdapter(
-        model_info=ModelInfo(
-            provider=ChatProvider.OPENAI,
-            model=model,
-            api_key=settings.OPENAI_API_KEY,
-        ),
-        model_config_=dict(
-            temperature=0.0,
-            max_tokens=max_tokens,
-        ),
-    )
-
-
-def get_gpt_4o_mini_llm(max_tokens: int) -> OpenAILangChainAdapter:
-    return get_gpt_llm("gpt-4o-mini", max_tokens)
-
-
-def get_gpt_4o_llm(max_tokens: int) -> OpenAILangChainAdapter:
-    return get_gpt_llm("gpt-4o", max_tokens)
-
-
-def get_fine_tuned_gpt_4o_llm(max_tokens: int) -> OpenAILangChainAdapter:
-    return get_gpt_llm(MODEL_FOR_FINETUNE_QT_FULL_NAME, max_tokens)
-
-
-def get_gemini_15_flash_llm(max_tokens: int) -> GeminiLangChainAdapter:
-    global GEMINI_15_FLASH_LLM
-    if GEMINI_15_FLASH_LLM is None:
-        GEMINI_15_FLASH_LLM = GeminiLangChainAdapter(
-            model_info=ModelInfo(
-                provider=ChatProvider.GOOGLE,
-                model="gemini-1.5-flash-002",
-                api_key=settings.GOOGLE_API_KEY,
-            ),
-            model_config_=dict(
-                project_id=settings.GCP_PROJECT_ID,
-                region=settings.GCP_REGION,
-                temperature=0.0,
-                max_output_tokens=max_tokens,
-                top_k=1,
-            ),
-        )
-    return GEMINI_15_FLASH_LLM
-
-
-def get_gemini_2_flash_llm(max_tokens: int) -> GeminiLangChainAdapter:
-    global GEMINI_2_FLASH_LLM
-    if GEMINI_2_FLASH_LLM is None:
-        GEMINI_2_FLASH_LLM = GeminiLangChainAdapter(
-            model_info=ModelInfo(
-                provider=ChatProvider.GOOGLE,
-                model="gemini-2.0-flash-exp",
-                api_key=settings.GOOGLE_API_KEY,
-            ),
-            model_config_=dict(
-                project_id=settings.GCP_PROJECT_ID,
-                region=settings.GCP_REGION_GEMINI_2,
-                temperature=0.0,
-                max_output_tokens=max_tokens,
-                top_k=1,
-            ),
-        )
-    return GEMINI_2_FLASH_LLM
-
-
-QT_LLMS: dict[str, BaseChatModel] | None = None
+MAX_QT_LLM_TOKENS = 40
 DEFAULT_QT_MAX_CONTEXT_LENGTH = 128000  # gpt-4o-mini
 
 
 async def get_qt_llm(model_name: str) -> BaseChatModel:
-    global QT_LLMS
-    if QT_LLMS is None:
-        QT_LLMS = {
-            "gpt-4o": get_gpt_4o_llm(MAX_TOKENS),
-            "gpt-4o-mini": get_gpt_4o_mini_llm(MAX_TOKENS),
-            "gemini-1.5-flash-002": get_gemini_15_flash_llm(MAX_TOKENS),
-            "gemini-2.0-flash-exp": get_gemini_2_flash_llm(MAX_TOKENS),
-        }
-    if model_name in QT_LLMS:
-        return QT_LLMS[model_name]
-    else:
-        return await get_provider_client(model_name, include_all_models=True)
+    return await get_internal_provider_client(model_name, max_tokens=MAX_QT_LLM_TOKENS)
 
 
 class QuickTakeResponse(BaseModel):

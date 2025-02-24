@@ -6,8 +6,9 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import load_only
 
 from ypl.backend.db import get_async_session
-from ypl.backend.llm.chat import get_curated_chat_context, get_gpt_4o_mini_llm
+from ypl.backend.llm.chat import get_curated_chat_context
 from ypl.backend.llm.judge import ChatTitleLabeler
+from ypl.backend.llm.provider.provider_clients import get_internal_provider_client
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import Chat, Turn
 
@@ -29,7 +30,9 @@ async def get_chat_title_suggestion(chat_id: uuid.UUID, turn_id: uuid.UUID | Non
     if not chat_context or not chat_context.messages:
         raise ValueError("No chat context or messages")
 
-    labeler = ChatTitleLabeler(get_gpt_4o_mini_llm(MAX_TOKENS), timeout_secs=4)
+    labeler = ChatTitleLabeler(
+        await get_internal_provider_client("gemini-2.0-flash-001", max_tokens=MAX_TOKENS), timeout_secs=4
+    )
     title = await labeler.alabel(chat_context.messages)
     logging.info(
         json_dumps(

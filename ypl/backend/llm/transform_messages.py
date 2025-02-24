@@ -178,7 +178,7 @@ async def transform_user_messages(
         - Combines image content with text content
         - Formats messages according to model requirements
     """
-    model_provider = get_model_provider_tuple(model_name)
+    model_provider = get_model_provider_tuple(model_name, include_all_models=True)
     if not model_provider:
         raise ValueError(f"No model-provider configuration found for: {model_name}")
 

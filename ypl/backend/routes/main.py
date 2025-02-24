@@ -52,7 +52,8 @@ def app_init() -> None:
         sa.event.listen(sa.engine.Engine, "before_cursor_execute", log_sql_query)
 
     # prefetches the models-providers info & caches the data
-    load_active_models_with_providers()
+    load_active_models_with_providers(include_all_models=False)
+    load_active_models_with_providers(include_all_models=True)
     # prefetches the prompt-modifiers & caches the data
     load_prompt_modifiers()
 

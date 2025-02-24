@@ -4,8 +4,9 @@ import uuid
 from langchain_core.messages import HumanMessage
 
 from ypl.backend.db import get_async_session
-from ypl.backend.llm.chat import get_curated_chat_context, get_gemini_2_flash_llm
+from ypl.backend.llm.chat import get_curated_chat_context
 from ypl.backend.llm.judge import YuppMemoryExtractor
+from ypl.backend.llm.provider.provider_clients import get_internal_provider_client
 from ypl.backend.utils.json import json_dumps
 from ypl.db.memories import Memory, MemorySource
 
@@ -38,7 +39,7 @@ async def maybe_extract_memories(chat_id: uuid.UUID, turn_id: uuid.UUID, user_id
         if not source_msg:  # Do not proceed without a source.
             return
 
-        labeler = YuppMemoryExtractor(get_gemini_2_flash_llm(max_tokens=512))
+        labeler = YuppMemoryExtractor(await get_internal_provider_client("gemini-2.0-flash-001", max_tokens=512))
         extracted_memories = await labeler.alabel(chat_context.messages)
         logging.info(
             json_dumps(
