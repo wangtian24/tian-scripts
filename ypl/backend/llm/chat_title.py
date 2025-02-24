@@ -2,16 +2,17 @@ import asyncio
 import logging
 import uuid
 
-from sqlalchemy import update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import load_only
 
 from ypl.backend.db import get_async_session
 from ypl.backend.llm.chat import get_curated_chat_context, get_gpt_4o_mini_llm
 from ypl.backend.llm.judge import ChatTitleLabeler
 from ypl.backend.utils.json import json_dumps
-from ypl.db.chats import Chat
+from ypl.db.chats import Chat, Turn
 
 MAX_TOKENS = 64
+UPDATE_EVERY_N_TURNS = 10
 
 
 async def get_chat_title_suggestion(chat_id: uuid.UUID, turn_id: uuid.UUID | None = None) -> str:
@@ -52,6 +53,13 @@ async def maybe_set_chat_title(chat_id: uuid.UUID, turn_id: uuid.UUID, sleep_sec
         result = await session.get(Chat, chat_id, options=[load_only(Chat.title_set_by_user)])  # type: ignore
         if not result or result.title_set_by_user:
             return
+
+        turn_count = await session.scalar(select(func.count()).select_from(Turn).where(Turn.chat_id == chat_id))  # type: ignore
+
+    if turn_count and turn_count % UPDATE_EVERY_N_TURNS != 1:
+        return
+
+    logging.info(f"Updating chat title for chat {chat_id} at turn number {turn_count}")
 
     try:
         title = await get_chat_title_suggestion(chat_id, turn_id)
