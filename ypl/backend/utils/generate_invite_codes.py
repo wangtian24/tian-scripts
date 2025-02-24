@@ -59,17 +59,16 @@ async def generate_invite_code_for_top_users(
                 codes_created += 1
                 user_ids_to_send_email.append(user.user_id)
         await session.commit()
-        asyncio.create_task(send_sic_availability_email(session, user_ids_to_send_email))
 
-        if slack_messages:
-            message_to_post = f"Generated {codes_created} SICs. <@U07BX3T7YBV> to review: \n\n" + "\n".join(
-                slack_messages
-            )
+    asyncio.create_task(send_sic_availability_email(session, user_ids_to_send_email))
 
-            await post_to_slack(
-                message_to_post,
-                webhook_url=settings.guest_management_slack_webhook_url,
-            )
+    if slack_messages:
+        message_to_post = f"Generated {codes_created} SICs. <@U07BX3T7YBV> to review: \n\n" + "\n".join(slack_messages)
+
+        await post_to_slack(
+            message_to_post,
+            webhook_url=settings.guest_management_slack_webhook_url,
+        )
 
     return len(users), codes_created
 
