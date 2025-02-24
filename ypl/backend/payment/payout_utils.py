@@ -79,66 +79,81 @@ async def validate_pending_cashouts_async() -> None:
     This function should be run periodically to check and update the status of pending cashouts.
     It queries for pending payments, verifies them, and updates their status if needed.
     """
-    async for attempt in await async_retry_decorator():
-        with attempt:
-            async with get_async_session() as session:
-                query = (
-                    select(PaymentTransaction)
-                    .options(
-                        selectinload(PaymentTransaction.destination_instrument),  # type: ignore
+    try:
+        async for attempt in await async_retry_decorator():
+            with attempt:
+                async with get_async_session() as session:
+                    query = (
+                        select(PaymentTransaction)
+                        .options(
+                            selectinload(PaymentTransaction.destination_instrument),  # type: ignore
+                        )
+                        .where(
+                            PaymentTransaction.status.not_in(  # type: ignore
+                                [
+                                    PaymentTransactionStatusEnum.SUCCESS,
+                                    PaymentTransactionStatusEnum.REVERSED,
+                                    PaymentTransactionStatusEnum.FAILED,
+                                ]
+                            ),
+                            PaymentTransaction.created_at.is_not(None),  # type: ignore
+                            PaymentTransaction.created_at < datetime.now() - timedelta(hours=1),  # type: ignore
+                            PaymentTransaction.deleted_at.is_(None),  # type: ignore
+                        )
                     )
-                    .where(
-                        PaymentTransaction.status.not_in(  # type: ignore
-                            [
-                                PaymentTransactionStatusEnum.SUCCESS,
-                                PaymentTransactionStatusEnum.REVERSED,
-                                PaymentTransactionStatusEnum.FAILED,
-                            ]
-                        ),
-                        PaymentTransaction.created_at.is_not(None),  # type: ignore
-                        PaymentTransaction.created_at < datetime.now() - timedelta(hours=1),  # type: ignore
-                        PaymentTransaction.deleted_at.is_(None),  # type: ignore
-                    )
-                )
-                result = await session.execute(query)
-                pending_payments = result.scalars().all()
-                await session.commit()
-                pending_payments_count = len(pending_payments)
+                    result = await session.execute(query)
+                    pending_payments = result.scalars().all()
+                    await session.commit()
+                    pending_payments_count = len(pending_payments)
 
-                log_dict = {"message": f"Pending payments count: {pending_payments_count}"}
-                logging.info(json_dumps(log_dict))
-
-                # for each pending payment capture details and post to slack
-                for payment in pending_payments:
-                    log_dict = {
-                        "message": "Pending payment details",
-                        "payment_transaction_id": str(payment.payment_transaction_id),
-                        "created_at": str(payment.created_at),
-                        "amount": str(payment.amount),
-                        "usd_amount": str(payment.usd_amount),
-                        "source_instrument_id": str(payment.source_instrument_id),
-                        "destination_instrument_id": str(payment.destination_instrument_id),
-                        "status": str(payment.status),
-                        "partner_reference_id": str(payment.partner_reference_id),
-                        "customer_reference_id": str(payment.customer_reference_id),
-                    }
+                    log_dict = {"message": f"Pending payments count: {pending_payments_count}"}
                     logging.info(json_dumps(log_dict))
 
-                    facilitator = await get_facilitator_from_source_instrument_id(
-                        source_instrument_id=payment.source_instrument_id
-                    )
-                    if facilitator == PaymentInstrumentFacilitatorEnum.ON_CHAIN:
-                        await process_pending_onchain_transaction(payment=payment)
-                    elif facilitator == PaymentInstrumentFacilitatorEnum.COINBASE:
-                        await process_pending_coinbase_transaction(payment=payment)
-                    elif facilitator == PaymentInstrumentFacilitatorEnum.UPI:
-                        await process_pending_upi_transaction(payment=payment)
-                    else:
-                        log_dict = {
-                            "message": "Unknown facilitator",
-                            "facilitator": str(facilitator),
-                        }
-                        logging.error(json_dumps(log_dict))
+                    # for each pending payment capture details and post to slack
+                    for payment in pending_payments:
+                        try:
+                            log_dict = {
+                                "message": "Pending payment details",
+                                "payment_transaction_id": str(payment.payment_transaction_id),
+                                "created_at": str(payment.created_at),
+                                "amount": str(payment.amount),
+                                "usd_amount": str(payment.usd_amount),
+                                "source_instrument_id": str(payment.source_instrument_id),
+                                "destination_instrument_id": str(payment.destination_instrument_id),
+                                "status": str(payment.status),
+                                "partner_reference_id": str(payment.partner_reference_id),
+                                "customer_reference_id": str(payment.customer_reference_id),
+                            }
+                            logging.info(json_dumps(log_dict))
+
+                            facilitator = await get_facilitator_from_source_instrument_id(
+                                source_instrument_id=payment.source_instrument_id
+                            )
+                            if facilitator == PaymentInstrumentFacilitatorEnum.ON_CHAIN:
+                                await process_pending_onchain_transaction(payment=payment)
+                            elif facilitator == PaymentInstrumentFacilitatorEnum.COINBASE:
+                                await process_pending_coinbase_transaction(payment=payment)
+                            elif facilitator == PaymentInstrumentFacilitatorEnum.UPI:
+                                await process_pending_upi_transaction(payment=payment)
+                            else:
+                                log_dict = {
+                                    "message": "Unknown facilitator",
+                                    "facilitator": str(facilitator),
+                                }
+                                logging.error(json_dumps(log_dict))
+                        except Exception as e:
+                            log_dict = {
+                                "message": "Error processing pending payment",
+                                "payment_transaction_id": str(payment.payment_transaction_id),
+                                "error": str(e),
+                            }
+                            logging.error(json_dumps(log_dict))
+    except Exception as e:
+        log_dict = {
+            "message": "Error validating pending cashouts",
+            "error": str(e),
+        }
+        logging.error(json_dumps(log_dict))
 
 
 async def get_facilitator_from_source_instrument_id(
