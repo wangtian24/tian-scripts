@@ -7,7 +7,7 @@ from typing import Any, cast
 from uuid import UUID
 
 from fastapi import HTTPException
-from sqlalchemy import String, and_, case, func, or_, select, true
+from sqlalchemy import String, and_, func, or_, select, true
 from sqlalchemy.exc import DatabaseError, OperationalError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
@@ -20,6 +20,7 @@ from ypl.backend.user.vendor_details import AdditionalDetails
 from ypl.backend.user.vendor_registration import VendorRegistrationError, get_vendor_registration
 from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.utils import CapabilityType
+from ypl.db.chats import Turn
 from ypl.db.invite_codes import SpecialInviteCode, SpecialInviteCodeClaimLog, SpecialInviteCodeState
 from ypl.db.payments import PaymentInstrument, PaymentTransaction
 from ypl.db.users import (
@@ -48,6 +49,7 @@ class UserSearchResult:
     discord_username: str | None
     image_url: str | None
     cashout_allowed: bool
+    turn_count: int | None
 
 
 @dataclass
@@ -229,17 +231,40 @@ def _build_search_pattern(query: str) -> str:
     return f"%{query}%"
 
 
-def _build_base_query_with_cashout(capability: Capability | None) -> Select:
-    """Build the base query with cashout capability check.
+def _build_base_user_query() -> Select:
+    """Build the base query for user selection.
+
+    Returns:
+        SQLAlchemy select statement with basic user fields
+    """
+    return select(User)
+
+
+def _build_turn_count_subquery() -> Any:
+    """Build a subquery to count the number of turns for each user.
+
+    Returns:
+        SQLAlchemy select statement that counts turns per user
+    """
+    return (
+        select(User.user_id, func.count(Turn.turn_id).label("turn_count"))  # type: ignore
+        .outerjoin(Turn, and_(User.user_id == Turn.creator_user_id, Turn.deleted_at.is_(None)))  # type: ignore
+        .group_by(User.user_id)
+    ).subquery()
+
+
+def _add_cashout_check(query: Select, capability: Capability | None) -> Select:
+    """Add cashout capability check to the query.
 
     Args:
+        query: The base query to extend
         capability: The cashout capability if it exists
 
     Returns:
-        SQLAlchemy select statement with user and cashout check
+        SQLAlchemy select statement with cashout check added
     """
     if not capability:
-        return select(User, true().label("cashout_allowed"))
+        return query.add_columns(true().label("cashout_allowed"))
 
     cashout_check = (
         select(1)
@@ -253,7 +278,37 @@ def _build_base_query_with_cashout(capability: Capability | None) -> Select:
         )
         .exists()
     )
-    return select(User, (~cashout_check).label("cashout_allowed"))
+    return query.add_columns((~cashout_check).label("cashout_allowed"))
+
+
+def _add_turn_count(query: Select) -> Select:
+    """Add turn count to the query.
+
+    Args:
+        query: The base query to extend
+
+    Returns:
+        SQLAlchemy select statement with turn count added
+    """
+    turn_counts = _build_turn_count_subquery()
+    return query.add_columns(turn_counts.c.turn_count).join(
+        turn_counts, User.user_id == turn_counts.c.user_id, isouter=True
+    )
+
+
+def _build_base_query_with_additional_fields(capability: Capability | None) -> Select:
+    """Build the complete base query with all necessary fields.
+
+    Args:
+        capability: The cashout capability if it exists
+
+    Returns:
+        SQLAlchemy select statement with user, cashout check and turn count
+    """
+    query = _build_base_user_query()
+    query = _add_cashout_check(query, capability)
+    query = _add_turn_count(query)
+    return query
 
 
 def _build_user_search_conditions(search_pattern: str) -> BinaryExpression:
@@ -286,7 +341,7 @@ async def _execute_search_query(
         session: The database session
         base_query: The base query to execute
         additional_conditions: Additional WHERE conditions
-        query: The original search query
+        query: The original search query from the soul user
         search_type: The type of search being performed for logging
 
     Returns:
@@ -304,7 +359,7 @@ async def _execute_search_query(
     logging.info(json_dumps(log_dict))
 
     if len(users_with_cashout) > 0:
-        return _create_user_search_response_with_cashout(users_with_cashout)
+        return _create_user_search_response_with_additional_fields(users_with_cashout)
     return None
 
 
@@ -312,10 +367,11 @@ async def get_users(query: str) -> UserSearchResponse:
     """Search for users to support universal search.
 
     Args:
-        query: Search string to match against user name or ID
+        query: Search string to match against various attributes of a user
 
     Returns:
-        List of matching users with their ID, name, email, created_at, deleted_at, points and status
+        List of matching users with their ID, name, email, created_at, deleted_at, points, status,
+        discord_id, discord_username, image_url, cashout_allowed, and turn_count
 
     Raises:
         HTTPException: If there's an error executing the search
@@ -332,7 +388,7 @@ async def get_users(query: str) -> UserSearchResponse:
             capability = await _get_cashout_capability(session)
 
             # Build base query and search pattern
-            base_query = _build_base_query_with_cashout(capability)
+            base_query = _build_base_query_with_additional_fields(capability)
             search_pattern = _build_search_pattern(query)
 
             # Try each search type in sequence
@@ -427,10 +483,10 @@ async def _get_cashout_capability(session: AsyncSession) -> Capability | None:
     return (await session.execute(capability_stmt)).scalar_one_or_none()
 
 
-def _create_user_search_response_with_cashout(
-    users_with_cashout: Sequence[Any],
+def _create_user_search_response_with_additional_fields(
+    users_with_additional_fields: Sequence[Any],
 ) -> UserSearchResponse:
-    """Create a UserSearchResponse from a list of users with their cashout status."""
+    """Create a UserSearchResponse from a list of users with their additional fields."""
     return UserSearchResponse(
         users=[
             UserSearchResult(
@@ -445,8 +501,9 @@ def _create_user_search_response_with_cashout(
                 discord_username=row[0].discord_username,
                 image_url=row[0].image,
                 cashout_allowed=True if row[1] else False,
+                turn_count=row[2] if row[2] is not None else 0,
             )
-            for row in users_with_cashout
+            for row in users_with_additional_fields
         ],
         has_more_rows=False,
     )
@@ -454,38 +511,12 @@ def _create_user_search_response_with_cashout(
 
 async def get_all_users(limit: int = 100, offset: int = 0) -> UserSearchResponse:
     async with get_async_session() as session:
-        # First get the capability ID for cashout
-        capability_stmt = select(Capability).where(
-            Capability.capability_name == CapabilityType.CASHOUT.value,  # type: ignore
-            Capability.deleted_at.is_(None),  # type: ignore
-            Capability.status == CapabilityStatus.ACTIVE,  # type: ignore
-        )
-        capability = (await session.execute(capability_stmt)).scalar_one_or_none()
+        # Get cashout capability
+        capability = await _get_cashout_capability(session)
 
-        # Get users with a subquery for their cashout override status
+        # Build base query with all fields using our modular builders
         stmt = (
-            select(
-                User,
-                case(
-                    (
-                        and_(
-                            UserCapabilityOverride.capability_id == capability.capability_id if capability else None,  # type: ignore
-                            UserCapabilityOverride.deleted_at.is_(None),  # type: ignore
-                            UserCapabilityOverride.status == UserCapabilityStatus.DISABLED,  # type: ignore
-                        ),
-                        False,
-                    ),
-                    else_=True,
-                ).label("cashout_allowed"),
-            )
-            .outerjoin(
-                UserCapabilityOverride,
-                and_(
-                    User.user_id == UserCapabilityOverride.user_id,  # type: ignore
-                    UserCapabilityOverride.capability_id == capability.capability_id if capability else None,  # type: ignore
-                    UserCapabilityOverride.deleted_at.is_(None),  # type: ignore
-                ),
-            )
+            _build_base_query_with_additional_fields(capability)
             .order_by(User.created_at.desc())  # type: ignore
             .limit(limit + 1)
             .offset(offset)
@@ -497,6 +528,7 @@ async def get_all_users(limit: int = 100, offset: int = 0) -> UserSearchResponse
         for result in results[:limit]:
             user = result[0]  # User object
             cashout_allowed = result[1]  # cashout_allowed value
+            turn_count = result[2]  # turn_count value
             user_search_results.append(
                 UserSearchResult(
                     user_id=user.user_id,
@@ -510,6 +542,7 @@ async def get_all_users(limit: int = 100, offset: int = 0) -> UserSearchResponse
                     discord_username=user.discord_username,
                     image_url=user.image,
                     cashout_allowed=cashout_allowed,
+                    turn_count=turn_count if turn_count is not None else 0,
                 )
             )
         return UserSearchResponse(users=user_search_results, has_more_rows=has_more_rows)
