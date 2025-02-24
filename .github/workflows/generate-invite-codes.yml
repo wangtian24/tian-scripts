@@ -33,11 +33,6 @@ on:
           required: true
           default: '30'
           type: string
-        default_active:
-          description: 'Whether generated codes should be enabled'
-          required: false
-          default: true
-          type: boolean
 
 jobs:
   generate_invite_codes_for_top_users:
@@ -49,6 +44,5 @@ jobs:
         --min-eval-days=${{ inputs.min_eval_days || '2' }}
         --min-feedback-count=${{ inputs.min_feedback_count || '0' }}
         --limit=${{ inputs.limit || '30' }}
-        ${{ github.event_name == 'workflow_dispatch' && !inputs.default_active && '' || ' --default-active' }}
       environment: ${{ inputs.environment || 'production' }}
     secrets: inherit

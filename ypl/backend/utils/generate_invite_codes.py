@@ -30,7 +30,6 @@ async def generate_invite_code_for_top_users(
     min_eval_days: int = 2,
     min_feedback_count: int = 0,
     limit: int = 10,
-    default_active: bool = False,
 ) -> tuple[int, int]:
     """Generate invite codes for top users based on the given criteria."""
     async with AsyncSession(get_async_engine()) as session:
@@ -45,7 +44,7 @@ async def generate_invite_code_for_top_users(
         slack_messages = []
 
         for user in users:
-            code = await generate_invite_code_for_user(session, user.user_id, default_active=default_active)
+            code = await generate_invite_code_for_user(session, user.user_id)
             if code is not None:
                 generation_info = {
                     "user_id": user.user_id,
@@ -57,8 +56,7 @@ async def generate_invite_code_for_top_users(
                 logging.info(json_dumps(generation_info))
                 slack_messages.append(f"SIC for {user.name} {get_soul_url(user.user_id)} created: {code.code}")
                 codes_created += 1
-                if default_active:
-                    asyncio.create_task(send_sic_availability_email(session, user.user_id))
+                asyncio.create_task(send_sic_availability_email(session, user.user_id))
 
         await session.commit()
 
@@ -75,9 +73,7 @@ async def generate_invite_code_for_top_users(
     return len(users), codes_created
 
 
-async def generate_invite_code_for_user(
-    session: AsyncSession, user_id: str, default_active: bool = False
-) -> SpecialInviteCode | None:
+async def generate_invite_code_for_user(session: AsyncSession, user_id: str) -> SpecialInviteCode | None:
     for attempt in range(MAX_RETRIES):
         try:
             # TODO(minqi): instead of retrying for up to 3 times,
@@ -90,7 +86,7 @@ async def generate_invite_code_for_user(
                 new_invite = SpecialInviteCode(
                     code=code,
                     creator_user_id=user_id,
-                    state=SpecialInviteCodeState.ACTIVE if default_active else SpecialInviteCodeState.INACTIVE,
+                    state=SpecialInviteCodeState.ACTIVE,
                     usage_limit=3,
                 )
                 session.add(new_invite)

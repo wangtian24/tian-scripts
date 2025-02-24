@@ -1195,10 +1195,9 @@ def validate_pending_cashouts() -> None:
 @click.option("--min-eval-days", default=2, help="Minimum number of evaluation days")
 @click.option("--min-feedback-count", default=0, help="Minimum number of feedbacks required")
 @click.option("--limit", default=10, help="Maximum number of users to generate codes for")
-@click.option("--default-active", is_flag=True, default=False, help="Whether generated codes should be enabled")
 @db_cmd
 def generate_invite_codes_for_top_users(
-    min_age_days: int, min_eval_days: int, min_feedback_count: int, limit: int, default_active: bool
+    min_age_days: int, min_eval_days: int, min_feedback_count: int, limit: int
 ) -> None:
     """Generate invite codes for top users."""
     asyncio.run(
@@ -1207,7 +1206,6 @@ def generate_invite_codes_for_top_users(
             min_eval_days=min_eval_days,
             min_feedback_count=min_feedback_count,
             limit=limit,
-            default_active=default_active,
         )
     )
 
