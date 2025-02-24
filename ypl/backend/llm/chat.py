@@ -15,7 +15,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from pydantic import BaseModel
-from sqlalchemy import String, cast, func
+from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import Insert as pg_insert
 from sqlalchemy.orm import joinedload
 from sqlmodel import Session, or_, select, update
@@ -224,60 +224,12 @@ def kick_off_label_turn_quality(prompt: str, chat_id: str, turn_id: str) -> str:
     return prompt
 
 
-async def select_last_turn_models(request: SelectModelsV2Request) -> SelectModelsV2Response:
-    """Select the same models, in the same order, as the last turn."""
-    async with get_async_session() as session:
-        # Get the last 2 messages in the turn by sequence number
-        prev_turn_models = await session.exec(
-            select(LanguageModel.internal_name, cast(PromptModifier.prompt_modifier_id, String), PromptModifier.name)
-            .join(ChatMessage, LanguageModel.language_model_id == ChatMessage.assistant_language_model_id)  # type: ignore
-            .outerjoin(PromptModifierAssoc, ChatMessage.message_id == PromptModifierAssoc.chat_message_id)  # type: ignore
-            .outerjoin(PromptModifier, PromptModifierAssoc.prompt_modifier_id == PromptModifier.prompt_modifier_id)  # type: ignore
-            .where(
-                ChatMessage.turn_id == UUID(request.turn_id),
-                ChatMessage.modifier_status == MessageModifierStatus.SELECTED,
-                ChatMessage.completion_status == CompletionStatus.SUCCESS,
-            )
-            .order_by(ChatMessage.turn_sequence_number)  # type: ignore
-        )
-
-        if not prev_turn_models:
-            raise ValueError(f"Did not find responding models in the previous turn: {request.turn_id}")
-
-        # Construct a routing response with these models.
-        models_with_modifiers = {r[0]: [(r[1], r[2])] for r in prev_turn_models}
-        models = list(models_with_modifiers.keys())
-        for model in models:
-            if models_with_modifiers[model][0][0] is None:
-                models_with_modifiers[model] = []
-        provider_map = deduce_original_providers(tuple(models))
-        selected_models = [
-            SelectedModelInfo(
-                model=model,
-                provider=provider_map[model],
-                type=SelectedModelType.PRIMARY,
-                prompt_modfiers=models_with_modifiers[model],
-            )
-            for model in models
-        ]
-        return SelectModelsV2Response(
-            models=[(model, models_with_modifiers[model]) for model in models],
-            fallback_models=[],
-            provider_map=provider_map,
-            selected_models=selected_models,
-            num_models_remaining=2,  # Allow one more round.
-        )
-
-
 async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Response:
     """
     The main model routing function. It labels the prompt, extracts historic chat turn information
     to decide what model we should route to.
     """
     from ypl.backend.llm.routing.router import get_simple_pro_router
-
-    if request.intent == SelectIntent.TALK_TO_OTHER_MODELS:
-        return await select_last_turn_models(request)
 
     logging.debug(json_dumps({"message": "select_models_plus request"} | request.model_dump(mode="json")))
     metric_inc(f"routing/intent_{request.intent}")

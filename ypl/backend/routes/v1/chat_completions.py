@@ -18,7 +18,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ypl.backend.config import settings
-from ypl.backend.db import get_async_engine
+from ypl.backend.db import get_async_engine, get_async_session
 from ypl.backend.jobs.tasks import astore_language_code
 from ypl.backend.llm.attachment import get_attachments, link_attachments
 from ypl.backend.llm.chat import (
@@ -53,6 +53,7 @@ from ypl.db.chats import (
     MessageModifierStatus,
     MessageType,
     PromptModifierAssoc,
+    Turn,
 )
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum
 
@@ -199,6 +200,21 @@ async def _handle_existing_message(
     ).encode()
 
 
+async def get_prev_turn_id(chat_id: uuid.UUID, turn_id: uuid.UUID) -> uuid.UUID | None:
+    async with get_async_session() as session:
+        query = (
+            select(Turn.turn_id)
+            .where(
+                Turn.chat_id == chat_id,
+                Turn.created_at < select(Turn.created_at).where(Turn.turn_id == turn_id),  # type: ignore
+            )
+            .order_by(Turn.created_at.desc())  # type: ignore
+            .limit(1)
+        )
+        result = await session.exec(query)
+        return result.first()
+
+
 async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequest) -> AsyncIterator[str]:
     eager_persist_task: asyncio.Task[Any] | None = None
     stop_stream_task: asyncio.Task[Any] | None = None
@@ -257,7 +273,10 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
         # Send initial status
         yield StreamResponse(intial_status, "status").encode()
         if chat_request.intent == SelectIntent.TALK_TO_OTHER_MODELS:
-            system_prompt = await talk_to_other_models_system_prompt(chat_request.model, chat_request.turn_id)
+            prev_turn_id = await get_prev_turn_id(chat_request.chat_id, chat_request.turn_id)
+            if not prev_turn_id:
+                raise ValueError(f"No previous turn found for turn {chat_request.turn_id}")
+            system_prompt = await talk_to_other_models_system_prompt(chat_request.model, prev_turn_id)
         else:
             system_prompt = get_system_prompt_with_modifiers(
                 chat_request.model, chat_request.prompt_modifier_ids, chat_request.use_all_models_in_chat_history
