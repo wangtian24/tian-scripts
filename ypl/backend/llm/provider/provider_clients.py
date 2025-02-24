@@ -179,6 +179,7 @@ async def get_provider_client(model_name: str, include_all_models: bool = False)
             "OpenRouter",
             "Sambanova",
             "Together AI",
+            "Yapp",
             "Yapp Temporary",  # TODO(tian): add 'Yapp' provider here when we added it to the DB later
         ]:
             return ChatOpenAI(
