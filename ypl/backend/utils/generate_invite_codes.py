@@ -42,6 +42,7 @@ async def generate_invite_code_for_top_users(
         )
         codes_created = 0
         slack_messages = []
+        user_ids_to_send_email = []
 
         for user in users:
             code = await generate_invite_code_for_user(session, user.user_id)
@@ -56,9 +57,9 @@ async def generate_invite_code_for_top_users(
                 logging.info(json_dumps(generation_info))
                 slack_messages.append(f"SIC for {user.name} {get_soul_url(user.user_id)} created: {code.code}")
                 codes_created += 1
-                asyncio.create_task(send_sic_availability_email(session, user.user_id))
-
+                user_ids_to_send_email.append(user.user_id)
         await session.commit()
+        asyncio.create_task(send_sic_availability_email(session, user_ids_to_send_email))
 
         if slack_messages:
             message_to_post = f"Generated {codes_created} SICs. <@U07BX3T7YBV> to review: \n\n" + "\n".join(

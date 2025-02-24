@@ -8,7 +8,7 @@ from sqlalchemy import String, cast, desc, exists, func, not_
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from ypl.backend.email.send_email import EmailConfig, send_email_async
+from ypl.backend.email.send_email import EmailConfig, batch_send_emails_async
 from ypl.db.app_feedback import AppFeedback
 from ypl.db.chats import Eval
 from ypl.db.invite_codes import (
@@ -312,23 +312,29 @@ async def create_invite_code_for_user(
     await session.commit()
 
     if existing_codes_count == 0:
-        asyncio.create_task(send_sic_availability_email(session, user_id))
+        asyncio.create_task(send_sic_availability_email(session, [user_id]))
 
     return invite_code.special_invite_code_id
 
 
-async def send_sic_availability_email(session: AsyncSession, user_id: str) -> None:
+async def send_sic_availability_email(session: AsyncSession, user_ids: list[str]) -> None:
     # Send the sic_availability email for users getting an invite code for the first time.
-    user_query = select(User).where(User.user_id == user_id)
+    user_query = select(User).where(User.user_id.in_(user_ids))  # type: ignore
     user_result = await session.execute(user_query)
-    user = user_result.scalar_one_or_none()
-    if user:
-        await send_email_async(
-            EmailConfig(
-                campaign="sic_availability",
-                to_address=user.email,
-                template_params={
-                    "email_recipient_name": user.name,
-                },
-            )
+    users = user_result.scalars().all()
+
+    # Create email configs for each user
+    email_configs = [
+        EmailConfig(
+            campaign="sic_availability",
+            to_address=user.email,
+            template_params={
+                "email_recipient_name": user.name,
+            },
         )
+        for user in users
+    ]
+
+    # Send emails in batch if there are any users
+    if email_configs:
+        await batch_send_emails_async(email_configs)
