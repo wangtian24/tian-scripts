@@ -60,6 +60,9 @@ from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum
 CITATION_EXTRACTION_TIMEOUT = 20.0
 BILLING_ERROR_CACHE: TTLCache = TTLCache(maxsize=100, ttl=7200)  # 2 hours
 
+THINKING_TAG_START = "\n\n<think>\n\n"
+THINKING_TAG_END = "\n\n</think>\n\n"
+
 
 class StreamResponse:
     """Refer Server-sent events for details on the format:
@@ -350,6 +353,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
         eager_persist_task_yielded = False
         stream_completion_status: CompletionStatus = CompletionStatus.SUCCESS
         ttft_recorded = False
+        claude_thinking_started = False  # Used to insert <think> tag around Claude thinking text.
         try:
             async for chunk in client.astream(messages):
                 # TODO(bhanu) - assess if we should customize chunking for optimal network performance
@@ -357,10 +361,28 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                     if first_token_timestamp == 0:
                         first_token_timestamp = datetime.now().timestamp()
                     chunks_count += 1
-                    content = chunk.content
+                    if isinstance(chunk.content, list) and chat_request.model.startswith("claude"):
+                        # Convert Claude thinking chunks to flat text with <think> and </think> tags to
+                        # match format of DeepSeek-R1 thinking reponse.
+                        thinking_content, text_content = _process_claude_thinking_content(chunk.content)
+                        content = ""
+                        if thinking_content:
+                            if not claude_thinking_started:
+                                claude_thinking_started = True
+                                content += THINKING_TAG_START
+                            content += thinking_content
+                        if text_content:
+                            if claude_thinking_started:
+                                # Assume thinking ends with first text chunk.
+                                content += THINKING_TAG_END
+                                claude_thinking_started = False
+                            content += text_content
+                    else:
+                        content = str(chunk.content)  # Type is str | list.
+
                     # Only log in local environment
                     if settings.ENVIRONMENT == "local":
-                        logging.info(chunk.content)
+                        logging.info(f"Streamed chunk from {chat_request.model}: {chunk.content}")
                     full_response += str(content)
                     if not ttft_recorded:
                         stopwatch.end_lap("total_time_to_first_token")
@@ -694,3 +716,51 @@ def recently_posted_billing_error(model: str) -> bool:
         return True
     BILLING_ERROR_CACHE[model] = True
     return False
+
+
+def _process_claude_thinking_content(content: list) -> tuple[str, str]:
+    """
+    Process Claude thinking and text content blocks and return thinking and text contents as a tuple.
+    Sample content (from https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking):
+    [
+        "content": [
+            {
+                "type": "thinking",
+                "thinking": "Let me analyze this step by step...",
+                "signature": "WaUjzkypQ2mUEVM36O2TxuC06KN8xyfbJwyem2dw3URve/op91XWHOEBLLqIOMfFG/UvLEczmEsUjavL...."
+            },
+            {
+                "type": "redacted_thinking",
+                "data": "EmwKAhgBEgy3va3pzix/LafPsn4aDFIT2Xlxh0L5L8rLVyIwxtE3rAFBa8cr3qpP..."
+            },
+            {
+                "type": "text",
+                "text": "Based on my analysis..."
+            }
+        ]
+    ]
+    Returns a tuple of (thinking_content, text_content). Typically only one of them is non-empty.
+    """
+
+    thinking_content = ""
+    text_content = ""
+
+    for chunk in content:
+        if not isinstance(chunk, dict):
+            logging.warning(f"Claude thinking content is expected to be a dict, but it was {chunk}")
+            continue
+
+        if chunk["type"] == "thinking":
+            if "thinking" in chunk:
+                thinking_content += chunk["thinking"]
+            if "signature" in chunk:
+                # TODO: Handle thinking signature better. Claude API requires it for next turn. Just log for now.
+                logging.info("Claude signature for thinking chunks is currently ignored")
+
+        elif chunk["type"] == "redacted_thinking" and "data" in chunk:
+            thinking_content += " (redacted thinking)"
+
+        elif chunk["type"] == "text" and "text" in chunk:
+            text_content += chunk["text"]
+
+    return (thinking_content, text_content)
