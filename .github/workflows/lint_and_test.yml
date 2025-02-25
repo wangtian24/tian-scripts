@@ -6,23 +6,49 @@ on:
       - main
   pull_request:
 
+# Required permissions for dorny/path-filter
+permissions:
+  contents: read
+  packages: read
+  pull-requests: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  lint-and-test-backend:
+  check:
     runs-on: ubuntu-latest
-
-    # Required permissions for dorny/path-filter
-    permissions:
-      contents: read
-      packages: read
-      pull-requests: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: lint
+            commands: |
+              poetry run ruff check . --output-format=github
+              poetry run ruff format . --check
+              poetry run mypy --config-file=pyproject.toml .
+          - name: test
+            commands: poetry run pytest
+            is_test: true
+          - name: test-alembic
+            commands: poetry run pytest --test-alembic tests
+            is_test: true
+            needs_db_changes: true
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      # Path filter step for conditional job
+      - uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            db:
+              - 'ypl/db/**'
+            db_tests:
+              - 'tests/**'  # All top level tests are db tests as of now
 
       - name: Install Python
         uses: actions/setup-python@v5
@@ -55,14 +81,8 @@ jobs:
       - name: Install dependencies
         run: poetry install --no-interaction --no-root --sync
 
-      - name: Run Ruff Linter
-        run: poetry run ruff check --output-format=github .
-
-      - name: Run Ruff formatter
-        run: poetry run ruff format --check .
-
-      # Mypy is slow, so utilize a cache.
       - name: Cache mypy
+        if: matrix.name == 'lint'
         uses: actions/cache@v4
         with:
           path: .mypy_cache
@@ -71,25 +91,21 @@ jobs:
             mypy-cache-${{ hashFiles('**/pyproject.toml') }}-
             mypy-cache
 
-      - name: Run Mypy
-        run: poetry run mypy --config-file=pyproject.toml .
-
+      # Setup env file for tests
       - name: Create env file for tests
+        if: matrix.is_test
         run: cp .env.test .env
 
-      - name: Run tests
-        run: poetry run pytest
+      # Run the check command if either:
+      # 1. It's not a DB-dependent test
+      # 2. Or it is and DB files have changed
+      - name: Run ${{ matrix.name }}
+        if: ${{ !matrix.needs_db_changes || (steps.changes.outputs.db == 'true' || steps.changes.outputs.db_tests == 'true') }}
+        run: ${{ matrix.commands }}
 
-      - uses: dorny/paths-filter@v3
-        id: changes
-        with:
-          filters: |
-            db:
-              - 'ypl/db/**'
-            db_tests:
-              - 'tests/**'  # All top level tests are db tests as of now
-
-      # only run tests with alembic if the PR touches the db folder or the tests folder
-      - name: Run tests with alembic
-        if: ${{ steps.changes.outputs.db == 'true' || steps.changes.outputs.db_tests == 'true' }}
-        run: poetry run pytest --test-alembic tests
+  lint-and-test-backend:
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Combine check results
+        run: echo "All checks passed successfully!"
