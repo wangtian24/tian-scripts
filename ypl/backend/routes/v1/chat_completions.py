@@ -448,6 +448,20 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                 )
         stopwatch.record_split("stream_message_chunks")
 
+        # if full_response is empty, send an error message to enable retry
+        if not full_response:
+            logging.warning(
+                json_dumps(
+                    {
+                        "message": "Empty response from Model",
+                        "model": chat_request.model,
+                        "message_id": str(chat_request.message_id),
+                    }
+                )
+            )
+            stream_completion_status = CompletionStatus.STREAMING_ERROR
+            yield StreamResponse({"content": STREAMING_ERROR_TEXT, "model": chat_request.model}).encode()
+
         # once streaming is done, update the status of the failed message
         if chat_request.intent == SelectIntent.RETRY and chat_request.retry_message_id:
             asyncio.create_task(update_failed_message_status(chat_request.retry_message_id))
