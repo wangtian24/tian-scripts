@@ -21,7 +21,7 @@ on:
         min_eval_days:
           description: 'Minimum number of evaluation days'
           required: true
-          default: '2'
+          default: '3'
           type: string
         min_feedback_count:
           description: 'Minimum number of feedbacks required'
@@ -41,7 +41,7 @@ jobs:
       command: generate-invite-codes-for-top-users
       args: >-
         --min-age-days=${{ inputs.min_age_days || '7' }}
-        --min-eval-days=${{ inputs.min_eval_days || '2' }}
+        --min-eval-days=${{ inputs.min_eval_days || '3' }}
         --min-feedback-count=${{ inputs.min_feedback_count || '0' }}
         --limit=${{ inputs.limit || '30' }}
       environment: ${{ inputs.environment || 'production' }}
