@@ -60,10 +60,19 @@ async def generate_invite_code_for_top_users(
                 user_ids_to_send_email.append(user.user_id)
         await session.commit()
 
-    asyncio.create_task(send_sic_availability_email(session, user_ids_to_send_email))
+    email_sent = False
+    try:
+        await send_sic_availability_email(session, user_ids_to_send_email)
+        email_sent = True
+    except Exception as e:
+        logging.error(f"Error sending sic_availability email: {e}")
 
     if slack_messages:
-        message_to_post = f"Generated {codes_created} SICs. <@U07BX3T7YBV> to review: \n\n" + "\n".join(slack_messages)
+        message_to_post = (
+            f"Generated {codes_created} SICs."
+            f"Email sending {'succeeded' if email_sent else 'failed, please check cron job logs'}. "
+            "<@U07BX3T7YBV> to review: \n\n" + "\n".join(slack_messages)
+        )
 
         await post_to_slack(
             message_to_post,
