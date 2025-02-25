@@ -60,6 +60,9 @@ def deduce_semantic_groups(models: tuple[str, ...]) -> dict[str, str]:
     Deduces the semantic group of the given model. If a model is not found in the database, its key is absent from the
     returned dictionary.
     """
+    if len(models) == 0:
+        return {}
+
     semantic_group_map = {}
     sql_query = text(
         """
@@ -91,6 +94,9 @@ def standardize_provider_name(provider: str) -> str:
 
 @ttl_cache(ttl=600)  # 10-min cache
 def deduce_original_providers(models: tuple[str, ...]) -> dict[str, str]:
+    if len(models) == 0:
+        return {}
+
     provider_map = {}
     models_left = set(models)
 
