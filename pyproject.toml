@@ -96,7 +96,7 @@ google-cloud-run = "0.10.14"
 google-cloud-secret-manager = "2.22.0"
 html2text = "2024.2.26"
 langchain = "0.3.18"
-langchain-anthropic = "0.3.7"
+langchain-anthropic = "0.3.8"
 langchain-community = "0.3.17"
 langchain-google-vertexai = "2.0.13" #package for VertexAI
 langchain-google-genai = "2.0.9" #package for Google Generative AI
@@ -140,7 +140,7 @@ types-requests = "2.32.0.20240914"
 uvicorn = {version = "0.28.0", extras = ["standard"]}
 uvloop = "0.21.0"
 asyncpg = "0.29.0"
-anthropic = "0.45.2"
+anthropic = "0.47.0"
 slack-sdk = "3.33.1"
 tweepy = "4.14.0"
 cdp-sdk = "0.14.0"  # coinbase sdk

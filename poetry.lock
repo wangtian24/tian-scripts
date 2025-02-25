@@ -239,13 +239,13 @@ files = [
 
 [[package]]
 name = "anthropic"
-version = "0.45.2"
+version = "0.47.0"
 description = "The official Python library for the anthropic API"
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "anthropic-0.45.2-py3-none-any.whl", hash = "sha256:ecd746f7274451dfcb7e1180571ead624c7e1195d1d46cb7c70143d2aedb4d35"},
-    {file = "anthropic-0.45.2.tar.gz", hash = "sha256:32a18b9ecd12c91b2be4cae6ca2ab46a06937b5aa01b21308d97a6d29794fb5e"},
+    {file = "anthropic-0.47.0-py3-none-any.whl", hash = "sha256:294b10e9ca800f57949f635be7b611e8ecfe8f9f2a56a2c165200841a61bddb0"},
+    {file = "anthropic-0.47.0.tar.gz", hash = "sha256:6e19994d3a9fc7527c8505b62b1494ca3f39d6bb993a4885014575c09905ebfc"},
 ]
 
 [package.dependencies]
@@ -1726,13 +1726,13 @@ files = [
 
 [[package]]
 name = "decorator"
-version = "5.2.0"
+version = "5.2.1"
 description = "Decorators for Humans"
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "decorator-5.2.0-py3-none-any.whl", hash = "sha256:f30a69c066f698c7c11fa1fa3425f684d3b4b01b494ee41e73c0a14f3de48427"},
-    {file = "decorator-5.2.0.tar.gz", hash = "sha256:1cf2ab68f8c1c7eae3895d82ab0daab41294cfbe6fbdebf50b44307299980762"},
+    {file = "decorator-5.2.1-py3-none-any.whl", hash = "sha256:d316bb415a2d9e2d2b3abcc4084c6502fc09240e292cd76a76afc106a1c8e04a"},
+    {file = "decorator-5.2.1.tar.gz", hash = "sha256:65f266143752f734b0a7cc83c46f4618af75b8c5911b00ccb61d0ac9b6da0360"},
 ]
 
 [[package]]
@@ -2256,17 +2256,18 @@ dotenv = ["python-dotenv"]
 
 [[package]]
 name = "flask-cors"
-version = "5.0.0"
-description = "A Flask extension adding a decorator for CORS support"
+version = "5.0.1"
+description = "A Flask extension simplifying CORS support"
 optional = false
-python-versions = "*"
+python-versions = "<4.0,>=3.9"
 files = [
-    {file = "Flask_Cors-5.0.0-py2.py3-none-any.whl", hash = "sha256:b9e307d082a9261c100d8fb0ba909eec6a228ed1b60a8315fd85f783d61910bc"},
-    {file = "flask_cors-5.0.0.tar.gz", hash = "sha256:5aadb4b950c4e93745034594d9f3ea6591f734bb3662e16e255ffbf5e89c88ef"},
+    {file = "flask_cors-5.0.1-py3-none-any.whl", hash = "sha256:fa5cb364ead54bbf401a26dbf03030c6b18fb2fcaf70408096a572b409586b0c"},
+    {file = "flask_cors-5.0.1.tar.gz", hash = "sha256:6ccb38d16d6b72bbc156c1c3f192bc435bfcc3c2bc864b2df1eb9b2d97b2403c"},
 ]
 
 [package.dependencies]
-Flask = ">=0.9"
+flask = ">=0.9"
+Werkzeug = ">=0.7"
 
 [[package]]
 name = "flask-login"
@@ -3480,13 +3481,13 @@ typing = ["types-PyYAML", "types-requests", "types-simplejson", "types-toml", "t
 
 [[package]]
 name = "identify"
-version = "2.6.7"
+version = "2.6.8"
 description = "File identification library for Python"
 optional = false
 python-versions = ">=3.9"
 files = [
-    {file = "identify-2.6.7-py2.py3-none-any.whl", hash = "sha256:155931cb617a401807b09ecec6635d6c692d180090a1cedca8ef7d58ba5b6aa0"},
-    {file = "identify-2.6.7.tar.gz", hash = "sha256:3fa266b42eba321ee0b2bb0936a6a6b9e36a1351cbb69055b3082f4193035684"},
+    {file = "identify-2.6.8-py2.py3-none-any.whl", hash = "sha256:83657f0f766a3c8d0eaea16d4ef42494b39b34629a4b3192a9d020d349b3e255"},
+    {file = "identify-2.6.8.tar.gz", hash = "sha256:61491417ea2c0c5c670484fd8abbb34de34cdae1e5f39a73ee65e48e4bb663fc"},
 ]
 
 [package.extras]
@@ -3908,18 +3909,18 @@ together = ["langchain-together"]
 
 [[package]]
 name = "langchain-anthropic"
-version = "0.3.7"
+version = "0.3.8"
 description = "An integration package connecting AnthropicMessages and LangChain"
 optional = false
 python-versions = "<4.0,>=3.9"
 files = [
-    {file = "langchain_anthropic-0.3.7-py3-none-any.whl", hash = "sha256:adec0a1daabd3c25249753c6cd625654917fb9e3feee68e72c7dc3f4449c0f3c"},
-    {file = "langchain_anthropic-0.3.7.tar.gz", hash = "sha256:534cd1867bc41711cd8c3d0a0bc055e6c5a4215953c87260209a90dc5816f30d"},
+    {file = "langchain_anthropic-0.3.8-py3-none-any.whl", hash = "sha256:05a70f51500d3c4e0f3e463730e193a25b6244e06b3bda3d7b2ec21d83d081ae"},
+    {file = "langchain_anthropic-0.3.8.tar.gz", hash = "sha256:1932977b8105744739ffdcb39861b041b73ae93846d0896a775fcea9a29e4b2b"},
 ]
 
 [package.dependencies]
-anthropic = ">=0.45.0,<1"
-langchain-core = ">=0.3.34,<1.0.0"
+anthropic = ">=0.47.0,<1"
+langchain-core = ">=0.3.39,<1.0.0"
 pydantic = ">=2.7.4,<3.0.0"
 
 [[package]]
@@ -3949,13 +3950,13 @@ tenacity = ">=8.1.0,<8.4.0 || >8.4.0,<10"
 
 [[package]]
 name = "langchain-core"
-version = "0.3.37"
+version = "0.3.39"
 description = "Building applications with LLMs through composability"
 optional = false
 python-versions = "<4.0,>=3.9"
 files = [
-    {file = "langchain_core-0.3.37-py3-none-any.whl", hash = "sha256:8202fd6506ce139a3a1b1c4c3006216b1c7fffa40bdd1779f7d2c67f75eb5f79"},
-    {file = "langchain_core-0.3.37.tar.gz", hash = "sha256:cda8786e616caa2f68f7cc9e811b9b50e3b63fb2094333318b348e5961a7ea01"},
+    {file = "langchain_core-0.3.39-py3-none-any.whl", hash = "sha256:00f35e15e5f21d77320b3f8b816a1bf5de0b40b7809cd625dc3813b850a87fb2"},
+    {file = "langchain_core-0.3.39.tar.gz", hash = "sha256:97d49eccb1dea057b2efadae178bcc5e6472caa69c171fa4508fa6fb45f44c0e"},
 ]
 
 [package.dependencies]
@@ -9056,4 +9057,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.11,<3.12"
-content-hash = "4281d02787cc03acea9fc095642f208761ecab9c53d22d5887cb70934af748ab"
+content-hash = "20f25460b43327d6eadc8be1ef4b89e9a739cf3ed8f3ae9971ef23cb4bde48d6"
