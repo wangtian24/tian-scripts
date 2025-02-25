@@ -34,6 +34,7 @@ API_KEY_MAP = {
     "Groq": "GROQ_API_KEY",
     "Cerebras": "CEREBRAS_API_KEY",
     "Anyscale": "ANYSCALE_API_KEY",
+    "Yapp": "YAPP_API_KEY",
     "Yapp Temporary": "YAPP_TMP_API_KEY",
 }
 PROVIDER_KWARGS = {
