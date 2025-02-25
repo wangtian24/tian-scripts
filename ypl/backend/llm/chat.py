@@ -116,7 +116,7 @@ class SelectModelsV2Request(BaseModel):
     debug_level: int = 0  # 0: return no debug info, log only, 1: return debug
     prompt_modifier_id: uuid.UUID | None = None  # prompt modifier ID to apply to all models
     # whether to set prompt modifiers automatically, if prompt_modifier_id is not provided
-    auto_select_prompt_modifiers: bool = False
+    auto_select_prompt_modifiers: bool = True
 
 
 class SelectedModelType(str, Enum):
@@ -181,15 +181,21 @@ async def _set_prompt_modifiers(
     selected_models = selected_models_rs.get_sorted_selected_models()
 
     modifier_selector = CategorizedPromptModifierSelector.make_default_from_db()
-    if request.intent == SelectIntent.NEW_CHAT:
-        if request.prompt_modifier_id:
-            modifier = modifier_selector.modifiers_by_id.get(str(request.prompt_modifier_id))
-            if modifier:
-                prompt_modifiers = {m: [(str(request.prompt_modifier_id), modifier.text)] for m in (selected_models)}
-            else:
-                logging.warning(f"Ignoring unknown modifier ID: {request.prompt_modifier_id}")
+    if request.intent == SelectIntent.NEW_CHAT and request.prompt_modifier_id:
+        modifier = modifier_selector.modifiers_by_id.get(str(request.prompt_modifier_id))
+        if modifier:
+            prompt_modifiers = {m: [(str(request.prompt_modifier_id), modifier.text)] for m in (selected_models)}
         else:
-            return prompt_modifiers
+            logging.warning(
+                json_dumps(
+                    {
+                        "message": f"Unknown modifier ID: {request.prompt_modifier_id}",
+                        "chat_id": request.chat_id,
+                        "turn_id": request.turn_id,
+                    }
+                )
+            )
+        return prompt_modifiers
 
     else:
         try:
@@ -333,7 +339,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
     stopwatch.record_split("routing_total")
 
     # Attach prompt modifiers to the models we selected
-    prompt_modifiers_rs = await attach_prompt_modifiers_to_models(prompt_modifiers, primary_models + fallback_models)
+    prompt_modifiers_rs = await attach_prompt_modifiers_to_models(prompt_modifiers, primary_models)
     prompt_modifiers_by_model = await _set_prompt_modifiers(request, prompt_modifiers_rs)
     stopwatch.record_split("set_prompt_modifiers")
 

@@ -1258,7 +1258,7 @@ Here are the long-form responses from other models to the same prompt:
 
 {assistant_responses}
 
-Answer the prompt below again, either with your previous response or a revised one:
+Answer the prompt below again. If you decide your original response was good, just reply <SAME_ANSWER>; otherwise, provide a new response.
 {prompt}"""
 )
 
