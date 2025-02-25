@@ -11,7 +11,7 @@ import numpy as np
 from cachetools.func import ttl_cache
 from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import BaseModel
-from sqlalchemy import func
+from sqlalchemy import Select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 from sqlmodel import Session, select
@@ -330,15 +330,9 @@ class TurnEvalCount(BaseModel):
     language_model_id: uuid.UUID
     language_model_name: str
     count: int
+    unique_user_count: int
     wins: int
-
-
-class EvalScore(BaseModel):
-    """The score for a given language model in a given eval."""
-
-    eval_id: uuid.UUID
-    score: float
-    assistant_language_model_id: uuid.UUID
+    unique_user_wins: int
 
 
 class TurnAnnotations(BaseModel):
@@ -351,14 +345,20 @@ class TurnAnnotations(BaseModel):
     # Negative eval notes.
     negative_notes: list[tuple[str, str]] | None = None
     # The number of past evals and wins for each language model in the turn, by the same user as the turn's creator.
+    # Eg. reports "X was preferred over Y 15 times in the past by you"
     user_eval_counts: list[TurnEvalCount] | None = None
     # The number of evals and wins for all language models in the turn by any user.
+    # Eg. reports "X was preferred over Y 60 times in the past by all users"
     overall_eval_counts: list[TurnEvalCount] | None = None
+    # The number of wins against any model by the turn's creator.
+    # Eg. reports "X was preferred 35 times in the past by you"
+    user_model_eval_counts: list[TurnEvalCount] | None = None
+    # The number of wins against any model by all users.
+    # Eg. reports "X was preferred 60 times in the past by all users"
+    overall_model_eval_counts: list[TurnEvalCount] | None = None
 
 
-async def _get_evals_with_same_language_models(
-    session: AsyncSession, current_turn_id: UUID, limit_to_same_user: bool = True
-) -> list[EvalScore]:
+def _get_evals_with_same_models_in_turn(current_turn_id: UUID, limit_to_turn_creator: bool = True) -> Select:
     # Temp table for the language models used in the turn.
     ordered_models = (
         select(ChatMessage.turn_id, ChatMessage.assistant_language_model_id)
@@ -383,47 +383,61 @@ async def _get_evals_with_same_language_models(
     )
 
     # The actual query.
+    # Get the evals of any model in the turn.
+    query = _get_evals_with_any_model_in_turn(current_turn_id, limit_to_turn_creator)
+    # Filter the evals to only include those that exactly match the models in the turn.
+    query = query.join(models_by_turn, models_by_turn.c.turn_id == Eval.turn_id).where(
+        models_by_turn.c.models == current_turn_models
+    )
+
+    return query
+
+
+def _get_evals_with_any_model_in_turn(current_turn_id: UUID, limit_to_turn_creator: bool = True) -> Select:
+    """Returns a query to fetche all evals (or just those by the turn's creator) of any model in the turn."""
     query = (
-        select(MessageEval.eval_id, MessageEval.score, ChatMessage.assistant_language_model_id)
+        select(MessageEval.eval_id, MessageEval.score, ChatMessage.assistant_language_model_id, Eval.user_id)
         .join(Eval, Eval.eval_id == MessageEval.eval_id)  # type: ignore
         .join(ChatMessage, ChatMessage.message_id == MessageEval.message_id)  # type: ignore
-        .join(models_by_turn, models_by_turn.c.turn_id == Eval.turn_id)
         .where(
             Eval.eval_type == EvalType.SELECTION,
-            ChatMessage.assistant_language_model_id.is_not(None),  # type: ignore
             (ChatMessage.completion_status == CompletionStatus.SUCCESS) | (ChatMessage.completion_status.is_(None)),  # type: ignore
-            models_by_turn.c.models == current_turn_models,
+            ChatMessage.assistant_language_model_id.in_(  # type: ignore
+                select(ChatMessage.assistant_language_model_id)
+                .where(ChatMessage.turn_id == current_turn_id)
+                .distinct()
+                .scalar_subquery()
+            ),
+            MessageEval.score.is_not(None),  # type: ignore
         )
     )
-    if limit_to_same_user:
+    if limit_to_turn_creator:
         query = query.where(
             Eval.user_id == (select(Turn.creator_user_id).where(Turn.turn_id == current_turn_id).scalar_subquery())
         )
+    return query
 
+
+async def _aggregate_evals(session: AsyncSession, query: Select) -> list[TurnEvalCount]:
+    """Aggregate the evals, into a list of TurnEvalCount objects, one per model."""
     result = await session.execute(query)
     rows = result.fetchall()
 
-    return [
-        EvalScore(eval_id=e.eval_id, score=e.score, assistant_language_model_id=e.assistant_language_model_id)
-        for e in rows
-    ]
-
-
-async def _aggregate_evals(session: AsyncSession, evals: list[EvalScore]) -> list[TurnEvalCount]:
-    unique_evals = set()
-    grouped_by_model_id = defaultdict(list)
-    for e in evals:
-        unique_evals.add(e.eval_id)
-        grouped_by_model_id[e.assistant_language_model_id].append(e.score)
-    total_evals = len(unique_evals)
-    wins_by_model = {
-        model_id: sum(model_scores) / SELECTED_MODEL_SCORE for model_id, model_scores in grouped_by_model_id.items()
-    }
+    evals_by_model = defaultdict(list)
+    unique_users_by_model = defaultdict(set)
+    wins_by_model = defaultdict(set)
+    unique_user_wins_by_model = defaultdict(set)
+    for eval_id, score, assistant_language_model_id, user_id in rows:
+        evals_by_model[assistant_language_model_id].append(eval_id)
+        unique_users_by_model[assistant_language_model_id].add(user_id)
+        if score == SELECTED_MODEL_SCORE:
+            wins_by_model[assistant_language_model_id].add(eval_id)
+            unique_user_wins_by_model[assistant_language_model_id].add(user_id)
 
     # Get all model names in a single query
     result = await session.execute(
         select(LanguageModel.language_model_id, LanguageModel.name).where(
-            LanguageModel.language_model_id.in_(grouped_by_model_id.keys())  # type: ignore
+            LanguageModel.language_model_id.in_(evals_by_model.keys())  # type: ignore
         )
     )
     model_names: dict[uuid.UUID, str] = dict((row[0], row[1]) for row in result.fetchall())
@@ -432,10 +446,12 @@ async def _aggregate_evals(session: AsyncSession, evals: list[EvalScore]) -> lis
         TurnEvalCount(
             language_model_id=model_id,
             language_model_name=model_names[model_id],
-            count=total_evals,
-            wins=int(wins_by_model[model_id]),
+            count=len(evals_by_model[model_id]),
+            unique_user_count=len(unique_users_by_model[model_id]),
+            wins=len(wins_by_model[model_id]),
+            unique_user_wins=len(unique_user_wins_by_model[model_id]),
         )
-        for model_id in wins_by_model
+        for model_id in evals_by_model
     ]
 
 
@@ -454,9 +470,15 @@ async def get_turn_annotations(turn_id: UUID) -> TurnAnnotations:
                 annotations.negative_notes = [tuple(n.rsplit(maxsplit=1)) for n in details_dict["negative_notes"]]
 
         # Add past battle results for the same user and for all users.
-        same_user_evals = await _get_evals_with_same_language_models(session, turn_id, limit_to_same_user=True)
-        annotations.user_eval_counts = await _aggregate_evals(session, same_user_evals)
-        all_evals = await _get_evals_with_same_language_models(session, turn_id, limit_to_same_user=False)
-        annotations.overall_eval_counts = await _aggregate_evals(session, all_evals)
+        same_user_same_models_query = _get_evals_with_same_models_in_turn(turn_id, limit_to_turn_creator=True)
+        annotations.user_eval_counts = await _aggregate_evals(session, same_user_same_models_query)
+        all_users_same_models_query = _get_evals_with_same_models_in_turn(turn_id, limit_to_turn_creator=False)
+        annotations.overall_eval_counts = await _aggregate_evals(session, all_users_same_models_query)
+
+        # Add total eval counts for all models in the turn.
+        same_user_any_model_in_turn_query = _get_evals_with_any_model_in_turn(turn_id, limit_to_turn_creator=True)
+        annotations.user_model_eval_counts = await _aggregate_evals(session, same_user_any_model_in_turn_query)
+        all_users_any_model_in_turn_query = _get_evals_with_any_model_in_turn(turn_id, limit_to_turn_creator=False)
+        annotations.overall_model_eval_counts = await _aggregate_evals(session, all_users_any_model_in_turn_query)
 
         return annotations
