@@ -144,7 +144,7 @@ class Settings(BaseSettings):
     EMBED_MESSAGES_UPON_COMPLETION: bool = False
 
     # Whether to extract memories from messages.
-    EXTRACT_MEMORIES_FROM_MESSAGES: bool = False
+    EXTRACT_MEMORIES_FROM_MESSAGES: bool = True
 
     # The base URL of the yupp-head app, set to staging by default.
     # Example use case: when updating models on yupp-mind, we need to revalidate the model caches on yupp-head too.

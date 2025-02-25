@@ -25,35 +25,33 @@ RESPONSES_USER_PROMPT = """
 
 PROMPT_MEMORY_EXTRACTION_PROMPT_TEMPLATE = """
 Task:
-Extract any clear memories or personal beliefs from the following user text.
-Focus on extraction from the Human text. The AI and Sys-labeled text is
-provided for additional context and clarification. Each extracted memory or
-belief should:
+Extract meaningful personal memories, interests, or self-assessments from the
+following user text. Focus on information that is transferable to other
+conversations rather than overly specific to the current context.
 
- - Be rendered as a concise first-person sentence capturing a single factual
-   or self-assessed statement.
- - Reflect a real-world memory if possible; otherwise, a personal belief or
-   self-assessment is acceptable.
- - If no memory or belief is found, return an empty JSON array ([]).
- - If multiple distinct memories or beliefs exist, return them each as a
-   separate string in the JSON array.
- - Represent a complete thought that is self-contained and unambiguous. If
-   the extracted statement could be misinterpreted due to ambiguity (e.g.,
-   "Java" as coffee vs. programming language), rephrase it to include
-   disambiguating context from the original text (e.g., "I strongly prefer
-   Java coffee" or "I strongly prefer Java as a programming language").
- - When extracting temporal references, ensure they are anchored to an
-   absolute timeframe. If the user mentions a relative timeframe (e.g.,
-   "this month" or "last week"), convert it into a specific month or date
-   where possible (e.g., "My birthday is in February" instead of "This
-   month is my birthday"). If the exact timeframe is not inferable, retain
-   the relative phrase but clarify its context.
+Each extracted memory or belief should:
 
-The current date/time is {cur_datetime}.
+- Ignore instructions given to the AI—only extract what reflects the user's
+  personality, desires, or experiences.
+- Capture a general interest, belief, or expertise rather than a one-time fact.
+- Prioritize deeper insights over surface-level details and task-specific needs.
+- Infer knowledge, skill level, and personality traits when reasonable.
+- Summarize recurring interests instead of extracting every granular thought.
+- Anchor relative timeframes to absolute dates where possible.
 
-Input (User text):
+Each extracted belief or memory should be a concise, first-person statement that
+is self-contained and clear.
 
-    {chat_history}
+Do not extract:
+- Statements that define the AI's role or expected behavior.
+- One-time requests that do not indicate a persistent user belief or goal.
+- Highly task-specific details that are unlikely to matter outside this conversation.
+- Temporary or one-off statements unless they reflect a broader pattern.
+- Trivia-like facts that do not reflect personal values, interests, or expertise.
+- Context-limited questions or imperatives that are not generalizable.
+
+Examples:
+
 
 Output (JSON array):
 
@@ -70,7 +68,7 @@ like, no doubt. wild.
 
 Output (No clear memory or belief is present):
 
-    []
+	[ ]
 
 Input:
 
@@ -79,7 +77,7 @@ understand how it differs from the Spanish variant?"
 
 Output (One memory found about Lisbon/paella):
 
-    [ "I enjoyed paella in Lisbon last August." ]
+	[ "I enjoyed paella in Lisbon last August." ]
 
 Input:
 
@@ -88,7 +86,7 @@ storage structures."
 
 Output (One self-assessment about expertise):
 
-    ["I am an expert in database file formats."]
+	["I am an expert in database file formats."]
 
 Input:
 
@@ -96,7 +94,7 @@ Input:
 
 Output (One memory describing a visit to Japan):
 
-    ["I was amazed by the efficiency of Japan’s trains last summer."]
+	["I was amazed by the efficiency of Japan’s trains last summer."]
 
 Input:
 
@@ -105,11 +103,11 @@ enrolled in a pottery course. I also believe I'm a quick learner."
 
 Output (with multiple memories and temporal anchoring):
 
-    [
+	[
         "I took a cooking class in Thailand around November 2024.",
         "I enrolled in a pottery course in early February 2025.",
         "I believe I am a quick learner."
-    ]
+	]
 
 Input:
 
@@ -118,10 +116,10 @@ Input:
 
 Output:
 
-    [
+	[
         "I love cheesecake.",
         "I prefer fluffier French style cheescake to the New York style."
-    ]
+	]
 
 
 Input (memory requires expansion to capture context):
@@ -130,9 +128,9 @@ Input (memory requires expansion to capture context):
 
 Output:
 
-    [
+	[
         "I prefer the Java programming language.",
-    ]
+	]
 
 
 Input (involving temporal context):
@@ -141,12 +139,19 @@ Input (involving temporal context):
 
 Output (with temporal context extracted and anchored):
 
-    [
+	[
         "My wife's birthday is the week of February 10th.",
-    ]
+	]
 
 Use the above format, always returning a valid JSON array. If no clear memory
 or belief is found, return an empty array: [].
+
+The current date/time is {cur_datetime}.
+
+Input (User text):
+
+	{chat_history}
+
 """
 
 PROMPT_MEMORY_EXTRACTION_PROMPT = ChatPromptTemplate.from_messages(
