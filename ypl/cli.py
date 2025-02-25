@@ -51,6 +51,7 @@ from ypl.backend.llm.judge import (
     YuppQualityLabeler,
     YuppSingleDifficultyLabeler,
 )
+from ypl.backend.llm.model.maintenance import do_model_metadata_maintenance
 from ypl.backend.llm.model.model_management import do_validate_active_models
 from ypl.backend.llm.model.model_onboarding import do_verify_submitted_models
 from ypl.backend.llm.model_data_type import ModelInfo
@@ -757,6 +758,13 @@ def verify_submitted_models() -> None:
 def validate_active_models() -> None:
     """Validate active language models."""
     asyncio.run(do_validate_active_models())
+
+
+@cli.command()
+@db_cmd
+def model_metadata_maintenance() -> None:
+    """Check and update model names, taxonomies and make sure they are in the right form."""
+    asyncio.run(do_model_metadata_maintenance())
 
 
 @cli.command()

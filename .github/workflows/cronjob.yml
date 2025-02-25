@@ -27,6 +27,7 @@ on:
           - categorize-messages
           - judge-quick-response-quality
           - judge-refusals
+          - model-metadata-maintenance
           - post-analytics
           - post-source-account-balances
           - process-crypto-rewards

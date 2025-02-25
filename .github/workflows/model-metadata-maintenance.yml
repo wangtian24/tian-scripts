@@ -1,0 +1,21 @@
+name: Model Metadata Maintenance
+
+on:
+  schedule:
+    - cron: '0 9,21 * * *'  # Runs twice a day at 9am and 9pm
+  workflow_dispatch:
+
+jobs:
+  model_metadata_maintenance_staging:
+    uses: ./.github/workflows/cronjob.yml
+    with:
+      command: model-metadata-maintenance
+      environment: staging
+    secrets: inherit
+
+  model_metadata_maintenance_production:
+    uses: ./.github/workflows/cronjob.yml
+    with:
+      command: model-metadata-maintenance
+      environment: production
+    secrets: inherit
