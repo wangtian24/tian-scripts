@@ -3,9 +3,11 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, cast
+from typing import Any
+from typing import cast as type_cast
 from uuid import UUID
 
+import sqlalchemy as sa
 from fastapi import HTTPException
 from sqlalchemy import String, and_, func, or_, select, true
 from sqlalchemy.exc import DatabaseError, OperationalError, SQLAlchemyError
@@ -223,7 +225,7 @@ async def get_user(user_id: str) -> User:
         if not user:
             raise ValueError("User not found")
 
-        return cast(User, user)
+        return type_cast(User, user)
 
 
 def _build_search_pattern(query: str) -> str:
@@ -329,6 +331,11 @@ def _build_user_search_conditions(search_pattern: str) -> BinaryExpression:
         col(User.city).ilike(search_pattern),
         col(User.country_code).ilike(search_pattern),
         col(User.educational_institution).ilike(search_pattern),
+        *(
+            [func.lower(sa.cast(col(User.status), sa.String)) == func.lower(search_pattern.strip("%"))]
+            if search_pattern.strip("%").upper() in [e.name for e in UserStatus]
+            else []
+        ),
     )
 
 
