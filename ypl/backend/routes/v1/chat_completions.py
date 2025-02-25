@@ -118,9 +118,10 @@ model_heuristics = ModelHeuristics(tokenizer_type="tiktoken")
 async def _message_completed(chat_request: ChatRequest, message_id: uuid.UUID, full_response: str) -> None:
     """Called when a message is completed successfully."""
     asyncio.create_task(maybe_add_suggested_followups(chat_request.chat_id, chat_request.turn_id))
-    asyncio.create_task(
-        maybe_extract_memories(chat_request.chat_id, chat_request.turn_id, chat_request.creator_user_id)
-    )
+    if settings.EXTRACT_MEMORIES_FROM_MESSAGES:
+        asyncio.create_task(
+            maybe_extract_memories(chat_request.chat_id, chat_request.turn_id, chat_request.creator_user_id)
+        )
     # Wait a bit before the title update to allow cache hits on the chat history.
     asyncio.create_task(maybe_set_chat_title(chat_request.chat_id, chat_request.turn_id, sleep_secs=1.5))
     asyncio.create_task(astore_language_code(str(chat_request.message_id), full_response, sleep_secs=1.0))
