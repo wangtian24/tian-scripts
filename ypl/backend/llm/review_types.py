@@ -76,4 +76,5 @@ class ReviewConfig(BaseModel):
     prompt_template: str
 
 
-ReviewResult = dict[str, BinaryResult]
+AllReviewResults = BinaryResult | CritiqueResult | SegmentedResult
+ReviewResult = dict[str, AllReviewResults]

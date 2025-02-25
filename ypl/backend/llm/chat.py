@@ -754,13 +754,13 @@ class ChatContext(BaseModel):
     Attributes:
         messages: List of formatted messages (HumanMessage, AIMessage, SystemMessage) representing the chat history.
         uuids: List of UUIDs corresponding to the messages.
-        current_turn_responses: Optional mapping of model names to their responses for the current turn.
-            The responses are raw text content from each model's message in the current turn.
+        current_turn_responses: Optional mapping of model names to their corresponding ChatMessage for the current turn.
+        current_turn_quicktake: Optional quicktake for the current turn.
     """
 
     uuids: list[uuid.UUID | None]
     messages: list[BaseMessage]
-    current_turn_responses: dict[str, str] | None = None
+    current_turn_responses: dict[str, ChatMessage] | None = None
     current_turn_quicktake: str | None = None
 
 
@@ -794,7 +794,7 @@ async def get_curated_chat_context(
             responses for the current turn separately as a dictionary in ChatContext.current_turn_responses.
 
     Returns:
-        ChatContext containing formatted messages and optionally current turn responses.
+        ChatContext containing formatted messages and optionally current turn responses and quicktake.
     """
     assert not (
         return_all_current_turn_responses and not include_current_turn
@@ -896,7 +896,7 @@ async def get_curated_chat_context(
                 and m.turn_id == current_turn_id
                 and m.assistant_model_name
             ):
-                current_turn_responses[m.assistant_model_name] = m.content
+                current_turn_responses[m.assistant_model_name] = m
             elif (
                 m.message_type == MessageType.QUICK_RESPONSE_MESSAGE
                 and m.turn_id == current_turn_id
@@ -1366,7 +1366,9 @@ async def generate_quicktake(
                     prompt_args["assistant_responses"] = ""
                     if current_turn_context.current_turn_responses:
                         for model, response in current_turn_context.current_turn_responses.items():
-                            prompt_args["assistant_responses"] += f"Response from {model}:\n{response}\n\n---\n\n"
+                            prompt_args[
+                                "assistant_responses"
+                            ] += f"Response from {model}:\n{response.content}\n\n---\n\n"
                 trimmed_message = replace_text_part(
                     _latest_message,
                     self.labeler.user_quicktake_prompt.format(**prompt_args),

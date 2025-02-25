@@ -42,8 +42,9 @@ from ypl.backend.prompts import (
     fill_cur_datetime,
 )
 from ypl.backend.utils.json import json_dumps
-from ypl.db.chats import Turn
+from ypl.db.chats import ChatMessage, Turn
 from ypl.db.language_models import LanguageModel
+from ypl.db.reviews import MessageReview
 
 REVIEW_CONFIGS: dict[ReviewType, ReviewConfig] = {
     ReviewType.BINARY: ReviewConfig(
@@ -64,25 +65,31 @@ REVIEW_MODEL_WITH_PDF_SUPPORT = ["gemini-2.0-flash-exp"]
 
 
 @alru_cache(maxsize=None, ttl=86400)  # 24-hour cache, now async-compatible
-async def get_model_family(model_name: str) -> str:
-    """Get model family from database with 24-hour caching."""
+async def get_model_family_and_id(model_name: str) -> tuple[str, UUID]:
+    """Get model family and ID from database with 24-hour caching."""
     async with get_async_session() as session:
         try:
-            stmt = select(LanguageModel.family).where(LanguageModel.internal_name == model_name)  # type: ignore
+            stmt = select(LanguageModel.family, LanguageModel.language_model_id).where(  # type: ignore
+                LanguageModel.internal_name == model_name
+            )
             result = await session.execute(stmt)
-            family = result.scalar()
-            if family is None:
+            row = result.first()
+            if not row:
                 logging.warning(f"Model {model_name} not found")
                 raise ValueError(f"Model {model_name} not found")
-            return str(family)
+            family, model_id = row
+            if not family or not model_id:
+                logging.warning(f"Model {model_name} not found")
+                raise ValueError(f"Model {model_name} not found")
+            return str(family), model_id
         except Exception as e:
-            logging.exception(f"Error getting model family for {model_name}: {e}")
+            logging.exception(f"Error getting model info for {model_name}: {e}")
             raise e
 
 
-async def get_model_families(model_names: list[str]) -> dict[str, str]:
-    """Get model families from database by looking up each model individually."""
-    return {model_name: await get_model_family(model_name) for model_name in model_names}
+async def get_model_families_and_ids(model_names: list[str]) -> dict[str, tuple[str, UUID]]:
+    """Get model families and IDs from database by looking up each model individually."""
+    return {model_name: await get_model_family_and_id(model_name) for model_name in model_names}
 
 
 REVIEW_LLMS: dict[ReviewType, dict[str, BaseChatModel]] = {}
@@ -148,10 +155,6 @@ class BaseReviewLabeler(LLMLabeler[tuple[str, str], ReviewResultType], Generic[R
             response=input[1],
         )
 
-    @property
-    def error_value(self) -> ReviewResultType:
-        raise NotImplementedError("Subclasses must implement this method")
-
 
 class BinaryReviewLabeler(BaseReviewLabeler[bool]):
     """Labeler that determines if a response accurately answers the last human message with a binary true/false."""
@@ -161,10 +164,6 @@ class BinaryReviewLabeler(BaseReviewLabeler[bool]):
 
     def _parse_output(self, output: BaseMessage) -> bool:
         return str(output.content).strip().lower() == "true"
-
-    @property
-    def error_value(self) -> bool:
-        return False
 
 
 class CritiqueReviewLabeler(BaseReviewLabeler[str]):
@@ -178,10 +177,6 @@ class CritiqueReviewLabeler(BaseReviewLabeler[str]):
         for i in range(1, 4):
             parsed_output = parsed_output.replace(f"Line {i}: ", "").strip()
         return parsed_output
-
-    @property
-    def error_value(self) -> str:
-        return "Error: Review failed"
 
 
 class SegmentedReviewLabeler(BaseReviewLabeler[list[dict[str, str]]]):
@@ -258,10 +253,6 @@ class SegmentedReviewLabeler(BaseReviewLabeler[list[dict[str, str]]]):
             i += 1
 
         return segments
-
-    @property
-    def error_value(self) -> list[dict[str, str]]:
-        return [{"segment": "", "update": "", "review": "Error: Review failed"}]
 
 
 # Singleton instances with model tracking
@@ -430,10 +421,13 @@ async def generate_reviews(
         all_models.update(review_llms.keys())
 
     if all_models:
-        all_model_families = await get_model_families(list(all_models))
-        response_model_family_map = {k: v for k, v in all_model_families.items() if k in responses} if responses else {}
+        all_model_families = await get_model_families_and_ids(list(all_models))
+        # Extract just the family part for the existing logic
+        response_model_family_map = (
+            {k: v[0] for k, v in all_model_families.items() if k in responses} if responses else {}
+        )
         review_llms_model_family_map = (
-            {k: v for k, v in all_model_families.items() if k in review_llms} if review_llms else {}
+            {k: v[0] for k, v in all_model_families.items() if k in review_llms} if review_llms else {}
         )
     else:
         response_model_family_map = {}
@@ -485,7 +479,7 @@ async def generate_reviews(
             if last_assistant_responses:
                 for model, response in last_assistant_responses.items():
                     reviewer = reviewers[model]
-                    task = reviewer.alabel((conversation_until_last_user_message, response))
+                    task = reviewer.alabel((conversation_until_last_user_message, response.content))
                     review_tasks.append((model, task))
             else:
                 logging.warning(f"run_{review_type}: No responses to review, last_assistant_responses is empty")
@@ -521,7 +515,7 @@ async def generate_reviews(
             return review_type, pointwise_results
         except Exception as e:
             log_dict = {
-                "message": f"Error in {review_type} review for turn_id {request.turn_id}: {str(e)}",
+                "message": f"_run_{review_type}: Error in {review_type} review for turn_id {request.turn_id}: {str(e)}",
                 "conversation_until_last_user_message": conversation_until_last_user_message,
                 "last_assistant_responses": last_assistant_responses,
             }
@@ -572,6 +566,7 @@ async def generate_reviews(
     for review_result in zip(review_types, results, strict=True):
         review_type = review_result[0]
         result_or_exception = review_result[1]
+        logging.info(f"Review result or exception: {result_or_exception}")
         if isinstance(result_or_exception, tuple):
             processed_results[review_type] = cast(ReviewResult, result_or_exception[1])
         elif review_type in error_values:  # Only use error values for requested types
@@ -590,6 +585,28 @@ async def generate_reviews(
         "review_types": [rt.value for rt in review_types],
     }
     logging.info(json_dumps(log_dict))
+
+    # Persist reviews to database
+    if request.turn_id is not None:
+        if last_assistant_responses:
+            await store_reviews(
+                processed_results=processed_results,
+                last_assistant_responses=last_assistant_responses,
+                review_types=review_types,
+                reviewers={
+                    ReviewType.BINARY: binary_reviewers,
+                    ReviewType.CRITIQUE: critique_reviewers,
+                    ReviewType.SEGMENTED: segmented_reviewers,
+                },
+                has_error=has_error,
+                model_info=all_model_families,
+                chat_id=chat_id,
+            )
+        else:
+            logging.warning("No last assistant responses to save")
+    else:
+        logging.warning("Cannot persist reviews: turn_id is None")
+
     # Convert dict[ReviewType, ReviewResult] to ReviewResponse
     return ReviewResponse(
         binary=cast(dict[str, BinaryResult], processed_results.get(ReviewType.BINARY)),
@@ -597,3 +614,77 @@ async def generate_reviews(
         segmented=cast(dict[str, SegmentedResult], processed_results.get(ReviewType.SEGMENTED)),
         status=ReviewStatus.ERROR if has_error else ReviewStatus.SUCCESS,
     )
+
+
+async def store_reviews(
+    processed_results: dict[ReviewType, ReviewResult],
+    last_assistant_responses: dict[str, ChatMessage],
+    review_types: list[ReviewType],
+    reviewers: dict[ReviewType, dict[str, BaseReviewLabeler[Any]]],
+    has_error: bool,
+    model_info: dict[str, tuple[str, UUID]],
+    chat_id: str,
+) -> None:
+    """Persist generated reviews to the database.
+
+    Args:
+        processed_results: The review results by type
+        last_assistant_responses: Map of model name to corresponding ChatMessage for the current turn
+        review_types: List of review types that were generated
+        reviewers: Map of review type to model->reviewer mapping
+        has_error: Whether there was an error during review generation
+        model_info: Map of model name to tuple of (family, model_id)
+        chat_id: Chat ID
+    """
+    try:
+        async with get_async_session() as session:
+            # Process each message and review type
+            for model_name, message in last_assistant_responses.items():
+                for review_type in review_types:
+                    if review_type not in processed_results:
+                        logging.warning(
+                            f"Review type {review_type} not found in processed results "
+                            f"(message_id={message.message_id}, turn_id={message.turn_id}, chat_id={chat_id})"
+                        )
+
+                    review_result = processed_results[review_type].get(model_name)
+                    if not review_result:
+                        logging.warning(
+                            f"Review result for {model_name} and {review_type} not found in processed results "
+                            f"(message_id={message.message_id}, turn_id={message.turn_id}, chat_id={chat_id})"
+                        )
+
+                    reviewer = reviewers[review_type].get(model_name)
+                    if not reviewer:
+                        logging.warning(
+                            f"Reviewer for {model_name} and {review_type} not found in reviewers "
+                            f"(message_id={message.message_id}, turn_id={message.turn_id}, chat_id={chat_id})"
+                        )
+                        continue
+
+                    if reviewer.model not in model_info:
+                        logging.warning(
+                            f"Reviewer model {reviewer.model} not found in model_info "
+                            f"(message_id={message.message_id}, turn_id={message.turn_id}, chat_id={chat_id})"
+                        )
+                        continue
+
+                    _, reviewer_model_id = model_info[reviewer.model]
+
+                    review = MessageReview(
+                        message_id=message.message_id,
+                        review_type=review_type,
+                        result=review_result,
+                        reviewer_model_id=reviewer_model_id,
+                        status=ReviewStatus.ERROR if has_error else ReviewStatus.SUCCESS,
+                    )
+                    session.add(review)
+
+            await session.commit()
+
+    except Exception as e:
+        logging.error(
+            f"Error storing reviews to DB: {e}. "
+            f"Failed messages: {[m.message_id for m in last_assistant_responses.values()]} "
+            f"chat_id: {chat_id}"
+        )
