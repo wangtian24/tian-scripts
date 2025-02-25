@@ -495,7 +495,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                     citations = await asyncio.wait_for(metadata_future, timeout=CITATION_EXTRACTION_TIMEOUT)
                     message_metadata["citations"] = citations
                 except TimeoutError:
-                    logging.error("Timeout error while enhancing citations")
+                    logging.warning("Timeout error while enhancing citations")
                     message_metadata["citations"] = default_citations
                 stopwatch.record_split("wait_for_citations")
                 yield StreamResponse({"metadata": message_metadata, "model": chat_request.model}).encode()
