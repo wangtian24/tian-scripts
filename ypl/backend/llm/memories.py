@@ -1,13 +1,16 @@
 import logging
 import uuid
+from collections.abc import Sequence
 
 from langchain_core.messages import HumanMessage
+from sqlmodel import select
 
 from ypl.backend.db import get_async_session
 from ypl.backend.llm.chat import get_curated_chat_context
 from ypl.backend.llm.judge import YuppMemoryExtractor
 from ypl.backend.llm.provider.provider_clients import get_internal_provider_client
 from ypl.backend.utils.json import json_dumps
+from ypl.db.chats import ChatMessage, Turn
 from ypl.db.memories import Memory, MemorySource
 
 
@@ -81,3 +84,27 @@ async def maybe_extract_memories(chat_id: uuid.UUID, turn_id: uuid.UUID, user_id
 
     except Exception as e:
         logging.error(f"Error extracting memories: {e}")
+
+
+async def get_memories(
+    user_id: str | None = None,
+    message_id: uuid.UUID | None = None,
+    chat_id: uuid.UUID | None = None,
+    limit: int = 10,
+    offset: int = 0,
+) -> tuple[Sequence[Memory], bool]:
+    async with get_async_session() as session:
+        query = select(Memory).order_by(Memory.created_at.desc())  # type: ignore
+        if user_id:
+            query = query.where(Memory.user_id == user_id)
+        if message_id:
+            query = query.where(Memory.source_message_id == message_id)
+        if chat_id:
+            query = query.join(ChatMessage).join(Turn).where(Turn.chat_id == chat_id)
+        query = query.offset(offset).limit(limit + 1)
+        results = await session.exec(query)
+        memories = results.all()
+        has_more_rows = len(memories) > limit
+        if has_more_rows:
+            memories = memories[:-1]
+        return memories, has_more_rows

@@ -20,6 +20,7 @@ from ypl.backend.routes.v1 import event as event_route
 from ypl.backend.routes.v1 import feedback as feedback_route
 from ypl.backend.routes.v1 import files as files_route
 from ypl.backend.routes.v1 import invite as invite_route
+from ypl.backend.routes.v1 import memory as memory_route
 from ypl.backend.routes.v1 import message as message_route
 from ypl.backend.routes.v1 import model_promotions as model_promotions_route
 from ypl.backend.routes.v1 import organization as organization_route
@@ -64,34 +65,34 @@ def app_init() -> None:
 api_router = APIRouter(dependencies=[Depends(validate_api_key)])
 admin_router = APIRouter(dependencies=[Depends(validate_admin_api_key)])
 
-api_router.include_router(credit.router, prefix="/v1", tags=["credit"])
-api_router.include_router(payment.router, prefix="/v1", tags=["payment"])
-api_router.include_router(feedback_route.router, prefix="/v1", tags=["feedback"])
-api_router.include_router(health.router, prefix="/v1", tags=["health"])
-api_router.include_router(llm_route.router, prefix="/v1", tags=["route"])
-api_router.include_router(rank.router, prefix="/v1", tags=["leaderboard"])
-api_router.include_router(reward.router, prefix="/v1", tags=["reward"])
-api_router.include_router(model.router, prefix="/v1", tags=["models"])
-api_router.include_router(provider_route.router, prefix="/v1", tags=["providers"])
-api_router.include_router(organization_route.router, prefix="/v1", tags=["organizations"])
+api_router.include_router(chat_completions.router, prefix="/v1", tags=["chat_completions"])
 api_router.include_router(chat_feed.router, prefix="/v1", tags=["chat-feed"])
 api_router.include_router(chats_route.router, prefix="/v1", tags=["chats"])
 api_router.include_router(classify_route.router, prefix="/v1", tags=["classify"])
-api_router.include_router(chat_completions.router, prefix="/v1", tags=["chat_completions"])
-api_router.include_router(files_route.router, prefix="/v1", tags=["files"])
+api_router.include_router(credit.router, prefix="/v1", tags=["credit"])
 api_router.include_router(email_route.router, prefix="/v1", tags=["emails"])
-api_router.include_router(profile_route.router, prefix="/v1", tags=["profile"])
 api_router.include_router(event_route.router, prefix="/v1", tags=["event"])
+api_router.include_router(feedback_route.router, prefix="/v1", tags=["feedback"])
+api_router.include_router(files_route.router, prefix="/v1", tags=["files"])
+api_router.include_router(health.router, prefix="/v1", tags=["health"])
+api_router.include_router(llm_route.router, prefix="/v1", tags=["route"])
+api_router.include_router(memory_route.router, prefix="/v1", tags=["memories"])
+api_router.include_router(model.router, prefix="/v1", tags=["models"])
+api_router.include_router(organization_route.router, prefix="/v1", tags=["organizations"])
+api_router.include_router(payment.router, prefix="/v1", tags=["payment"])
+api_router.include_router(profile_route.router, prefix="/v1", tags=["profile"])
+api_router.include_router(provider_route.router, prefix="/v1", tags=["providers"])
+api_router.include_router(rank.router, prefix="/v1", tags=["leaderboard"])
+api_router.include_router(reward.router, prefix="/v1", tags=["reward"])
 api_router.include_router(user_route.router, prefix="/v1", tags=["users"])
 
-
-admin_router.include_router(user_route.admin_router, prefix="/v1", tags=["admin"])
-admin_router.include_router(points_route.router, prefix="/v1", tags=["admin"])
-admin_router.include_router(user_capability_route.router, prefix="/v1", tags=["admin"])
-admin_router.include_router(message_route.router, prefix="/v1", tags=["admin"])
-admin_router.include_router(system_route.router, prefix="/v1", tags=["admin"])
 admin_router.include_router(invite_route.admin_router, prefix="/v1", tags=["admin"])
+admin_router.include_router(message_route.router, prefix="/v1", tags=["admin"])
 admin_router.include_router(model_promotions_route.router, prefix="/v1", tags=["model_promotions"])
+admin_router.include_router(points_route.router, prefix="/v1", tags=["admin"])
+admin_router.include_router(system_route.router, prefix="/v1", tags=["admin"])
+admin_router.include_router(user_capability_route.router, prefix="/v1", tags=["admin"])
+admin_router.include_router(user_route.admin_router, prefix="/v1", tags=["admin"])
 
 api_router.include_router(admin_router)
 
