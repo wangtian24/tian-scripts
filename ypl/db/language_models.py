@@ -148,6 +148,7 @@ class LanguageModel(BaseModel, table=True):
     # This is manually maintained information and should be updated for every new model added. This is for identifying
     # same models served from different providers so we can have more flexible serving.
     family: str | None = Field(default=None)
+    model_publisher: str | None = Field(default=None)
     model_class: str | None = Field(default=None)
     model_version: str | None = Field(default=None)
     model_release: str | None = Field(default=None)
