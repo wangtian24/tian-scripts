@@ -1,6 +1,6 @@
 import logging
 from datetime import UTC, date, datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -20,6 +20,7 @@ from ypl.utils import async_timed_cache
 class LanguageModelStruct(BaseModel):
     language_model_id: UUID
     name: str
+    internal_name: str
     label: str | None
     license: str
     family: str | None
@@ -31,6 +32,13 @@ class LanguageModelStruct(BaseModel):
     status: str
     creator_user_id: str
     provider_id: UUID | None
+    parameters: dict[str, Any] | None
+    supported_attachment_mime_types: list[str] | None
+    # below are not directly dumped from the LanguageModel fields
+    provider_name: str | None
+    taxo_label: str | None
+    taxonomy_path: str | None  # joining publisher, family, class, version, release
+    flags: list[str] | None  # a list of PRO, STRONG, LIVE tags if available
 
 
 def clean_provider_name(provider_name: str) -> str:
@@ -260,6 +268,27 @@ async def get_model_taxonomies(query: ModelTaxonomyQuery) -> list[ModelTaxonomyR
         ]
 
 
+def _create_language_model_struct(model: LanguageModel) -> LanguageModelStruct:
+    return LanguageModelStruct(
+        **model.model_dump(exclude={"organization"}),
+        organization_name=model.organization.organization_name if model.organization else None,
+        provider_name=model.provider.name if model.provider else None,
+        taxo_label=model.taxonomy.taxo_label if model.taxonomy else None,
+        taxonomy_path=(
+            f"{model.taxonomy.model_publisher or '_'}/{model.taxonomy.model_family or '_'}"
+            f"/{model.taxonomy.model_class or '_'}/{model.taxonomy.model_version or '_'}"
+            f"/{model.taxonomy.model_release or '_'}"
+            if model.taxonomy
+            else None
+        ),
+        flags=[
+            flag
+            for flag, value in {"PRO": model.is_pro, "STRONG": model.is_strong, "LIVE": model.is_live}.items()
+            if value
+        ],
+    )
+
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_fixed(0.1),
@@ -287,8 +316,10 @@ async def get_models(
         The models that match the filter criteria.
     """
     async with get_async_session() as session:
-        query = (
-            select(LanguageModel).options(selectinload(LanguageModel.organization))  # type: ignore
+        query = select(LanguageModel).options(
+            selectinload(LanguageModel.organization),  # type: ignore
+            selectinload(LanguageModel.taxonomy),  # type: ignore
+            selectinload(LanguageModel.provider),  # type: ignore
         )
 
         if name:
@@ -309,13 +340,8 @@ async def get_models(
             query = query.where(LanguageModel.creator_user_id == creator_user_id)
 
         models = (await session.exec(query)).all()
-        return [
-            LanguageModelStruct(
-                **model.model_dump(exclude={"organization"}),
-                organization_name=model.organization.organization_name if model.organization else None,
-            )
-            for model in models
-        ]
+        # TODO(Tian): source other fields like parameter count/context window from taxonomy table as well.
+        return [_create_language_model_struct(model) for model in models]
 
 
 @retry(
@@ -330,7 +356,11 @@ async def get_model_details(model_id: str) -> LanguageModelStruct | None:
     async with get_async_session() as session:
         query = (
             select(LanguageModel)
-            .options(selectinload(LanguageModel.organization))  # type: ignore
+            .options(
+                selectinload(LanguageModel.organization),  # type: ignore
+                selectinload(LanguageModel.taxonomy),  # type: ignore
+                selectinload(LanguageModel.provider),  # type: ignore
+            )
             .where(
                 LanguageModel.language_model_id == model_id,
                 LanguageModel.deleted_at.is_(None),  # type: ignore
@@ -342,10 +372,7 @@ async def get_model_details(model_id: str) -> LanguageModelStruct | None:
         model = (await session.exec(query)).first()
         if model is None:
             return None
-        return LanguageModelStruct(
-            **model.model_dump(exclude={"organization"}),
-            organization_name=model.organization.organization_name if model.organization else None,
-        )
+        return _create_language_model_struct(model)
 
 
 @retry(
