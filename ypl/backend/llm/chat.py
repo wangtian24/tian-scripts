@@ -110,6 +110,8 @@ class SelectModelsV2Request(BaseModel):
     prompt: str | None = None  # prompt to use for routing
     num_models: int = 2  # number of models to select
     required_models: list[str] | None = None  # models selected explicitly by the user
+    # model taxonomy IDs selected explicitly by the user, if used, will ignore the required_models field
+    required_models_types: list[uuid.UUID] | None = None
     chat_id: str  # chat ID to use for routing
     turn_id: str  # turn ID to use for routing
     provided_categories: list[str] | None = None  # categories provided by the user
@@ -250,7 +252,6 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
             prompt = kick_off_label_turn_quality(notnull(request.prompt), request.chat_id, request.turn_id)
             preference = RoutingPreference(
                 turns=[],
-                user_selected_models=request.required_models or [],  # get from the request
                 same_turn_shown_models=[],
                 user_id=request.user_id,
             )
@@ -271,10 +272,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
     # 3. remove all same-turn already-shown user-selected models (when it's SMM)
     required_models = request.required_models
     if not required_models:
-        required_models = list(get_chat_required_models(UUID(request.chat_id)))
-    if not required_models:
-        required_models = preference.user_selected_models or []
-
+        required_models = list(await get_chat_required_models(UUID(request.chat_id), UUID(request.turn_id)))
     required_models_for_routing = list(required_models) + preference.get_inherited_models(
         is_show_me_more=(request.intent == SelectIntent.SHOW_ME_MORE)
     )

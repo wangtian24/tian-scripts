@@ -15,11 +15,11 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_mistralai import ChatMistralAI
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
-from sqlalchemy import text
+from sqlalchemy import and_, desc, or_, text
 from sqlmodel import Session, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from ypl.backend.db import get_async_engine, get_engine
+from ypl.backend.db import get_async_engine, get_async_session, get_engine
 from ypl.backend.llm.constants import (
     ACTIVE_MODELS_BY_PROVIDER,
     PROVIDER_MODEL_PATTERNS,
@@ -29,7 +29,6 @@ from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.routing.route_data_type import PreferredModel, RoutingPreference
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import (
-    AssistantSelectionSource,
     Chat,
     ChatMessage,
     Eval,
@@ -319,7 +318,7 @@ def get_preferences(
         rows = session.exec(query).all()
 
     if not rows or len(rows) == 0:
-        return RoutingPreference(turns=[], user_selected_models=[], user_id=user_id, same_turn_shown_models=[])
+        return RoutingPreference(turns=[], user_id=user_id, same_turn_shown_models=[])
 
     # Group rows by turn_id and collect info for each turn
     turns_by_id: dict[str, Any] = defaultdict(list)
@@ -369,29 +368,9 @@ def get_preferences(
         if user_id is None:
             user_id = messages[0].creator_user_id
 
-    user_selected_models = []
-    if required_models_from_req is not None:
-        user_selected_models.extend(required_models_from_req)
-    else:
-        # Collect user-selected models from all turns. this way to infer the user-selected models is not ideal, as
-        # not all user-selected models are necessarily shown before (if we allow more user selected models than we
-        # display).
-        # TODO(Tian): this will be deprecated once FE starts to write user selected models to DB.
-        user_selected_models = list(
-            dict.fromkeys(  # dedupe and preserve order
-                [
-                    msg.assistant_model_name
-                    for _, messages in turns_row_list
-                    for msg in messages
-                    if msg.assistant_selection_source == AssistantSelectionSource.USER_SELECTED
-                ]
-            )
-        )
-
     return RoutingPreference(
         turns=turns_list,
         user_id=user_id,
-        user_selected_models=required_models_from_req,
         same_turn_shown_models=same_turn_shown_models,
     )
 
@@ -577,16 +556,27 @@ def deduce_single_model_speed_score(model_name: str) -> float:
     return speed_score
 
 
-def get_chat_required_models(chat_id: UUID) -> Sequence[str]:
+async def get_chat_required_models(chat_id: UUID, turn_id: UUID) -> Sequence[str]:
     """
     Retrieves the required models for a chat from the database.
     We always only read from the first turn (sequence_id == 0)
     """
-    # TODO(Tian): later we can read it from later turns as well, but from offline discussion the FE will
-    # always pass them in.
-    query = select(Turn.required_models).where(Turn.chat_id == chat_id, Turn.sequence_id == 0)
-    with Session(get_engine()) as session:
-        return session.exec(query).first() or ()
+    # Read it from both the first turn and current turn for future compatibility. Right now the required_models
+    # are only supported for the first turn (NEW_CHAT), but we will soon support required models mid-chat (NEW_TURNS).
+    query = (
+        select(Turn.required_models)
+        .where(
+            and_(
+                Turn.required_models.is_not(None),  # type: ignore
+                Turn.chat_id == chat_id,  # type: ignore
+                or_(Turn.sequence_id == 0, Turn.turn_id == turn_id),  # type: ignore
+            )
+        )
+        .order_by(desc(Turn.sequence_id))  # type: ignore
+    )
+    async with get_async_session() as session:
+        # note that we only return the last such  (the last in time as it's sorted by sequence_id in descending order)
+        return (await session.exec(query)).first() or ()
 
 
 def notnull(value: str | None) -> str:

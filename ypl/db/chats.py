@@ -3,7 +3,7 @@ import uuid
 from typing import TYPE_CHECKING, Any, TypeVar
 
 import yaml
-from sqlalchemy import ARRAY, JSON, Boolean, Column, Index, Text, UniqueConstraint, text
+from sqlalchemy import ARRAY, JSON, UUID, Boolean, Column, Index, Text, UniqueConstraint, text
 from sqlalchemy import Enum as SQLAlchemyEnum
 from sqlalchemy.dialects.postgresql import ENUM as PostgresEnum
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
@@ -84,6 +84,9 @@ class Turn(BaseModel, table=True):
 
     # List of model names that the user has explicitly selected for this turn
     required_models: list[str] | None = Field(sa_column=Column(ARRAY(Text), nullable=True))
+
+    # List of model taxonomies ids that the user has explicitly selected for this turn
+    required_models_types: list[uuid.UUID] | None = Field(sa_column=Column(ARRAY(UUID), nullable=True))
 
     # Router selected models, including both primary and fallback for the NEW_TURN.
     # This is for performance optimization so we don't need to regenerating unused fallback models in new turns.

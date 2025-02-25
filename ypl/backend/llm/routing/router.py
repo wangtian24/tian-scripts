@@ -179,7 +179,7 @@ async def get_simple_pro_router(
         )
 
     if required_models is not None and len(required_models) > 0:
-        metric_inc_by("routing/num_user_selected_models", len(required_models))
+        metric_inc_by("routing/num_required_models_for_routing", len(required_models))
 
     if not preference.turns:
         # --- First Turn (NEW_TURN) ---

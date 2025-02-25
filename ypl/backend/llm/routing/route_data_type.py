@@ -160,9 +160,6 @@ class RoutingPreference(BaseModel):
             "An empty list indicates that there were no prior turns."
         )
     )
-    user_selected_models: list[str] | None = Field(
-        description="The models that the user selected before the chat started."
-    )
     same_turn_shown_models: list[str] | None = Field(
         description="The models already shown in the current turn (before Show Me More)."
     )

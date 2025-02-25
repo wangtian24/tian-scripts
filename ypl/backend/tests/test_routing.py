@@ -564,7 +564,7 @@ async def test_simple_pro_router(
             prompt="",
             num_models=2,
             reputable_providers=reputable_providers,
-            preference=RoutingPreference(turns=[], user_id="123", user_selected_models=[], same_turn_shown_models=[]),
+            preference=RoutingPreference(turns=[], user_id="123", same_turn_shown_models=[]),
         )
         selected_models = router.select_models(state=state).get_sorted_selected_models()
         assert len(selected_models) == 2
@@ -581,9 +581,7 @@ async def test_simple_pro_router(
             prompt="",
             num_models=2,
             reputable_providers=reputable_providers,
-            preference=RoutingPreference(
-                turns=[], user_id="123", user_selected_models=["model1", "model2"], same_turn_shown_models=[]
-            ),
+            preference=RoutingPreference(turns=[], user_id="123", same_turn_shown_models=[]),
             required_models=["model1", "model2"],
         )
         selected_models = router.select_models(state=state).get_sorted_selected_models()
@@ -594,9 +592,7 @@ async def test_simple_pro_router(
             prompt="",
             num_models=1,
             reputable_providers=reputable_providers,
-            preference=RoutingPreference(
-                turns=[], user_id="123", user_selected_models=["model1"], same_turn_shown_models=[]
-            ),
+            preference=RoutingPreference(turns=[], user_id="123", same_turn_shown_models=[]),
             required_models=["model1"],
         )
         selected_models = router.select_models(state=state).get_sorted_selected_models()
@@ -621,9 +617,7 @@ async def test_simple_pro_router(
         prompt="",
         num_models=1,
         reputable_providers=reputable_providers,
-        preference=RoutingPreference(
-            turns=[], user_id="123", user_selected_models=["model2"], same_turn_shown_models=[]
-        ),
+        preference=RoutingPreference(turns=[], user_id="123", same_turn_shown_models=[]),
         required_models=["model2"],
     )
 
@@ -636,9 +630,7 @@ async def test_simple_pro_router(
         prompt="",
         num_models=2,
         reputable_providers=reputable_providers,
-        preference=RoutingPreference(
-            turns=[], user_id="123", user_selected_models=["model2", "model1"], same_turn_shown_models=[]
-        ),
+        preference=RoutingPreference(turns=[], user_id="123", same_turn_shown_models=[]),
         required_models=["model2", "model1"],
     )
     for _ in range(5):
@@ -827,7 +819,7 @@ async def test_select_models_plus(
     MockModifierLabeler: Mock,
 ) -> None:
     mock_get_preferences.side_effect = lambda *args, **kwargs: RoutingPreference(
-        turns=[], user_id="user", user_selected_models=[], same_turn_shown_models=[]
+        turns=[], user_id="user", same_turn_shown_models=[]
     )
     mock_make_default_from_db.return_value = CategorizedPromptModifierSelector.make_default()
     show_me_more_models = random.sample(IMAGE_ATTACHMENT_MODELS, 3)
@@ -837,12 +829,11 @@ async def test_select_models_plus(
             mock_get_preferences.side_effect = lambda *args, **kwargs: RoutingPreference(
                 turns=[],
                 user_id="user",
-                user_selected_models=[],
                 same_turn_shown_models=show_me_more_models,
             )
         else:
             mock_get_preferences.side_effect = lambda *args, **kwargs: RoutingPreference(
-                turns=[], user_id="user", user_selected_models=[], same_turn_shown_models=[]
+                turns=[], user_id="user", same_turn_shown_models=[]
             )
 
         return SelectModelsV2Request(
