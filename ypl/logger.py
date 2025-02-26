@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+from datetime import datetime
 from typing import Any
 
 from dotenv import load_dotenv
@@ -138,7 +139,10 @@ class ConsolidatedStreamHandler(RedactingMixin, TruncatingMixin, logging.StreamH
     def emit(self, record: logging.LogRecord) -> None:
         try:
             formatted_msg = self._format_message(record)
-            record.msg = f"[{record.module}] {formatted_msg}" if isinstance(formatted_msg, str) else formatted_msg
+            message = json.dumps(formatted_msg) if isinstance(formatted_msg, dict) else str(formatted_msg)
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+
+            record.msg = f"[{timestamp} {record.levelname}] [{record.module}] {message}"
 
             self.redact_record(record)
             self.truncate_record(record)
