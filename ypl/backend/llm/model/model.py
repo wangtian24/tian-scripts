@@ -165,12 +165,13 @@ class ModelTaxonomyQuery(BaseModel):
     model_class: Optional[str] | None = None  # noqa: UP007
     model_version: Optional[str] | None = None  # noqa: UP007
     model_release: Optional[str] | None = None  # noqa: UP007
-    pickable_only: bool | None = None
-    leaf_node_only: bool | None = None
+    pickable_only: bool | None = True
+    leaf_node_only: bool | None = False
+    has_active_providers: bool | None = True
 
 
 class ModelTaxonomyResponse(BaseModel):
-    model_taxonomy_id: UUID
+    language_model_taxonomy_id: UUID
     taxo_label: str
     model_publisher: str
     model_family: str
@@ -181,9 +182,10 @@ class ModelTaxonomyResponse(BaseModel):
     avatar_url: str | None
     is_pro: bool
     is_live: bool
-    is_new: bool
+    is_new: bool  # synthetic field, not directly from DB
     supported_attachment_mime_types: list[str] | None
     is_internal: bool | None
+    priority: int | None
 
 
 MAX_NEW_MODEL_AGE_DAYS = 30
@@ -195,12 +197,22 @@ def _is_none_or_null(value: str) -> bool:
 
 async def get_model_taxonomies(query: ModelTaxonomyQuery) -> list[ModelTaxonomyResponse]:
     async with get_async_session() as session:
-        sql_query = select(LanguageModelTaxonomy)
+        sql_query = select(LanguageModelTaxonomy).join(LanguageModel)
 
         if query.pickable_only:
             sql_query = sql_query.where(LanguageModelTaxonomy.is_pickable.is_(True))  # type: ignore
         if query.leaf_node_only:
             sql_query = sql_query.where(LanguageModelTaxonomy.is_leaf_node.is_(True))  # type: ignore
+        if query.has_active_providers:
+            sql_query = sql_query.where(
+                LanguageModelTaxonomy.language_model_taxonomy_id.in_(  # type: ignore
+                    select(LanguageModelTaxonomy.language_model_taxonomy_id)
+                    .join(LanguageModel)
+                    .where(LanguageModel.status == LanguageModelStatusEnum.ACTIVE)
+                    .distinct()
+                    .scalar_subquery()
+                )
+            )
 
         if query.taxonomy_id:
             # search by taxonomy id, will ignore all other fields
@@ -248,24 +260,20 @@ async def get_model_taxonomies(query: ModelTaxonomyQuery) -> list[ModelTaxonomyR
             # search with no condition, will return all taxonomy node entries.
             pass
 
+        sql_query = sql_query.order_by(LanguageModelTaxonomy.priority.desc())  # type: ignore
+
         results = (await session.exec(sql_query)).all()
 
         return [
             ModelTaxonomyResponse(
-                model_taxonomy_id=result.language_model_taxonomy_id,
-                taxo_label=result.taxo_label,
-                model_publisher=result.model_publisher,
-                model_family=result.model_family or "UNKNOWN",
-                model_class=result.model_class,
-                model_version=result.model_version,
-                model_release=result.model_release,
-                avatar_url=result.avatar_url,
+                **result.model_dump(exclude={"is_pro", "is_live", "is_new", "priority"}),
                 is_pro=result.is_pro or False,
                 is_live=result.is_live or False,
-                is_new=result.created_at is not None
-                and result.created_at > datetime.now(UTC) - timedelta(days=MAX_NEW_MODEL_AGE_DAYS),
-                supported_attachment_mime_types=result.supported_attachment_mime_types,
-                is_internal=result.is_internal,
+                is_new=(
+                    result.created_at is not None
+                    and result.created_at > datetime.now(UTC) - timedelta(days=MAX_NEW_MODEL_AGE_DAYS)
+                ),
+                priority=result.priority or 0,
             )
             for result in results
         ]

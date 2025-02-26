@@ -334,6 +334,9 @@ class LanguageModelTaxonomy(BaseModel, table=True):
         default=None, sa_column=Column(ARRAY(String), nullable=True)
     )
 
+    # a priority number to rank model types in the UI, larger number means more front positions.
+    priority: int | None = Field(nullable=True, default=None)
+
     # relationships
     language_model: LanguageModel = Relationship(back_populates="taxonomy")
 
