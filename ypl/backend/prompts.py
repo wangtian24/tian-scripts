@@ -1019,6 +1019,7 @@ You may also point out flaws in your own response in light of the other assistan
 When referring to the other assistant's response, you may use their name, {other_model_names}.
 Refer to the response provided by your model in the first person -- "my response", "my answer", or "me", and so on
 Be brief and concise, ideally respond in one or two sentences. You may use bullet points if you think it makes your response clearer.
+You may use formatting (bold text, bullets, and so on) to highlight aspects of your reaction to the other assistant's response.
 
 The user's prompt was {user_prompt}.
 
