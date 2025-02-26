@@ -457,3 +457,14 @@ class SuggestedUserPrompt(BaseModel, table=True):
     prompt: str = Field(nullable=False)
     summary: str = Field(nullable=False)
     explanation: str = Field(nullable=True)
+
+
+class ChatInstrumentation(BaseModel, table=True):
+    __tablename__ = "chat_instrumentations"
+
+    message_id: uuid.UUID = Field(foreign_key="chat_messages.message_id", primary_key=True, nullable=False)
+    head_client: dict[str, Any] = Field(sa_type=JSONB, nullable=True)
+    head_server: dict[str, Any] = Field(sa_type=JSONB, nullable=True)
+    mind_server: dict[str, Any] = Field(sa_type=JSONB, nullable=True)
+    workflow_status: str = Field(sa_type=Text, nullable=True)
+    analysis_output: dict[str, Any] = Field(sa_type=JSONB, nullable=True)

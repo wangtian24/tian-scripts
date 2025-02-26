@@ -29,6 +29,11 @@ from ypl.backend.llm.chat import (
     update_failed_message_status,
     upsert_chat_message,
 )
+from ypl.backend.llm.chat_instrumentation_service import (
+    ChatInstrumentationRequest,
+    EventSource,
+    create_or_update_instrumentation,
+)
 from ypl.backend.llm.chat_title import maybe_set_chat_title
 from ypl.backend.llm.crawl import enhance_citations
 from ypl.backend.llm.embedding import embed_and_store_chat_message_embeddings
@@ -510,6 +515,16 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
         )
         stopwatch.end_lap("total_time_to_last_token")
         stopwatch.record_split("postprocessing")
+
+        asyncio.create_task(
+            create_or_update_instrumentation(
+                ChatInstrumentationRequest(
+                    message_id=chat_request.message_id,
+                    event_source=EventSource.MIND_SERVER,
+                    streaming_metrics=modelResponseTelemetry.model_dump(),
+                )
+            )
+        )
 
         try:
             if metadata_future:
