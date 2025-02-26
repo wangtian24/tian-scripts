@@ -182,6 +182,7 @@ class BaseFacilitator(ABC):
         from ypl.backend.payment.hyperwallet.hyperwallet_facilitator import HyperwalletFacilitator
         from ypl.backend.payment.paypal.paypal_facilitator import PayPalFacilitator
         from ypl.backend.payment.plaid.plaid_facilitator import PlaidFacilitator
+        from ypl.backend.payment.tabapay.tabapay_facilitator import TabaPayFacilitator
         from ypl.backend.payment.upi.axis.facilitator import AxisUpiFacilitator
 
         if currency == CurrencyEnum.INR:
@@ -199,6 +200,8 @@ class BaseFacilitator(ABC):
                 return OnChainFacilitator(currency, destination_identifier_type, facilitator)
         elif currency == CurrencyEnum.USD and facilitator == PaymentInstrumentFacilitatorEnum.PLAID:
             return PlaidFacilitator(currency, destination_identifier_type, facilitator, destination_additional_details)
+        elif currency == CurrencyEnum.USD and facilitator == PaymentInstrumentFacilitatorEnum.TABAPAY:
+            return TabaPayFacilitator(currency, destination_identifier_type, facilitator)
 
         raise ValueError(f"Unsupported currency: {currency}")
 

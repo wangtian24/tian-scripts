@@ -3,6 +3,7 @@ import logging
 import os
 import time
 import uuid
+from dataclasses import asdict
 from decimal import Decimal
 
 from sqlmodel import select
@@ -31,7 +32,7 @@ from ypl.backend.payment.payout_utils import (
 from ypl.backend.payment.payout_utils import (
     get_source_instrument_id as get_generic_source_instrument_id,
 )
-from ypl.backend.payment.tabapay.tabapay_client import TabaPayClient
+from ypl.backend.payment.tabapay.tabapay_payout import TabaPayClient
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import (
     CurrencyEnum,
@@ -43,10 +44,11 @@ from ypl.db.payments import (
 )
 from ypl.db.point_transactions import PointsActionEnum
 from ypl.partner_payments.server.partner.tabapay.client import (
-    TabapayAccountDetails,
+    TabapayAccountCreationRequest,
     TabapayAchEntryTypeEnum,
     TabapayAchOptionsEnum,
     TabapayBankInfo,
+    TabapayCardCreationInfo,
     TabapayOwnerInfo,
     TabapayOwnerName,
     TabapayOwnerPhone,
@@ -61,6 +63,7 @@ RETRY_ATTEMPTS = 3
 RETRY_WAIT_MULTIPLIER = 1
 RETRY_WAIT_MIN = 4
 RETRY_WAIT_MAX = 15
+TABAPAY_PENDING_IDENTIFIER = "tabapay-pending-account-creation"
 
 
 class TabaPayFacilitator(BaseFacilitator):
@@ -91,65 +94,72 @@ class TabaPayFacilitator(BaseFacilitator):
         destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
         destination_additional_details: dict | None = None,
     ) -> PaymentInstrument:
-        #  check if the instrument already exists
-        #  this will be the case if the user has already cashed out before and we have the account ID from Tabapay
-        #  in this case, the frontend would have passed the already created account ID as destination_identifier
-        async with get_async_session() as session:
-            query = select(PaymentInstrument).where(
-                PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.TABAPAY,
-                PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.PARTNER_IDENTIFIER,
-                PaymentInstrument.identifier == destination_identifier,
-                PaymentInstrument.deleted_at.is_(None),  # type: ignore
-            )
-            result = await session.exec(query)
-            existing_instrument = result.one_or_none()
-            if existing_instrument:
-                return existing_instrument
+        #  check if the instrument already exists or is this a new account creation
+        if destination_identifier != TABAPAY_PENDING_IDENTIFIER:
+            async with get_async_session() as session:
+                query = select(PaymentInstrument).where(
+                    PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.TABAPAY,
+                    PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.PARTNER_IDENTIFIER,
+                    PaymentInstrument.identifier == destination_identifier,
+                    PaymentInstrument.deleted_at.is_(None),  # type: ignore
+                )
+                result = await session.exec(query)
+                existing_instrument = result.one_or_none()
+                if existing_instrument:
+                    return existing_instrument
 
         #  if the instrument does not exist, we need to create it
         #  we need to call the create account API and pass the destination_additional_details
         #  we need to save and return the payment instrument
+        if destination_additional_details is None:
+            raise PaymentProcessingError(
+                "TabaPay: Destination additional details are required for new account creation"
+            )
+
         try:
-            if destination_additional_details is None:
-                #  this is the case when the card is used as the destination in which case destination_identifier
-                # is the card token
-                if destination_identifier is None:
-                    raise PaymentProcessingError("TabaPay: Destination identifier is required")
-                payment_instrument = PaymentInstrument(
-                    facilitator=PaymentInstrumentFacilitatorEnum.TABAPAY,
-                    identifier_type=PaymentInstrumentIdentifierTypeEnum.PARTNER_IDENTIFIER,
-                    identifier=destination_identifier,
-                )
-                async with get_async_session() as session:
-                    session.add(payment_instrument)
-                    await session.commit()
-
-                return payment_instrument
-
-            account_details = TabapayAccountDetails(
+            account_details = TabapayAccountCreationRequest(
+                referenceID=str(user_id)[:15],
                 owner=TabapayOwnerInfo(
                     name=TabapayOwnerName(
                         first=destination_additional_details["first_name"],
                         last=destination_additional_details["last_name"],
                     ),
                     phone=TabapayOwnerPhone(
-                        number=destination_additional_details["phone"],
+                        number=destination_additional_details["phone_number"],
+                        countryCode=destination_additional_details["phone_country_code"],
                     ),
                 ),
-                bank=TabapayBankInfo(
-                    routingNumber=destination_additional_details["routing_number"],
-                    accountNumber=destination_additional_details["account_number"],
-                    accountType=destination_additional_details["account_type"],
+                bank=(
+                    TabapayBankInfo(
+                        routingNumber=destination_additional_details["routing_number"],
+                        accountNumber=destination_additional_details["account_number"],
+                        accountType=destination_additional_details["account_type"],
+                    )
+                    if "routing_number" in destination_additional_details
+                    else None
+                )
+                if "card_token" not in destination_additional_details
+                else None,
+                card=(
+                    TabapayCardCreationInfo(
+                        token=destination_additional_details["card_token"].split("|", 2)[-1]
+                        if destination_additional_details["card_token"]
+                        else "",
+                    )
+                    if "card_token" in destination_additional_details
+                    else None
                 ),
             )
-            account_response = await self.client.create_account(account_details)
-            account_id = account_response.account_id
-            account_metadata = account_response.metadata
+            async with self.client as client:
+                account_response = await client.create_account(account_details)
+                account_id = account_response.account_id
+                account_metadata = account_response.metadata
 
             payment_instrument = PaymentInstrument(
                 facilitator=PaymentInstrumentFacilitatorEnum.TABAPAY,
                 identifier_type=PaymentInstrumentIdentifierTypeEnum.PARTNER_IDENTIFIER,
                 identifier=account_id,
+                user_id=user_id,
                 instrument_metadata=account_metadata,
             )
             async with get_async_session() as session:
@@ -331,33 +341,51 @@ class TabaPayFacilitator(BaseFacilitator):
                 # Create TabaPay transaction request
                 # purpose of payment is required for cards and varies different for different networks
                 # check if the destination is bank and then get the rtp details
+                ach_options = None
+                ach_entry_type = None
+
                 if destination_metadata and destination_metadata.get("bank"):
                     ach_entry_type = TabapayAchEntryTypeEnum.WEB
-                    rtp = await self.client.get_rtp_details(destination_metadata["routing_number"])
+                    async with self.client as client:
+                        rtp = await client.get_rtp_details(destination_metadata["routing_number"])
                     if rtp:
-                        ach_options = TabapayAchOptionsEnum.R
+                        ach_options = TabapayAchOptionsEnum.RTP
                     else:
-                        ach_options = TabapayAchOptionsEnum.S
+                        ach_options = TabapayAchOptionsEnum.NEXT_DAY
 
                 tabapay_request = TabapayTransactionRequest(
-                    referenceID=str(payment_transaction_id),
+                    referenceID=str(payment_transaction_id)[:15],
                     accounts=TabapayTransactionAccounts(
                         sourceAccountID=str(source_instrument_id),
                         destinationAccountID=destination_identifier,
                     ),
                     currency=self.currency.value,
                     amount=amount,
-                    achOptions=ach_options,
                     achEntryType=ach_entry_type,
+                    achOptions=ach_options,
                 )
 
-                transaction_id, status = await self.client.process_payout(tabapay_request)
+                async with self.client as client:
+                    transaction_response = await client.process_payout(tabapay_request)
+
+                    if not transaction_response:  # incase none was returned due to some exception
+                        transaction_id = str(payment_transaction_id)[:15]
+                        status = TabapayStatusEnum.PENDING
+                    elif transaction_response.networkRC == "00":
+                        transaction_id = transaction_response.transactionID
+                        status = TabapayStatusEnum.COMPLETED
+                    else:
+                        transaction_id = transaction_response.transactionID
+                        status = transaction_response.status
 
                 await update_payment_transaction(
                     payment_transaction_id,
                     partner_reference_id=transaction_id,
                     status=self._map_tabapay_status_to_internal(TabapayStatusEnum(status)),
                     customer_reference_id=transaction_id,
+                    additional_info={
+                        "transaction_response": asdict(transaction_response) if transaction_response else None,
+                    },
                 )
 
                 if status not in (TabapayStatusEnum.COMPLETED, TabapayStatusEnum.FAILED, TabapayStatusEnum.ERROR):

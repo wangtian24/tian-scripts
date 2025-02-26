@@ -1,3 +1,4 @@
+import json as json_stdlib
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -16,6 +17,7 @@ CONTENT_TYPE_JSON = "application/json"
 AUTH_BEARER = "Bearer"
 DEFAULT_TIMEOUT_SECONDS = 30
 MAX_RETRIES = 3
+JSON_SEPARATORS = (",", ":")  # For compact JSON
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -36,16 +38,16 @@ class TabapayStatusEnum(str, Enum):
 class TabapayAccountTypeEnum(str, Enum):
     """Account types for Tabapay transactions."""
 
-    C = "CHECKING"
-    S = "SAVINGS"
+    CHECKING = "C"
+    SAVINGS = "S"
 
 
 class TabapayAchOptionsEnum(str, Enum):
     """ACH Options for Tabapay transactions."""
 
-    R = "RTP"
-    N = "Next Day"
-    S = "Same Day"
+    RTP = "R"
+    NEXT_DAY = "N"
+    SAME_DAY = "S"
 
 
 class TabapayAchEntryTypeEnum(str, Enum):
@@ -64,11 +66,13 @@ class TabapayConfig:
         api_url: Base URL for Tabapay API
         client_id: Client identifier for authentication
         bearer_token: Key for authentication
+        settlement_account_id: Account ID for settlement - This is the account from where funds will go out
     """
 
     api_url: str
     client_id: str
     bearer_token: str
+    settlement_account_id: str
 
     def validate(self) -> None:
         """Validates that all required fields are present."""
@@ -78,6 +82,8 @@ class TabapayConfig:
             raise TabapayError("Tabapay client ID is missing")
         if not self.bearer_token:
             raise TabapayError("Tabapay bearer token is missing")
+        if not self.settlement_account_id:
+            raise TabapayError("Tabapay settlement account ID is missing")
 
 
 @dataclass(frozen=True)
@@ -120,6 +126,7 @@ class TabapayOwnerAddress:
 class TabapayOwnerPhone:
     """Owner phone information."""
 
+    countryCode: str
     number: str
 
 
@@ -128,7 +135,7 @@ class TabapayOwnerInfo:
     """Complete owner information including name, phone, and optional address."""
 
     name: TabapayOwnerName
-    phone: TabapayOwnerPhone
+    phone: TabapayOwnerPhone | None = None
     address: TabapayOwnerAddress | None = None
 
 
@@ -142,6 +149,37 @@ class TabapayAccountDetails:
 
 
 @dataclass(frozen=True)
+class TabapayCardCreationInfo:
+    """Card details for account creation. We only use the token for the card."""
+
+    token: str
+
+
+@dataclass(frozen=True)
+class TabapayAccountCreationRequest:
+    """Request object for creating a Tabapay account.
+
+    Attributes:
+        referenceID: Unique identifier for the account creation
+        card: Optional card details
+        bank: Optional bank details
+
+    Raises:
+        TabapayError: If neither card nor bank details are provided
+    """
+
+    referenceID: str
+    owner: TabapayOwnerInfo
+    card: TabapayCardCreationInfo | None = None
+    bank: TabapayBankInfo | None = None
+
+    def __post_init__(self) -> None:
+        """Validates that at least one of card or bank is populated."""
+        if self.card is None and self.bank is None:
+            raise TabapayError("Either card or bank details must be provided")
+
+
+@dataclass(frozen=True)
 class TabapayTransactionFees:
     """Fee structure for a Tabapay transaction."""
 
@@ -151,15 +189,30 @@ class TabapayTransactionFees:
 
 
 @dataclass(frozen=True)
-class TabapayTransactionDetails:
-    """Details of a Tabapay transaction."""
+class TabapayTransactionResponse:
+    """Response object for a Tabapay transaction.
 
+    Attributes:
+        transactionID: Unique identifier for the transaction
+        network: Network used for the transaction (e.g. "Visa")
+        networkRC: Network response code
+        networkID: Network transaction identifier
+        status: Status of the transaction
+        approvalCode: Transaction approval code
+        fees: Transaction fee details
+        additional: Additional transaction metadata (e.g. PAR)
+        card: Card details if transaction involves a card
+    """
+
+    transactionID: str
     network: str
     networkRC: str
+    networkID: str
     status: TabapayStatusEnum
     approvalCode: str
-    amount: Decimal
-    fees: TabapayTransactionFees
+    fees: TabapayTransactionFees | None = None
+    additional: dict[str, str] | None = None
+    card: TabapayCardInfo | None = None
 
 
 @dataclass(frozen=True)
@@ -188,8 +241,8 @@ class TabapayTransactionRequest:
 
     referenceID: str
     accounts: TabapayTransactionAccounts
-    currency: str
     amount: Decimal
+    currency: str
     type: str = "push"
     memo: str | None = None
     purposeOfPayment: str | None = None
@@ -220,7 +273,7 @@ class TabapayError(Exception):
 
         # Log the error and post to Slack
         log_dict = {"message": f"Tabapay Error: {message}", **self.details}
-        logging.error(json_dumps(log_dict))
+        logging.error(json_dumps(log_dict, separators=JSON_SEPARATORS))
 
 
 def require_initialization(func: F) -> F:
@@ -256,13 +309,17 @@ class TabaPayClient(BasePartnerClient):
 
         self.config = await secret_manager.get_tabapay_config()
         config_obj = TabapayConfig(
-            api_url=self.config["api_url"], client_id=self.config["client_id"], bearer_token=self.config["bearer_token"]
+            api_url=self.config["api_url"],
+            client_id=self.config["client_id"],
+            bearer_token=self.config["bearer_token"],
+            settlement_account_id=self.config["settlement_account_id"],
         )
         config_obj.validate()
 
         self._config_obj = config_obj
         self.http_client = httpx.AsyncClient(
-            timeout=DEFAULT_TIMEOUT_SECONDS, limits=httpx.Limits(max_keepalive_connections=MAX_RETRIES)
+            timeout=DEFAULT_TIMEOUT_SECONDS,
+            limits=httpx.Limits(max_keepalive_connections=MAX_RETRIES),
         )
 
     async def cleanup(self) -> None:
@@ -275,7 +332,11 @@ class TabaPayClient(BasePartnerClient):
     def _get_headers(self) -> dict[str, str]:
         """Get common headers for API requests."""
         assert self._config_obj is not None
-        return {"accept": CONTENT_TYPE_JSON, "authorization": f"{AUTH_BEARER} {self._config_obj.bearer_token}"}
+        return {
+            "accept": CONTENT_TYPE_JSON,
+            "content-type": CONTENT_TYPE_JSON,
+            "authorization": f"{AUTH_BEARER} {self._config_obj.bearer_token}",
+        }
 
     def _get_base_url(self, path: str) -> str:
         """Construct full URL for API endpoints."""
@@ -295,10 +356,8 @@ class TabaPayClient(BasePartnerClient):
         Raises:
             TabapayError: If the balance request fails
         """
-        # TODO: Implement actual balance fetching logic
-        logging.info(json_dumps({"message": "fetching balance from tabapay"}))
-        logging.info(json_dumps({"message": "fetched balance from tabapay"}))
-        return GetBalanceResponse(balance=Decimal(1000), ip_address="unknown")
+        logging.info(json_dumps({"message": "Balance info not available for Tabapay"}, separators=JSON_SEPARATORS))
+        return GetBalanceResponse(balance=Decimal(0), ip_address="unknown")
 
     @require_initialization
     async def get_rtp_details(self, routing_number: str) -> bool:
@@ -313,7 +372,12 @@ class TabaPayClient(BasePartnerClient):
         Raises:
             TabapayError: If the RTP details request fails
         """
-        logging.info(json_dumps({"message": "fetching rtp details from tabapay", "routing_number": routing_number}))
+        logging.info(
+            json_dumps(
+                {"message": "fetching rtp details from tabapay", "routing_number": routing_number},
+                separators=JSON_SEPARATORS,
+            )
+        )
         url = self._get_base_url("banks")
         assert self.http_client is not None
 
@@ -323,7 +387,15 @@ class TabaPayClient(BasePartnerClient):
             )
             response.raise_for_status()
             data = response.json()
-            logging.info(json_dumps({"message": "fetched rtp details from tabapay", "response": json_dumps(data)}))
+            logging.info(
+                json_dumps(
+                    {
+                        "message": "fetched rtp details from tabapay",
+                        "response": json_dumps(data, separators=JSON_SEPARATORS),
+                    },
+                    separators=JSON_SEPARATORS,
+                )
+            )
             return bool(data.get("RTP", False))
         except httpx.HTTPError as e:
             error_details = {
@@ -333,7 +405,7 @@ class TabaPayClient(BasePartnerClient):
                 if isinstance(e, httpx.HTTPStatusError)
                 else None,
             }
-            logging.warning(json_dumps(error_details))
+            logging.warning(json_dumps(error_details, separators=JSON_SEPARATORS))
             return False
 
     @require_initialization
@@ -349,7 +421,12 @@ class TabaPayClient(BasePartnerClient):
         Raises:
             TabapayError: If the account details request fails
         """
-        logging.info(json_dumps({"message": "fetching account details from tabapay", "account_id": account_id}))
+        logging.info(
+            json_dumps(
+                {"message": "fetching account details from tabapay", "account_id": account_id},
+                separators=JSON_SEPARATORS,
+            )
+        )
 
         url = self._get_base_url(f"accounts/{account_id}")
         assert self.http_client is not None
@@ -360,7 +437,10 @@ class TabaPayClient(BasePartnerClient):
             data = response.json()
 
             logging.info(
-                json_dumps({"message": "fetched account details from tabapay", "status_code": response.status_code})
+                json_dumps(
+                    {"message": "fetched account details from tabapay", "status_code": response.status_code},
+                    separators=JSON_SEPARATORS,
+                )
             )
 
             return self._parse_account_details(data)
@@ -391,7 +471,9 @@ class TabaPayClient(BasePartnerClient):
                 )
                 if address_data
                 else None,
-                phone=TabapayOwnerPhone(number=owner_data.get("phone", "")),
+                phone=TabapayOwnerPhone(
+                    number=owner_data.get("phone", ""), countryCode=owner_data.get("countryCode", "")
+                ),
             ),
             bank=TabapayBankInfo(
                 routingNumber=data.get("bank", {}).get("routingNumber", ""),
@@ -421,7 +503,12 @@ class TabaPayClient(BasePartnerClient):
         Raises:
             TabapayError: If the status request fails
         """
-        logging.info(json_dumps({"message": "Tabapay: fetching transaction status", "transaction_id": transaction_id}))
+        logging.info(
+            json_dumps(
+                {"message": "Tabapay: fetching transaction status", "transaction_id": transaction_id},
+                separators=JSON_SEPARATORS,
+            )
+        )
 
         url = self._get_base_url(f"transactions/{transaction_id}")
         assert self.http_client is not None
@@ -436,8 +523,9 @@ class TabaPayClient(BasePartnerClient):
                     {
                         "message": "Tabapay: fetched transaction status",
                         "status_code": response.status_code,
-                        "data": json_dumps(data),
-                    }
+                        "data": json_dumps(data, separators=JSON_SEPARATORS),
+                    },
+                    separators=JSON_SEPARATORS,
                 )
             )
 
@@ -453,7 +541,7 @@ class TabaPayClient(BasePartnerClient):
             raise TabapayError("Error fetching transaction details from Tabapay", error_details) from e
 
     @require_initialization
-    async def create_account(self, request: TabapayAccountDetails) -> TabapayCreateAccountResponse:
+    async def create_account(self, request: TabapayAccountCreationRequest) -> TabapayCreateAccountResponse:
         """Create an account in Tabapay.
 
         Args:
@@ -465,40 +553,65 @@ class TabaPayClient(BasePartnerClient):
         Raises:
             TabapayError: If account creation fails
         """
-        log_dict = {
-            "message": "Tabapay: Creating account",
-            "request": {
-                "owner": {
-                    "name": {"first": request.owner.name.first, "last": request.owner.name.last},
-                    "phone": {"number": request.owner.phone.number},
-                    "address": request.owner.address.__dict__ if request.owner.address else None,
+        request_dict: dict[str, Any] = {
+            "referenceID": request.referenceID,
+            "owner": {
+                "name": {
+                    "first": request.owner.name.first,
+                    "last": request.owner.name.last,
                 },
-                "bank": request.bank.__dict__ if request.bank else None,
-                "card": request.card.__dict__ if request.card else None,
+                "phone": {"number": request.owner.phone.number} if request.owner.phone else None,
             },
         }
-        logging.info(json_dumps(log_dict))
+
+        # Add optional address if present
+        if request.owner.address:
+            request_dict["owner"]["address"] = {
+                "line1": request.owner.address.line1,
+                "line2": request.owner.address.line2,
+                "city": request.owner.address.city,
+                "state": request.owner.address.state,
+                "zipcode": request.owner.address.zipcode,
+            }
+
+        # Add bank info if present
+        if request.bank:
+            request_dict["bank"] = {
+                "routingNumber": request.bank.routingNumber,
+                "accountNumber": request.bank.accountNumber,
+                "accountType": request.bank.accountType.value,
+            }
+
+        # Add card info if present
+        if request.card:
+            request_dict["card"] = {
+                "token": request.card.token,
+            }
+
+        log_dict = {
+            "message": "Tabapay: Creating account",
+            "data": request_dict,
+        }
+        logging.info(json_dumps(log_dict, separators=JSON_SEPARATORS))
 
         url = self._get_base_url("accounts")
         assert self.http_client is not None
 
         try:
-            response = await self.http_client.post(url, headers=self._get_headers(), json=request)
+            response = await self.http_client.post(
+                url,
+                headers=self._get_headers(),
+                content=json_stdlib.dumps(request_dict, separators=JSON_SEPARATORS).encode(),
+            )
             response.raise_for_status()
             data = response.json()
 
             log_dict["message"] = "Tabapay: Account created"
-            log_dict["response"] = json_dumps(data)
-            logging.info(json_dumps(log_dict))
+            log_dict["data"] = json_dumps(data, separators=JSON_SEPARATORS)
+            logging.info(json_dumps(log_dict, separators=JSON_SEPARATORS))
 
             # Extract metadata (everything except standard fields)
             metadata = {k: v for k, v in data.items() if k not in ["SC", "EC", "accountID"]}
-
-            log_dict = {
-                "message": "Tabapay: Account created",
-                "response": json_dumps(data),
-            }
-            logging.info(json_dumps(log_dict))
 
             return TabapayCreateAccountResponse(
                 account_id=str(data.get("accountID", "")),
@@ -506,15 +619,7 @@ class TabaPayClient(BasePartnerClient):
             )
         except httpx.HTTPError as e:
             error_details = {
-                "request": {
-                    "owner": {
-                        "name": {"first": request.owner.name.first, "last": request.owner.name.last},
-                        "phone": {"number": request.owner.phone.number},
-                        "address": request.owner.address.__dict__ if request.owner.address else None,
-                    },
-                    "bank": request.bank.__dict__ if request.bank else None,
-                    "card": request.card.__dict__ if request.card else None,
-                },
+                "request": request_dict,
                 "error": str(e),
                 "status_code": getattr(e.response, "status_code", None)
                 if isinstance(e, httpx.HTTPStatusError)
@@ -523,62 +628,85 @@ class TabaPayClient(BasePartnerClient):
             raise TabapayError("Error creating account in Tabapay", error_details) from e
 
     @require_initialization
-    async def create_transaction(self, request: TabapayTransactionRequest) -> tuple[str, TabapayStatusEnum]:
+    async def create_transaction(self, request: TabapayTransactionRequest) -> TabapayTransactionResponse:
         """Create a transaction in Tabapay.
 
         Args:
             request: Transaction details for creation
 
         Returns:
-            tuple containing:
-                - str: The ID of the created transaction
-                - TabapayStatusEnum: The initial status of the transaction
+            TabapayTransactionResponse containing the transaction details and status
 
         Raises:
             TabapayError: If transaction creation fails
         """
+        if self._config_obj is None or self._config_obj.settlement_account_id is None:
+            raise TabapayError("Tabapay client not initialized")
+
+        request_dict = {
+            "referenceID": request.referenceID,
+            "accounts": {
+                "sourceAccountID": self._config_obj.settlement_account_id,
+                "destinationAccountID": request.accounts.destinationAccountID,
+            },
+            "currency": request.currency,
+            "amount": str(request.amount),
+            "type": request.type,
+        }
+
+        # Add optional fields if present
+        if request.memo is not None:
+            request_dict["memo"] = request.memo
+        if request.purposeOfPayment is not None:
+            request_dict["purposeOfPayment"] = request.purposeOfPayment
+        if request.achOptions is not None:
+            request_dict["achOptions"] = request.achOptions.value
+        if request.achEntryType is not None:
+            request_dict["achEntryType"] = request.achEntryType.value
+
         log_dict = {
             "message": "Tabapay: Creating transaction",
-            "request": {
-                "referenceID": request.referenceID,
-                "accounts": request.accounts.__dict__,
-                "currency": request.currency,
-                "amount": str(request.amount),
-                "type": request.type,
-                "memo": request.memo,
-                "purposeOfPayment": request.purposeOfPayment,
-                "achOptions": request.achOptions.value if request.achOptions else None,
-                "achEntryType": request.achEntryType.value if request.achEntryType else None,
-            },
+            "request": request_dict,
         }
-        logging.info(json_dumps(log_dict))
+        logging.info(json_dumps(log_dict, separators=JSON_SEPARATORS))
 
         url = self._get_base_url("transactions")
         assert self.http_client is not None
 
         try:
-            response = await self.http_client.post(url, headers=self._get_headers(), json=request)
+            response = await self.http_client.post(
+                url,
+                headers=self._get_headers(),
+                content=json_stdlib.dumps(request_dict, separators=JSON_SEPARATORS).encode(),
+            )
             response.raise_for_status()
             data = response.json()
 
             log_dict["message"] = "Tabapay: Transaction created"
-            log_dict["response"] = json_dumps(data)
-            logging.info(json_dumps(log_dict))
+            log_dict["response"] = json_dumps(data, separators=JSON_SEPARATORS)
+            logging.info(json_dumps(log_dict, separators=JSON_SEPARATORS))
 
-            return str(data.get("transactionId", "")), TabapayStatusEnum(str(data.get("status", "")))
+            # Parse card info if present
+            card_info = None
+            if card_data := data.get("card"):
+                card_info = TabapayCardInfo(
+                    last4=card_data.get("last4", ""),
+                    expirationDate=card_data.get("expirationDate", ""),
+                )
+
+            return TabapayTransactionResponse(
+                transactionID=str(data.get("transactionID", "")),
+                network=str(data.get("network", "")),
+                networkRC=str(data.get("networkRC", "")),
+                networkID=str(data.get("networkID", "")),
+                status=TabapayStatusEnum(str(data.get("status", ""))),
+                approvalCode=str(data.get("approvalCode", "")),
+                additional=data.get("additional"),
+                card=card_info,
+            )
         except httpx.HTTPError as e:
             error_details = {
-                "request": {
-                    "referenceID": request.referenceID,
-                    "accounts": request.accounts.__dict__,
-                    "currency": request.currency,
-                    "amount": str(request.amount),
-                    "type": request.type,
-                    "memo": request.memo,
-                    "purposeOfPayment": request.purposeOfPayment,
-                    "achOptions": request.achOptions.value if request.achOptions else None,
-                    "achEntryType": request.achEntryType.value if request.achEntryType else None,
-                },
+                "request": request_dict,
                 "error": str(e),
                 "status_code": getattr(e.response, "status_code", None)
                 if isinstance(e, httpx.HTTPStatusError)

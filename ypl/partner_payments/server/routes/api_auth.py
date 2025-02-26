@@ -3,7 +3,7 @@ import os
 from fastapi import HTTPException, Security
 from fastapi.security.api_key import APIKeyHeader
 from starlette.status import HTTP_403_FORBIDDEN
-from ypl.partner_payments.server.config import settings
+from ypl.backend.config import settings
 
 api_key_header = APIKeyHeader(name="X-API-KEY", auto_error=False, description="Regular API key for standard endpoints")
 
