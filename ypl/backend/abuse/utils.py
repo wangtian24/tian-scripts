@@ -2,12 +2,14 @@ import logging
 from collections.abc import Sequence, Set
 from typing import Any
 
+from sqlalchemy.orm import selectinload
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ypl.backend.abuse import AbuseException
+from ypl.backend.db import get_async_session
 from ypl.backend.utils.json import json_dumps
-from ypl.db.abuse import AbuseActionType, AbuseEvent, AbuseEventType
+from ypl.db.abuse import AbuseActionType, AbuseEvent, AbuseEventState, AbuseEventType
 from ypl.db.invite_codes import SpecialInviteCode, SpecialInviteCodeClaimLog
 from ypl.db.users import User
 
@@ -64,3 +66,27 @@ async def create_abuse_event(
 
     if AbuseActionType.RAISE_EXCEPTION in actions:
         raise AbuseException(f"Abuse event {event_type} for user {user.user_id}")
+
+
+async def get_abuse_events(
+    user_id: str | None = None,
+    event_type: AbuseEventType | None = None,
+    state: AbuseEventState | None = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> tuple[Sequence[AbuseEvent], bool]:
+    async with get_async_session() as session:
+        query = select(AbuseEvent).options(selectinload(AbuseEvent.user)).order_by(AbuseEvent.created_at.desc())  # type: ignore
+        if user_id:
+            query = query.where(AbuseEvent.user_id == user_id)
+        if event_type:
+            query = query.where(AbuseEvent.event_type == event_type)
+        if state:
+            query = query.where(AbuseEvent.state == state)
+        query = query.offset(offset).limit(limit + 1)
+        results = await session.exec(query)
+        events = results.all()
+        has_more_rows = len(events) > limit
+        if has_more_rows:
+            events = events[:-1]
+        return events, has_more_rows

@@ -12,7 +12,7 @@ from ypl.backend.llm.provider.provider_clients import load_active_models_with_pr
 from ypl.backend.llm.ranking import get_ranker
 from ypl.backend.prompts import load_prompt_modifiers
 from ypl.backend.routes.api_auth import validate_admin_api_key, validate_api_key
-from ypl.backend.routes.v1 import chat_completions, chat_feed, credit, health, model, payment, rank, reward
+from ypl.backend.routes.v1 import abuse, chat_completions, chat_feed, credit, health, model, payment, rank, reward
 from ypl.backend.routes.v1 import chats as chats_route
 from ypl.backend.routes.v1 import classify as classify_route
 from ypl.backend.routes.v1 import email as email_route
@@ -89,6 +89,7 @@ api_router.include_router(user_route.router, prefix="/v1", tags=["users"])
 api_router.include_router(chat_instrumentation_router, prefix="/v1", tags=["chats"])
 
 
+admin_router.include_router(abuse.router, prefix="/v1", tags=["admin"])
 admin_router.include_router(invite_route.admin_router, prefix="/v1", tags=["admin"])
 admin_router.include_router(message_route.router, prefix="/v1", tags=["admin"])
 admin_router.include_router(model_promotions_route.router, prefix="/v1", tags=["model_promotions"])
