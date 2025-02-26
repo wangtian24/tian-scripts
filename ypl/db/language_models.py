@@ -207,6 +207,9 @@ class LanguageModel(BaseModel, table=True):
     # Whether the model supports real time queries.
     is_live: bool | None = Field(nullable=True, default=None, index=True)
 
+    # Whether this model is for internal use only (only Yuppsters will see it or use it)
+    is_internal: bool | None = Field(nullable=True, default=None, index=True)
+
     # Eventually we will link to our own model info pages. But this is a short term solution.
     external_model_info_url: str | None = Field(nullable=True, default=None)
 
@@ -319,6 +322,10 @@ class LanguageModelTaxonomy(BaseModel, table=True):
     is_strong: bool | None = Field(nullable=True, default=False)
     is_pro: bool | None = Field(nullable=True, default=False)
     is_live: bool | None = Field(nullable=True, default=False)
+    # Whether this model type is for internal use only (only Yuppsters will see it or use it)
+    # There is a separate field for individual models in LanguageModel which has priority over this though.
+    is_internal: bool | None = Field(nullable=True, default=False)
+
     parameter_count: int | None = Field(sa_column=Column(BigInteger(), nullable=True), default=None)
     context_window_tokens: int | None = Field(sa_column=Column(BigInteger(), nullable=True), default=None)
     knowledge_cutoff_date: date | None = Field(nullable=True)

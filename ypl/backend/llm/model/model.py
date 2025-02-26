@@ -39,6 +39,7 @@ class LanguageModelStruct(BaseModel):
     taxo_label: str | None
     taxonomy_path: str | None  # joining publisher, family, class, version, release
     flags: list[str] | None  # a list of PRO, STRONG, LIVE tags if available
+    is_internal: bool | None
 
 
 def clean_provider_name(provider_name: str) -> str:
@@ -182,6 +183,7 @@ class ModelTaxonomyResponse(BaseModel):
     is_live: bool
     is_new: bool
     supported_attachment_mime_types: list[str] | None
+    is_internal: bool | None
 
 
 MAX_NEW_MODEL_AGE_DAYS = 30
@@ -263,6 +265,7 @@ async def get_model_taxonomies(query: ModelTaxonomyQuery) -> list[ModelTaxonomyR
                 is_new=result.created_at is not None
                 and result.created_at > datetime.now(UTC) - timedelta(days=MAX_NEW_MODEL_AGE_DAYS),
                 supported_attachment_mime_types=result.supported_attachment_mime_types,
+                is_internal=result.is_internal,
             )
             for result in results
         ]
