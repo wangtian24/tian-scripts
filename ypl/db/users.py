@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from ypl.db.events import Event
     from ypl.db.invite_codes import SpecialInviteCode, SpecialInviteCodeClaimLog
     from ypl.db.language_models import LanguageModel
+    from ypl.db.naughty_list import NaughtyList
     from ypl.db.payments import PaymentInstrument
     from ypl.db.soul_rbac import SoulRole
 
@@ -125,6 +126,12 @@ class User(BaseModel, table=True):
     created_capability_overrides: list["UserCapabilityOverride"] = Relationship(
         back_populates="creator",
         sa_relationship_kwargs={"foreign_keys": "[UserCapabilityOverride.creator_user_id]"},
+    )
+
+    # Back-reference to NaughtyList
+    added_naughty_list_entries: list["NaughtyList"] = Relationship(
+        back_populates="added_by",
+        sa_relationship_kwargs={"foreign_keys": "[NaughtyList.added_by_user_id]"},
     )
 
     events: list["Event"] = Relationship(back_populates="user", cascade_delete=True)
