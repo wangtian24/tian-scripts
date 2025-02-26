@@ -141,7 +141,7 @@ class Settings(BaseSettings):
     MAX_TEXT_TO_EXTRACT_FROM_PDF: int = 16000
 
     # Whether to compute and store embeddings for message content upon their completion.
-    EMBED_MESSAGES_UPON_COMPLETION: bool = False
+    EMBED_MESSAGES_UPON_COMPLETION: bool = True
 
     # Whether to extract memories from messages.
     EXTRACT_MEMORIES_FROM_MESSAGES: bool = True
