@@ -1,7 +1,7 @@
 import logging
 import os
 import uuid
-from typing import Final, Literal
+from typing import Literal
 
 import aiohttp
 from langchain_text_splitters import TokenTextSplitter
@@ -40,8 +40,6 @@ INTERNAL_EMBEDDING_ENDPOINT = "http://embed.yupp.ai/embed"
 
 # Multipliers to decrease the context length for input length validation exceptions.
 CONTEXT_LENGTH_MULTIPLIERS = [0.95, 0.8, 0.6]
-
-INTERNAL_X_API_KEY: Final[str] = settings.embed_x_api_key
 
 
 def _process_input(
@@ -138,7 +136,7 @@ async def _embed_together(input: list[str], embedding_model: str) -> list[list[f
 
 
 async def _embed_internal(input: list[str], embedding_model: str) -> list[list[float]]:
-    headers = {"Content-Type": "application/json", "x-api-key": INTERNAL_X_API_KEY}
+    headers = {"Content-Type": "application/json", "x-api-key": settings.embed_x_api_key}
     payload = {"texts": input}
 
     try:
