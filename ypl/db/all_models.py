@@ -1,4 +1,5 @@
 from ypl.db import (
+    abuse,
     app_feedback,
     attachments,
     chats,
@@ -22,6 +23,7 @@ from ypl.db import (
 
 all_models = [
     # Please keep sorted.
+    abuse,
     app_feedback,
     attachments,
     chats,

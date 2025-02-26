@@ -15,6 +15,7 @@ from ypl.db.point_transactions import PointTransaction
 from ypl.db.rewards import Reward, RewardActionEnum, RewardActionLog, RewardStatusEnum
 
 if TYPE_CHECKING:
+    from ypl.db.abuse import AbuseEvent
     from ypl.db.chats import Chat, Eval, SuggestedUserPrompt, Turn
     from ypl.db.events import Event
     from ypl.db.invite_codes import SpecialInviteCode, SpecialInviteCodeClaimLog
@@ -155,6 +156,8 @@ class User(BaseModel, table=True):
         back_populates="users",
         sa_relationship_kwargs={"secondary": "user_ip_details"},
     )
+
+    abuse_events: list["AbuseEvent"] = Relationship(back_populates="user", cascade_delete=True)
 
     def is_new_user(self) -> bool:
         return len(self.chats) < NEW_USER_CHAT_THRESHOLD
