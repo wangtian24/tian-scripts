@@ -7,12 +7,12 @@ from sqlmodel import Session, or_
 from tqdm.asyncio import tqdm_asyncio as tqdm_asyncio
 
 import ypl.db.all_models  # noqa
-from ypl.backend.llm.embedding import DEFAULT_TOGETHER_MODEL, embed
+from ypl.backend.llm.embedding import DEFAULT_EMBEDDING_MODEL, embed
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import ChatMessage, CompletionStatus
 from ypl.db.embeddings import ChatMessageEmbedding
 
-EMBEDDING_MODEL = DEFAULT_TOGETHER_MODEL
+EMBEDDING_MODEL = DEFAULT_EMBEDDING_MODEL
 
 
 async def _embed(message: ChatMessage, sem: asyncio.Semaphore, session: Session) -> int:

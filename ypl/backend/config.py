@@ -297,6 +297,11 @@ class Settings(BaseSettings):
         return self._get_gcp_secret(f"guest-mgmt-slack-webhook-url-{self.ENVIRONMENT}")
 
     @computed_field  # type: ignore[misc]
+    @cached_property
+    def embed_x_api_key(self) -> str:
+        return self._get_gcp_secret("embedding_service_api_key")
+
+    @computed_field  # type: ignore[misc]
     @property
     def server_host(self) -> str:
         # Use HTTPS for anything other than local development
