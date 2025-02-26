@@ -77,7 +77,7 @@ class PaymentInstrument(BaseModel, table=True):
     facilitator: PaymentInstrumentFacilitatorEnum = Field(nullable=False)
 
     identifier_type: PaymentInstrumentIdentifierTypeEnum = Field(nullable=False)
-    identifier: str = Field(nullable=False)
+    identifier: str = Field(nullable=False, index=True)
 
     # JSON metadata for storing additional instrument-specific data
     instrument_metadata: dict | None = Field(sa_column=Column(JSONB, nullable=True))
