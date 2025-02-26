@@ -10,12 +10,14 @@ from async_lru import alru_cache
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
+from nuggetizer.core.types import Document, Query, Request
 from sqlalchemy import select
 
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
 from ypl.backend.llm.chat import get_curated_chat_context
 from ypl.backend.llm.labeler import LLMLabeler
+from ypl.backend.llm.nuggetizer import YuppNuggetizer
 from ypl.backend.llm.provider.provider_clients import (
     get_gemini_2_flash_llm,
     get_gemini_15_flash_llm,
@@ -25,6 +27,7 @@ from ypl.backend.llm.provider.provider_clients import (
 from ypl.backend.llm.review_types import (
     BinaryResult,
     CritiqueResult,
+    NuggetizedResult,
     ReviewConfig,
     ReviewRequest,
     ReviewResponse,
@@ -58,6 +61,10 @@ REVIEW_CONFIGS: dict[ReviewType, ReviewConfig] = {
     ReviewType.SEGMENTED: ReviewConfig(
         max_tokens=4096,  # Larger token limit for detailed segmented reviews
         prompt_template=SEGMENTED_REVIEW_PROMPT,
+    ),
+    ReviewType.NUGGETIZED: ReviewConfig(
+        max_tokens=4096,  # Larger token limit for nuggetized reviews
+        prompt_template="",  # No prompt template needed as we use YuppNuggetizer
     ),
 }
 
@@ -255,10 +262,118 @@ class SegmentedReviewLabeler(BaseReviewLabeler[list[dict[str, str]]]):
         return segments
 
 
+class NuggetizedReviewLabeler(LLMLabeler[tuple[str, list[tuple[str, str]]], dict[str, NuggetizedResult]]):
+    """Labeler that uses nuggetizer to extract and analyze key points from responses."""
+
+    def __init__(self, model: str = "gpt-4o", timeout_secs: float = settings.DEFAULT_REVIEW_TIMEOUT_SECS) -> None:
+        self.model = model
+        if self.model not in ["gpt-4o", "gpt-4o-mini"]:
+            logging.warning(f"NuggetizedReviewLabeler: Unsupported model {model}, using gpt-4o instead")
+            self.model = "gpt-4o"
+        self.base_llm = get_gpt_4o_llm(max_tokens=4096)
+        self.nuggetizer: YuppNuggetizer | None = None
+        super().__init__(self.base_llm, timeout_secs=timeout_secs)
+
+    def _get_nuggetizer(self) -> YuppNuggetizer:
+        if self.nuggetizer is None:
+            self.nuggetizer = YuppNuggetizer(model=self.model)
+        return self.nuggetizer
+
+    async def alabel_full(self, input: tuple[str, list[tuple[str, str]]]) -> tuple[dict[str, NuggetizedResult], str]:
+        """Labels the input asynchronously using nuggetizer.
+
+        Args:
+            input: A tuple containing:
+                - question: The conversation history until the last user message
+                - model_responses: List of tuples (model_name, response_text)
+
+        Returns:
+            A tuple containing:
+                - model_specific_results: Dict mapping model names to their NuggetizedResult
+                - empty string (no raw output to clean)
+        """
+        try:
+            start_time = time.time()
+            async with asyncio.timeout(self.timeout_secs):
+                question, model_responses = input
+                prepared_input = self._prepare_input(input)
+
+                # Extract model names and responses
+                model_names = [model_name for model_name, _ in model_responses]
+                responses = [response for _, response in model_responses]
+
+                if not responses:
+                    logging.warning("No responses to review in nuggetizer")
+                    return {}, ""
+
+                # Create nuggetizer request
+                query = Query(qid="review-tmp-qid", text=question)
+                documents = [
+                    Document(docid=f"review-tmp-response-{i+1}", segment=response)
+                    for i, response in enumerate(responses)
+                ]
+                request = Request(query=query, documents=documents)
+
+                # Initialize nuggetizer
+                nuggetizer = self._get_nuggetizer()
+
+                # Extract nuggets
+                scored_nuggets = await nuggetizer.create(request)
+
+                # Assign nuggets to each response in parallel
+                assignment_tasks = [nuggetizer.assign(query.text, response, scored_nuggets) for response in responses]
+                assigned_nuggets_list = await asyncio.gather(*assignment_tasks)
+
+                # Create model-specific results
+                model_specific_results: dict[str, NuggetizedResult] = {}
+
+                # Process each model's results
+                for i, model_name in enumerate(model_names):
+                    if i < len(assigned_nuggets_list):
+                        model_nuggets = [
+                            {
+                                "text": nugget.text,
+                                "importance": nugget.importance,
+                                "assignment": assigned_nuggets_list[i][j].assignment,
+                            }
+                            for j, nugget in enumerate(scored_nuggets)
+                        ]
+
+                        model_specific_results[model_name] = {
+                            "nuggets": model_nuggets,
+                            "reviewer_model": self.model,
+                        }
+
+                return model_specific_results, ""  # Empty string as we don't have raw output to clean
+        except Exception as e:
+            self._log_error(input, prepared_input, e, start_time)
+            if self.on_error == "raise":
+                raise e
+            else:
+                return {}, ""
+
+    def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
+        return llm  # No prompt template needed for nuggetizer
+
+    def _prepare_input(self, input: tuple[str, list[tuple[str, str]]]) -> dict[str, Any]:
+        """Input is (question, list of (model_name, response)) tuple"""
+        question, model_responses = input
+        return dict(question=question, model_responses=model_responses)
+
+    async def _aparse_output(self, output: BaseMessage) -> dict[str, NuggetizedResult]:
+        """Parse output from nuggetizer. This is a no-op since alabel_full handles everything."""
+        return {}
+
+    @property
+    def error_value(self) -> dict[str, NuggetizedResult]:
+        return {}
+
+
 # Singleton instances with model tracking
 BINARY_REVIEWER: dict[str, BinaryReviewLabeler] = {}
 CRITIQUE_REVIEWER: dict[str, CritiqueReviewLabeler] = {}
 SEGMENTED_REVIEWER: dict[str, SegmentedReviewLabeler] = {}
+NUGGETIZED_REVIEWER: dict[str, NuggetizedReviewLabeler] = {}
 
 
 def get_binary_reviewer(model: str = "gpt-4o") -> BinaryReviewLabeler:
@@ -280,6 +395,13 @@ def get_segmented_reviewer(model: str = "gpt-4o") -> SegmentedReviewLabeler:
     if model not in SEGMENTED_REVIEWER:
         SEGMENTED_REVIEWER[model] = SegmentedReviewLabeler(model=model)
     return SEGMENTED_REVIEWER[model]
+
+
+def get_nuggetized_reviewer(model: str = "gpt-4o") -> NuggetizedReviewLabeler:
+    """Get or create the nuggetized reviewer instance."""
+    if model not in NUGGETIZED_REVIEWER:
+        NUGGETIZED_REVIEWER[model] = NuggetizedReviewLabeler(model)
+    return NUGGETIZED_REVIEWER[model]
 
 
 def _extract_conversation_until_last_user_message(chat_history_messages: list[BaseMessage]) -> str:
@@ -363,6 +485,7 @@ async def generate_reviews(
             - binary: dict[str, BinaryResult] if binary review was requested
             - critique: dict[str, CritiqueResult] if critique review was requested
             - segmented: dict[str, SegmentedResult] if segmented review was requested
+            - nuggetized: dict[str, NuggetizedResult] if nuggetized review was requested
     """
     async with get_async_session() as session:
         stmt = select(Turn.chat_id).where(Turn.turn_id == request.turn_id)  # type: ignore
@@ -546,11 +669,44 @@ async def generate_reviews(
         )
         return cast(tuple[ReviewType, dict[str, SegmentedResult]], result)
 
+    async def run_nuggetized_review() -> tuple[ReviewType, dict[str, NuggetizedResult]]:
+        """Run nuggetized review."""
+        try:
+            # Prepare model-specific responses
+            model_responses: list[tuple[str, str]] = []
+            if last_assistant_responses:
+                for model_name, response in last_assistant_responses.items():
+                    model_responses.append((model_name, str(response.content)))
+            else:
+                logging.warning("run_nuggetized_review: No responses to review, last_assistant_responses is empty")
+                return ReviewType.NUGGETIZED, {}
+
+            # Get conversation history until last user message
+            conversation_history = _extract_conversation_until_last_user_message(chat_history.messages)
+
+            # Use all responses for nuggetized review
+            reviewer_model = "gpt-4o"  # Default to gpt-4o for nuggetized review
+            nuggetized_reviewer = get_nuggetized_reviewer(reviewer_model)
+
+            # Run the nuggetizer with model-specific responses
+            model_specific_results, _ = await nuggetized_reviewer.alabel_full((conversation_history, model_responses))
+            return ReviewType.NUGGETIZED, model_specific_results
+
+        except Exception as e:
+            log_dict = {
+                "message": f"Error in nuggetized review: {str(e)}",
+                "question": _extract_conversation_until_last_user_message(chat_history.messages),
+                "last_assistant_responses": last_assistant_responses,
+            }
+            logging.exception(json_dumps(log_dict))
+            return ReviewType.NUGGETIZED, {}
+
     # Map review types to their corresponding functions
     review_funcs = {
         ReviewType.BINARY: run_binary_review,
         ReviewType.CRITIQUE: run_critique_review,
         ReviewType.SEGMENTED: run_segmented_review,
+        ReviewType.NUGGETIZED: run_nuggetized_review,
     }
 
     # Map review types to their error values with proper type annotations
@@ -597,13 +753,17 @@ async def generate_reviews(
                     ReviewType.BINARY: binary_reviewers,
                     ReviewType.CRITIQUE: critique_reviewers,
                     ReviewType.SEGMENTED: segmented_reviewers,
+                    ReviewType.NUGGETIZED: {
+                        model: cast(BaseReviewLabeler[Any], get_nuggetized_reviewer("gpt-4o"))
+                        for model in last_assistant_responses
+                    }
+                    if last_assistant_responses
+                    else {},
                 },
                 has_error=has_error,
                 model_info=all_model_families,
                 chat_id=chat_id,
             )
-        else:
-            logging.warning("No last assistant responses to save")
     else:
         logging.warning("Cannot persist reviews: turn_id is None")
 
@@ -612,6 +772,7 @@ async def generate_reviews(
         binary=cast(dict[str, BinaryResult], processed_results.get(ReviewType.BINARY)),
         critique=cast(dict[str, CritiqueResult], processed_results.get(ReviewType.CRITIQUE)),
         segmented=cast(dict[str, SegmentedResult], processed_results.get(ReviewType.SEGMENTED)),
+        nuggetized=cast(dict[str, NuggetizedResult], processed_results.get(ReviewType.NUGGETIZED)),
         status=ReviewStatus.ERROR if has_error else ReviewStatus.SUCCESS,
     )
 
@@ -647,6 +808,33 @@ async def store_reviews(
                             f"(message_id={message.message_id}, turn_id={message.turn_id}, chat_id={chat_id})"
                         )
 
+                    # Special handling for nuggetized reviews
+                    if review_type == ReviewType.NUGGETIZED:
+                        # Get the nuggetized result for this model
+                        review_result = processed_results[review_type].get(model_name)
+                        if not review_result:
+                            logging.warning(f"Nuggetized review result for {model_name} not found in processed results")
+                            continue
+
+                        # For nuggetized reviews, we use a fixed reviewer model (gpt-4o)
+                        reviewer_model = "gpt-4o"
+                        if reviewer_model not in model_info:
+                            logging.warning(f"Reviewer model {reviewer_model} not found in model_info")
+                            continue
+
+                        _, reviewer_model_id = model_info[reviewer_model]
+
+                        review = MessageReview(
+                            message_id=message.message_id,
+                            review_type=review_type,
+                            result=review_result,
+                            reviewer_model_id=reviewer_model_id,
+                            status=ReviewStatus.ERROR if has_error else ReviewStatus.SUCCESS,
+                        )
+                        session.add(review)
+                        continue
+
+                    # Standard handling for other review types
                     review_result = processed_results[review_type].get(model_name)
                     if not review_result:
                         logging.warning(

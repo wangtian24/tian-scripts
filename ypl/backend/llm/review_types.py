@@ -19,6 +19,7 @@ class ReviewType(str, enum.Enum):
     BINARY = "binary"
     CRITIQUE = "critique"
     SEGMENTED = "segmented"
+    NUGGETIZED = "nuggetized"
 
 
 class ReviewStatus(str, enum.Enum):
@@ -60,12 +61,20 @@ class SegmentedResult(TypedDict):
     reviewer_model: str
 
 
+class NuggetizedResult(TypedDict):
+    """Result from nuggetized review."""
+
+    nuggets: list[dict[str, str]]  # List of nuggets with text, importance, and assignment
+    reviewer_model: str
+
+
 class ReviewResponse(BaseModel):
     """Response model for all review types."""
 
     binary: dict[str, BinaryResult] | None = None
     critique: dict[str, CritiqueResult] | None = None
     segmented: dict[str, SegmentedResult] | None = None
+    nuggetized: dict[str, NuggetizedResult] | None = None
     status: ReviewStatus
 
 
@@ -76,5 +85,5 @@ class ReviewConfig(BaseModel):
     prompt_template: str
 
 
-AllReviewResults = BinaryResult | CritiqueResult | SegmentedResult
+AllReviewResults = BinaryResult | CritiqueResult | SegmentedResult | NuggetizedResult
 ReviewResult = dict[str, AllReviewResults]

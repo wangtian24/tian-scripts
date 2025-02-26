@@ -1566,3 +1566,99 @@ Rules:
 - Try to provide at least 2 segments and at most 4 segments
 
 Do not add any text, explanations, or markup outside the specified format."""
+
+NUGGETIZER_CREATE_PROMPT = """You are NuggetizeLLM, an intelligent assistant that extracts atomic nuggets of information from provided "AI Responses to Create Nuggets From" to address the final user request in a conversation.
+Focus on the final request while considering the conversation history for additional context."""
+
+NUGGETIZER_CREATE_USER_PROMPT = """Extract or update atomic nuggets of information (1-12 words each) from the provided "AI Responses to Create Nuggets From" that are different responses to the user's final request.
+Consider the conversation history for understanding but extract nuggets ONLY from the responses provided, not from any other AI responses or other parts of the conversation.
+Return the final list of all nuggets in a Pythonic list format.
+Ensure there is no redundant information and the list has at most {max_nuggets} nuggets (can be less), keeping only the most vital ones.
+Order them in decreasing order of importance.
+Prefer nuggets that provide more interesting information.
+
+<Conversation History and Final Request>
+{query}
+</Conversation History and Final Request>
+
+<AI Responses to Create Nuggets From>
+{context}
+</AI Responses to Create Nuggets From>
+
+<Initial Nugget List>
+{nuggets}
+</Initial Nugget List>
+
+Initial Nugget List Length: {nugget_count}
+
+Only update the list of atomic nuggets (if needed, else return as is). Do not explain. Always answer in short nuggets (not questions). List in the form ["a", "b", ...] and a and b are strings with no mention of ". Do not use identifiers like <Updated Nugget List>.
+Updated Nugget List:"""
+
+NUGGETIZER_SCORE_PROMPT = """You are NuggetizeScoreLLM, an intelligent assistant that evaluates the importance of atomic nuggets in addressing a user's final request, while considering the conversation context."""
+
+NUGGETIZER_SCORE_USER_PROMPT = """Label each nugget as either vital or okay based on its importance in addressing the user's final request.
+Consider the conversation history for context, but focus primarily on the final request.
+Vital nuggets represent concepts that must be present in a "good" answer; okay nuggets contribute worthwhile information but are not essential.
+Return the list of labels in a Pythonic list format (type: List[str]).
+The list should be in the same order as the input nuggets.
+Make sure to provide a label for each nugget.
+
+<Conversation History and Final Request>
+{query}
+</Conversation History and Final Request>
+
+<Nugget List>
+{nuggets}
+</Nugget List>
+
+Only return the list of labels (List[str]). Do not explain or use identifiers like <Labels>.
+Labels:"""
+
+NUGGETIZER_ASSIGN_PROMPT = """You are NuggetizeAssignerLLM, an intelligent assistant that determines how well each nugget is supported by a given AI response, considering both the conversation context and final request."""
+
+NUGGETIZER_ASSIGN_PROMPT_SUPPORT_GRADE_2 = """You are NuggetizeAssignerLLM, an intelligent assistant that determines how well each nugget is supported by a given AI response, considering both the conversation context and final request."""
+
+NUGGETIZER_ASSIGN_USER_PROMPT_SUPPORT_GRADE_2 = """Evaluate each nugget against the AI response to determine if it is supported.
+Consider the conversation history for context, but focus on how well the response supports each nugget in addressing the final request.
+Label each nugget as either support (if fully captured in the response) or not_support (if not captured).
+Return the list of labels in a Pythonic list format (type: List[str]).
+The list should be in the same order as the input nuggets.
+Make sure to provide a label for each nugget.
+
+<Conversation History and Final Request>
+{query}
+</Conversation History and Final Request>
+
+<AI Response to Check Support Against>
+{context}
+</AI Response to Check Support Against>
+
+<Nugget List>
+{nuggets}
+</Nugget List>
+
+Only return the list of labels (List[str]). Do not explain or use identifiers like <Labels>.
+Labels:"""
+
+NUGGETIZER_ASSIGN_USER_PROMPT = """Evaluate each nugget against the AI response to determine its level of support.
+Consider the conversation history for context, but focus on how well the response supports each nugget in addressing the final request.
+Label each nugget as:
+- support: if fully captured in the response
+- partial_support: if partially captured in the response
+- not_support: if not captured at all
+Return the list of labels in a Pythonic list format (type: List[str]). The list should be in the same order as the input nuggets. Make sure to provide a label for each nugget.
+
+<Conversation History and Final Request>
+{query}
+</Conversation History and Final Request>
+
+<AI Response to Check Support Against>
+{context}
+</AI Response to Check Support Against>
+
+<Nugget List>
+{nuggets}
+</Nugget List>
+
+Only return the list of labels (List[str]). Do not explain. Do not use identifiers like <Labels>.
+Labels:"""

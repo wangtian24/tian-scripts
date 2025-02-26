@@ -2697,13 +2697,13 @@ grpcio-gcp = ["grpcio-gcp (>=0.2.2,<1.0.dev0)"]
 
 [[package]]
 name = "google-api-python-client"
-version = "2.161.0"
+version = "2.162.0"
 description = "Google API Client Library for Python"
 optional = false
 python-versions = ">=3.7"
 files = [
-    {file = "google_api_python_client-2.161.0-py2.py3-none-any.whl", hash = "sha256:9476a5a4f200bae368140453df40f9cda36be53fa7d0e9a9aac4cdb859a26448"},
-    {file = "google_api_python_client-2.161.0.tar.gz", hash = "sha256:324c0cce73e9ea0a0d2afd5937e01b7c2d6a4d7e2579cdb6c384f9699d6c9f37"},
+    {file = "google_api_python_client-2.162.0-py2.py3-none-any.whl", hash = "sha256:49365fa4f7795fe81a747f5544d6528ea94314fa59664e0ea1005f603facf1ec"},
+    {file = "google_api_python_client-2.162.0.tar.gz", hash = "sha256:5f8bc934a5b6eea73a7d12d999e6585c1823179f48340234acb385e2502e735a"},
 ]
 
 [package.dependencies]
@@ -4107,18 +4107,19 @@ six = "*"
 
 [[package]]
 name = "langsmith"
-version = "0.3.10"
+version = "0.3.11"
 description = "Client library to connect to the LangSmith LLM Tracing and Evaluation Platform."
 optional = false
 python-versions = "<4.0,>=3.9"
 files = [
-    {file = "langsmith-0.3.10-py3-none-any.whl", hash = "sha256:2f1f9e27c4fc6dd605557c3cdb94465f4f33464ab195c69ce599b6ee44d18275"},
-    {file = "langsmith-0.3.10.tar.gz", hash = "sha256:7c05512d19a7741b348879149f4b7ef6aa4495abd12ad2e9418243664559b521"},
+    {file = "langsmith-0.3.11-py3-none-any.whl", hash = "sha256:0cca22737ef07d3b038a437c141deda37e00add56022582680188b681bec095e"},
+    {file = "langsmith-0.3.11.tar.gz", hash = "sha256:ddf29d24352e99de79c9618aaf95679214324e146c5d3d9475a7ddd2870018b1"},
 ]
 
 [package.dependencies]
 httpx = ">=0.23.0,<1"
 orjson = {version = ">=3.9.14,<4.0.0", markers = "platform_python_implementation != \"PyPy\""}
+packaging = ">=23.2"
 pydantic = {version = ">=1,<3", markers = "python_full_version < \"3.12.4\""}
 requests = ">=2,<3"
 requests-toolbelt = ">=1.0.0,<2.0.0"
@@ -4681,6 +4682,25 @@ files = [
     {file = "nodeenv-1.9.1-py2.py3-none-any.whl", hash = "sha256:ba11c9782d29c27c70ffbdda2d7415098754709be8a7056d79a737cd901155c9"},
     {file = "nodeenv-1.9.1.tar.gz", hash = "sha256:6ec12890a2dab7946721edbfbcd91f3319c6ccc9aec47be7c7e6b7011ee6645f"},
 ]
+
+[[package]]
+name = "nuggetizer"
+version = "0.0.5"
+description = "A package for Nuggetizer - a tool for information nugget creation and assignment to LLM-generated answers."
+optional = false
+python-versions = ">=3.10"
+files = [
+    {file = "nuggetizer-0.0.5-py3-none-any.whl", hash = "sha256:8c635e62bc31532c1a445cc1a18c1418d9cddcfcd2c94452ca4fcb2c5aa4a588"},
+    {file = "nuggetizer-0.0.5.tar.gz", hash = "sha256:5dde3fa1a49f1dd45b14e0e103db57a4b129f78c9aca539878f3becd149d761b"},
+]
+
+[package.dependencies]
+openai = ">=1.55.3"
+python-dotenv = ">=0.19.0"
+requests = ">=2.25.0"
+tiktoken = ">=0.8"
+tqdm = ">=4.65.0"
+typing-extensions = ">=4.0.0"
 
 [[package]]
 name = "nulltype"
@@ -7199,13 +7219,13 @@ files = [
 
 [[package]]
 name = "setuptools"
-version = "75.8.0"
+version = "75.8.1"
 description = "Easily download, build, install, upgrade, and uninstall Python packages"
 optional = false
 python-versions = ">=3.9"
 files = [
-    {file = "setuptools-75.8.0-py3-none-any.whl", hash = "sha256:e3982f444617239225d675215d51f6ba05f845d4eec313da4418fdbb56fb27e3"},
-    {file = "setuptools-75.8.0.tar.gz", hash = "sha256:c5afc8f407c626b8313a86e10311dd3f661c6cd9c09d4bf8c15c0e11f9f2b0e6"},
+    {file = "setuptools-75.8.1-py3-none-any.whl", hash = "sha256:3bc32c0b84c643299ca94e77f834730f126efd621de0cc1de64119e0e17dab1f"},
+    {file = "setuptools-75.8.1.tar.gz", hash = "sha256:65fb779a8f28895242923582eadca2337285f0891c2c9e160754df917c3d2530"},
 ]
 
 [package.extras]
@@ -9057,4 +9077,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.11,<3.12"
-content-hash = "20f25460b43327d6eadc8be1ef4b89e9a739cf3ed8f3ae9971ef23cb4bde48d6"
+content-hash = "d897b203e3a6ccc6660a6143e9c5469e75e0a5f8d99ef05361eda72d3a0ffd28"
