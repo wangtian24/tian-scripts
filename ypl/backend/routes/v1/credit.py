@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy.exc import NoResultFound
 
+from ypl.backend.abuse.cashout import check_cashout_abuse
 from ypl.backend.config import settings
 from ypl.backend.llm.credit import (
     Amount,
@@ -219,6 +220,8 @@ async def validate_cashout_request(request: CashoutCreditsRequest) -> None:
 
     if request.validated_destination_details is None and request.facilitator == PaymentInstrumentFacilitatorEnum.UPI:
         raise HTTPException(status_code=400, detail="Please re-enter your UPI details!")
+
+    await check_cashout_abuse(user.user_id, request.destination_identifier_type, request.destination_identifier)
 
 
 @router.post("/credits/cashout")
