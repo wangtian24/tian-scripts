@@ -8,14 +8,21 @@ SQL scripts for model taxonomy manual maintenance. Pleaese only run them when yo
 
 Every entry in the `language_models` (LM) table represent one provider-specific model, it should have a corresponding entry in the  `language_model_taxonomy` (LMT) table through `taxonomy_id` field, which corresponds to a node in the model taxonomy tree. Sometimes this linkage might be broken or missing. Here are the steps to fix it. Use this with caution and please consult Tian before running these on production or staging.
 
-### STEP 0: Fix Model Publishers
-Find all entries missing the model_publisher info, fill in values yourself. Check [Superset Dashboard](https://superset.yupp.ai/superset/dashboard/33/?native_filters_key=9TcGZUH9uz7x0UsF4EraYul-rmYPR4BmOORqRISMJsqt2peMvNFRo4ScnCULT214) for example values.
+### STEP 0: Fill Missing Taxonomy Info if you can
+Find all entries missing either taxonomy id or publisher id, fill out the model taxonomy info (publisher, family, version, class, release) yourself. Check [Superset Dashboard](https://superset.yupp.ai/superset/dashboard/33/?native_filters_key=9TcGZUH9uz7x0UsF4EraYul-rmYPR4BmOORqRISMJsqt2peMvNFRo4ScnCULT214) for example values.
 ```sql
 select 
   lm.name,
   lm.model_publisher,
+  lm.family,
+  lm.model_version,
+  lm.model_class,
+  lm.model_release,
+  lm.taxonomy_id
 from language_models lm
-where lm.model_publisher is null;
+where (lm.model_publisher is null
+  or lm.taxonomy_id is null)
+  and lm.deleted_at is null;
 ```
 ### STEP 1: Pull from LMT (update only)
 If LM entries already have taxonomy data but just no taxonomy_id, this scripts establish such a linkage if corresponding rows could be found in LMT.
@@ -32,9 +39,10 @@ where
   and lm.taxonomy_id is null
 ```
 
-### STEP 2: Push to LMT (update only)
+### STEP 2: Push to LMT (may need to edit names)
 If no LMT entries could be found with the matching value, we create new LMT entry based on the values in LM table.
-There might be new rows created afterwards, if so, go to LMT table and check all rows with `taxo_label` field starting with "NEW:" and edit their names so they look good.
+
+After running this, go to LMT table and check all rows with `taxo_label` field starting with `(PLEASE REVIEW) ` and edit their names so they look good.
 ```sql
 with new_taxonomy as (
   insert into language_model_taxonomy (
@@ -52,7 +60,7 @@ with new_taxonomy as (
   select distinct
     now(),
     gen_random_uuid(),
-    concat_ws(' ', 'NEW:', lm.family, lm.model_version, lm.model_class),
+    concat_ws(' ', '(PLEASE REVIEW) ', lm.family, lm.model_version, lm.model_class),
     lm.model_publisher,
     lm.family,
     lm.model_class,
@@ -74,7 +82,10 @@ where lm.model_publisher = nt.model_publisher
   and (lm.model_class = nt.model_class or (lm.model_class is null and nt.model_class is null))
   and (lm.model_version = nt.model_version or (lm.model_version is null and nt.model_version is null))
   and (lm.model_release = nt.model_release or (lm.model_release is null and nt.model_release is null))
-  and lm.taxonomy_id is null
+  and lm.taxonomy_id is null;
+
+select * from language_model_taxonomy lmt 
+where taxo_label like '(PLEASE REVIEW)%'
 ```
 
 ### STEP 3: taxo_label duplicate check (may need edit)
@@ -116,7 +127,7 @@ group by
 order by lower(replace(lmt.taxo_label, ' ', ''));
 ```
 
-### STEP 4: Pickability Check (may need edit)
+### STEP 4a: Check if all active models are pickable (may need edit)
 This step checks if any active model in LM links to a non-pickable LMT entry, it means this model cannot be picked in taxonomy-based picker. Examine the results, for every `taxo_label` every group, make sure:
 -- 1. there's at most one pickable entry, if not, set `is_pickable` to true on one entry and false to everyone else.
 -- 2. if it's a leaf node, it must link to a LM entry (`language_model_id` is not null)
@@ -149,6 +160,26 @@ where lmt.taxo_label in (
   and lm.deleted_at is null
 order by lmt.taxo_label, lm.name
 ```
+
+### STEP 4b: Check if all pickable model types have at least one provider
+This is just a sanity, it's OK for some pickable models to have no provider as they might be turned off.
+```sql
+select 
+  lmt.taxo_label,
+  count(case when lm.status = 'ACTIVE' and lm.deleted_at is null then 1 end) as active_not_deleted_count
+from language_model_taxonomy lmt
+left join language_models lm on lm.taxonomy_id = lmt.language_model_taxonomy_id
+where lmt.taxo_label in (
+  select taxo_label
+  from language_model_taxonomy
+  group by taxo_label
+  having sum(case when is_pickable then 1 else 0 end) > 0
+)
+group by lmt.taxo_label
+having count(case when lm.status = 'ACTIVE' and lm.deleted_at is null then 1 end) = 0
+order by lmt.taxo_label
+```
+
 ### STEP 5: Pickability Confirmation (no edit needed)
 A final check to make sure every LMT `taxo_label` only corresponds to one pickable entry. If this shows any result, repeat the last step.
 ```sql

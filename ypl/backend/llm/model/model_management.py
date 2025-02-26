@@ -6,7 +6,7 @@ from sqlalchemy.exc import DatabaseError, OperationalError
 from sqlmodel import desc, select, update
 from tenacity import after_log, retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 from ypl.backend.db import get_async_session
-from ypl.backend.llm.model.model_onboarding import ModelManagementStatus, _log_and_post, _verify_inference_running
+from ypl.backend.llm.model.management_common import ModelManagementStatus, _verify_inference_running, log_and_post
 from ypl.db.language_models import (
     LanguageModel,
     LanguageModelResponseStatus,
@@ -146,20 +146,20 @@ async def _validate_one_active_model(model: LanguageModel, provider_name: str) -
             if last_status and last_status.status_type == LanguageModelResponseStatusEnum.INFERENCE_FAILED:
                 # deactivate if it also failed last time
                 await _update_model_status(model, LanguageModelStatusEnum.INACTIVE)
-                await _log_and_post(ModelManagementStatus.DEACTIVATED, model_name)
+                await log_and_post(ModelManagementStatus.VALIDATION_DEACTIVATED, model_name)
             else:
-                await _log_and_post(ModelManagementStatus.NOTIFY_NOT_RUNNING, model_name)
+                await log_and_post(ModelManagementStatus.VALIDATION_NOTIFY_NOT_RUNNING, model_name)
 
             if has_billing_error:
-                await _log_and_post(ModelManagementStatus.BILLING_ERROR, model_name, excerpt)
+                await log_and_post(ModelManagementStatus.VALIDATION_BILLING_ERROR, model_name, excerpt)
 
         else:
             # The model is running now!
             print(f"Model {model_name}: done validation: Success")
             if last_status and last_status.status_type == LanguageModelResponseStatusEnum.INFERENCE_FAILED:
-                await _log_and_post(ModelManagementStatus.NOTIFY_RECOVERED, model_name)
+                await log_and_post(ModelManagementStatus.VALIDATION_NOTIFY_RECOVERED, model_name)
 
     except Exception as e:
         print(f"Model {model_name}: error during validation: {e}")
         await _insert_language_model_response_status(model, LanguageModelResponseStatusEnum.INFERENCE_FAILED)
-        await _log_and_post(ModelManagementStatus.ERROR, model_name, str(e))
+        await log_and_post(ModelManagementStatus.ERROR, model_name, str(e))

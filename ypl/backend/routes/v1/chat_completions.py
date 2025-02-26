@@ -38,8 +38,8 @@ from ypl.backend.llm.chat_title import maybe_set_chat_title
 from ypl.backend.llm.crawl import enhance_citations
 from ypl.backend.llm.embedding import embed_and_store_chat_message_embeddings
 from ypl.backend.llm.memories import maybe_extract_memories
+from ypl.backend.llm.model.management_common import contains_billing_error_keywords
 from ypl.backend.llm.model.model import ModelResponseTelemetry
-from ypl.backend.llm.model.model_onboarding import contains_billing_error_keywords
 from ypl.backend.llm.model_heuristics import ModelHeuristics
 from ypl.backend.llm.prompt_suggestions import maybe_add_suggested_followups
 from ypl.backend.llm.provider.provider_clients import get_language_model, get_provider_client
