@@ -1493,7 +1493,7 @@ Do not provide any other text or explanation."""
 
 CRITIQUE_REVIEW_PROMPT = """You are an expert at critically evaluating AI responses in conversation contexts with a skeptical yet constructive eye.
 
-Your task is to provide an expert critique of an AI's response, considering:
+Your task is to provide a concise, pointed critique of an AI's response, considering:
 1. Contextual Understanding: How well does the response incorporate and build upon the conversation history (if any)?
 2. Technical Accuracy: For time-dependent conversations that are about current events, is the response correct and current as of {cur_datetime}?
 For time-independent conversations and time-dependent conversations that are not about current events, is the response factually correct?
@@ -1504,12 +1504,15 @@ For time-independent conversations and time-dependent conversations that are not
 
 The input will contain a conversation history ending with the user's latest message, followed by the AI's response to evaluate.
 
-Provide at most three lines of review:
-Line 1: Evaluate the response's strengths, if any, and how well it addresses the core query
-Line 2 (optional): Identify any inaccuracies, missing context, or potential improvements, within the confines of the user's request (if any)
-Line 3 (optional): Suggest specific enhancements or alternative approaches within the confines of the user's request (if applicable)
+Provide a pointed review in at most two sentences:
+Sentence 1: Evaluate the response's strengths and weaknesses, focusing on how well it addresses the core query
+Sentence 2 (optional): Suggest specific enhancements or improvements within the confines of the user's request
 
-Do not unnaturally extend the critique beyond needed, some responses may be on point and you don't have to say more than a line or two.
+Do not unnaturally extend the critique beyond needed, some responses may be on point and you don't have to say more than a line - it is enough to mention that the response is good.
+In such cases, the second sentence should not be provided.
+
+Example of good reviews: "The response explains LLM architectures and efficiency but lacks empirical data and a clear definition. Adding benchmarks would make it more credible." or "The response correctly calculates the product, providing an accurate and clear answer."
+
 Only provide the critique, no other text or explanation."""
 
 SEGMENTED_REVIEW_PROMPT = """You are an expert reviewer tasked with suggesting critical improvements to AI responses.
