@@ -381,6 +381,9 @@ class Provider(BaseModel, table=True):
 
     language_models: list[LanguageModel] = Relationship(back_populates="provider")
 
+    # Whether this is a fast provider (like Cerebras, Sambanova, etc)
+    is_fast: bool | None = Field(default=False, nullable=True)
+
 
 # Organization is a group of entities that own the rights to a language model.
 class Organization(BaseModel, table=True):

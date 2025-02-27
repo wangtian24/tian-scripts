@@ -46,3 +46,11 @@ async def get_attachments(attachment_ids: list[UUID]) -> list[Attachment]:
         }
         logging.exception(json.dumps(log_dict))
         raise RuntimeError(f"Failed to get attachments: {str(e)}") from e
+
+
+def supports_image(mime_types: list[str]) -> bool:
+    return any(mime_type.startswith("image/") for mime_type in mime_types)
+
+
+def supports_pdf(mime_types: list[str]) -> bool:
+    return any(mime_type.startswith("application/pdf") for mime_type in mime_types)

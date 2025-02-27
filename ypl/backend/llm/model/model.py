@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from uuid import UUID
@@ -12,6 +13,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from tenacity import after_log, retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 from ypl.backend.db import get_async_session
+from ypl.backend.llm.attachment import supports_image, supports_pdf
 from ypl.backend.llm.routing.route_data_type import LanguageModelStatistics
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, LanguageModelTaxonomy, LicenseEnum, Provider
 from ypl.utils import async_timed_cache
@@ -23,7 +25,11 @@ class LanguageModelStruct(BaseModel):
     internal_name: str
     label: str | None
     license: str
-    family: str | None
+    model_publisher: str | None
+    model_family: str | None
+    model_class: str | None
+    model_version: str | None
+    model_release: str | None
     avatar_url: str | None
     parameter_count: int | None
     context_window_tokens: int | None
@@ -38,8 +44,9 @@ class LanguageModelStruct(BaseModel):
     provider_name: str | None
     taxo_label: str | None
     taxonomy_path: str | None  # joining publisher, family, class, version, release
-    flags: list[str] | None  # a list of PRO, STRONG, LIVE tags if available
+    flags: list[str] | None  # a list of PRO, STRONG, LIVE, FAST tags if available
     is_internal: bool | None
+    keywords: list[str] | None  # a list of keywords the client can match on in typeahead
 
 
 def clean_provider_name(provider_name: str) -> str:
@@ -279,24 +286,72 @@ async def get_model_taxonomies(query: ModelTaxonomyQuery) -> list[ModelTaxonomyR
         ]
 
 
+def _create_keywords(model: LanguageModel, flags: list[str]) -> list[str]:
+    keywords: list[str | None] = []
+    keywords.extend(flags)
+    if model.label:
+        keywords.append(model.label)
+    if model.taxonomy:
+        if model.taxonomy.taxo_label:
+            keywords.append(model.taxonomy.taxo_label)
+        keywords.extend(
+            [
+                model.taxonomy.model_publisher,
+                model.taxonomy.model_family,
+                model.taxonomy.model_class,
+                model.taxonomy.model_version,
+            ]
+        )
+    # split and unique
+    flattened = []
+    for keyword in keywords:
+        if keyword is not None and keyword != "":
+            flattened.extend(re.split(r"[ :()\[\]]+", keyword.lower()))
+    # Filter out empty strings and return unique keywords
+    return [keyword for keyword in set(flattened) if keyword]
+
+
+def _infer_flags(model: LanguageModel) -> list[str]:
+    flags = [
+        flag
+        for flag, value in {
+            "PRO": model.is_pro,
+            "STRONG": model.is_strong,
+            "LIVE": model.is_live,
+            "FAST": model.provider.is_fast,
+            "IMAGE": (model.supported_attachment_mime_types and supports_image(model.supported_attachment_mime_types)),
+            "PDF": model.supported_attachment_mime_types and supports_pdf(model.supported_attachment_mime_types),
+        }.items()
+        if value
+    ]
+    return flags
+
+
 def _create_language_model_struct(model: LanguageModel) -> LanguageModelStruct:
+    flags = _infer_flags(model)
+    keywords = _create_keywords(model, flags)
+
     return LanguageModelStruct(
-        **model.model_dump(exclude={"organization"}),
+        **model.model_dump(
+            exclude={"organization", "model_publisher", "family", "model_class", "model_version", "model_release"}
+        ),
+        model_publisher=model.taxonomy.model_publisher if model.taxonomy else model.model_publisher,
+        model_family=model.taxonomy.model_family if model.taxonomy else model.family,
+        model_class=model.taxonomy.model_class if model.taxonomy else model.model_class,
+        model_version=model.taxonomy.model_version if model.taxonomy else model.model_version,
+        model_release=model.taxonomy.model_release if model.taxonomy else model.model_release,
         organization_name=model.organization.organization_name if model.organization else None,
         provider_name=model.provider.name if model.provider else None,
         taxo_label=model.taxonomy.taxo_label if model.taxonomy else None,
         taxonomy_path=(
-            f"{model.taxonomy.model_publisher or '_'}/{model.taxonomy.model_family or '_'}"
-            f"/{model.taxonomy.model_class or '_'}/{model.taxonomy.model_version or '_'}"
-            f"/{model.taxonomy.model_release or '_'}"
+            f"/{model.taxonomy.model_publisher or ''}/{model.taxonomy.model_family or ''}"
+            f"/{model.taxonomy.model_class or ''}/{model.taxonomy.model_version or ''}"
+            f"/{model.taxonomy.model_release or ''}"
             if model.taxonomy
             else None
         ),
-        flags=[
-            flag
-            for flag, value in {"PRO": model.is_pro, "STRONG": model.is_strong, "LIVE": model.is_live}.items()
-            if value
-        ],
+        flags=flags,
+        keywords=keywords,
     )
 
 
