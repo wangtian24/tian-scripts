@@ -1054,7 +1054,7 @@ async def talk_to_other_models_system_prompt(cur_model: str, turn_id: uuid.UUID)
 
         # Collect the user prompt and the responses from the other models.
         user_prompt = ""
-        response_from_cur_model = ""
+        response_from_cur_model = "(You did not previously respond to the user's prompt)"
         responses_from_other_models: dict[str, str] = {}
 
         for chat_message in chat_messages:
@@ -1074,7 +1074,7 @@ async def talk_to_other_models_system_prompt(cur_model: str, turn_id: uuid.UUID)
                     )
                     responses_from_other_models[label] = chat_message.content
 
-        if not (user_prompt and response_from_cur_model and responses_from_other_models):
+        if not (user_prompt and responses_from_other_models):
             raise ValueError("Missing required fields for system prompt")
 
         formatted_responses_from_other_models = "\n---\n".join(
