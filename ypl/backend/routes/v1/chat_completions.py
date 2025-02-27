@@ -642,7 +642,7 @@ async def _get_message(chat_request: ChatRequest) -> ChatMessage | None:
             ChatMessage.deleted_at.is_(None),  # type: ignore
             ChatMessage.turn_sequence_number == chat_request.turn_seq_num,
             LanguageModel.internal_name == chat_request.model,
-            ChatMessage.completion_status == CompletionStatus.SUCCESS,
+            ChatMessage.completion_status.in_([CompletionStatus.SUCCESS, CompletionStatus.USER_ABORTED]),  # type: ignore[attr-defined]
         )
         .join(LanguageModel)
         .outerjoin(PromptModifierAssoc)
