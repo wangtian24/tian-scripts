@@ -3,11 +3,9 @@ from collections.abc import Sequence
 from itertools import chain
 from typing import Any
 
-import cachetools.func
 from pydantic import BaseModel
-from sqlalchemy import text
 
-from ypl.backend.db import get_engine
+from ypl.backend.llm.db_helpers import get_all_active_models, is_user_internal
 from ypl.backend.llm.routing.policy import SelectionCriteria
 
 
@@ -174,11 +172,12 @@ class RouterState(BaseModel):
             self.model_scores[model] = sum(criteria_map.values())
 
     @classmethod
-    def new_all_models_state(cls) -> "RouterState":
+    async def new_all_models_state(cls, user_id: str | None = None) -> "RouterState":
+        include_internal_models = user_id is not None and (await is_user_internal(user_id))
         rs = RouterState(
             selected_models={},
             excluded_models=set(),
-            all_models=cls.get_all_models(),
+            all_models=await get_all_active_models(include_internal_models),
         )
         rs.model_journey = {model: "" for model in rs.all_models}
         return rs
@@ -193,21 +192,3 @@ class RouterState(BaseModel):
         )
         rs.model_journey = {model: "" for model in rs.all_models}
         return rs
-
-    @classmethod
-    @cachetools.func.ttl_cache(maxsize=128, ttl=10 * 60)  # Cache for 10 minutes
-    def get_all_models(cls) -> set[str]:
-        sql_query = text(
-            """
-            SELECT internal_name FROM language_models
-                JOIN providers ON language_models.provider_id = providers.provider_id
-            WHERE language_models.deleted_at IS NULL
-                AND language_models.status = 'ACTIVE'
-                AND providers.deleted_at IS NULL
-                AND providers.is_active IS TRUE
-            """
-        )
-
-        with get_engine().connect() as conn:
-            model_rows = conn.execute(sql_query)
-            return set(row[0] for row in model_rows.fetchall())

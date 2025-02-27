@@ -325,7 +325,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         )
         stopwatch.record_split("routing_create_chain")
         # actually run the router chain
-        all_models_state = RouterState.new_all_models_state()
+        all_models_state = await RouterState.new_all_models_state(request.user_id)
         models_rs = router.select_models(state=all_models_state)
         # extract results
         selected_models = models_rs.get_selected_models()

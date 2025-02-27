@@ -25,7 +25,7 @@ async def select_models(
         num_models,
         preference or RoutingPreference(turns=[], user_id=None, same_turn_shown_models=[]),
     )
-    all_models_state = RouterState.new_all_models_state()
+    all_models_state = await RouterState.new_all_models_state()
     selected_models = router.select_models(state=all_models_state)
     return_models = selected_models.get_sorted_selected_models()
 

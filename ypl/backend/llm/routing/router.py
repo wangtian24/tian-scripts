@@ -4,7 +4,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 
 from ypl.backend.config import settings
 from ypl.backend.llm.constants import IMAGE_CATEGORY, ONLINE_CATEGORY, PDF_CATEGORY
-from ypl.backend.llm.db_helpers import deduce_original_providers
+from ypl.backend.llm.db_helpers import deduce_original_providers, get_all_active_models, is_user_internal
 from ypl.backend.llm.promotions import PromotionModelProposer
 from ypl.backend.llm.provider.provider_clients import get_internal_provider_client
 from ypl.backend.llm.ranking import Ranker, get_ranker
@@ -47,7 +47,6 @@ from ypl.backend.llm.routing.modules.rankers import (
 )
 from ypl.backend.llm.routing.policy import SelectionCriteria, decayed_random_fraction
 from ypl.backend.llm.routing.route_data_type import RoutingPreference
-from ypl.backend.llm.routing.router_state import RouterState
 from ypl.backend.llm.routing.rule_router import RoutingRuleFilter, RoutingRuleProposer
 from ypl.backend.utils.monitoring import metric_inc_by
 
@@ -131,7 +130,9 @@ async def get_simple_pro_router(
     pdf_filter = SupportsPdfAttachmentModelFilter() if PDF_CATEGORY in categories else Passthrough()
     attachment_filter = image_filter | pdf_filter
 
-    def get_postprocessing_stage(exclude_models: set[str] | None = None, prefix: str = "first") -> RouterModule:
+    include_internal_models = preference.user_id is not None and (await is_user_internal(preference.user_id))
+
+    async def get_postprocessing_stage(exclude_models: set[str] | None = None, prefix: str = "first") -> RouterModule:
         """
         Common post-processing stages that's shared in first-turn and non-first-turn routers
         """
@@ -143,7 +144,7 @@ async def get_simple_pro_router(
             | Inject(required_models or [], score=50000000)
             # exclude inactive models after injection, this is necessary in case we are injecting models inferred
             # from the history of the chat but they are no longer active.
-            | Exclude(name="-inactive", whitelisted_models=RouterState.get_all_models())
+            | Exclude(name="-inactive", whitelisted_models=await get_all_active_models(include_internal_models))
             # remove models that don't support needed attachment
             | attachment_filter
             # Don't apply semantic group filter for image turns, since we don't have many supporting models.
@@ -216,7 +217,7 @@ async def get_simple_pro_router(
             )
             | error_filter  # removes models with high error rate
             # -- post processing stage --
-            | get_postprocessing_stage(exclude_models=None, prefix="first")
+            | await get_postprocessing_stage(exclude_models=None, prefix="first")
         )
     else:
         # --- Non-First Turn (NEW_TURN or SHOW_ME_MORE) ---
@@ -274,7 +275,7 @@ async def get_simple_pro_router(
             )
             | error_filter  # removes models with high error rate
             # -- post processing stage --
-            | get_postprocessing_stage(exclude_models=all_bad_models, prefix="nonfirst")
+            | await get_postprocessing_stage(exclude_models=all_bad_models, prefix="nonfirst")
         )
 
     return router

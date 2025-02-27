@@ -494,10 +494,13 @@ def test_fast_compute_all_conf_overlap_diffs() -> None:
 
 # These patches must be in the resverse order of the argument list below,
 # and the path is where they are called rather than where they are defined.
+@patch("ypl.backend.llm.routing.router.is_user_internal", return_value=False)
+@patch("ypl.backend.llm.routing.router.get_all_active_models")
+@patch("ypl.backend.llm.routing.router_state.is_user_internal", return_value=False)
+@patch("ypl.backend.llm.routing.router_state.get_all_active_models")
 @patch("ypl.backend.llm.promotions.get_model_creation_dates", return_value={})
 @patch("ypl.backend.llm.promotions.get_active_model_promotions", return_value=[])
 @patch("ypl.backend.llm.routing.router.HighErrorRateFilter.select_models")
-@patch("ypl.backend.llm.routing.router.RouterState.get_all_models")
 @patch("ypl.backend.llm.routing.modules.proposers.get_all_strong_models")
 @patch("ypl.backend.llm.routing.modules.proposers.get_all_pro_models")
 @patch("ypl.backend.llm.routing.modules.rankers.deduce_model_speed_scores")
@@ -526,10 +529,13 @@ async def test_simple_pro_router(
     mock_deduce_speed_scores: Mock,
     mock_get_all_pro_models: Mock,
     mock_get_all_strong_models: Mock,
-    mock_get_all_models: Mock,
     mock_error_filter: Mock,
     mock_get_active_model_promotions: Mock,
     mock_get_model_creation_dates: Mock,
+    mock_get_all_active_models1: Mock,
+    mock_is_user_internal1: Mock,
+    mock_get_all_active_models2: Mock,
+    mock_is_user_internal2: Mock,
 ) -> None:
     mock_table = Mock()
     mock_table.apply.return_value = ({}, set())  # empty accept_map and rejected_models
@@ -546,7 +552,8 @@ async def test_simple_pro_router(
     all_models = models | pro_models
     mock_active_models.return_value = all_models
     mock_image_attachment_models.return_value = all_models
-    mock_get_all_models.return_value = set(all_models)
+    mock_get_all_active_models1.return_value = set(all_models)
+    mock_get_all_active_models2.return_value = set(all_models)
     state = RouterState(all_models=all_models)
     # Just make a provider for each model named after the model.
     mock_deduce_providers1.return_value = {model: model for model in all_models}
@@ -752,6 +759,10 @@ def test_context_length_filter(mock_context_lengths: Mock) -> None:
 @patch("ypl.backend.llm.prompt_modifier.PromptModifierLabeler")
 @patch("ypl.backend.llm.category_labeler.YuppMultilabelClassifier")
 @patch("ypl.backend.llm.category_labeler.YuppOnlinePromptLabeler")
+@patch("ypl.backend.llm.routing.router.is_user_internal", return_value=False)
+@patch("ypl.backend.llm.routing.router.get_all_active_models", return_value=set(ACTIVE_MODELS))
+@patch("ypl.backend.llm.routing.router_state.is_user_internal", return_value=False)
+@patch("ypl.backend.llm.routing.router_state.get_all_active_models", return_value=set(ACTIVE_MODELS))
 @patch("ypl.backend.llm.chat.get_prompt_categories", return_value=[])
 @patch("ypl.backend.llm.chat.get_prompt_modifiers", return_value=[])
 @patch("ypl.backend.llm.chat.label_turn_quality", return_value=None)
@@ -769,7 +780,6 @@ def test_context_length_filter(mock_context_lengths: Mock) -> None:
 )
 @patch("ypl.backend.llm.chat.store_modifiers", return_value=None)
 @patch("ypl.backend.llm.routing.router._get_good_and_bad_models", return_value=(set(), set()))
-@patch("ypl.backend.llm.routing.router_state.RouterState.get_all_models", return_value=set(ACTIVE_MODELS))
 @patch("ypl.backend.llm.promotions.get_model_creation_dates", return_value={})
 @patch("ypl.backend.llm.promotions.get_active_model_promotions", return_value=[])
 @patch("ypl.backend.llm.routing.modules.rankers.deduce_model_speed_scores", return_value={})
@@ -799,7 +809,6 @@ async def test_select_models_plus(
     mock_deduce_model_speed_scores: Mock,
     mock_get_active_model_promotions: Mock,
     mock_get_model_creation_dates: Mock,
-    mock_get_all_models: Mock,
     mock_get_good_and_bad_models: Mock,
     mock_store_modifiers: Mock,
     mock_get_model_context_lengths: Mock,
@@ -814,6 +823,10 @@ async def test_select_models_plus(
     mock_label_turn_quality: Mock,
     mock_get_prompt_modifiers: Mock,
     mock_get_prompt_categories: Mock,
+    mock_get_all_active_models1: Mock,
+    mock_is_user_internal1: Mock,
+    mock_get_all_active_models2: Mock,
+    mock_is_user_internal2: Mock,
     MockOnlineYupp: Mock,
     MockTopicCategorizer: Mock,
     MockModifierLabeler: Mock,

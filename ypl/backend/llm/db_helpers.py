@@ -39,6 +39,7 @@ from ypl.db.chats import (
 )
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
 from ypl.db.model_promotions import ModelPromotionStatus
+from ypl.db.users import User
 from ypl.db.yapps import Yapp
 from ypl.utils import async_timed_cache, ifnull
 
@@ -602,3 +603,29 @@ def get_yapp_descriptions() -> dict[str, str]:
     )
     with Session(get_engine()) as session:
         return {row[0]: row[1] for row in session.exec(query).all()}
+
+
+async def is_user_internal(user_id: str) -> bool:
+    query = select(User.email).where(User.user_id == user_id)
+    async with get_async_session() as session:
+        email = (await session.exec(query)).first()
+        return email is not None and email.endswith("@yupp.ai")
+
+
+@async_timed_cache(seconds=300)  # 5 min cache
+async def get_all_active_models(include_internal_models: bool = False) -> set[str]:
+    sql_query = (
+        select(LanguageModel.internal_name)
+        .join(Provider)
+        .where(
+            LanguageModel.deleted_at.is_(None),  # type: ignore
+            LanguageModel.status == LanguageModelStatusEnum.ACTIVE,
+            Provider.deleted_at.is_(None),  # type: ignore
+            Provider.is_active.is_(True),  # type: ignore
+            or_(LanguageModel.is_internal.is_(None), LanguageModel.is_internal.is_(False), include_internal_models),  # type: ignore
+        )
+    )
+
+    async with get_async_session() as session:
+        model_rows = await session.exec(sql_query)
+        return set([row for row in model_rows.all()])
