@@ -1,8 +1,10 @@
 import logging
 from collections.abc import Sequence, Set
+from datetime import datetime
 from typing import Any
+from uuid import UUID
 
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload, selectinload
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -90,3 +92,20 @@ async def get_abuse_events(
         if has_more_rows:
             events = events[:-1]
         return events, has_more_rows
+
+
+async def review_abuse_event(abuse_event_id: UUID, reviewer: str) -> AbuseEvent | None:
+    async with get_async_session() as session:
+        query = (
+            select(AbuseEvent).options(joinedload(AbuseEvent.user)).where(AbuseEvent.abuse_event_id == abuse_event_id)  # type: ignore
+        )
+        result = await session.execute(query)
+        event: AbuseEvent | None = result.scalar_one_or_none()
+
+        if event:
+            event.state = AbuseEventState.REVIEWED
+            event.reviewed_at = datetime.now()
+            event.reviewed_by = reviewer
+            await session.commit()
+
+        return event

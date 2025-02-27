@@ -5,10 +5,11 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 
-from ypl.backend.abuse.utils import get_abuse_events
+from ypl.backend.abuse.utils import get_abuse_events, review_abuse_event
 from ypl.backend.utils.json import json_dumps
-from ypl.db.abuse import AbuseEventState, AbuseEventType
+from ypl.db.abuse import AbuseEvent, AbuseEventState, AbuseEventType
 
 router = APIRouter(prefix="/admin")
 
@@ -25,6 +26,23 @@ class AbuseEventData:
     user_created_at: datetime | None
     state: str
     reviewed_at: datetime | None
+    reviewed_by: str | None
+
+    @classmethod
+    def from_abuse_event(cls, event: AbuseEvent) -> "AbuseEventData":
+        return cls(
+            abuse_event_id=event.abuse_event_id,
+            created_at=event.created_at,
+            event_type=event.event_type.value,
+            event_details=event.event_details,
+            user_id=event.user.user_id,
+            user_email=event.user.email,
+            user_name=event.user.name,
+            user_created_at=event.user.created_at,
+            state=event.state.value,
+            reviewed_at=event.reviewed_at,
+            reviewed_by=event.reviewed_by,
+        )
 
 
 @dataclass
@@ -33,7 +51,7 @@ class AbuseEventsResponse:
     has_more_rows: bool
 
 
-@router.get("/abuse_events")
+@router.get("/abuse_events/list")
 async def get_abuse_events_route(
     user_id: Annotated[str | None, Query(description="Optional User ID")] = None,
     limit: Annotated[int, Query(ge=1, le=100, description="Number of events to return")] = 20,
@@ -50,21 +68,7 @@ async def get_abuse_events_route(
             state=state,
         )
         return AbuseEventsResponse(
-            events=[
-                AbuseEventData(
-                    abuse_event_id=e.abuse_event_id,
-                    created_at=e.created_at,
-                    event_type=e.event_type.value,
-                    event_details=e.event_details,
-                    user_id=e.user.user_id,
-                    user_email=e.user.email,
-                    user_name=e.user.name,
-                    user_created_at=e.user.created_at,
-                    state=e.state.value,
-                    reviewed_at=e.reviewed_at,
-                )
-                for e in events
-            ],
+            events=[AbuseEventData.from_abuse_event(e) for e in events],
             has_more_rows=has_more_rows,
         )
     except Exception as e:
@@ -72,3 +76,20 @@ async def get_abuse_events_route(
         logging.exception(json_dumps(log_dict))
         # Avoid returning the error details, that might contain sensitive information.
         raise HTTPException(status_code=500, detail="Error listing abuse events; check logs for details.") from e
+
+
+class AbuseEventReviewRequest(BaseModel):
+    abuse_event_id: UUID
+    reviewer: str
+
+
+@router.post("/abuse_events/review")
+async def review_abuse_event_route(request: AbuseEventReviewRequest) -> AbuseEventData:
+    try:
+        event = await review_abuse_event(request.abuse_event_id, request.reviewer)
+        if event is None:
+            raise HTTPException(status_code=404, detail="Abuse event not found")
+        return AbuseEventData.from_abuse_event(event)
+    except Exception as e:
+        logging.exception(json_dumps({"message": f"Error reviewing abuse event: {str(e)}"}))
+        raise HTTPException(status_code=500, detail="Error reviewing abuse event; check logs for details.") from e
