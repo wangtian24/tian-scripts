@@ -43,7 +43,7 @@ async def _embed(messages: list[ChatMessage], sem: asyncio.Semaphore, session: S
 async def backfill_chat_message_embeddings(connection: Connection, max_messages: int | None = None) -> None:
     """Backfill chat message embeddings for all chat messages."""
     num_parallel = 1
-    messages_per_batch = 24
+    messages_per_batch = 18
     with Session(connection) as session:
         base_query = (
             select(ChatMessage)

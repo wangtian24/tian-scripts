@@ -171,7 +171,7 @@ async def _embed_internal(inputs: list[str], embedding_model: str) -> list[list[
         logging.error(f"Error connecting to internal embedding service: {e}")
         raise Exception(f"Failed to connect to internal embedding service: {e}") from e
     except Exception as e:
-        if "too many tokens" in str(e).lower():
+        if "out of memory" in str(e).lower():
             raise InputLengthValidationException(
                 f"Input too long for model {embedding_model}; retrying with smaller context length"
             ) from e
