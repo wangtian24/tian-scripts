@@ -170,9 +170,10 @@ class CategorizedPromptModifierSelector(RNGMixin):
             applicable_modifiers = []
 
         modifiers_by_model: dict[str, list[PromptModifier]] = {}
+        lhs_modifier, rhs_modifier = None, None
 
         # First, apply any modifiers that were most recently applied to the LHS and RHS.
-        if len(modifiers_by_position) == 2:
+        if len(modifiers_by_position) == len(models) == 2:
             lhs_modifier, rhs_modifier = modifiers_by_position
             if lhs_modifier:
                 modifiers_by_model[models[0]] = [self.modifiers_by_id[str(lhs_modifier)]]
