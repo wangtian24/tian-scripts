@@ -64,15 +64,15 @@ class InputLengthValidationException(Exception):
 
 
 async def _embed_by_provider(
-    provider: PROVIDER, input: str, embedding_model: str, max_embeddings: int | None = None
-) -> list[list[float]]:
+    provider: PROVIDER, inputs: list[str], embedding_model: str, max_embeddings: int | None = None
+) -> list[list[list[float]]]:
     if provider == "together":
         if "TOGETHER_API_KEY" not in os.environ:
             raise ValueError("TOGETHER_API_KEY is not set")
     elif provider != "internal":
         raise ValueError(f"Unsupported provider: {provider}")
 
-    return await _embed_with_retry(provider, input, embedding_model, max_embeddings)
+    return await _embed_with_retry(provider, inputs, embedding_model, max_embeddings)
 
 
 @retry(
@@ -83,8 +83,8 @@ async def _embed_by_provider(
     ),
 )
 async def _embed_with_retry(
-    provider: PROVIDER, input: str, embedding_model: str, max_embeddings: int | None = None
-) -> list[list[float]]:
+    provider: PROVIDER, inputs: list[str], embedding_model: str, max_embeddings: int | None = None
+) -> list[list[list[float]]]:
     # The context length computed by the tokenization model is not always consistent with the context length
     # computed by the embedding model. When the embedding model errors due to too-long input, we retry with a
     # smaller context length.
@@ -95,36 +95,54 @@ async def _embed_with_retry(
     )
 
     stopwatch = StopWatch()
-    processed_input = _process_input(input, chunk_size=context_length)
+    processed_inputs = [_process_input(input, chunk_size=context_length) for input in inputs]
     stopwatch.record_split("process_input")
 
     if max_embeddings is not None:
-        processed_input = processed_input[:max_embeddings]
+        processed_inputs = [processed_input[:max_embeddings] for processed_input in processed_inputs]
 
+    # processed_inputs is a list of lists of strings: one list per input string, as that string is chunked to sizes that
+    # the embedding model can handle.
+    # The embedding model takes a single flat list, so first flatten processed_inputs, then embed it, and finally
+    # re-batch the embeddings into the same structure as processed_inputs.
+
+    flat_processed_inputs = [item for sublist in processed_inputs for item in sublist]
     if provider == "together":
-        embeddings = await _embed_together(processed_input, embedding_model)
+        embeddings = await _embed_together(flat_processed_inputs, embedding_model)
     elif provider == "internal":
-        embeddings = await _embed_internal(processed_input, embedding_model)
+        embeddings = await _embed_internal(flat_processed_inputs, embedding_model)
     stopwatch.end("embed")
     logging.info(
         json_dumps(
             {
                 "message": f"Embedding using '{provider}' provider",
-                "input_length_chars": len(input),
                 "context_length": context_length,
-                "processed_input_lengths_chars": [len(chunk) for chunk in processed_input],
+                "num_inputs": len(processed_inputs),
+                "processed_input_lengths_chars": [
+                    [len(chunk) for chunk in processed_input] for processed_input in processed_inputs
+                ],
                 "timing": stopwatch.splits,
                 "attempt_number": attempt_number,
             }
         )
     )
+    stopwatch.end()
 
-    return embeddings
+    # Group embeddings into sublists matching the input structure.
+    lengths = [len(sublist) for sublist in processed_inputs]
+    indices = [sum(lengths[:i]) for i in range(len(lengths) + 1)]
+    batched_embeddings = [embeddings[indices[i] : indices[i + 1]] for i in range(len(indices) - 1)]
+    assert len(batched_embeddings) == len(processed_inputs)
+    assert all(
+        len(batched_embedding) == len(processed_input)
+        for batched_embedding, processed_input in zip(batched_embeddings, processed_inputs, strict=True)
+    )
+    return batched_embeddings
 
 
-async def _embed_together(input: list[str], embedding_model: str) -> list[list[float]]:
+async def _embed_together(inputs: list[str], embedding_model: str) -> list[list[float]]:
     try:
-        response = await AsyncTogether().embeddings.create(input=input, model=embedding_model)
+        response = await AsyncTogether().embeddings.create(input=inputs, model=embedding_model)
     except Exception as e:
         if "Input validation error: `inputs` tokens" in str(e):
             raise InputLengthValidationException(
@@ -135,9 +153,9 @@ async def _embed_together(input: list[str], embedding_model: str) -> list[list[f
     return [x.embedding for x in response.data]
 
 
-async def _embed_internal(input: list[str], embedding_model: str) -> list[list[float]]:
+async def _embed_internal(inputs: list[str], embedding_model: str) -> list[list[float]]:
     headers = {"Content-Type": "application/json", "x-api-key": settings.embed_x_api_key}
-    payload = {"texts": input}
+    payload = {"texts": inputs}
 
     try:
         async with aiohttp.ClientSession() as session:
@@ -162,31 +180,47 @@ async def _embed_internal(input: list[str], embedding_model: str) -> list[list[f
 
 
 async def embed(
-    input: str,
+    inputs: list[str],
     embedding_model: str = DEFAULT_EMBEDDING_MODEL,
     max_embeddings: int | None = None,
     pad_to_length: int | None = None,
-) -> list[list[float]]:
+) -> list[list[list[float]]]:
+    """
+    Embed a list of strings.
+
+    Args:
+        inputs: The list of strings to embed.
+        embedding_model: The embedding model to use.
+        max_embeddings: The maximum number of embeddings to return.
+        pad_to_length: The length to pad the embeddings to.
+
+    Returns:
+        A list of lists of embeddings. Each input string is split into chunks (up to `max_embeddings` per input),
+        and each chunk is embedded:
+        - The outer list is the inputs.
+        - The middle list is the chunks of a single input.
+        - The inner list is the embedding of a single chunk, as a list of floats.
+    """
     provider = EMBEDDING_PROVIDERS.get(embedding_model)
     if not provider:
         raise ValueError(f"No provider for model: {embedding_model}")
     if embedding_model not in SUPPORTED_EMBEDDING_MODELS_CONTEXT_LENGTHS:
         raise ValueError(f"Unsupported model: {embedding_model}")
 
-    embeddings = await _embed_by_provider(provider, input, embedding_model, max_embeddings)
+    embeddings = await _embed_by_provider(provider, inputs, embedding_model, max_embeddings)
 
     if pad_to_length:
-        embeddings = [x + [0.0] * (pad_to_length - len(x)) for x in embeddings]
+        embeddings = [[x + [0.0] * (pad_to_length - len(x)) for x in embedding] for embedding in embeddings]
     return embeddings
 
 
 async def embed_and_store_chat_message_embeddings(message_id: uuid.UUID, message_content: str) -> None:
     """Embed the message content and store the resulting embeddings."""
     embeddings = await embed(
-        message_content, embedding_model=DEFAULT_EMBEDDING_MODEL, pad_to_length=DEFAULT_EMBEDDING_DIMENSION
+        [message_content], embedding_model=DEFAULT_EMBEDDING_MODEL, pad_to_length=DEFAULT_EMBEDDING_DIMENSION
     )
     async with get_async_session() as session:
-        for embedding in embeddings:
+        for embedding in embeddings[0]:
             cme = ChatMessageEmbedding(
                 message_id=message_id,
                 embedding=embedding,
