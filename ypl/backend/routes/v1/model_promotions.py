@@ -20,9 +20,10 @@ router = APIRouter()
 
 
 class ModelPromotionCreationRequest(BaseModel):
-    language_model_name: str
+    language_model_name: str  # this matches the 'name' field
     promo_start_date: datetime | None = None  # the default is today
     promo_end_date: datetime | None = None  # the default is today + 7 days
+    proposal_strength: float | None = None
     promo_strength: float
 
 
@@ -41,6 +42,7 @@ async def model_promotion_create(request: ModelPromotionCreationRequest) -> Mode
             model_name=request.language_model_name,
             start_date=request.promo_start_date,
             end_date=request.promo_end_date,
+            proposal_strength=request.proposal_strength,
             promo_strength=request.promo_strength,
         )
 
@@ -53,7 +55,8 @@ async def model_promotion_create(request: ModelPromotionCreationRequest) -> Mode
                     "language_model_id": str(promotion.language_model_id),
                     "start_date": promotion.promo_start_date.isoformat() if promotion.promo_start_date else "NULL",
                     "end_date": promotion.promo_end_date.isoformat() if promotion.promo_end_date else "NULL",
-                    "strength": promotion.promo_strength,
+                    "promo_strength": promotion.promo_strength,
+                    "proposal_strength": promotion.proposal_strength,
                 }
             )
         )

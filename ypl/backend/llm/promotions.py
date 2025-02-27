@@ -29,7 +29,7 @@ MODEL_PROMO_MAX_SHOW_PROB = 0.2
 
 async def get_all_model_promotions() -> list[tuple[str, ModelPromotion]]:
     query = (
-        select(LanguageModel.internal_name, ModelPromotion)  # type: ignore
+        select(LanguageModel.name, ModelPromotion)  # type: ignore
         .join(ModelPromotion, ModelPromotion.language_model_id == LanguageModel.language_model_id)
         .where(ModelPromotion.deleted_at.is_(None))  # type: ignore
         .order_by(ModelPromotion.promo_start_date.desc())  # type: ignore
@@ -44,7 +44,7 @@ async def get_all_model_promotions() -> list[tuple[str, ModelPromotion]]:
 
 def get_active_model_promotions() -> list[tuple[str, ModelPromotion]]:
     query = (
-        select(LanguageModel.internal_name, ModelPromotion)  # type: ignore
+        select(LanguageModel.name, ModelPromotion)  # type: ignore
         .join(ModelPromotion, ModelPromotion.language_model_id == LanguageModel.language_model_id)
         .where(
             ModelPromotion.promo_status == ModelPromotionStatus.ACTIVE,
@@ -62,13 +62,17 @@ def get_active_model_promotions() -> list[tuple[str, ModelPromotion]]:
 
 
 async def create_promotion(
-    model_name: str, start_date: datetime | None = None, end_date: datetime | None = None, promo_strength: float = 1.0
+    model_name: str,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+    promo_strength: float = 1.0,
+    proposal_strength: float | None = None,
 ) -> ModelPromotion:
     """Create a new promotion entry"""
     async with AsyncSession(get_async_engine()) as session:
         rows = (
             await session.exec(
-                select(LanguageModel.language_model_id).where(LanguageModel.internal_name == model_name)  # type: ignore
+                select(LanguageModel.language_model_id).where(LanguageModel.name == model_name)  # type: ignore
             )
         ).first()
         if not rows or not rows[0]:
@@ -79,6 +83,7 @@ async def create_promotion(
             language_model_id=model_id,
             promo_start_date=start_date,
             promo_end_date=end_date,
+            proposal_strength=proposal_strength,
             promo_strength=promo_strength,
             promo_status=ModelPromotionStatus.INACTIVE,
         )
@@ -148,8 +153,8 @@ class PromotionModelProposer(RNGMixin, ModelProposer):
                 model: {
                     "promo_start_date": promo.promo_start_date.isoformat() if promo.promo_start_date else None,
                     "promo_end_date": promo.promo_end_date.isoformat() if promo.promo_end_date else None,
-                    "promo_strength": promo.promo_strength,
                     "proposal_strength": promo.proposal_strength,
+                    "promo_strength": promo.promo_strength,
                 }
                 for model, promo in promoted_models
             },
