@@ -54,6 +54,7 @@ from ypl.backend.llm.judge import (
 from ypl.backend.llm.model.maintenance import do_model_metadata_maintenance
 from ypl.backend.llm.model.model_management import do_validate_active_models
 from ypl.backend.llm.model.model_onboarding import do_verify_submitted_models
+from ypl.backend.llm.model.visualization import do_model_taxonomy_visualization
 from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.moderation import LLAMA_GUARD_3_8B_MODEL_NAME, ModerationReason, moderate
 from ypl.backend.llm.prompt_classifiers import categorize_user_messages
@@ -765,6 +766,13 @@ def validate_active_models() -> None:
 def model_metadata_maintenance() -> None:
     """Check and update model names, taxonomies and make sure they are in the right form."""
     asyncio.run(do_model_metadata_maintenance())
+
+
+@cli.command()
+@db_cmd
+def model_taxonomy_visualization() -> None:
+    """Visualize model taxonomy tree"""
+    asyncio.run(do_model_taxonomy_visualization())
 
 
 @cli.command()
