@@ -52,8 +52,8 @@ from ypl.db.users import User, WaitlistedUser
 load_dotenv()
 
 # Define mean reward for evals, baseline value for medium tier (method="mean")
-FEEDBACK_REWARD_LOWER_BOUND = 100
-FEEDBACK_REWARD_UPPER_BOUND = 150
+FEEDBACK_REWARD_LOWER_BOUND = 75
+FEEDBACK_REWARD_UPPER_BOUND = 175
 QT_EVAL_REWARD_LOWER_BOUND = 50
 QT_EVAL_REWARD_UPPER_BOUND = 100
 
@@ -79,13 +79,13 @@ RULES_PATH = "data/reward_rules.yml"
 
 FEEDBACK_QUALITY_MULTIPLIER = {
     # Poor quality (1)
-    1: 0.25,
+    1: 0.2,
     # Below average quality (2)
     2: 0.35,
     # Average quality (3)
-    3: 0.45,
+    3: 0.5,
     # Good quality (4)
-    4: 0.75,
+    4: 0.8,
     # Excellent quality (5)
     5: 1.0,
 }
@@ -788,8 +788,8 @@ async def generate_bounded_reward(lower_bound: int, upper_bound: int, quality_sc
     # Calculate score-based bounds while ensuring they stay within global bounds
     default_multiplier = FEEDBACK_QUALITY_MULTIPLIER[FALLBACK_QUALITY_SCORE]
     quality_multiplier = FEEDBACK_QUALITY_MULTIPLIER.get(quality_score, default_multiplier)
-    score_min = lower_bound + (range_size * quality_multiplier * 0.7)
-    score_max = lower_bound + (range_size * quality_multiplier)
+    score_min = lower_bound + (range_size * quality_multiplier * 0.5)
+    score_max = lower_bound + (range_size * quality_multiplier * 1.5)
 
     # Ensure score-based bounds don't exceed global bounds
     score_min = max(lower_bound, min(upper_bound, score_min))
