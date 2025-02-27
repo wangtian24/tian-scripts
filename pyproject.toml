@@ -153,8 +153,8 @@ beautifulsoup4 = "4.13.3"
 random-slugs = "^1.0.4"
 resend = "^2.5.1"
 pillow-heif = "^0.21.0"
+types-protobuf = "^5.29.1.20250208"
 more-itertools = "10.6.0"
-
 [tool.poetry.group.dev.dependencies]
 httpx = "0.28.0"
 ipykernel = "6.29.5"

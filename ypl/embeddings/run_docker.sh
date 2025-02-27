@@ -14,6 +14,17 @@ if ! command -v docker &> /dev/null; then
     exit 1
 fi
 
+# Check if yupp-llms is set as the project is set in gcloud config
+project=$(gcloud config get-value project 2>/dev/null) # Suppress stderr if no project is set
+
+if [[ -z "$project" ]]; then
+  echo "Error: No default GCP project is set."
+  exit 1
+elif [[ "$project" != "yupp-llms" ]]; then
+  echo "Error: Default GCP project is set to '$project', but 'yupp-llms' is required."
+  exit 1
+fi
+
 IMAGE_NAME="embeddings_server"
 CONTAINER_NAME="embeddings_server_container"
 
@@ -72,11 +83,18 @@ RUNTIME=$(check_nvidia_runtime)
 
 # Run the Docker container
 echo "Running Docker container..."
+export API_KEY=$(gcloud secrets versions access latest --secret="embedding_service_api_key")
 if [ -n "$RUNTIME" ]; then
     echo "NVIDIA runtime detected, allocating GPU..."
-    docker run --rm --gpus all --name $CONTAINER_NAME -p 8000:8000 $IMAGE_NAME &
+    docker run --rm --gpus all \
+        -e API_KEY=$API_KEY -e GCP_PROJECT=yupp-llms -p 80:80 \
+        -v "$HOME/.config/gcloud:/root/.config/gcloud" \
+        --name $CONTAINER_NAME $IMAGE_NAME &
 else
     echo "No NVIDIA runtime detected. For GPU support, please install the NVIDIA Container Toolkit following the instructions at https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html"
     echo "Running without GPU support..."
-    docker run --rm --name $CONTAINER_NAME -p 8000:8000 $IMAGE_NAME &
+    docker run --rm \
+        -e API_KEY=$API_KEY -e GCP_PROJECT=yupp-llms -p 80:80 \
+        -v "$HOME/.config/gcloud:/root  /.config/gcloud" \
+        --name $CONTAINER_NAME $IMAGE_NAME &
 fi

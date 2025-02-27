@@ -13,6 +13,19 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # Remove unused content on github runners.
+      - name: Free up space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          sudo swapoff -a
+          sudo rm -f /swapfile
+          sudo apt clean
+          # TODO(ralph): figure out why this started failing.
+          # docker rmi $(docker image ls -aq)
+          df -h
+
       - name: Checkout code
         uses: actions/checkout@v4
 
