@@ -28,10 +28,10 @@ from ypl.backend.routes.v1 import points as points_route
 from ypl.backend.routes.v1 import profile as profile_route
 from ypl.backend.routes.v1 import provider as provider_route
 from ypl.backend.routes.v1 import route as llm_route
+from ypl.backend.routes.v1 import scribbles as scribbles_route
 from ypl.backend.routes.v1 import system as system_route
 from ypl.backend.routes.v1 import user as user_route
 from ypl.backend.routes.v1 import user_capability as user_capability_route
-from ypl.backend.routes.v1.chat_instrumentation import router as chat_instrumentation_router
 from ypl.backend.utils.json import json_dumps
 
 
@@ -85,9 +85,8 @@ api_router.include_router(profile_route.router, prefix="/v1", tags=["profile"])
 api_router.include_router(provider_route.router, prefix="/v1", tags=["providers"])
 api_router.include_router(rank.router, prefix="/v1", tags=["leaderboard"])
 api_router.include_router(reward.router, prefix="/v1", tags=["reward"])
+api_router.include_router(scribbles_route.router, prefix="/v1", tags=["scribbles"])
 api_router.include_router(user_route.router, prefix="/v1", tags=["users"])
-api_router.include_router(chat_instrumentation_router, prefix="/v1", tags=["chats"])
-
 
 admin_router.include_router(abuse.router, prefix="/v1", tags=["admin"])
 admin_router.include_router(invite_route.admin_router, prefix="/v1", tags=["admin"])
