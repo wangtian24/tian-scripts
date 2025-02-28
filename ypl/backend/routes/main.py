@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from fastapi import APIRouter, Depends
 
 from ypl.backend.config import settings
-from ypl.backend.llm.provider.provider_clients import load_active_models_with_providers
+from ypl.backend.llm.provider.provider_clients import load_models_with_providers
 from ypl.backend.llm.ranking import get_ranker
 from ypl.backend.prompts import load_prompt_modifiers
 from ypl.backend.routes.api_auth import validate_admin_api_key, validate_api_key
@@ -55,8 +55,8 @@ def app_init() -> None:
         sa.event.listen(sa.engine.Engine, "before_cursor_execute", log_sql_query)
 
     # prefetches the models-providers info & caches the data
-    load_active_models_with_providers(include_all_models=False)
-    load_active_models_with_providers(include_all_models=True)
+    load_models_with_providers(include_all_models=False)
+    load_models_with_providers(include_all_models=True)
     # prefetches the prompt-modifiers & caches the data
     load_prompt_modifiers()
 

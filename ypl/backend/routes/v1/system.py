@@ -5,11 +5,21 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from ypl.backend.llm.db_helpers import (
     deduce_original_provider,
     deduce_original_providers,
+    deduce_semantic_groups,
     get_active_models,
+    get_all_fast_models,
+    get_all_live_models,
+    get_all_pro_and_strong_models,
+    get_all_pro_models,
+    get_all_reasoning_models,
+    get_all_strong_models,
     get_image_attachment_models,
+    get_model_context_lengths,
+    get_model_creation_dates,
     get_pdf_attachment_models,
+    get_yapp_descriptions,
 )
-from ypl.backend.llm.provider.provider_clients import load_active_models_with_providers
+from ypl.backend.llm.provider.provider_clients import load_models_with_providers
 from ypl.backend.llm.routing.rule_router import get_routing_table
 from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.soul_utils import SoulPermission, validate_permissions
@@ -27,9 +37,19 @@ CACHED_FUNCS: dict[str, list] = {
         get_active_models,
         get_image_attachment_models,
         get_pdf_attachment_models,
-        load_active_models_with_providers,
+        load_models_with_providers,
         deduce_original_provider,
         deduce_original_providers,
+        deduce_semantic_groups,
+        get_all_pro_models,
+        get_all_strong_models,
+        get_all_pro_and_strong_models,
+        get_all_fast_models,
+        get_all_live_models,
+        get_all_reasoning_models,
+        get_model_creation_dates,
+        get_model_context_lengths,
+        get_yapp_descriptions,
     ],
 }
 

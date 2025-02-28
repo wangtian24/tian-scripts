@@ -45,22 +45,28 @@ PROVIDER_KWARGS = {
 # TODO(bhanu) - this should auto refresh every 10 minutes and at startup
 # TODO(bhanu) - test new model info is hot reloaded in under 10mins (refresh interval)
 @ttl_cache(ttl=600)  # 600 seconds = 10 minutes
-def load_active_models_with_providers(include_all_models: bool = False) -> dict[str, tuple[LanguageModel, Provider]]:
+def load_models_with_providers(include_all_models: bool = False) -> dict[str, tuple[LanguageModel, Provider]]:
     """Load all active language models with their provider information from the database."""
     with Session(get_engine()) as session:
+        conditions = [
+            LanguageModel.deleted_at.is_(None),  # type: ignore
+            Provider.is_active.is_(True),  # type: ignore
+            Provider.deleted_at.is_(None),  # type: ignore
+        ]
+
+        if not include_all_models:
+            conditions.append(LanguageModel.status == LanguageModelStatusEnum.ACTIVE)
+
         query = (
             select(LanguageModel, Provider)
             .join(Provider, LanguageModel.provider_id == Provider.provider_id)  # type: ignore
-            .where(
-                LanguageModel.status == LanguageModelStatusEnum.ACTIVE if not include_all_models else True,
-                Provider.is_active == True,  # noqa: E712
-            )
+            .where(*conditions)
         )
 
         results = session.exec(query)
-        active_models_with_providers = results.all()
+        models_with_providers = results.all()
 
-        return {model.internal_name: (model, provider) for model, provider in active_models_with_providers}
+        return {model.internal_name: (model, provider) for model, provider in models_with_providers}
 
 
 # TODO: Ralph's comment: probably want to standardize the provider name using `standardize_provider_name`
@@ -72,7 +78,7 @@ def get_model_provider_tuple(
     Cache results for 10 minutes using ttl_cache.
     Returns None if the model is not found.
     """
-    model_provider_map = load_active_models_with_providers(include_all_models)
+    model_provider_map = load_models_with_providers(include_all_models)
     return model_provider_map.get(model_name)
 
 
