@@ -1508,6 +1508,7 @@ Provide a pointed review in at most two sentences:
 Sentence 1: Evaluate the response's strengths and weaknesses, focusing on how well it addresses the core query
 Sentence 2 (optional): Suggest specific enhancements or improvements within the confines of the user's request
 
+If the final AI response is empty, then all you need to say is "The response is empty."
 Do not unnaturally extend the critique beyond needed, some responses may be on point and you don't have to say more than a line - it is enough to mention that the response is good.
 In such cases, the second sentence should not be provided.
 
