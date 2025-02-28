@@ -1,9 +1,10 @@
 import logging
 from datetime import UTC, datetime, timedelta
 
+from sqlalchemy.orm import joinedload
 from sqlmodel import select
 
-from ypl.backend.abuse.utils import create_abuse_event, get_referred_users, get_referring_user
+from ypl.backend.abuse.utils import create_abuse_event, get_referred_users, get_referring_user, ip_details_str
 from ypl.backend.db import get_async_session
 from ypl.backend.utils.json import json_dumps
 from ypl.db.abuse import AbuseActionType, AbuseEventType
@@ -44,7 +45,10 @@ async def check_cashout_instrument_abuse(
         if not users_with_same_instrument:
             return
 
-        cashing_out_user = (await session.exec(select(User).where(User.user_id == user_id))).first()
+        cashing_out_user = (
+            await session.exec(select(User).options(joinedload(User.ip_details)).where(User.user_id == user_id))  # type: ignore
+        ).first()
+
         if not cashing_out_user:
             logging.warning(json_dumps({"user_id": user_id, "message": "User not found"}))
             return
@@ -56,6 +60,7 @@ async def check_cashout_instrument_abuse(
             "cashing_out_user_id": cashing_out_user.user_id,
             "cashing_out_user_email": cashing_out_user.email,
             "cashing_out_user_created_at": str(cashing_out_user.created_at),
+            "cashing_out_user_ip_details": ip_details_str(cashing_out_user.ip_details),
             "payment_instrument_identifier": identifier,
             "payment_instrument_identifier_type": identifier_type.value,
         }
@@ -137,7 +142,10 @@ async def check_cashout_referral_abuse(user_id: str, cashout_time: datetime | No
 
 
 async def check_cashout_abuse(
-    user_id: str, identifier_type: PaymentInstrumentIdentifierTypeEnum, identifier: str
+    user_id: str,
+    identifier_type: PaymentInstrumentIdentifierTypeEnum,
+    identifier: str,
+    cashout_time: datetime | None = None,
 ) -> None:
     await check_cashout_instrument_abuse(user_id, identifier_type, identifier)
-    await check_cashout_referral_abuse(user_id)
+    await check_cashout_referral_abuse(user_id, cashout_time=cashout_time)

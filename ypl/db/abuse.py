@@ -31,6 +31,11 @@ class AbuseEventType(enum.Enum):
     CASHOUT_SAME_INSTRUMENT_AS_REFERRER = "cashout_same_instrument_as_referrer"
     CASHOUT_SAME_INSTRUMENT_AS_RECENT_NEW_USER = "cashout_same_instrument_as_recent_new_user"
     CASHOUT_MULTIPLE_RECENT_REFERRAL_SIGNUPS = "cashout_multiple_recent_referral_signups"
+    SIGNUP_SAME_EMAIL_AS_EXISTING_USER = "signup_same_email_as_existing_user"
+    SIGNUP_SIMILAR_EMAIL_AS_REFERRER = "signup_similar_eamil_as_referrer"
+    SIGNUP_SIMILAR_EMAIL_AS_RECENT_USER = "signup_similar_email_as_recent_user"
+    SIGNUP_SIMILAR_NAME_AS_REFERRER = "signup_similar_name_as_referrer"
+    SIGNUP_SIMILAR_NAME_AS_RECENT_USER = "signup_similar_name_as_recent_user"
 
 
 class AbuseEvent(BaseModel, table=True):

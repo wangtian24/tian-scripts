@@ -13,7 +13,7 @@ from ypl.backend.db import get_async_session
 from ypl.backend.utils.json import json_dumps
 from ypl.db.abuse import AbuseActionType, AbuseEvent, AbuseEventState, AbuseEventType
 from ypl.db.invite_codes import SpecialInviteCode, SpecialInviteCodeClaimLog
-from ypl.db.users import User
+from ypl.db.users import IPs, User
 
 
 async def get_referring_user(session: AsyncSession, user_id: str) -> User | None:
@@ -22,6 +22,7 @@ async def get_referring_user(session: AsyncSession, user_id: str) -> User | None
         select(User)
         .join(SpecialInviteCode)
         .join(SpecialInviteCodeClaimLog)
+        .options(joinedload(User.ip_details))  # type: ignore
         .where(SpecialInviteCodeClaimLog.user_id == user_id)
     )
 
@@ -34,9 +35,24 @@ async def get_referred_users(session: AsyncSession, user_id: str) -> Sequence[Us
         select(User)
         .join(SpecialInviteCodeClaimLog)
         .join(SpecialInviteCode)
+        .options(joinedload(User.ip_details))  # type: ignore
         .where(SpecialInviteCode.creator_user_id == user_id)
     )
-    return (await session.exec(query)).all()
+    return (await session.exec(query)).unique().all()
+
+
+async def get_recent_users(session: AsyncSession, min_creation_time: datetime) -> Sequence[User]:
+    query = (
+        select(User)
+        .options(joinedload(User.ip_details))  # type: ignore
+        .where(User.created_at > min_creation_time, User.deleted_at.is_(None))  # type: ignore
+    )
+    return (await session.exec(query)).unique().all()
+
+
+def ip_details_str(ip_details: list[IPs] | None) -> str:
+    ips = [ip.ip for ip in ip_details] if ip_details else []
+    return ", ".join(sorted(ips))
 
 
 async def create_abuse_event(
