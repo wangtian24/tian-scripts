@@ -32,6 +32,7 @@ async def generate_invite_code_for_top_users(
     limit: int = 10,
 ) -> tuple[int, int]:
     """Generate invite codes for top users based on the given criteria."""
+    logger.info("Generating invite codes for top users")
     async with AsyncSession(get_async_engine()) as session:
         users = await get_users_eligible_for_invite_codes(
             session,
@@ -40,6 +41,7 @@ async def generate_invite_code_for_top_users(
             min_feedback_count=min_feedback_count,
             limit=limit,
         )
+        logger.info(f"Found {len(users)} users eligible for invite codes")
         codes_created = 0
         slack_messages = []
         user_ids_to_send_email = []
@@ -60,10 +62,14 @@ async def generate_invite_code_for_top_users(
                 user_ids_to_send_email.append(user.user_id)
         await session.commit()
 
+    # Close the session before proceeding with email sending
+
     email_sent = False
     try:
-        await send_sic_availability_email(session, user_ids_to_send_email)
-        email_sent = True
+        # Create a new session for sending emails
+        async with AsyncSession(get_async_engine()) as email_session:
+            await send_sic_availability_email(email_session, user_ids_to_send_email)
+            email_sent = True
     except Exception as e:
         logging.error(f"Error sending sic_availability email: {e}")
 

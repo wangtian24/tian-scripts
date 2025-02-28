@@ -4,11 +4,12 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from pydantic import BaseModel
-from sqlalchemy import String, cast, desc, exists, func, not_
+from sqlalchemy import String, cast, desc, exists, func, not_, or_
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ypl.backend.email.send_email import EmailConfig, batch_send_emails_async
+from ypl.backend.utils.utils import CapabilityType
 from ypl.db.app_feedback import AppFeedback
 from ypl.db.chats import Eval
 from ypl.db.invite_codes import (
@@ -16,7 +17,7 @@ from ypl.db.invite_codes import (
     SpecialInviteCodeClaimLog,
     SpecialInviteCodeState,
 )
-from ypl.db.users import User, UserStatus
+from ypl.db.users import Capability, User, UserCapabilityOverride, UserCapabilityStatus, UserStatus
 from ypl.random_word_slugs.generate import Options, generate_slug
 
 
@@ -193,6 +194,22 @@ async def get_users_eligible_for_invite_codes(
         .cte("feedback_stats")
     )
 
+    # Subquery to find users with disabled cashout capability
+    disabled_cashout_users = (
+        select(UserCapabilityOverride.user_id)
+        .join(Capability, UserCapabilityOverride.capability_id == Capability.capability_id)  # type: ignore
+        .where(
+            func.lower(Capability.capability_name) == CapabilityType.CASHOUT.value.lower(),
+            UserCapabilityOverride.status == UserCapabilityStatus.DISABLED,
+            UserCapabilityOverride.deleted_at.is_(None),  # type: ignore
+            or_(
+                UserCapabilityOverride.effective_end_date.is_(None),  # type: ignore
+                UserCapabilityOverride.effective_end_date > datetime.now(UTC),  # type: ignore
+            ),
+        )
+        .cte("disabled_cashout_users")
+    )
+
     query = (
         select(
             User,
@@ -210,6 +227,8 @@ async def get_users_eligible_for_invite_codes(
             User.deleted_at.is_(None),  # type: ignore
             User.status == UserStatus.ACTIVE,
             func.coalesce(feedback_stats.c.feedback_count, 0) >= min_feedback_count,
+            # Exclude users with disabled cashout capability
+            not_(exists(select(1).where(disabled_cashout_users.c.user_id == User.user_id))),
             # Exclude user that already have invite codes (both inactive or active)
             not_(
                 exists(
