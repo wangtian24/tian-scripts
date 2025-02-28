@@ -129,6 +129,7 @@ class Settings(BaseSettings):
 
     SLACK_WEBHOOK_CASHOUT: str = os.getenv("SLACK_WEBHOOK_CASHOUT", "")
     SLACK_WEBHOOK_URL: str = os.getenv("SLACK_WEBHOOK_URL", "")
+    SLACK_MODEL_MANAGEMENT_APP_BOT_TOKEN: str = os.getenv("SLACK_MODEL_MANAGEMENT_APP_BOT_TOKEN", "")
 
     DEFAULT_QT_TIMEOUT_SECS: float = 1.5
     RETAKE_QT_TIMEOUT_SECS: float = 5.0

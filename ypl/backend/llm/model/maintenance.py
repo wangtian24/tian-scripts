@@ -6,7 +6,7 @@ from sqlalchemy import func, text
 from sqlalchemy.orm import selectinload
 from sqlmodel import select
 from ypl.backend.db import get_async_session
-from ypl.backend.llm.utils import post_to_slack
+from ypl.backend.llm.utils import YuppSlackApps, post_to_slack_channel
 from ypl.backend.utils.json import json_dumps
 from ypl.db.language_models import (
     LanguageModel,
@@ -22,7 +22,7 @@ async def _log_and_post(message: str, details: list[str]) -> None:
 
     details_list = [f"- {detail}\n" for detail in details]
     slack_msg = f":eyeglasses: *Model Metadata Maintenance* [{env}] - {message}\n{''.join(details_list)}"
-    await post_to_slack(slack_msg)
+    post_to_slack_channel(slack_msg, "#alert-model-management", YuppSlackApps.MODEL_MANAGEMENT)
 
 
 async def _check_model_provider_and_names() -> None:

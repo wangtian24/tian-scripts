@@ -5,10 +5,12 @@ import os
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from enum import Enum, auto
 from functools import cache
 from typing import Any, TypeVar
 
 import numpy as np
+import requests
 from slack_sdk.webhook import WebhookClient
 from sqlmodel import select
 
@@ -172,6 +174,48 @@ async def post_to_slack_with_user_name(
         message = f"{user_name}: {message}"
 
     await post_to_slack(message, webhook_url, blocks)
+
+
+class YuppSlackApps(Enum):
+    """Enum for Yupp Slack applications."""
+
+    MODEL_MANAGEMENT = auto()
+
+
+# Mapping from YuppSlackApps to their corresponding environment variable names
+SLACK_APP_TOKEN_ENV_VARS = {
+    YuppSlackApps.MODEL_MANAGEMENT: "SLACK_MODEL_MANAGEMENT_APP_BOT_TOKEN",
+}
+
+
+def post_to_slack_channel(message: str, channel: str, app: YuppSlackApps = YuppSlackApps.MODEL_MANAGEMENT) -> None:
+    """
+    Post a message to a Slack channel using a specific app
+    """
+    if os.environ.get("ENVIRONMENT") == "local":
+        print(f"Skipping Slack posting in local environment to channel {channel}: \n{message}")
+        return
+    bot_token = os.environ.get(SLACK_APP_TOKEN_ENV_VARS[app])
+    message_dict = {
+        "channel": channel,
+        "text": message,
+    }
+    headers = {
+        "Authorization": f"Bearer {bot_token}",
+        "Content-Type": "application/json",
+    }
+    try:
+        response = requests.post(
+            "https://slack.com/api/chat.postMessage",
+            headers=headers,
+            data=json.dumps(message_dict),
+        )
+        response.raise_for_status()
+    except Exception as e:
+        log_dict = {
+            "message": f"Failed to post message to Slack channel {channel}: {str(e)}",
+        }
+        logging.exception(json_dumps(log_dict))
 
 
 async def post_to_slack(message: str | None = None, webhook_url: str | None = None, blocks: list | None = None) -> None:
