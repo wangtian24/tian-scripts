@@ -770,6 +770,7 @@ Knowledge cutoff: 2023-10
 Current date/time: {cur_datetime}
 Image input capabilities: Enabled
 Personality: v2
+Formatting re-enabled
 """
 
 PERPLEXITY_SYSTEM_PROMPT = """Knowledge cutoff: 2023-10
@@ -949,6 +950,7 @@ MODEL_SPECIFIC_PROMPTS = {
     r"^gemini-.*": GEMINI_SYSTEM_PROMPT,
     r"^gpt-4.5-": CHATGPT45_SYSTEM_PROMPT,
     r"^gpt-": CHATGPT_SYSTEM_PROMPT,
+    r"^o\d.*": CHATGPT_SYSTEM_PROMPT,  # for o1, o2, o3 and variants
     r"^llama-3.1-sonar.*": PERPLEXITY_SYSTEM_PROMPT,
     r"^x-ai/grok-.*": GROK_SYSTEM_PROMPT,
 }
@@ -1126,6 +1128,11 @@ def get_system_prompt_with_modifiers(
     Returns:
         The complete system prompt string with any modifiers appended
     """
+
+    # o1-preview and o1-mini models don't support modifiers. o1 is fine though
+    if model.startswith(("o1-preview", "o1-mini")):
+        return ""
+
     base_system_prompt = get_system_prompt(model)
     if use_all_models_in_chat_history:
         base_system_prompt += ALL_MODELS_IN_CHAT_HISTORY_PROMPT

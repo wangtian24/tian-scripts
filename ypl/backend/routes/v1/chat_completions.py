@@ -296,8 +296,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
         if chat_request.intent == SelectIntent.TALK_TO_OTHER_MODELS:
             messages.append(HumanMessage(content=system_prompt))
         else:
-            if system_prompt and not chat_request.model.startswith("o1"):
-                # use system prompt for non o1 models. o1 doesn't support system prompt
+            if system_prompt:
                 messages.append(SystemMessage(content=system_prompt))
         if not chat_request.is_new_chat and chat_request.intent != SelectIntent.TALK_TO_OTHER_MODELS:
             chat_history = await get_curated_chat_context(
