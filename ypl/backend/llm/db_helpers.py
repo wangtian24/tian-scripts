@@ -15,7 +15,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_mistralai import ChatMistralAI
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
-from sqlalchemy import and_, desc, or_, text
+from sqlalchemy import and_, desc, not_, or_, text
 from sqlmodel import Session, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -209,6 +209,65 @@ def get_all_pro_models() -> Sequence[str]:
 def get_all_strong_models() -> Sequence[str]:
     query = select(LanguageModel.internal_name).where(
         LanguageModel.is_strong.is_(True),  # type: ignore
+        LanguageModel.deleted_at.is_(None),  # type: ignore
+        LanguageModel.status == LanguageModelStatusEnum.ACTIVE,
+    )
+
+    with Session(get_engine()) as session:
+        return session.exec(query).all()
+
+
+@ttl_cache(ttl=600)  # 10-min cache
+def get_all_pro_and_strong_models() -> Sequence[str]:
+    query = select(LanguageModel.internal_name).where(
+        LanguageModel.is_pro.is_(True),  # type: ignore
+        LanguageModel.is_strong.is_(True),  # type: ignore
+        LanguageModel.deleted_at.is_(None),  # type: ignore
+        LanguageModel.status == LanguageModelStatusEnum.ACTIVE,
+        # Exclude o1 models from pro-and-strong models as it's slow.
+        # TODO(tian): use some other more organic ways to pick up LHS-worthy models
+        LanguageModel.label.is_not(None),  # type: ignore
+        not_(LanguageModel.label.contains("o1")),  # type: ignore
+    )
+
+    with Session(get_engine()) as session:
+        return session.exec(query).all()
+
+
+@ttl_cache(ttl=600)  # 10-min cache
+def get_all_fast_models() -> Sequence[str]:
+    query = (
+        select(LanguageModel.internal_name)
+        .join(Provider)
+        .where(
+            Provider.is_fast.is_(True),  # type: ignore
+            Provider.deleted_at.is_(None),  # type: ignore
+            Provider.is_active.is_(True),  # type: ignore
+            LanguageModel.deleted_at.is_(None),  # type: ignore
+            LanguageModel.status == LanguageModelStatusEnum.ACTIVE,
+        )
+    )
+
+    with Session(get_engine()) as session:
+        return session.exec(query).all()
+
+
+@ttl_cache(ttl=600)  # 10-min cache
+def get_all_live_models() -> Sequence[str]:
+    query = select(LanguageModel.internal_name).where(
+        LanguageModel.is_live.is_(True),  # type: ignore
+        LanguageModel.deleted_at.is_(None),  # type: ignore
+        LanguageModel.status == LanguageModelStatusEnum.ACTIVE,
+    )
+
+    with Session(get_engine()) as session:
+        return session.exec(query).all()
+
+
+@ttl_cache(ttl=600)  # 10-min cache
+def get_all_reasoning_models() -> Sequence[str]:
+    query = select(LanguageModel.internal_name).where(
+        LanguageModel.is_reasoning.is_(True),  # type: ignore
         LanguageModel.deleted_at.is_(None),  # type: ignore
         LanguageModel.status == LanguageModelStatusEnum.ACTIVE,
     )

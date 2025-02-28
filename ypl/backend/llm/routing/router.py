@@ -29,15 +29,21 @@ from ypl.backend.llm.routing.modules.proposers import (
     AlwaysGoodModelMetaRouter,
     CostModelProposer,
     EloProposer,
-    ImageProModelProposer,
+    FastModelProposer,
+    ImageModelProposer,
+    LiveModelProposer,
     MaxSpeedProposer,
-    PdfProModelProposer,
+    ModelProposer,
+    PdfModelProposer,
+    ProAndStrongModelProposer,
     ProModelProposer,
     RandomModelProposer,
+    ReasoningModelProposer,
     StrongModelProposer,
 )
 from ypl.backend.llm.routing.modules.rankers import (
     PositionMatchReranker,
+    ProAndStrongReranker,
     PromotionModelReranker,
     ProviderScatterer,
     ScoreReranker,
@@ -115,15 +121,12 @@ async def get_simple_pro_router(
     has_pdf = PDF_CATEGORY in categories
     has_attachment = has_image or has_pdf
 
-    pro_proposer = ImageProModelProposer() if has_image else PdfProModelProposer() if has_pdf else ProModelProposer()
-
     rule_proposer = RoutingRuleProposer(*categories)
     rule_filter = RoutingRuleFilter(*categories)
     error_filter = HighErrorRateFilter() if not has_pdf else HighErrorRateFilter(soft_threshold=0.2, hard_threshold=0.4)
-    num_pro = int(pro_proposer.get_rng().random() * 2 + 1)
 
-    image_proposer = ImageProModelProposer() if IMAGE_CATEGORY in categories else Passthrough()
-    pdf_proposer = PdfProModelProposer() if PDF_CATEGORY in categories else Passthrough()
+    image_proposer = ImageModelProposer() if IMAGE_CATEGORY in categories else Passthrough()
+    pdf_proposer = PdfModelProposer() if PDF_CATEGORY in categories else Passthrough()
     attachment_proposer = image_proposer | pdf_proposer
 
     image_filter = SupportsImageAttachmentModelFilter() if IMAGE_CATEGORY in categories else Passthrough()
@@ -141,7 +144,7 @@ async def get_simple_pro_router(
             # -- filter stage --
             Exclude(name="-exclBad", providers=show_me_more_providers, exclude_models=exclude_models)
             # Inject required models, even if they don't have attachment capabilities.
-            | Inject(required_models or [], score=50000000)
+            | Inject(required_models or [], score=50_000_000)
             # exclude inactive models after injection, this is necessary in case we are injecting models inferred
             # from the history of the chat but they are no longer active.
             | Exclude(name="-inactive", whitelisted_models=await get_all_active_models(include_internal_models))
@@ -164,6 +167,7 @@ async def get_simple_pro_router(
             | YappReranker(num_models)  # yapp models should never be in the fallback
             | FirstK(num_models_to_return, num_primary_models=num_models, name="final")
             | SpeedReranker(num_models)  # rerank final results with speed, the fastest models always in the front
+            | (ProAndStrongReranker() if not is_new_turn else Passthrough())
             | (PositionMatchReranker(preference, num_models) if is_new_turn else Passthrough())
             # -- logging stage --
             | RoutingDecisionLogger(
@@ -182,6 +186,9 @@ async def get_simple_pro_router(
     if required_models is not None and len(required_models) > 0:
         metric_inc_by("routing/num_required_models_for_routing", len(required_models))
 
+    def propose_type(proposer: type[ModelProposer], name: str, offset: int = 50_000) -> RouterModule:
+        return proposer() | error_filter | TopK(1, name=name).with_flags(always_include=True, offset=offset)
+
     if not preference.turns:
         # --- First Turn (NEW_TURN) ---
         # Construct a first-turn router guaranteeing at least one pro model and one reputable model.
@@ -192,18 +199,20 @@ async def get_simple_pro_router(
             | (
                 # propose through routing table rules
                 (rule_proposer.with_flags(always_include=True) | RandomJitter(jitter_range=1))
-                # propose pro models
-                & (pro_proposer | error_filter | TopK(num_pro, name="pro")).with_flags(
-                    always_include=True, offset=100000
+                # always try to have something pro and strong in the first turn
+                & (ProAndStrongModelProposer() | error_filter | TopK(1, name="pro_and_strong")).with_flags(
+                    always_include=True, offset=1_000_000
                 )
-                # propose strong models
-                & (StrongModelProposer() | error_filter | TopK(1, name="strong")).with_flags(
-                    always_include=True, offset=50000
+                & (  # diversification
+                    propose_type(StrongModelProposer, "strong", 50_000)
+                    ^ propose_type(FastModelProposer, "fast", 50_000)
+                    ^ propose_type(LiveModelProposer, "live", 50_000)
+                    ^ propose_type(ReasoningModelProposer, "reasoning", 50_000)
                 )
                 # propose promoted models
                 & (PromotionModelProposer() | error_filter).with_flags(always_include=True)
                 # propose models with image or pdf capabilities, strong offset
-                & (attachment_proposer | error_filter).with_flags(always_include=True, offset=200000)
+                & (attachment_proposer | error_filter).with_flags(always_include=True, offset=200_000)
                 # propose reputable models
                 & (
                     reputable_proposer
@@ -213,7 +222,7 @@ async def get_simple_pro_router(
                     | ContextLengthFilter(prompt)
                     | RandomJitter(jitter_range=30.0)  # +/- 30 tokens per second
                     | ProviderFilter(one_per_provider=True)
-                ).with_flags(always_include=True, offset=5000)
+                ).with_flags(always_include=True, offset=5_000)
             )
             | error_filter  # removes models with high error rate
             # -- post processing stage --
@@ -233,26 +242,26 @@ async def get_simple_pro_router(
                 # propose all previous good models (preferred models)
                 (
                     (RandomModelProposer(models=all_good_models) | error_filter | TopK(1, name="rnd-NF")).with_flags(
-                        always_include=True, offset=10000
+                        always_include=True, offset=1_0000
                     )
                     ^ Passthrough()
                 ).with_probs(1 - no_proposal_prob, no_proposal_prob)
                 # propose through routing table rules
                 & (rule_proposer.with_flags(always_include=True) | error_filter | RandomJitter(jitter_range=1))
-                # propose models with image capabilities, strong offset
+                # propose models with attachment capabilities, strong offset
                 & (
-                    image_proposer.with_flags(always_include=True, offset=20000000)
+                    attachment_proposer.with_flags(always_include=True, offset=20_000_000)
                     | error_filter
                     | RandomJitter(jitter_range=1)
                 )
                 # propose pro OR reputable OR random models, choosing them random using the probabilities in with_probs
                 & (
                     (
-                        pro_proposer
+                        ProModelProposer()
                         | Exclude(name="-ex-NF", exclude_models=all_bad_models)
                         | error_filter
                         | TopK(1, name="pro-NF")
-                    ).with_flags(always_include=True, offset=10000)
+                    ).with_flags(always_include=True, offset=10_000)
                     ^ (
                         reputable_proposer
                         | StreamableModelFilter()
@@ -261,8 +270,8 @@ async def get_simple_pro_router(
                         | MaxSpeedProposer()
                         | RandomJitter(jitter_range=30.0)  # +/- 30 tokens per second
                         | ProviderFilter(one_per_provider=True)
-                    ).with_flags(always_include=True, offset=10000)
-                    ^ RandomModelProposer().with_flags(offset=10000, always_include=True)
+                    ).with_flags(always_include=True, offset=10_000)
+                    ^ RandomModelProposer().with_flags(offset=10_000, always_include=True)
                 ).with_probs(
                     settings.ROUTING_WEIGHTS.get("pro", 0.5),
                     settings.ROUTING_WEIGHTS.get("reputable", 0.3),
@@ -271,7 +280,7 @@ async def get_simple_pro_router(
                 # propose promoted models
                 & (PromotionModelProposer() | error_filter).with_flags(always_include=True)
                 # propose even more random models but low score
-                & RandomModelProposer().with_flags(offset=-1000, always_include=True)
+                & RandomModelProposer().with_flags(offset=-1_000, always_include=True)
             )
             | error_filter  # removes models with high error rate
             # -- post processing stage --

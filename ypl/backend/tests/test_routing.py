@@ -503,6 +503,10 @@ def test_fast_compute_all_conf_overlap_diffs() -> None:
 @patch("ypl.backend.llm.routing.router.HighErrorRateFilter.select_models")
 @patch("ypl.backend.llm.routing.modules.proposers.get_all_strong_models")
 @patch("ypl.backend.llm.routing.modules.proposers.get_all_pro_models")
+@patch("ypl.backend.llm.routing.modules.proposers.get_all_pro_and_strong_models")
+@patch("ypl.backend.llm.routing.modules.proposers.get_all_fast_models")
+@patch("ypl.backend.llm.routing.modules.proposers.get_all_live_models")
+@patch("ypl.backend.llm.routing.modules.proposers.get_all_reasoning_models")
 @patch("ypl.backend.llm.routing.modules.rankers.deduce_model_speed_scores")
 @patch("ypl.backend.llm.routing.modules.proposers.deduce_original_providers")
 @patch("ypl.backend.llm.routing.modules.filters.deduce_original_providers")
@@ -527,6 +531,10 @@ async def test_simple_pro_router(
     mock_deduce_providers2: Mock,
     mock_deduce_providers3: Mock,
     mock_deduce_speed_scores: Mock,
+    mock_get_all_reasoning_models: Mock,
+    mock_get_all_live_models: Mock,
+    mock_get_all_fast_models: Mock,
+    mock_get_all_pro_and_strong_models: Mock,
     mock_get_all_pro_models: Mock,
     mock_get_all_strong_models: Mock,
     mock_error_filter: Mock,
@@ -543,7 +551,13 @@ async def test_simple_pro_router(
 
     # Test that we get different models
     pro_models = {"pro1", "pro2", "pro3", "pro4"}
+    strong_models = {"model1"}
     mock_get_all_pro_models.return_value = pro_models
+    mock_get_all_strong_models.return_value = strong_models
+    mock_get_all_pro_and_strong_models.return_value = pro_models | strong_models
+    mock_get_all_fast_models.return_value = {}
+    mock_get_all_live_models.return_value = {}
+    mock_get_all_reasoning_models.return_value = {}
     mock_semantic_group_map1.return_value = {}
     mock_semantic_group_map2.return_value = {}
     mock_has_image_attachments.return_value = False
@@ -560,7 +574,6 @@ async def test_simple_pro_router(
     mock_deduce_providers2.return_value = {model: model for model in all_models}
     mock_deduce_providers3.return_value = {model: model for model in all_models}
     mock_deduce_speed_scores.return_value = {model: 1.0 for model in all_models}
-    mock_get_all_strong_models.return_value = {"pro1", "pro2", "pro3", "model1"}
     mock_error_filter.side_effect = lambda state: state
 
     mock_model_context_lengths.return_value = {model: 1000000 for model in all_models}
@@ -772,6 +785,12 @@ def test_context_length_filter(mock_context_lengths: Mock) -> None:
 @patch("ypl.backend.llm.routing.modules.proposers.get_image_attachment_models", return_value=IMAGE_ATTACHMENT_MODELS)
 @patch("ypl.backend.llm.routing.modules.proposers.get_all_pro_models", return_value=PRO_MODELS)
 @patch("ypl.backend.llm.routing.modules.proposers.get_all_strong_models", return_value=STRONG_MODELS)
+@patch(
+    "ypl.backend.llm.routing.modules.proposers.get_all_pro_and_strong_models", return_value=PRO_MODELS + STRONG_MODELS
+)
+@patch("ypl.backend.llm.routing.modules.proposers.get_all_fast_models")
+@patch("ypl.backend.llm.routing.modules.proposers.get_all_live_models")
+@patch("ypl.backend.llm.routing.modules.proposers.get_all_reasoning_models")
 @patch("ypl.backend.llm.chat.get_preferences")
 @patch("ypl.backend.llm.routing.rule_router.get_routing_table", return_value=RoutingTable([]))
 @patch(
@@ -814,6 +833,10 @@ async def test_select_models_plus(
     mock_get_model_context_lengths: Mock,
     mock_get_routing_table: Mock,
     mock_get_preferences: Mock,
+    mock_get_all_reasoning_models: Mock,
+    mock_get_all_live_models: Mock,
+    mock_get_all_fast_models: Mock,
+    mock_get_all_pro_and_strong_models: Mock,
     mock_get_all_strong_models: Mock,
     mock_get_all_pro_models: Mock,
     mock_get_image_attachment_models1: Mock,

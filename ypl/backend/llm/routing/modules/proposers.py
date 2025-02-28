@@ -7,7 +7,11 @@ from ypl.backend.llm.constants import MODEL_HEURISTICS
 from ypl.backend.llm.db_helpers import (
     adeduce_original_provider,
     deduce_original_providers,
+    get_all_fast_models,
+    get_all_live_models,
+    get_all_pro_and_strong_models,
     get_all_pro_models,
+    get_all_reasoning_models,
     get_all_strong_models,
     get_image_attachment_models,
     get_pdf_attachment_models,
@@ -73,18 +77,25 @@ class ModelProposer(RouterModule):
         return self._propose_models(models_to_select, state)
 
 
-class ProModelProposer(RNGMixin, ModelProposer):
+class ProvidedModelProposer(RNGMixin, ModelProposer):
+    def __init__(
+        self, model_list: list[str], selection_criteria: SelectionCriteria, score: float = 1.0, num_to_propose: int = 1
+    ) -> None:
+        self.provided_model_list = model_list
+        self.selection_criteria = selection_criteria
+        self.score = score
+        self.num_to_propose = num_to_propose
+
     def _propose_models(self, models_to_select: set[str], state: RouterState) -> RouterState:
         if not models_to_select:
             return RouterState()
 
-        all_pro_models = self._get_all_pro_models()
-        models_to_select = models_to_select.intersection(all_pro_models)
+        models_to_select = models_to_select.intersection(set(self.provided_model_list))
         models_to_select_ = list(models_to_select)
         self.get_rng().shuffle(models_to_select_)
 
         return state.emplaced(
-            selected_models={model: {SelectionCriteria.PRO_MODELS: 1.0} for model in models_to_select_},
+            selected_models={model: {self.selection_criteria: self.score} for model in models_to_select_},
             all_models=state.all_models,
             excluded_models=state.excluded_models | (state.all_models - set(models_to_select)),
         )
@@ -92,38 +103,45 @@ class ProModelProposer(RNGMixin, ModelProposer):
     async def _apropose_models(self, models_to_select: set[str], state: RouterState) -> RouterState:
         return self._propose_models(models_to_select, state)
 
-    def _get_all_pro_models(self) -> set[str]:
-        return set(get_all_pro_models())
+
+class ProModelProposer(ProvidedModelProposer):
+    def __init__(self) -> None:
+        super().__init__(list(get_all_pro_models()), SelectionCriteria.PRO_MODELS)
 
 
-class ImageProModelProposer(ProModelProposer):
-    def _get_all_pro_models(self) -> set[str]:
-        return set(get_image_attachment_models())
+class StrongModelProposer(ProvidedModelProposer):
+    def __init__(self) -> None:
+        super().__init__(list(get_all_strong_models()), SelectionCriteria.STRONG_MODELS)
 
 
-class PdfProModelProposer(ProModelProposer):
-    def _get_all_pro_models(self) -> set[str]:
-        return set(get_pdf_attachment_models())
+class ProAndStrongModelProposer(ProvidedModelProposer):
+    def __init__(self) -> None:
+        super().__init__(list(get_all_pro_and_strong_models()), SelectionCriteria.PRO_AND_STRONG_MODELS)
 
 
-class StrongModelProposer(RNGMixin, ModelProposer):
-    def _propose_models(self, models_to_select: set[str], state: RouterState) -> RouterState:
-        if not models_to_select:
-            return RouterState()
+class FastModelProposer(ProvidedModelProposer):
+    def __init__(self) -> None:
+        super().__init__(list(get_all_fast_models()), SelectionCriteria.FAST_MODELS)
 
-        all_strong_models = set(get_all_strong_models())
-        models_to_select = models_to_select.intersection(all_strong_models)
-        models_to_select_ = list(models_to_select)
-        self.get_rng().shuffle(models_to_select_)
 
-        return state.emplaced(
-            selected_models={model: {SelectionCriteria.STRONG_MODELS: 1.0} for model in models_to_select_},
-            all_models=state.all_models,
-            excluded_models=state.excluded_models | (state.all_models - set(models_to_select)),
-        )
+class LiveModelProposer(ProvidedModelProposer):
+    def __init__(self) -> None:
+        super().__init__(list(get_all_live_models()), SelectionCriteria.LIVE_MODELS)
 
-    async def _apropose_models(self, models_to_select: set[str], state: RouterState) -> RouterState:
-        return self._propose_models(models_to_select, state)
+
+class ReasoningModelProposer(ProvidedModelProposer):
+    def __init__(self) -> None:
+        super().__init__(list(get_all_reasoning_models()), SelectionCriteria.REASONING_MODELS)
+
+
+class ImageModelProposer(ProvidedModelProposer):
+    def __init__(self) -> None:
+        super().__init__(list(get_image_attachment_models()), SelectionCriteria.IMAGE_MODELS)
+
+
+class PdfModelProposer(ProvidedModelProposer):
+    def __init__(self) -> None:
+        super().__init__(list(get_pdf_attachment_models()), SelectionCriteria.PDF_MODELS)
 
 
 class RandomModelProposer(RNGMixin, ModelProposer):

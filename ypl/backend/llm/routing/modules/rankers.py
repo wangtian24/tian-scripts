@@ -112,6 +112,29 @@ class SpeedReranker(Reranker):
         return self._select_models(state)
 
 
+class ProAndStrongReranker(Reranker):
+    """
+    Just pull one pro-and-strong model to the front.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(name="proAndStrongRanker")
+
+    def rerank(self, model_names: list[str], state: RouterState) -> list[str]:
+        # Find a pro-and-strong model in the list
+        pro_and_strong_models = [
+            model
+            for model in model_names
+            if model in state.selected_models
+            and SelectionCriteria.PRO_AND_STRONG_MODELS in state.selected_models[model]
+        ]
+        if pro_and_strong_models:
+            pro_and_strong_model = pro_and_strong_models[0]
+            model_names.remove(pro_and_strong_model)
+            model_names.insert(0, pro_and_strong_model)
+        return model_names
+
+
 class YappReranker(Reranker):
     """
     If the yapp model doesn't make to the top num_models (primary models), pull it to the end, don't leave it in the
