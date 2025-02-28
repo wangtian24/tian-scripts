@@ -117,10 +117,15 @@ class ProAndStrongReranker(Reranker):
     Just pull one pro-and-strong model to the front.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, exempt_models: list[str] | None = None) -> None:
         super().__init__(name="proAndStrongRanker")
+        self.exempt_models = exempt_models or []
 
     def rerank(self, model_names: list[str], state: RouterState) -> list[str]:
+        # If the first position is an exempt model, don't do anything
+        if model_names and model_names[0] in self.exempt_models:
+            return model_names
+
         # Find a pro-and-strong model in the list
         pro_and_strong_models = [
             model

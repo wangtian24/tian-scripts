@@ -354,7 +354,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
     if logging.root.getEffectiveLevel() == logging.DEBUG:
         for model, model_debug in routing_debug_info.model_debug.items():
             is_selected = " S => " if model in primary_models else ""
-            logging.debug(f"> {model:<50}{is_selected:<8}{model_debug.score:-10.1f}{model_debug.journey}")
+            print(f"> {model:<50}{is_selected:<8}{model_debug.score:-10.1f}{model_debug.journey}")
     if len(primary_models) != request.num_models:
         log_dict = {
             "message": f"Model routing: requested {request.num_models} models, but returned {len(primary_models)}.",

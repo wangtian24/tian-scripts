@@ -125,7 +125,7 @@ class RoutingRuleProposer(ModelProposer):
 
 class RoutingRuleFilter(ModelFilter):
     def __init__(self, *prompt_categories: str) -> None:
-        super().__init__(name="-routing_rules", persist=True)
+        super().__init__(name="-rules", persist=True)
         self.prompt_categories = prompt_categories
         self.routing_table = get_routing_table()
 

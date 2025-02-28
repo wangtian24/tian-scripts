@@ -166,8 +166,8 @@ async def get_simple_pro_router(
             | (ProviderScatterer(min_dist=num_models_to_return) if has_attachment else Passthrough())
             | YappReranker(num_models)  # yapp models should never be in the fallback
             | FirstK(num_models_to_return, num_primary_models=num_models, name="final")
-            | SpeedReranker(num_models)  # rerank final results with speed, the fastest models always in the front
-            | (ProAndStrongReranker() if not is_new_turn else Passthrough())
+            | (SpeedReranker(num_models) if is_new_turn else Passthrough())  # rerank by speed only in new turns
+            | (ProAndStrongReranker(exempt_models=required_models) if not is_new_turn else Passthrough())
             | (PositionMatchReranker(preference, num_models) if is_new_turn else Passthrough())
             # -- logging stage --
             | RoutingDecisionLogger(
