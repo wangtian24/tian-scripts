@@ -1078,7 +1078,6 @@ def get_system_prompt(model_name: str) -> str:
     return fill_cur_datetime(prompt)
 
 
-# TODO(bhanu) - add auto refresh
 @ttl_cache(ttl=600)  # 600 seconds = 10 minutes
 def load_prompt_modifiers() -> dict[uuid.UUID, PromptModifier]:
     """Load all prompt modifiers from the database.

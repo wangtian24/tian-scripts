@@ -42,8 +42,6 @@ PROVIDER_KWARGS = {
 }
 
 
-# TODO(bhanu) - this should auto refresh every 10 minutes and at startup
-# TODO(bhanu) - test new model info is hot reloaded in under 10mins (refresh interval)
 @ttl_cache(ttl=600)  # 600 seconds = 10 minutes
 def load_models_with_providers(include_all_models: bool = False) -> dict[str, tuple[LanguageModel, Provider]]:
     """Load all active language models with their provider information from the database."""
@@ -83,7 +81,6 @@ def get_model_provider_tuple(
 
 
 # TODO(bhanu) - add provider to client mapping in DB and remove switch cases (pre-work API key storage)
-# TODO(bhanu) - use keys from ypl/backend/config.py
 async def get_provider_client(model_name: str, include_all_models: bool = False, **func_kwargs: Any) -> BaseChatModel:
     """
     Initialize a LangChain client based on model name.
@@ -176,7 +173,6 @@ async def get_provider_client(model_name: str, include_all_models: bool = False,
             return ChatMistralAI(
                 model_name=model_name, api_key=SecretStr(os.getenv("MISTRAL_API_KEY", "")), **combined_kwargs
             )
-        # TODO(bhanu) - the current API key is throwing 403
         case "Hugging Face":
             llm = HuggingFaceEndpoint(
                 model=model_name, huggingfacehub_api_token=os.getenv("HUGGINGFACE_API_KEY", ""), **combined_kwargs
@@ -205,7 +201,6 @@ async def get_provider_client(model_name: str, include_all_models: bool = False,
                 base_url=merge_base_url_with_port(provider.base_api_url, provider_port),
                 **combined_kwargs,
             )
-        # TODO(bhanu) - review inactive providers in DB - Azure, Nvidia, Fireworks
         case _:
             raise ValueError(f"Unsupported provider: {provider.name}")
 
