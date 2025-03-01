@@ -78,7 +78,7 @@ async def do_verify_submitted_models() -> None:
             for model, _ in rows:
                 await _verify_one_submitted_model(model)
 
-            await _revalidate_yupp_head_model_info()
+            await revalidate_yupp_head_model_info()
 
 
 async def verify_onboard_specific_model(model_id: UUID) -> None:
@@ -107,7 +107,7 @@ async def verify_onboard_specific_model(model_id: UUID) -> None:
                 model, _ = row
                 await _verify_one_submitted_model(model)
 
-                await _revalidate_yupp_head_model_info()
+                await revalidate_yupp_head_model_info()
             else:
                 log_dict = {"message": f"No submitted model found with id {model_id}", "model_id": model_id}
                 logging.warning(json_dumps(log_dict))
@@ -169,7 +169,7 @@ async def _verify_one_submitted_model(model: LanguageModel) -> None:
     wait=wait_fixed(WAIT_TIME),
     retry=retry_if_exception_type((Exception, TimeoutError)),
 )
-async def _revalidate_yupp_head_model_info() -> None:
+async def revalidate_yupp_head_model_info() -> None:
     """Notify yupp-head when model ."""
     yupp_head_base_url = settings.YUPP_HEAD_APP_BASE_URL
     if not yupp_head_base_url:

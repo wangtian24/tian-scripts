@@ -19,6 +19,7 @@ from ypl.backend.llm.db_helpers import (
     get_pdf_attachment_models,
     get_yapp_descriptions,
 )
+from ypl.backend.llm.model.model_onboarding import revalidate_yupp_head_model_info
 from ypl.backend.llm.provider.provider_clients import load_models_with_providers
 from ypl.backend.llm.routing.rule_router import get_routing_table
 from ypl.backend.utils.json import json_dumps
@@ -53,6 +54,8 @@ CACHED_FUNCS: dict[str, list] = {
     ],
 }
 
+YUPP_HEAD_CACHE = "yupp-head-cache"
+
 
 async def validate_manage_caches(
     x_creator_email: str | None = Header(None, alias="X-Creator-Email"),
@@ -64,6 +67,10 @@ async def validate_manage_caches(
 @router.post("/admin/clear-cache", dependencies=[Depends(validate_manage_caches)])
 async def clear_cache(name: str) -> dict[str, str]:
     """Clears a cache and returns its pre-clear info."""
+    if name == YUPP_HEAD_CACHE:
+        await revalidate_yupp_head_model_info()
+        return {"message": "Cleared yupp-head cache"}
+
     funcs = CACHED_FUNCS.get(name)
     if not funcs:
         raise HTTPException(status_code=400, detail=f"Unknown cache: {name}")
