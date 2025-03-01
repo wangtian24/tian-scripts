@@ -1,6 +1,6 @@
 import logging
 from collections.abc import Sequence, Set
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -61,7 +61,22 @@ async def create_abuse_event(
     event_type: AbuseEventType,
     event_details: dict[str, Any],
     actions: Set[AbuseActionType] = frozenset(),
+    skip_if_same_event_within_time_window: timedelta | None = timedelta(hours=1),
 ) -> None:
+    if skip_if_same_event_within_time_window:
+        query = select(AbuseEvent.abuse_event_id).where(
+            AbuseEvent.user_id == user.user_id,
+            AbuseEvent.event_type == event_type,
+            AbuseEvent.created_at > datetime.now() - skip_if_same_event_within_time_window,  # type: ignore
+        )
+        result = await session.exec(query)
+        if result.first():
+            logging.info(
+                f"Skipping abuse event {event_type} for user {user.user_id} because an event of this type already "
+                f"exists within the {skip_if_same_event_within_time_window} time window"
+            )
+            return
+
     event = AbuseEvent(user_id=user.user_id, event_type=event_type, event_details=event_details)
 
     if AbuseActionType.SLACK_REPORT in actions:
