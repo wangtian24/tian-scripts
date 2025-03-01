@@ -65,6 +65,8 @@ jobs:
           echo "ENVIRONMENT=staging" >> $GITHUB_ENV
           echo "CLOUD_SQL_CONNECTION_NAME=${{ secrets.CLOUD_SQL_CONNECTION_NAME_STAGING }}" >> $GITHUB_ENV
         fi
+        echo "MEMORY=4Gi" >> $GITHUB_ENV
+        echo "CPU=2" >> $GITHUB_ENV
 
     - name: Create .env file
       run: |
@@ -112,25 +114,11 @@ jobs:
         platforms: linux/amd64
         push: true
         tags: ${{ env.IMAGE_NAME }}
-        cache-from: |
-          type=gha
-          type=registry,ref=${{ env.IMAGE_NAME }}
+        cache-from: type=gha
         cache-to: type=gha,mode=max
         file: Dockerfile.webhooks
         build-args: |
           BUILDKIT_INLINE_CACHE=1
-        provenance: false
-        outputs: type=registry
-        build-contexts: |
-          app=.
-        labels: |
-          org.opencontainers.image.created=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
-          org.opencontainers.image.revision=${{ github.sha }}
-        no-cache-filters: |
-          node_modules
-          .git
-        sbom: false
-        github-token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Deploy to Cloud Run
       run: |
@@ -139,8 +127,8 @@ jobs:
           --platform managed \
           --region ${{ env.REGION }} \
           --allow-unauthenticated \
-          --cpu 1 \
-          --memory 1Gi \
+          --cpu ${{ env.CPU }} \
+          --memory ${{ env.MEMORY }} \
           --args=service \
           --add-cloudsql-instances=${{ env.CLOUD_SQL_CONNECTION_NAME }} \
           --command="/app/ypl/webhooks/entrypoint.sh"
