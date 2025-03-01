@@ -8,10 +8,9 @@ import random
 import re
 import sys
 from collections import Counter, defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from pathlib import Path
 from typing import Any
 
 import click
@@ -23,9 +22,9 @@ from dotenv import load_dotenv
 from sqlalchemy import and_, case, func, or_
 from sqlalchemy.orm import load_only, selectinload
 from sqlmodel import Session, select, text
-from tqdm import tqdm
 from tqdm.asyncio import tqdm_asyncio
 
+from ypl.backend.abuse.signup import check_similar_recent_signups_abuse
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_session, get_engine
 from ypl.backend.email.marketing import send_marketing_emails_async, send_monthly_summary_emails_async
@@ -45,11 +44,8 @@ from ypl.backend.llm.judge import (
     JudgeConfig,
     QuickResponseQualityLabeler,
     ResponseRefusalLabeler,
-    YuppMultilabelClassifier,
     YuppOnlinePromptLabeler,
     YuppPromptDifficultyLabeler,
-    YuppQualityLabeler,
-    YuppSingleDifficultyLabeler,
 )
 from ypl.backend.llm.model.maintenance import do_model_metadata_maintenance
 from ypl.backend.llm.model.model_management import do_validate_active_models
@@ -83,7 +79,6 @@ from ypl.db.chats import (
     TurnQuality,
     User,
 )
-from ypl.db.language_models import LanguageModel, Provider
 from ypl.db.message_annotations import (
     IS_REFUSAL_ANNOTATION_NAME,
     QUICK_RESPONSE_QUALITY_ANNOTATION_NAME,
@@ -318,49 +313,6 @@ def judge_yupp_prompt_difficulty(
 
 
 @cli.command()
-@click.option("-i", "--input-path", help="The output path of the file")
-@click_provider_option("--provider", help="LLM and embeddings provider")
-@click.option("--language-model", default="gpt-4o-mini", help="The LLM to use for judging realism")
-def store_prompt_difficulty(input_path: str, provider: str, language_model: str) -> None:
-    df = pd.read_json(input_path, lines=True)
-
-    with Session(get_engine()) as session:
-        query = (
-            select(LanguageModel.language_model_id)
-            .join(Provider, LanguageModel.provider_id == Provider.provider_id)  # type: ignore
-            .where(
-                func.lower(Provider.name) == provider.lower(),
-                LanguageModel.internal_name == language_model,
-                LanguageModel.deleted_at.is_(None),  # type: ignore
-            )
-        )
-        llm_id = session.exec(query).first()
-        if not llm_id:
-            raise ValueError(f"Model {language_model} not found")
-
-        for i, row in tqdm(list(df.iterrows())):
-            row_id = row["chat_id"]
-            prompt_difficulty = float(row["judgement"])
-            turn_quality = session.exec(select(TurnQuality).where(TurnQuality.turn_id == row_id)).first()
-            if turn_quality is None:
-                turn_quality = TurnQuality(
-                    turn_id=row_id,
-                    prompt_difficulty=prompt_difficulty,
-                    prompt_difficulty_judge_model_id=llm_id,
-                    prompt_difficulty_details=row["judgement_details"],
-                )
-            else:
-                turn_quality.prompt_difficulty = prompt_difficulty
-                turn_quality.prompt_difficulty_judge_model_id = llm_id
-                turn_quality.prompt_difficulty_details = row["judgement_details"]
-            session.add(turn_quality)
-            if i % 500 == 0:
-                session.commit()
-                print(f"Committed {i} rows")
-        session.commit()
-
-
-@cli.command()
 @click.option("-i", "--input-path", required=True, help="The path to the input CSV file")
 @click.option("-o", "--output-path", help="The path to the output CSV file", default=None)
 @click_provider_option("--provider", help="LLM provider")
@@ -522,114 +474,6 @@ def update_ranking_all_categories() -> None:
         _update_ranking(category_names=[category_name])
     logging.info("Updating ranking with no categories")
     _update_ranking()
-
-
-@cli.command(help="Evaluate the traits of prompts and LLM responses read in from a JSON file")
-@click.option("-c", "--config", required=True, help="The judge config to use")
-@click.option("--limit", default=200, help="The number of examples to judge")
-@click.option(
-    "-i",
-    "--input-file",
-    type=str,
-    required=True,
-    help='A file containing conversations of [{"content": "...", "role": "..."}, ...] on each line',
-)
-@click.option(
-    "-o",
-    "--output-file",
-    type=str,
-    default=None,
-    help="Defaults to the input file.",
-)
-@click.option(
-    "-j",
-    "--num-parallel",
-    default=64,
-    help="The number of jobs to run in parallel. Optimal value depends on the rate limit and CPU cores.",
-)
-@click.option("--always-label-difficulty", is_flag=True, help="Always label difficulty")
-@click.option("--always-label-categories", is_flag=True, help="Always label categories")
-@click.option("--always-label-quality", is_flag=True, help="Always label quality")
-@click.option("--no-label-quality", is_flag=True, help="Do not label quality")
-@click.option("--no-label-difficulty", is_flag=True, help="Do not label difficulty")
-@click.option("--no-label-categories", is_flag=True, help="Do not label categories")
-def judge_prompt_traits(
-    input_file: str,
-    output_file: str,
-    limit: int,
-    config: str,
-    num_parallel: int,
-    always_label_difficulty: bool,
-    always_label_categories: bool,
-    always_label_quality: bool,
-    no_label_quality: bool,
-    no_label_difficulty: bool,
-    no_label_categories: bool,
-) -> None:
-    lines = Path(input_file).read_text().splitlines()
-    batch = []
-    orig_batch = []
-
-    for idx, line in enumerate(lines):
-        if idx >= limit:
-            break
-
-        try:
-            data = json.loads(line)
-            data = [x for x in data if x["role"] in {"user", "assistant"}]
-
-            if len(data) > 1:
-                user_turn = next(x for x in data if x["role"] == "user")
-                asst_turn = next(x for x in data if x["role"] == "assistant")
-                batch.append((user_turn["content"], asst_turn["content"]))
-                orig_batch.append((user_turn, asst_turn))
-        except:  # noqa: E722
-            continue
-
-    cfg = JudgeConfig.parse_file(config)
-    llm_info = cfg.llms[0]
-    llm = get_chat_model(llm_info, temperature=0.0)
-    labels_list: list[dict[str, Any]] = [{} for _ in orig_batch]
-
-    if "quality" not in orig_batch[0][1] or always_label_quality and not no_label_quality:
-        logging.info("Labeling quality...")
-        quality_labeler = YuppQualityLabeler(llm, timeout_secs=cfg.timeout)
-        quality_results = asyncio.run(quality_labeler.abatch_label(batch, num_parallel=num_parallel))
-
-        for labels, result in zip(labels_list, quality_results, strict=True):
-            labels["quality"] = result
-
-    if "difficulty" not in orig_batch[0][1] or always_label_difficulty and not no_label_difficulty:
-        logging.info("Labeling difficulty...")
-        difficulty_labeler = YuppSingleDifficultyLabeler(llm, timeout_secs=cfg.timeout)
-        difficulty_results = asyncio.run(
-            difficulty_labeler.abatch_label([x[1] for x in batch], num_parallel=num_parallel)
-        )
-
-        for labels, result in zip(labels_list, difficulty_results, strict=True):
-            labels["difficulty"] = result
-
-    if "categories" not in orig_batch[0][1] or always_label_categories and not no_label_categories:
-        logging.info("Labeling categories...")
-        categorizer = YuppMultilabelClassifier(llm, timeout_secs=cfg.timeout)
-        category_results = asyncio.run(categorizer.abatch_label([x[1] for x in batch], num_parallel=num_parallel))
-
-        for labels, cat_result in zip(labels_list, category_results, strict=True):
-            labels["categories"] = cat_result
-
-    output_file = output_file or input_file
-
-    with Path(output_file).open("w") as f:
-        for (orig_user_turn, orig_asst_turn), data, labels in zip(orig_batch, batch, labels_list, strict=True):
-            print(
-                json.dumps(
-                    [
-                        {**orig_user_turn, "content": data[0], "role": "user"},
-                        {**orig_asst_turn, "content": data[1], "role": "assistant", **labels},
-                    ]
-                ),
-                file=f,
-            )
 
 
 @cli.command()
@@ -1772,6 +1616,38 @@ def get_paypal_transaction_status(batch_id: str) -> None:
 def backfill_message_embeddings(max_messages: int | None = None) -> None:
     """Backfill chat message embeddings."""
     asyncio.run(backfill_chat_message_embeddings(get_engine(), max_messages))  # type: ignore
+
+
+@cli.command()
+@click.option("--num-minutes-since-signup", default=30, help="Limit to users who have signed up in the last N minutes")
+@db_cmd
+def abuse_check_recent_signups(num_minutes_since_signup: int = 30) -> None:
+    """Check recent signups for abuse."""
+
+    delta = timedelta(minutes=num_minutes_since_signup)
+    user_ids_to_check: Sequence[str] = []
+    with Session(get_engine()) as session:
+        user_ids_to_check = (
+            session.execute(
+                select(User.user_id).where(
+                    User.status == UserStatus.ACTIVE,
+                    User.created_at >= datetime.now(UTC) - delta,  # type: ignore
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    async def process_all_users() -> None:
+        for user_id in user_ids_to_check:
+            try:
+                await check_similar_recent_signups_abuse(user_id)
+            except Exception as e:
+                logging.error(f"Error checking user {user_id} for signup abuse: {e}")
+
+    if user_ids_to_check:
+        logging.info(f"Checking {len(user_ids_to_check)} users created in the last {delta} for signup abuse")
+        asyncio.run(process_all_users())
 
 
 if __name__ == "__main__":
