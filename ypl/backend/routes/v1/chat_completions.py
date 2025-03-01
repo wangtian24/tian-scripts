@@ -148,6 +148,7 @@ async def chat_completions(
         chat_request: The chat prompt with model selection
         background_tasks: FastAPI background tasks
     """
+    _log_request_details(chat_request, message="start")
     if (
         len(chat_request.prompt.strip()) == 0
         and not chat_request.attachment_ids
@@ -165,6 +166,26 @@ async def chat_completions(
         return StreamingResponse(
             error_stream(f"Error initializing model: {str(e)}"), media_type="text/event-stream", status_code=500
         )
+
+
+def _log_request_details(chat_request: ChatRequest, message: str, additional_fields: dict | None = None) -> None:
+    """Log details about the chat request.
+
+    Args:
+        chat_request: The chat request containing details to log
+        additional_fields: Optional additional fields to include in the log
+        message: The phase of the request ("start" or "end")
+    """
+    log_dict = {
+        "message": f"chat_completions: {message} - (model: {chat_request.model})",
+        "chat_id": str(chat_request.chat_id),
+        "turn_id": str(chat_request.turn_id),
+        "message_id": str(chat_request.message_id),
+        "model": chat_request.model,
+    }
+    if additional_fields:
+        log_dict.update(additional_fields)
+    logging.info(json_dumps(log_dict))
 
 
 async def _handle_existing_message(
@@ -624,6 +645,12 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                 await stop_stream_task
             except asyncio.CancelledError:
                 logging.info("stop_stream_task was cancelled " + chat_request.model)
+
+        _log_request_details(
+            chat_request,
+            message="end",
+            additional_fields={"duration_ms": (end_time - start_time).total_seconds() * 1000},
+        )
 
     stopwatch.end()
 

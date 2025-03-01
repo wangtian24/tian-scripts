@@ -164,7 +164,7 @@ class StopWatch:
         stopwatch.end("step_c")
         stopwatch.export_metrics("latency/")  # split names will be appended to the prefix when exporting metrics
 
-    You can also use it reocrd laps with a start and end point you care about, rather than calculating from last split.
+    You can also use it record laps with a start and end point you care about, rather than calculating from last split.
 
         stopwatch = StopWatch("latency/", auto_export=True)  # will export metrics when .end() is called
         doStuff()
