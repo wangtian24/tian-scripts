@@ -36,6 +36,7 @@ class AbuseEventType(enum.Enum):
     SIGNUP_SIMILAR_EMAIL_AS_RECENT_USER = "signup_similar_email_as_recent_user"
     SIGNUP_SIMILAR_NAME_AS_REFERRER = "signup_similar_name_as_referrer"
     SIGNUP_SIMILAR_NAME_AS_RECENT_USER = "signup_similar_name_as_recent_user"
+    ACTIVITY_VOLUME = "activity_volume"
 
 
 class AbuseEvent(BaseModel, table=True):
