@@ -46,7 +46,7 @@ class Chat(BaseModel, table=True):
     # Whether the chat is pinned by the user
     is_pinned: bool = Field(sa_column=Column(Boolean, nullable=False, server_default=text("false")))
 
-    creator_user_id: str = Field(foreign_key="users.user_id", sa_type=Text)
+    creator_user_id: str = Field(foreign_key="users.user_id", sa_type=Text, index=True)
     creator: User = Relationship(back_populates="chats")
 
     __table_args__ = (Index("ix_chats_created_at", text("created_at DESC")),)
@@ -352,7 +352,7 @@ class Eval(BaseModel, table=True):
     __tablename__ = "evals"
 
     eval_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
-    user_id: uuid.UUID = Field(foreign_key="users.user_id", nullable=False, sa_type=Text)
+    user_id: uuid.UUID = Field(foreign_key="users.user_id", nullable=False, sa_type=Text, index=True)
     turn_id: uuid.UUID = Field(foreign_key="turns.turn_id", nullable=False, index=True)
     turn: Turn = Relationship(back_populates="evals")
     user: User = Relationship(back_populates="evals")
