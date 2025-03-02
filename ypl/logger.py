@@ -1,10 +1,10 @@
-import json
 import logging
 import os
 import re
 from datetime import datetime
 from typing import Any
 
+import orjson
 from dotenv import load_dotenv
 from google.cloud import logging as google_logging
 from google.cloud.logging.handlers import CloudLoggingHandler
@@ -103,9 +103,9 @@ class ConsolidatedMixin:
     def _is_json_string(self, msg: str) -> dict | None:
         """Parse a string as JSON and return the dict if successful, None otherwise."""
         try:
-            parsed = json.loads(msg)
+            parsed = orjson.loads(msg)
             return parsed if isinstance(parsed, dict) else None
-        except (json.JSONDecodeError, TypeError):
+        except (orjson.JSONDecodeError, TypeError):
             return None
 
     def _format_message(self, record: logging.LogRecord) -> str | dict:
@@ -139,7 +139,7 @@ class ConsolidatedStreamHandler(RedactingMixin, TruncatingMixin, logging.StreamH
     def emit(self, record: logging.LogRecord) -> None:
         try:
             formatted_msg = self._format_message(record)
-            message = json.dumps(formatted_msg) if isinstance(formatted_msg, dict) else str(formatted_msg)
+            message = orjson.dumps(formatted_msg) if isinstance(formatted_msg, dict) else str(formatted_msg)
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
             record.msg = f"[{timestamp} {record.levelname}] [{record.module}] {message}"
