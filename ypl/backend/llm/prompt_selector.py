@@ -6,7 +6,6 @@ from typing import Any, Self
 
 from cachetools.func import ttl_cache
 from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import Insert as pg_insert
 from sqlmodel import Session
 
 from ypl.backend.db import get_async_session, get_engine
@@ -105,13 +104,11 @@ async def store_modifiers(turn_id: str, modifiers: dict[str, list[tuple[str, str
         for message_id, model_name in message_models.items():
             if model_name in modifiers:
                 for modifier_id, _ in modifiers[model_name]:
-                    assoc = {"chat_message_id": message_id, "prompt_modifier_id": modifier_id}
+                    assoc = PromptModifierAssoc(chat_message_id=message_id, prompt_modifier_id=modifier_id)
                     assocs.append(assoc)
 
         if assocs:
-            stmt = pg_insert(PromptModifierAssoc.__tablename__).values(assocs)  # type: ignore
-            stmt = stmt.on_conflict_do_nothing()
-            await session.exec(stmt)
+            session.add_all(assocs)
             await session.commit()
 
 
