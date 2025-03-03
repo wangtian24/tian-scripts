@@ -3,28 +3,28 @@ import base64
 import logging
 import os
 import re
-from collections.abc import Awaitable
 from dataclasses import dataclass
 from datetime import datetime
-from io import BytesIO
-from typing import Any
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from gcloud.aio.storage import Storage
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
-from PIL import ExifTags, Image
 from pillow_heif import register_heif_opener
-from pydantic import BaseModel, SecretStr
+from pydantic import BaseModel
 from sqlmodel import select
 
+from ypl.backend.attachments.image import downsize_image
+from ypl.backend.attachments.upload import (
+    create_attachment,
+    get_bucket_name_and_root_folder,
+    get_gcs_url,
+    path_to_object,
+    upload_original,
+    upload_thumbnail,
+)
 from ypl.backend.db import get_async_session
-from ypl.backend.prompts import IMAGE_DESCRIPTION_PROMPT
 from ypl.backend.utils.json import json_dumps
-from ypl.db.attachments import Attachment, TransientAttachment
-
-client = ChatOpenAI(model="gpt-4o", api_key=SecretStr(os.getenv("OPENAI_API_KEY", "")))
+from ypl.db.attachments import Attachment
 
 router = APIRouter()
 
@@ -40,36 +40,10 @@ class AttachmentResponse(BaseModel):
 MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024
 
 SUPPORTED_MIME_TYPES_PATTERN = "image/.*|application/pdf"
-EXIF_ORIENTATION_TAG = -1
-
-
-def _get_exif_orientation_tag() -> int:
-    global EXIF_ORIENTATION_TAG
-    if EXIF_ORIENTATION_TAG == -1:
-        for orientation in ExifTags.TAGS.keys():
-            if ExifTags.TAGS[orientation] == "Orientation":
-                EXIF_ORIENTATION_TAG = orientation
-                break
-    return EXIF_ORIENTATION_TAG
-
-
-def maybe_rotate_image(image: Image.Image) -> Image.Image:
-    tag = _get_exif_orientation_tag()
-    try:
-        exif = image._getexif()  # type: ignore
-        if exif[tag] == 8:
-            image = image.rotate(90, expand=True)
-        elif exif[tag] == 3:
-            image = image.rotate(180, expand=True)
-        elif exif[tag] == 6:
-            image = image.rotate(270, expand=True)
-    except Exception:
-        pass  # Image doesn't have EXIF data, or not rotated.
-    return image
 
 
 @router.post("/file/upload", response_model=AttachmentResponse)
-async def upload_file(file: UploadFile = File(...)) -> AttachmentResponse:  # noqa: B008
+async def upload_file_route(file: UploadFile = File(...)) -> AttachmentResponse:  # noqa: B008
     start_time = datetime.now()
 
     file_content = await file.read(MAX_FILE_SIZE_BYTES + 1)
@@ -101,99 +75,23 @@ async def upload_file(file: UploadFile = File(...)) -> AttachmentResponse:  # no
     thumbnail_bucket, *thumbnail_path_parts = thumbnail_gcs_bucket_path.replace("gs://", "").split("/")
 
     try:
-
-        async def upload_original(file_uuid: UUID) -> None:
-            start = datetime.now()
-            try:
-                async with Storage() as async_client:
-                    await async_client.upload(
-                        bucket=attachment_bucket,
-                        object_name=f"{'/'.join(attachment_path_parts)}/{file_uuid}",
-                        file_data=file_content,
-                        content_type=file.content_type,
-                    )
-            finally:
-                logging.info(
-                    json_dumps(
-                        {
-                            "message": "Attachments: Original file upload completed",
-                            "duration_ms": datetime.now() - start,
-                            "file_name": file.filename,
-                        }
-                    )
-                )
-
-        async def upload_thumbnail(thumbnail_uuid: UUID) -> tuple[int, int]:
-            start = datetime.now()
-            try:
-                async with Storage() as async_client:
-                    thumbnail_start = datetime.now()
-                    image = Image.open(BytesIO(file_content))
-                    image = maybe_rotate_image(image)  # type: ignore
-                    original_dimensions = image.size
-                    image.thumbnail((512, 512))
-                    image_bytes = BytesIO()
-                    image.save(image_bytes, format="PNG")
-                    image_bytes.seek(0)
-                    logging.info(
-                        json_dumps(
-                            {
-                                "message": "Attachments: Thumbnail image resized",
-                                "duration_ms": datetime.now() - thumbnail_start,
-                                "file_name": file.filename,
-                            }
-                        )
-                    )
-                    await async_client.upload(
-                        bucket=thumbnail_bucket,
-                        object_name=f"{'/'.join(thumbnail_path_parts)}/{thumbnail_uuid}",
-                        file_data=image_bytes,
-                        content_type="image/png",
-                    )
-                    logging.info(
-                        json_dumps(
-                            {
-                                "message": "Attachments: Thumbnail upload completed",
-                                "duration_ms": datetime.now() - start,
-                                "file_name": file.filename,
-                            }
-                        )
-                    )
-                    return original_dimensions
-            except Exception as e:
-                logging.exception(f"Error uploading thumbnail: {str(e)}")
-                raise e
-
-        async def create_attachment(file_uuid: UUID, thumbnail_uuid: UUID, metadata: dict[str, Any]) -> Attachment:
-            async with get_async_session() as session:
-                thumbnail_url = (
-                    f"gs://{thumbnail_bucket}/{'/'.join(thumbnail_path_parts)}/{thumbnail_uuid}"
-                    if file.content_type and file.content_type.startswith("image/")
-                    else ""
-                )
-                url = f"gs://{attachment_bucket}/{'/'.join(attachment_path_parts)}/{file_uuid}"
-                attachment = Attachment(
-                    attachment_id=uuid4(),
-                    file_name=file.filename,
-                    content_type=file.content_type,
-                    url=url,
-                    thumbnail_url=thumbnail_url,
-                    attachment_metadata=metadata,
-                )
-                session.add(attachment)
-                await session.commit()
-                await session.refresh(attachment)
-                return attachment
-
         gcs_file_uuid = uuid4()
         gcs_thumbnail_uuid = uuid4()
 
         # Execute uploads in parallel
         gather_start = datetime.now()
         results = await asyncio.gather(
-            asyncio.create_task(upload_original(gcs_file_uuid)),
             asyncio.create_task(
-                upload_thumbnail(gcs_thumbnail_uuid)
+                upload_original(gcs_file_uuid, attachment_bucket, attachment_path_parts, file_content, file)
+            ),
+            asyncio.create_task(
+                upload_thumbnail(
+                    gcs_thumbnail_uuid,
+                    thumbnail_bucket,
+                    thumbnail_path_parts,
+                    file_content,
+                    file,
+                )
                 if file.content_type and file.content_type.startswith("image/")
                 else asyncio.sleep(0)
             ),
@@ -228,7 +126,16 @@ async def upload_file(file: UploadFile = File(...)) -> AttachmentResponse:  # no
 
         try:
             create_start = datetime.now()
-            attachment = await create_attachment(gcs_file_uuid, gcs_thumbnail_uuid, metadata)
+            attachment = await create_attachment(
+                attachment_bucket,
+                attachment_path_parts,
+                gcs_file_uuid,
+                thumbnail_bucket,
+                thumbnail_path_parts,
+                gcs_thumbnail_uuid,
+                metadata,
+                file,
+            )
             logging.info(
                 json_dumps(
                     {
@@ -274,86 +181,13 @@ async def upload_file(file: UploadFile = File(...)) -> AttachmentResponse:  # no
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-async def generate_image_description(file: TransientAttachment) -> dict[str, str]:
-    start = datetime.now()
-    image_bytes = file.file
-    await asyncio.sleep(0)
-    try:
-        base64_image = base64.b64encode(image_bytes).decode("utf-8")
-        messages: list[BaseMessage] = [
-            SystemMessage(content=IMAGE_DESCRIPTION_PROMPT.format(file_name=file.filename)),
-            HumanMessage(
-                content=[
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/png;base64,{base64_image}",
-                        },
-                    },
-                ]
-            ),
-        ]
-        result = await client.ainvoke(messages)
-        return {"description": str(result.content)}
-    finally:
-        logging.info(
-            json_dumps(
-                {
-                    "message": "Attachments: Image description generated",
-                    "duration_ms": datetime.now() - start,
-                    "file_name": file.filename,
-                }
-            )
-        )
-
-
-async def update_metadata(attachment: Attachment, image_description_task: Awaitable[Any]) -> None:
-    await asyncio.sleep(0)
-    start_time = datetime.now()
-    try:
-        # Generate image description
-        image_description = await image_description_task
-
-        # Update attachment with metadata
-        async with get_async_session() as session:
-            result = await session.exec(select(Attachment).where(Attachment.attachment_id == attachment.attachment_id))
-            db_attachment = result.one()
-
-            # Update metadata
-            db_attachment.attachment_metadata = image_description
-            await session.commit()
-
-        logging.info(
-            json_dumps(
-                {
-                    "message": "Attachments: Background metadata update completed",
-                    "duration_ms": datetime.now() - start_time,
-                    "file_name": attachment.file_name,
-                    "attachment_id": str(attachment.attachment_id),
-                }
-            )
-        )
-    except Exception as e:
-        logging.exception(
-            json_dumps(
-                {
-                    "message": "Attachments: Error in background metadata update",
-                    "error": str(e),
-                    "duration_ms": datetime.now() - start_time,
-                    "file_name": attachment.file_name,
-                    "attachment_id": str(attachment.attachment_id),
-                }
-            )
-        )
-
-
 @dataclass
 class DataUrlResponse:
     data_url: str
 
 
 @router.get("/file/{attachment_id}/thumbnail", response_model=DataUrlResponse)
-async def get_data_url(attachment_id: str) -> DataUrlResponse:
+async def get_data_url_route(attachment_id: str) -> DataUrlResponse:
     async with get_async_session() as session:
         result = await session.exec(select(Attachment).where(Attachment.attachment_id == attachment_id))
         attachment = result.one()
@@ -388,34 +222,6 @@ async def get_data_url(attachment_id: str) -> DataUrlResponse:
 
 
 THUMBNAILS_FOLDER = "thumbnails"
-DEFAULT_ATTACHMENT_BUCKET = "gs://yupp-attachments/staging"
-
-
-def get_bucket_name_and_root_folder() -> tuple[str, str]:
-    # ATTACHMENT_BUCKET is of the format gs://bucket_name/path/to/root_folder
-    # This function returns the bucket_name and the path_to_root_folder
-    path_to_root_folder = os.getenv("ATTACHMENT_BUCKET") or DEFAULT_ATTACHMENT_BUCKET
-    bucket_name, *path_parts = path_to_root_folder.replace("gs://", "").split("/")
-    if not bucket_name or not path_parts:
-        raise ValueError(f"Invalid GCS path format: {path_to_root_folder}")
-    return bucket_name, os.path.join(*path_parts)
-
-
-def path_to_object(object_id: str, folder_path: str = "") -> str:
-    # object_id is the id of the object to be stored in GCS
-    # folder_path is the path to the folder where the object is to be stored
-    # This function returns the path to the object in GCS
-    _, root_folder = get_bucket_name_and_root_folder()
-    object_path = os.path.join(root_folder, folder_path, object_id)
-    return object_path
-
-
-def get_gcs_url(object_id: str, folder_path: str = "") -> str:
-    # object_id is the id of the object to be stored in GCS
-    # folder_path is the path to the folder where the object is to be stored
-    # This function returns the GCS URL to the object
-    attachment_bucket_gcs_path = os.getenv("ATTACHMENT_BUCKET") or DEFAULT_ATTACHMENT_BUCKET
-    return os.path.join(attachment_bucket_gcs_path, folder_path, object_id)
 
 
 @dataclass
@@ -425,7 +231,7 @@ class SignedUrlResponse:
 
 
 @router.get("/attachment/signed-url")
-async def get_signed_url() -> SignedUrlResponse:
+async def get_signed_url_route() -> SignedUrlResponse:
     start = datetime.now()
     attachment_bucket, _ = get_bucket_name_and_root_folder()
     try:
@@ -458,7 +264,7 @@ class CreateAttachmentRequest(BaseModel):
 
 
 @router.post("/attachment")
-async def create_attachment(request: CreateAttachmentRequest) -> Attachment:
+async def create_attachment_route(request: CreateAttachmentRequest) -> Attachment:
     blob = None
     if not request.content_type.startswith("image/"):
         raise ValueError(f"Unsupported content type {request.content_type}; must start with 'image/'")
@@ -540,13 +346,3 @@ async def create_attachment(request: CreateAttachmentRequest) -> Attachment:
     except Exception as e:
         logging.exception(f"Attachments: Error creating attachment: {str(e)}")
         raise e
-
-
-def downsize_image(blob: bytes, size: tuple[int, int]) -> bytes:
-    original_image = Image.open(BytesIO(blob))
-    image = original_image.copy()
-    image.thumbnail(size)
-    image_bytes = BytesIO()
-    image.save(image_bytes, format="PNG")
-    image_bytes.seek(0)
-    return image_bytes.getvalue()
