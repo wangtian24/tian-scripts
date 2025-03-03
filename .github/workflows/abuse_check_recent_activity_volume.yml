@@ -1,0 +1,14 @@
+name: Check recent activity volume for abuse
+
+on:
+  schedule:
+    - cron: '50 * * * *'  # Hourly, at 50 minutes past the hour.
+  workflow_dispatch:
+
+jobs:
+  abuse_check_recent_activity_volume_production:
+    uses: ./.github/workflows/cronjob.yml
+    with:
+      command: abuse-check-recent-activity-volume
+      environment: production
+    secrets: inherit

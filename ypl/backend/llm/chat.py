@@ -21,6 +21,7 @@ from sqlalchemy.orm import joinedload
 from sqlmodel import Session, or_, select, update
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from ypl.backend.abuse.activity import SHORT_TIME_WINDOWS, check_activity_volume_abuse
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine, get_async_session, get_engine
 from ypl.backend.llm.attachment import get_attachments
@@ -244,6 +245,8 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
     logging.debug(json_dumps({"message": "select_models_plus request"} | request.model_dump(mode="json")))
     metric_inc(f"routing/intent_{request.intent}")
     stopwatch = StopWatch(f"routing/latency/{request.intent}/", auto_export=True)
+    if request.user_id is not None:
+        asyncio.create_task(check_activity_volume_abuse(request.user_id, time_windows=SHORT_TIME_WINDOWS))
 
     # Prepare the prompt and past turn information
     prompt = None

@@ -1,0 +1,14 @@
+name: Check recent signups for abuse
+
+on:
+  schedule:
+    - cron: '30 * * * *'  # Hourly, at 30 minutes past the hour.
+  workflow_dispatch:
+
+jobs:
+  abuse_check_recent_signups_production:
+    uses: ./.github/workflows/cronjob.yml
+    with:
+      command: abuse-check-recent-signups
+      environment: production
+    secrets: inherit

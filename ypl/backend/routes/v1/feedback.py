@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Annotated
 from uuid import UUID
@@ -5,6 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
+from ypl.backend.abuse.activity import SHORT_TIME_WINDOWS, check_activity_volume_abuse
 from ypl.backend.feedback.app_feedback import FeedbacksResponse, get_paginated_feedback, store_app_feedback
 from ypl.backend.utils.json import json_dumps
 from ypl.db.app_feedback import AppFeedback
@@ -43,6 +45,7 @@ async def log_app_feedback(request: AppFeedbackRequest) -> None:
                 }
             )
         )
+        asyncio.create_task(check_activity_volume_abuse(request.user_id, time_windows=SHORT_TIME_WINDOWS))
 
     except Exception as e:
         log_dict = {"message": f"Error storing app feedback to database - {str(e)}"}

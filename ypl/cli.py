@@ -15,6 +15,7 @@ from typing import Any
 
 import click
 import git
+import humanize
 import numpy as np
 import pandas as pd
 import yaml
@@ -24,6 +25,7 @@ from sqlalchemy.orm import load_only, selectinload
 from sqlmodel import Session, select, text
 from tqdm.asyncio import tqdm_asyncio
 
+from ypl.backend.abuse.activity import LONG_TIME_WINDOWS, check_activity_volume_abuse, get_recently_active_users
 from ypl.backend.abuse.signup import check_similar_recent_signups_abuse
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_session, get_engine
@@ -1648,6 +1650,24 @@ def abuse_check_recent_signups(num_minutes_since_signup: int = 30) -> None:
     if user_ids_to_check:
         logging.info(f"Checking {len(user_ids_to_check)} users created in the last {delta} for signup abuse")
         asyncio.run(process_all_users())
+
+
+@cli.command()
+@db_cmd
+def abuse_check_recent_activity_volume() -> None:
+    async def run_check() -> None:
+        max_time_window = max(LONG_TIME_WINDOWS)
+        active_user_ids = await get_recently_active_users(max_time_window)
+        logging.info(
+            f"Found {len(active_user_ids)} users with activity in the last {humanize.naturaldelta(max_time_window)}"
+        )
+        for user_id in active_user_ids:
+            try:
+                await check_activity_volume_abuse(user_id, time_windows=LONG_TIME_WINDOWS)
+            except Exception as e:
+                logging.error(f"Error checking user {user_id} for activity volume abuse: {e}")
+
+    asyncio.run(run_check())
 
 
 if __name__ == "__main__":
