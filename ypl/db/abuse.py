@@ -61,3 +61,4 @@ class AbuseEvent(BaseModel, table=True):
 
     reviewed_at: datetime | None = Field(nullable=True)
     reviewed_by: str | None = Field(nullable=True)
+    review_notes: str | None = Field(nullable=True)
