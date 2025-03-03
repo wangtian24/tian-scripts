@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import Any
 
@@ -183,26 +184,16 @@ async def get_provider_client(model_name: str, include_all_models: bool = False,
                 model=model_name, api_key=os.getenv("PERPLEXITY_API_KEY", ""), **combined_kwargs
             )
 
-        case provider_name if provider_name in [
-            "Alibaba",
-            "Anyscale",
-            "Cerebras",
-            "DeepSeek",
-            "Groq",
-            "OpenRouter",
-            "Sambanova",
-            "Together AI",
-            "Yapp",
-            "Yapp Temporary",  # TODO(tian): add 'Yapp' provider here when we added it to the DB later
-        ]:
+        case _:
+            # for all other providers, assume OpenAI-compatible API.
+            if provider.api_key_env_name is None and provider.name not in API_KEY_MAP:
+                logging.warning(f"No API key env var name for provider [{provider.name}]")
             return ChatOpenAI(
                 model=model_name,
-                api_key=SecretStr(os.getenv(provider.api_key_env_name or API_KEY_MAP[provider_name], "")),
+                api_key=SecretStr(os.getenv(provider.api_key_env_name or API_KEY_MAP[provider.name], "")),
                 base_url=merge_base_url_with_port(provider.base_api_url, provider_port),
                 **combined_kwargs,
             )
-        case _:
-            raise ValueError(f"Unsupported provider: {provider.name}")
 
 
 async def get_language_model(model_name: str) -> LanguageModel:
