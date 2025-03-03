@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator
 from datetime import datetime
 from typing import Any
 
+import async_timeout
 from cachetools import TTLCache
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
@@ -67,6 +68,7 @@ BILLING_ERROR_CACHE: TTLCache = TTLCache(maxsize=100, ttl=7200)  # 2 hours
 
 THINKING_TAG_START = "\n\n<think>\n\n"
 THINKING_TAG_END = "\n\n</think>\n\n"
+TTFT_timeout = 30  # seconds
 
 
 class StreamResponse:
@@ -380,7 +382,14 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
         ttft_recorded = False
         claude_thinking_started = False  # Used to insert <think> tag around Claude thinking text.
         try:
-            async for chunk in client.astream(messages):
+            model_response_stream = client.astream(messages)
+            # apply timeout to the first token
+            async with async_timeout.timeout(TTFT_timeout):
+                first_token = await model_response_stream.__anext__()
+                yield StreamResponse({"content": first_token.content, "model": chat_request.model}).encode()
+                full_response += str(first_token.content)
+
+            async for chunk in model_response_stream:
                 # TODO(bhanu) - assess if we should customize chunking for optimal network performance
                 if hasattr(chunk, "content") and chunk.content:
                     if first_token_timestamp == 0:
@@ -458,6 +467,27 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
         except asyncio.CancelledError:
             logging.warning("Cancelled Error (while streaming) because of client disconnect")
             stream_completion_status = CompletionStatus.SYSTEM_ERROR
+        except TimeoutError as timeout_error:
+            stream_completion_status = CompletionStatus.STREAMING_ERROR_FIRST_TOKEN_TIMEOUT
+            full_response += STREAMING_ERROR_TEXT  # just to trigger fallback
+            yield StreamResponse({"content": STREAMING_ERROR_TEXT, "model": chat_request.model}).encode()
+            yield StreamResponse(
+                {"error": "Timeout waiting for model response", "code": "timeout_error", "model": chat_request.model},
+                "error",
+            ).encode()
+            logging.warning(
+                json_dumps(
+                    {
+                        "message": "Streaming Timeout Error - First Token Timeout",
+                        "model": chat_request.model,
+                        "message_id": str(chat_request.message_id),
+                        "turn_id": str(chat_request.turn_id),
+                        "error_message": str(timeout_error),
+                        "chat_id": str(chat_request.chat_id),
+                        "traceback": traceback.format_exc(),
+                    }
+                )
+            )
         except Exception as e:
             stream_completion_status = CompletionStatus.STREAMING_ERROR
             full_response += STREAMING_ERROR_TEXT
@@ -470,6 +500,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                         "model": chat_request.model,
                         "message_id": str(chat_request.message_id),
                         "error_message": str(e),
+                        "turn_id": str(chat_request.turn_id),
                         "chat_id": str(chat_request.chat_id),
                         "last_chunk": chunk_str,
                         "traceback": traceback.format_exc(),

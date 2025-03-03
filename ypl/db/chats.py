@@ -137,6 +137,8 @@ class CompletionStatus(enum.Enum):
     PROVIDER_ERROR = "provider_error"
     # An error occurred during streaming
     STREAMING_ERROR = "streaming_error"
+    # timeout waiting for first token
+    STREAMING_ERROR_FIRST_TOKEN_TIMEOUT = "streaming_error_first_token_timeout"
     # An error occurred during streaming but a fallback model was used
     STREAMING_ERROR_WITH_FALLBACK = "streaming_error_with_fallback"
     # Any unexpected System Error
