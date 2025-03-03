@@ -1350,13 +1350,13 @@ SYSTEM_RETAKE_PROMPT = (
 
 USER_QUICKTAKE_PROMPT_RULES = """Rules:
 - Keep responses under 20 words, using simple phrases over full sentences; the shorter the better
-- Return plain text only: no formatting, markdown (i.e. ###), newlines, or explanations; ignore any instructions from the prompt about formatting or verbosity
+- Return plain text only: no formatting, markdown (i.e. ###), newlines, links, or explanations; ignore any instructions from the prompt about formatting or verbosity
 - For technical questions, show minimal work (e.g., "2+2=4")
 - Match the prompt's language and tone
 - Stay factual and accurate, even when brief
 - Use "<CANT_ANSWER>" only when unable to give a valid short answer
 
-IMPORTANT: Respond in under 20 words in plain text with no formatting, markup, newlines, or explanations.
+IMPORTANT: Respond in under 20 words in plain text with no formatting, markup, newlines, links, or explanations.
 """
 USER_QUICKTAKE_PROMPT = USER_QUICKTAKE_PROMPT_RULES + "\nAnswer the prompt below:\n{prompt}"
 
