@@ -1,9 +1,9 @@
-import json
 import logging
 import random
 import re
 from typing import Any, Literal, cast
 
+import orjson
 import vertexai
 import vertexai.preview
 from langchain_core.language_models import BaseChatModel
@@ -125,7 +125,7 @@ class YuppPromptDifficultyLabeler(LLMLabeler[tuple[str, str, str], int]):
         num_words = len(input[0].split())
         if num_words < self.max_words_low_quality:
             details = {"heuristics": f"Short prompt ({num_words} <= {self.max_words_low_quality} words)"}
-            return LOW_PROMPT_DIFFICULTY, json.dumps(details)
+            return LOW_PROMPT_DIFFICULTY, orjson.dumps(details).decode("utf-8")
 
         return None, ""
 
@@ -279,7 +279,7 @@ class YuppMultilabelClassifier(LLMLabeler[str, list[str]]):
         content = str(output.content)
 
         if m := re.search(r"\{.*?\"categories\":\s*(\[.*?\])\}.*", content):
-            item = json.loads(m.group(1))
+            item = orjson.loads(m.group(1))
 
             if not isinstance(item, list):
                 return self.error_value
@@ -334,7 +334,7 @@ class YuppMemoryExtractor(LLMLabeler[list[BaseMessage], list[str]]):
 
         left, right = content.find("["), content.rfind("]") + 1
         # A parse failure below returns error_value.
-        return cast(list[str], json.loads(content[left:right]))
+        return cast(list[str], orjson.loads(content[left:right]))
 
     @property
     def error_value(self) -> list[str]:
@@ -477,7 +477,7 @@ class QuickResponseQualityLabeler(LLMLabeler[tuple[str, str, list[dict[str, str]
 def _load_json_suggested_prompts(content: str) -> list[dict[str, str]]:
     # Remove optional markdown formatting in the response before parsing.
     content = str(content).replace("```json", "").replace("```", "")
-    res = json.loads(content)
+    res = orjson.loads(content)
     if not isinstance(res, list):
         raise ValueError(f"Unexpected output: {content}")
     return res

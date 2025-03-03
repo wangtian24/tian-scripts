@@ -1235,8 +1235,8 @@ def post_source_account_balances() -> None:
 
 
 @cli.command()
-@click.option("--max-recent-chats", default=20, help="Maximum number of recent chats to consider")
-@click.option("--max-turns-per-chat", default=15, help="Maximum turns to include per chat")
+@click.option("--max-recent-chats", default=10, help="Maximum number of recent chats to consider")
+@click.option("--max-turns-per-chat", default=10, help="Maximum turns to include per chat")
 @click.option("--max-message-length", default=1000, help="Maximum length of each message")
 @click.option("--min-new-chats", default=2, help="Minimum number of new chats required")
 @click.option("--num-days-for-user-activity", default=1, help="Limit to users with chats in the last N days")

@@ -12,7 +12,7 @@ from ypl.backend.llm.provider.provider_clients import get_internal_provider_clie
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import Chat, SuggestedPromptType, SuggestedTurnPrompt, SuggestedUserPrompt
 
-MAX_TOKENS = 200
+MAX_TOKENS = 1000
 
 
 async def maybe_add_suggested_followups(chat_id: uuid.UUID, turn_id: uuid.UUID) -> None:
@@ -83,9 +83,9 @@ async def maybe_add_suggested_followups(chat_id: uuid.UUID, turn_id: uuid.UUID) 
 
 async def refresh_conversation_starters(
     user_id: str,
-    max_recent_chats: int = 15,
-    max_turns_per_chat: int = 15,
-    max_message_length: int = 2000,
+    max_recent_chats: int = 10,
+    max_turns_per_chat: int = 10,
+    max_message_length: int = 1000,
     min_new_chats: int = 2,
 ) -> None:
     """Refresh conversation starters for a user.
@@ -156,9 +156,10 @@ async def refresh_conversation_starters(
 
             # Actually get conversation starters.
             labeler = ConversationStartersLabeler(
-                await get_internal_provider_client("gpt-4o-mini", max_tokens=MAX_TOKENS)
+                await get_internal_provider_client("gpt-4o-mini", max_tokens=MAX_TOKENS),
+                timeout_secs=15,
             )
-            conversation_starters = labeler.label(full_chat_context)
+            conversation_starters = await labeler.alabel(full_chat_context)
 
             if not conversation_starters:
                 logging.info(
