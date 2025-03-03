@@ -315,27 +315,36 @@ class ChatMessage(BaseModel, table=True):
 
 
 class EvalType(enum.Enum):
-    # TODO: Will be deprecated after migration --> replaced by SELECTION.
+    # -- For quicktake
+    # QuickTake eval can contain thumbs up/down and/or comment.
+    QUICK_TAKE = "QUICK_TAKE"
+
+    # -- For assistant response messages
+    # Eval where user selects one winner from multiple responses.
+    SELECTION = "SELECTION"
+    # Downvote eval means the user downvoted a particular message.
+    DOWNVOTE = "DOWNVOTE"
+
+    # --------Deprecated--------
+    # TODO: is this also deprecated? last write was on 12/9/2024
+    # Eval where user indicates all responses are bad.
+    ALL_BAD = "ALL_BAD"
     # Primitive evaluation of two responses where the user distributes 100 points between two responses.
     # The eval result is a dictionary where the key is the model name and the value is the number of points.
     SLIDER_V0 = "SLIDER_V0"  # deprecated
-    # TODO: Will be deprecated after migration --> replaced by QUICK_TAKE.
     # Thumbs up / thumbs down evaluation applied to a
     # single message. A positive value is thumbs up, and
     # negative value is thumbs down.
     THUMBS_UP_DOWN_V0 = "THUMBS_UP_DOWN_V0"  # deprecated
-    # TODO: Will be deprecated after migration --> replaced by QUICK_TAKE.
     # User-generated alternative to a Quick Take produced
     # by a model.
     QUICK_TAKE_SUGGESTION_V0 = "QUICK_TAKE_SUGGESTION_V0"  # deprecated
-    # Eval where user selects one winner from multiple responses.
-    SELECTION = "SELECTION"
-    # Eval where user indicates all responses are bad.
-    ALL_BAD = "ALL_BAD"
-    # QuickTake eval can contain thumbs up/down and/or comment.
-    QUICK_TAKE = "QUICK_TAKE"
-    # Downvote eval means the user downvoted a particular message.
-    DOWNVOTE = "DOWNVOTE"
+
+
+class EvalRatingEnum(enum.Enum):
+    GOOD = "GOOD"  # explicit PREF (I prefer this)
+    NEUTRAL = "NEUTRAL"  # no preference given (while PREF the other)
+    BAD = "BAD"  # explicit NOPE (downvote)
 
 
 class MessageEval(BaseModel, table=True):
@@ -343,10 +352,14 @@ class MessageEval(BaseModel, table=True):
 
     message_eval_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
     message_id: uuid.UUID = Field(foreign_key="chat_messages.message_id", nullable=False, index=True)
-    message: ChatMessage = Relationship(back_populates="message_evals")
     score: float = Field(nullable=True)
     user_comment: str | None = Field(nullable=True)
     eval_id: uuid.UUID = Field(foreign_key="evals.eval_id", nullable=False, index=True)
+
+    rating: EvalRatingEnum | None = Field(sa_column=Column(SQLAlchemyEnum(EvalRatingEnum), nullable=True))
+    reasons: list[str] | None = Field(sa_column=Column(ARRAY(Text), nullable=True))
+
+    message: ChatMessage = Relationship(back_populates="message_evals")
     eval: "Eval" = Relationship(back_populates="message_evals")
 
 

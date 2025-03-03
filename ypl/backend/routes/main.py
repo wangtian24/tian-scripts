@@ -16,6 +16,7 @@ from ypl.backend.routes.v1 import abuse, chat_completions, chat_feed, credit, he
 from ypl.backend.routes.v1 import chats as chats_route
 from ypl.backend.routes.v1 import classify as classify_route
 from ypl.backend.routes.v1 import email as email_route
+from ypl.backend.routes.v1 import eval as eval_route
 from ypl.backend.routes.v1 import event as event_route
 from ypl.backend.routes.v1 import feedback as feedback_route
 from ypl.backend.routes.v1 import files as files_route
@@ -72,6 +73,7 @@ api_router.include_router(chats_route.router, prefix="/v1", tags=["chats"])
 api_router.include_router(classify_route.router, prefix="/v1", tags=["classify"])
 api_router.include_router(credit.router, prefix="/v1", tags=["credit"])
 api_router.include_router(email_route.router, prefix="/v1", tags=["emails"])
+api_router.include_router(eval_route.router, prefix="/v1", tags=["eval"])
 api_router.include_router(event_route.router, prefix="/v1", tags=["event"])
 api_router.include_router(feedback_route.router, prefix="/v1", tags=["feedback"])
 api_router.include_router(files_route.router, prefix="/v1", tags=["files"])
