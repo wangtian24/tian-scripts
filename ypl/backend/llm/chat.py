@@ -1020,7 +1020,6 @@ async def get_active_prompt_modifiers() -> list[PromptModifier]:
 
 # Models to use if no specific model was requested.
 MODELS_FOR_DEFAULT_QT = [
-    "llama-3.3-70b",  # TODO(Tian): from cerebras, trial until 3/3
     "Meta-Llama-3.3-70B-Instruct",  # from Sambanova
     "gpt-4o",
     "gpt-4o-mini",
