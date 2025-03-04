@@ -13,6 +13,7 @@ from uuid import UUID
 import httpx
 import jwt
 from cryptography.hazmat.primitives import serialization
+from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 from ypl.backend.llm.utils import post_to_slack
 from ypl.backend.payment.payout_utils import MIN_BALANCES
 from ypl.backend.utils.json import json_dumps
@@ -22,6 +23,11 @@ API_VERSION: Final[str] = "v2"
 BASE_URL: Final[str] = f"https://api.coinbase.com/{API_VERSION}"
 REQUEST_HOST: Final[str] = "api.coinbase.com"
 ENVIRONMENT: Final[str] = os.getenv("ENVIRONMENT", "staging")
+
+RETRY_WAIT_MULTIPLIER: Final[int] = 1
+RETRY_WAIT_MIN: Final[int] = 1
+RETRY_WAIT_MAX: Final[int] = 10
+RETRY_MAX_ATTEMPTS: Final[int] = 3
 
 
 class TransactionStatus(StrEnum):
@@ -344,14 +350,40 @@ async def process_coinbase_retail_payout(payout: CoinbaseRetailPayout) -> tuple[
         raise CoinbaseRetailPayoutError(str(e), details) from e
 
 
-async def create_transaction(
+def log_coinbase_retry_attempt(retry_state: RetryCallState) -> None:
+    """Custom logger for Coinbase transaction retry attempts"""
+    to_address = retry_state.kwargs.get("to_address")
+    amount = retry_state.kwargs.get("amount")
+    currency = retry_state.kwargs.get("currency")
+    payment_transaction_id = retry_state.kwargs.get("payment_transaction_id")
+
+    log_dict = {
+        "message": ":warning: *Coinbase Retail: Retrying transaction creation*",
+        "attempt_number": retry_state.attempt_number,
+        "sleep_time": retry_state.next_action.sleep if retry_state.next_action else None,
+        "to_address": str(to_address),
+        "amount": str(amount),
+        "currency": str(currency),
+        "payment_transaction_id": str(payment_transaction_id),
+        "error": str(retry_state.outcome.exception()) if retry_state.outcome else None,
+    }
+    logging.warning(json_dumps(log_dict))
+
+
+@retry(
+    stop=stop_after_attempt(RETRY_MAX_ATTEMPTS),
+    wait=wait_exponential(multiplier=RETRY_WAIT_MULTIPLIER, min=RETRY_WAIT_MIN, max=RETRY_WAIT_MAX),
+    after=log_coinbase_retry_attempt,
+    retry=retry_if_exception_type(Exception),
+)
+async def _create_transaction_internal(
     account_id: str,
     to_address: str,
     amount: str,
     currency: str,
     payment_transaction_id: UUID,
 ) -> dict[str, str]:
-    """Create a transaction using Coinbase's API with JWT authentication.
+    """Internal function to create a transaction using Coinbase's API with JWT authentication.
 
     Args:
         account_id: The source account ID
@@ -396,37 +428,62 @@ async def create_transaction(
         "Content-Type": "application/json",
     }
 
+    async with httpx.AsyncClient() as client:
+        response = await client.post(f"{BASE_URL}/accounts/{account_id}/transactions", headers=headers, json=payload)
+
+        if response.status_code not in (200, 201):
+            details = {"status_code": str(response.status_code), "response": response.text}
+            raise CoinbaseRetailPayoutError(response.text, details)
+
+        data = response.json()
+        transaction_data = data.get("data", {})
+
+        # Ensure we have the required fields and they are strings
+        if not isinstance(transaction_data.get("id"), str) or not isinstance(transaction_data.get("status"), str):
+            details = {
+                "transaction_data": str(transaction_data),
+                "error": "Missing or invalid id/status in transaction response",
+            }
+            raise CoinbaseRetailPayoutError(GENERIC_ERROR_MESSAGE, details)
+
+        return {"id": transaction_data["id"], "status": transaction_data["status"]}
+
+
+async def create_transaction(
+    account_id: str,
+    to_address: str,
+    amount: str,
+    currency: str,
+    payment_transaction_id: UUID,
+) -> dict[str, str]:
+    """Create a transaction using Coinbase's API with JWT authentication and retry logic.
+
+    Args:
+        account_id: The source account ID
+        to_address: The recipient's wallet address
+        amount: The amount to send
+        currency: The cryptocurrency to send
+        payment_transaction_id: The UUID of the payment transaction
+
+    Returns:
+        dict[str, str]: Transaction details containing 'id' and 'status' fields
+    """
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{BASE_URL}/accounts/{account_id}/transactions", headers=headers, json=payload
-            )
-
-            if response.status_code not in (200, 201):
-                details = {"status_code": str(response.status_code), "response": response.text}
-                raise CoinbaseRetailPayoutError(response.text, details)
-
-            data = response.json()
-            transaction_data = data.get("data", {})
-
-            # Ensure we have the required fields and they are strings
-            if not isinstance(transaction_data.get("id"), str) or not isinstance(transaction_data.get("status"), str):
-                details = {
-                    "transaction_data": str(transaction_data),
-                    "error": "Missing or invalid id/status in transaction response",
-                }
-                raise CoinbaseRetailPayoutError(GENERIC_ERROR_MESSAGE, details)
-
-            return {"id": transaction_data["id"], "status": transaction_data["status"]}
-
+        return await _create_transaction_internal(
+            account_id=account_id,
+            to_address=to_address,
+            amount=amount,
+            currency=currency,
+            payment_transaction_id=payment_transaction_id,
+        )
     except Exception as e:
         log_dict = {
-            "message": ":x: *Coinbase Retail: Exception while creating transaction \n"
+            "message": ":x: *Coinbase Retail: Exception while creating transaction after all retries \n"
             + "returning blank id and pending status - Check if transaction was created on Coinbase side*",
             "to_address": str(to_address),
             "amount": str(amount),
             "currency": str(currency),
-            "network": str(network),
+            "network": str(get_network_for_currency(currency)),
             "error": str(e),
         }
         logging.warning(json_dumps(log_dict))
