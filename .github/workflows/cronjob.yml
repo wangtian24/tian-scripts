@@ -24,6 +24,7 @@ on:
         required: true
         type: choice
         options:  # sorted
+          - backfill-gen-image-urls
           - categorize-messages
           - judge-quick-response-quality
           - judge-refusals

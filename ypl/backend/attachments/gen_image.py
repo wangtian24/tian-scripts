@@ -1,16 +1,20 @@
 import asyncio
 import logging
+import re
+from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
 import aiohttp
 from langchain.callbacks.base import AsyncCallbackHandler
+from sqlalchemy import select, update
 from tenacity import after_log, retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 from ypl.backend.attachments.upload import upload_original
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
 from ypl.backend.utils.json import json_dumps
 from ypl.db.attachments import Attachment
+from ypl.db.chats import ChatMessage, MessageType
 
 """
 Handle generated images from LLM providers which we get as a URL. We download the image, upload it to GCS,
@@ -114,9 +118,58 @@ async def persist_generated_image(file_url: str, message_id: UUID) -> UUID | Non
     return attachment_id
 
 
+URL_CHECK_INTERVAL = timedelta(minutes=65)
+
+
 class ImageGenCallback(AsyncCallbackHandler):
     def __init__(self, message_id: UUID):
         self.message_id = message_id
 
     async def on_llm_new_token(self, token: str, **kwargs: Any) -> None:
         asyncio.create_task(persist_generated_image(token, self.message_id))
+
+
+async def do_backfill_gen_image_urls() -> None:
+    """
+    Update gen_image_url in message table, these messages are from image-generating models and they have an ephemeral
+    url that needs to be replaced with a persistent url on GCS.
+    """
+    async with get_async_session() as session:
+        query = (
+            select(ChatMessage.message_id, ChatMessage.content, Attachment.url)  # type: ignore
+            .join(Attachment, ChatMessage.message_id == Attachment.chat_message_id)
+            .where(
+                ChatMessage.deleted_at.is_(None),  # type: ignore
+                ChatMessage.message_type == MessageType.ASSISTANT_MESSAGE,
+                Attachment.url.isnot(None),  # type: ignore
+                Attachment.deleted_at.is_(None),  # type: ignore
+                Attachment.created_at > datetime.now() - URL_CHECK_INTERVAL,  # type: ignore
+            )
+        )
+        results = (await session.exec(query)).all()
+        """
+        Replacing all urls
+        The chat message content looks like:
+
+            <think>Generating your image...</think>
+
+            <yapp class="image">
+                {
+                    "url": "https://.....",
+                    "caption": "Generated image"
+                }
+            </yapp>
+
+        We will replace the url part with a new gs:// resource url.
+        """
+        for result in results:
+            message_id, content, attachment_url = result
+            new_content = re.sub(r'("url"\s*:\s*)"[^"]*"', f'\\1"{attachment_url}"', content)
+            await session.exec(
+                update(ChatMessage).where(ChatMessage.message_id == message_id).values(content=new_content)
+            )  # type: ignore
+            print(f"Updated message {message_id}")
+
+        await session.commit()
+
+        logging.info(f"Backfilled {len(results)} messages with new persisted image urls.")

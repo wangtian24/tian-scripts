@@ -27,6 +27,7 @@ from tqdm.asyncio import tqdm_asyncio
 
 from ypl.backend.abuse.activity import LONG_TIME_WINDOWS, check_activity_volume_abuse, get_recently_active_users
 from ypl.backend.abuse.signup import check_similar_recent_signups_abuse
+from ypl.backend.attachments.gen_image import do_backfill_gen_image_urls
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_session, get_engine
 from ypl.backend.email.marketing import send_marketing_emails_async, send_monthly_summary_emails_async
@@ -1650,6 +1651,13 @@ def abuse_check_recent_signups(num_minutes_since_signup: int = 30) -> None:
     if user_ids_to_check:
         logging.info(f"Checking {len(user_ids_to_check)} users created in the last {delta} for signup abuse")
         asyncio.run(process_all_users())
+
+
+@cli.command()
+@db_cmd
+def backfill_gen_image_urls() -> None:
+    """Backfill gen_image_url in message table"""
+    asyncio.run(do_backfill_gen_image_urls())
 
 
 @cli.command()
