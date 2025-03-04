@@ -182,8 +182,8 @@ async def check_activity_volume_abuse(
                             "activity_type": activity_type,
                             "activity_count": activities[window][activity_type],
                             "time_span": humanize.naturaldelta(window),
-                            "window_start": start_time,
-                            "window_end": end_time,
+                            "window_start": str(start_time),
+                            "window_end": str(end_time),
                             "exceeds_threshold": threshold,
                         },
                     )
