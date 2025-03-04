@@ -245,6 +245,7 @@ jobs:
         echo "UPSTASH_REDIS_TOKEN: '${{ secrets.UPSTASH_REDIS_TOKEN_PRODUCTION }}'" >> .env.yml
         echo "ATTACHMENT_BUCKET: '${{ secrets.ATTACHMENT_BUCKET_PROD }}'" >> .env.yml
         echo "WALLET_ENCRYPTION_KEY: '${{ secrets.WALLET_ENCRYPTION_KEY_PRODUCTION }}'" >> .env.yml
+        echo "ATTACHMENT_BUCKET_GEN_IMAGES=\"gs://yupp-generated-images/production\"" >> .env.yml
 
     - name: Fill in the staging backend ENV variables for 'backend' service in the .env.yml file
       if: env.ENVIRONMENT == 'staging' && (env.SERVICE_NAME == 'backend' || env.SERVICE_NAME == 'backend-pytorch-service')
@@ -299,6 +300,7 @@ jobs:
 
         echo "ROUTING_ERROR_FILTER_SOFT_THRESHOLD: '0.3'" >> .env.yml
         echo "ROUTING_ERROR_FILTER_HARD_THRESHOLD: '0.6'" >> .env.yml
+        echo "ATTACHMENT_BUCKET_GEN_IMAGES=\"gs://yupp-generated-images/staging\"" >> .env.yml
 
     - name: Fill in the partner payments server ENV variables for 'partner-payments-server' service in the .env.yml file
       if: env.SERVICE_NAME == 'partner-payments-server'

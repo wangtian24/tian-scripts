@@ -1,7 +1,6 @@
 import asyncio
 import base64
 import logging
-import os
 import re
 from dataclasses import dataclass
 from datetime import datetime
@@ -22,6 +21,7 @@ from ypl.backend.attachments.upload import (
     upload_original,
     upload_thumbnail,
 )
+from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
 from ypl.backend.utils.json import json_dumps
 from ypl.db.attachments import Attachment
@@ -68,7 +68,7 @@ async def upload_file_route(file: UploadFile = File(...)) -> AttachmentResponse:
         logging.warning(json_dumps(log_dict))
         raise HTTPException(status_code=400, detail="Unsupported file type")
 
-    attachment_gcs_bucket_path = os.getenv("ATTACHMENT_BUCKET") or "gs://yupp-attachments/staging"
+    attachment_gcs_bucket_path = settings.ATTACHMENT_BUCKET
     thumbnail_gcs_bucket_path = f"{attachment_gcs_bucket_path}/thumbnails"
 
     attachment_bucket, *attachment_path_parts = attachment_gcs_bucket_path.replace("gs://", "").split("/")
@@ -82,7 +82,14 @@ async def upload_file_route(file: UploadFile = File(...)) -> AttachmentResponse:
         gather_start = datetime.now()
         results = await asyncio.gather(
             asyncio.create_task(
-                upload_original(gcs_file_uuid, attachment_bucket, attachment_path_parts, file_content, file)
+                upload_original(
+                    gcs_file_uuid,
+                    attachment_bucket,
+                    attachment_path_parts,
+                    file_content,
+                    file.content_type,
+                    file.filename,
+                )
             ),
             asyncio.create_task(
                 upload_thumbnail(
@@ -90,7 +97,7 @@ async def upload_file_route(file: UploadFile = File(...)) -> AttachmentResponse:
                     thumbnail_bucket,
                     thumbnail_path_parts,
                     file_content,
-                    file,
+                    file.filename,
                 )
                 if file.content_type and file.content_type.startswith("image/")
                 else asyncio.sleep(0)
@@ -134,7 +141,8 @@ async def upload_file_route(file: UploadFile = File(...)) -> AttachmentResponse:
                 thumbnail_path_parts,
                 gcs_thumbnail_uuid,
                 metadata,
-                file,
+                file.content_type,
+                file.filename,
             )
             logging.info(
                 json_dumps(

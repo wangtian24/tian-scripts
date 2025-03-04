@@ -208,6 +208,8 @@ class LanguageModel(BaseModel, table=True):
     is_live: bool | None = Field(nullable=True, default=None, index=True)
     # Whether the model is a reasoning model, not exposed to users but used for routing.
     is_reasoning: bool | None = Field(nullable=True, default=None, index=True)
+    # Whether the model is an image-generation model, such as DALL-E.
+    is_image_generation: bool | None = Field(nullable=True, default=None, index=True)
 
     # Whether this model is for internal use only (only Yuppsters will see it or use it)
     is_internal: bool | None = Field(nullable=True, default=None, index=True)

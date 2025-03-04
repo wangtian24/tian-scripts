@@ -34,6 +34,7 @@ from ypl.backend.llm.db_helpers import (
     get_model_context_lengths,
     get_preferences,
     get_user_message,
+    is_image_generation_model,
     notnull,
 )
 from ypl.backend.llm.labeler import QT_CANT_ANSWER, CantAnswerException, QuickTakeGenerator
@@ -853,20 +854,22 @@ async def get_curated_chat_context(
     for msg in messages:
         turns[msg.turn_id].append(msg)
 
+    is_image_gen = await is_image_generation_model(model)
     # The loop below proceeds in insertion order, which is critical for
     # the correctness of this method.
     for turn_messages in turns.values():
         # Get user messages
         formatted_messages.append(_get_enhanced_user_message(turn_messages, max_message_length))
-        # Get assistant messages
-        formatted_messages.extend(
-            [
-                (None, x)
-                for x in _get_assistant_messages(
-                    turn_messages, model, use_all_models_in_chat_history, max_message_length
-                )
-            ]
-        )
+        if not is_image_gen:
+            # Get assistant messages only if it's not for the image-generation model.
+            formatted_messages.extend(
+                [
+                    (None, x)
+                    for x in _get_assistant_messages(
+                        turn_messages, model, use_all_models_in_chat_history, max_message_length
+                    )
+                ]
+            )
 
     info = {
         "message": f"chat_context ({context_for_logging or 'no context'})",

@@ -7,7 +7,6 @@ from io import BytesIO
 from typing import Any
 from uuid import UUID, uuid4
 
-from fastapi import UploadFile
 from gcloud.aio.storage import Storage
 from PIL import Image
 from sqlmodel import select
@@ -22,7 +21,8 @@ async def upload_original(
     attachment_bucket: str,
     attachment_path_parts: list[str],
     file_content: bytes,
-    file: UploadFile,
+    content_type: str | None = None,
+    filename: str | None = None,
 ) -> None:
     start = datetime.now()
     try:
@@ -31,7 +31,7 @@ async def upload_original(
                 bucket=attachment_bucket,
                 object_name=f"{'/'.join(attachment_path_parts)}/{file_uuid}",
                 file_data=file_content,
-                content_type=file.content_type,
+                content_type=content_type,
             )
     finally:
         logging.info(
@@ -39,7 +39,7 @@ async def upload_original(
                 {
                     "message": "Attachments: Original file upload completed",
                     "duration_ms": datetime.now() - start,
-                    "file_name": file.filename,
+                    "file_name": filename,
                 }
             )
         )
@@ -50,7 +50,7 @@ async def upload_thumbnail(
     thumbnail_bucket: str,
     thumbnail_path_parts: list[str],
     file_content: bytes,
-    file: UploadFile,
+    filename: str | None = None,
 ) -> tuple[int, int]:
     start = datetime.now()
     try:
@@ -68,7 +68,7 @@ async def upload_thumbnail(
                     {
                         "message": "Attachments: Thumbnail image resized",
                         "duration_ms": datetime.now() - thumbnail_start,
-                        "file_name": file.filename,
+                        "file_name": filename,
                     }
                 )
             )
@@ -83,7 +83,7 @@ async def upload_thumbnail(
                     {
                         "message": "Attachments: Thumbnail upload completed",
                         "duration_ms": datetime.now() - start,
-                        "file_name": file.filename,
+                        "file_name": filename,
                     }
                 )
             )
@@ -101,19 +101,20 @@ async def create_attachment(
     thumbnail_path_parts: list[str],
     thumbnail_uuid: UUID,
     metadata: dict[str, Any],
-    file: UploadFile,
+    content_type: str | None = None,
+    filename: str | None = None,
 ) -> Attachment:
     async with get_async_session() as session:
         thumbnail_url = (
             f"gs://{thumbnail_bucket}/{'/'.join(thumbnail_path_parts)}/{thumbnail_uuid}"
-            if file.content_type and file.content_type.startswith("image/")
+            if content_type and content_type.startswith("image/")
             else ""
         )
         url = f"gs://{attachment_bucket}/{'/'.join(attachment_path_parts)}/{attachment_uuid}"
         attachment = Attachment(
             attachment_id=uuid4(),
-            file_name=file.filename,
-            content_type=file.content_type,
+            file_name=filename,
+            content_type=content_type,
             url=url,
             thumbnail_url=thumbnail_url,
             attachment_metadata=metadata,

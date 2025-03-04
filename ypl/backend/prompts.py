@@ -1005,6 +1005,9 @@ Final Note: Always strive for maximum truthfulness and do not invent or improvis
 This prompt guides my interactions, ensuring that I remain helpful, witty, and truthful.
 """
 
+DALLE_SYSTEM_PROMPT_TEMPLATE = """
+You are an high quality image generation system that must adhere to strict safety and quality guidelines. Your role is to create creative, tasteful, and visually appealing images while ensuring that all outputs are safe and appropriate. Do not produce any explicit, violent, or harmful content. Always maintain a respectful and moderated approach.
+"""
 
 FALLBACK_SYSTEM_PROMPT = """You are a general purpose assistant and you can help users with any query.
 Always communicate in the same language the user is using, unless they request otherwise.
@@ -1048,6 +1051,7 @@ MODEL_SPECIFIC_PROMPTS = {
     r"^o\d.*": CHATGPT_SYSTEM_PROMPT,  # for o1, o2, o3 and variants
     r"^llama-3.1-sonar.*": PERPLEXITY_SYSTEM_PROMPT,
     r"^x-ai/grok-.*": GROK_SYSTEM_PROMPT,
+    r"^dall-e.*": DALLE_SYSTEM_PROMPT_TEMPLATE,
 }
 
 PROMPT_DATE_FORMAT = "%B %d, %Y, %H:%M %Z"
@@ -1231,7 +1235,8 @@ def get_system_prompt_with_modifiers(
     if use_all_models_in_chat_history:
         base_system_prompt += ALL_MODELS_IN_CHAT_HISTORY_PROMPT
 
-    prompt_modifiers = get_prompt_modifiers(modifier_ids) if modifier_ids else ""
+    is_image_generation_model = "dall-e" in model
+    prompt_modifiers = get_prompt_modifiers(modifier_ids) if modifier_ids and not is_image_generation_model else ""
 
     if not prompt_modifiers:
         return base_system_prompt

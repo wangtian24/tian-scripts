@@ -11,6 +11,7 @@ import async_timeout
 from cachetools import TTLCache
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
+from langchain_core.callbacks import AsyncCallbackManagerForLLMRun
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
@@ -18,6 +19,7 @@ from sqlalchemy import func, update
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from ypl.backend.attachments.gen_image import ImageGenCallback
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine, get_async_session
 from ypl.backend.jobs.tasks import astore_language_code
@@ -37,6 +39,7 @@ from ypl.backend.llm.chat_instrumentation_service import (
 )
 from ypl.backend.llm.chat_title import maybe_set_chat_title
 from ypl.backend.llm.crawl import enhance_citations
+from ypl.backend.llm.db_helpers import is_image_generation_model
 from ypl.backend.llm.embedding import embed_and_store_chat_message_embeddings
 from ypl.backend.llm.memories import maybe_extract_memories
 from ypl.backend.llm.model.management_common import contains_billing_error_keywords
@@ -372,6 +375,16 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
         messages = await transform_user_messages(messages, chat_request.model, transform_options)
         stopwatch.record_split("process_attachments")
 
+        run_manager = (
+            AsyncCallbackManagerForLLMRun(
+                handlers=[ImageGenCallback(chat_request.message_id)],
+                inheritable_handlers=[ImageGenCallback(chat_request.message_id)],
+                run_id=chat_request.message_id,
+            )
+            if (await is_image_generation_model(chat_request.model))
+            else None
+        )
+
         first_token_timestamp: float = 0
         message_metadata: dict[str, Any] = {}
         chunk = None  # Define chunk outside the try block
@@ -382,7 +395,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
         ttft_recorded = False
         claude_thinking_started = False  # Used to insert <think> tag around Claude thinking text.
         try:
-            model_response_stream = client.astream(messages)
+            model_response_stream = client.astream(messages, run_manager=run_manager)
             # apply timeout to the first token
             async with async_timeout.timeout(TTFT_timeout):
                 first_token = await model_response_stream.__anext__()
@@ -413,10 +426,9 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                             content += text_content
                     else:
                         content = str(chunk.content)  # Type is str | list.
-
                     # Only log in local environment
                     if settings.ENVIRONMENT == "local":
-                        logging.info(f"Streamed chunk from {chat_request.model}: {chunk.content}")
+                        print(f"[{chunk.content}]")
                     full_response += str(content)
                     if not ttft_recorded:
                         stopwatch.end_lap("total_time_to_first_token")
@@ -496,7 +508,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
             logging.error(
                 json_dumps(
                     {
-                        "message": "Streaming Error",
+                        "message": f"Streaming Error from model [{chat_request.model}]: {str(e)[:100]}",
                         "model": chat_request.model,
                         "message_id": str(chat_request.message_id),
                         "error_message": str(e),

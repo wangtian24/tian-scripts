@@ -17,6 +17,7 @@ from ypl.backend.config import settings
 from ypl.backend.db import get_engine
 from ypl.backend.llm.constants import ChatProvider
 from ypl.backend.llm.model_data_type import ModelInfo
+from ypl.backend.llm.provider.dalle import DallEChatModel
 from ypl.backend.llm.provider.google_grounded_gemini import GoogleGroundedGemini
 from ypl.backend.llm.provider.google_grounded_vertex_ai import GroundedVertexAI
 from ypl.backend.llm.provider.perplexity import CustomChatPerplexity
@@ -164,6 +165,9 @@ async def get_provider_client(model_name: str, include_all_models: bool = False,
 
         case "OpenAI":
             return ChatOpenAI(model=model_name, api_key=SecretStr(os.getenv("OPENAI_API_KEY", "")), **combined_kwargs)
+
+        case "OpenAIDallE":
+            return DallEChatModel(openai_api_key=os.getenv("OPENAI_API_KEY", ""), **combined_kwargs)
 
         case "Anthropic":
             return ChatAnthropic(

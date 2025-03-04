@@ -151,6 +151,11 @@ class Settings(BaseSettings):
     # Example use case: when updating models on yupp-mind, we need to revalidate the model caches on yupp-head too.
     YUPP_HEAD_APP_BASE_URL: str = "https://chaos.yupp.ai"
 
+    # GCS bucket names:
+    # see: https://console.cloud.google.com/storage/browser?project=yupp-llms
+    ATTACHMENT_BUCKET: str = "gs://yupp-attachments/staging"
+    ATTACHMENT_BUCKET_GEN_IMAGES: str = "gs://yupp-generated-images/staging"
+
     def _get_gcp_secret(self, secret_name: str) -> str:
         """Retrieve secret from Google Cloud Secret Manager."""
 

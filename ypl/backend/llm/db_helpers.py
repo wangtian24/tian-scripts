@@ -688,3 +688,10 @@ async def get_all_active_models(include_internal_models: bool = False) -> set[st
     async with get_async_session() as session:
         model_rows = await session.exec(sql_query)
         return set([row for row in model_rows.all()])
+
+
+@async_timed_cache(seconds=60 * 60)  # 1 hour cache
+async def is_image_generation_model(model: str) -> bool:
+    query = select(LanguageModel.is_image_generation).where(LanguageModel.internal_name == model)
+    async with get_async_session() as session:
+        return (await session.exec(query)).first() or False
