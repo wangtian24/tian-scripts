@@ -3,6 +3,9 @@
 *.csv
 *.json
 
+!.vscode/settings.json
+!.vscode/extensions.json
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
