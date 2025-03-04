@@ -7,7 +7,6 @@ from collections.abc import AsyncIterator
 from datetime import datetime
 from typing import Any
 
-import async_timeout
 from cachetools import TTLCache
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
@@ -395,14 +394,16 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
         ttft_recorded = False
         claude_thinking_started = False  # Used to insert <think> tag around Claude thinking text.
         try:
-            model_response_stream = client.astream(messages, run_manager=run_manager)
-            # apply timeout to the first token
-            async with async_timeout.timeout(TTFT_timeout):
-                first_token = await model_response_stream.__anext__()
-                yield StreamResponse({"content": first_token.content, "model": chat_request.model}).encode()
-                full_response += str(first_token.content)
 
-            async for chunk in model_response_stream:
+            async def stream_with_timeout_on_first(async_stream: AsyncIterator):  # type: ignore[no-untyped-def]
+                # apply timeout to the first token
+                yield await asyncio.wait_for(async_stream.__anext__(), TTFT_timeout)
+                async for chunk in async_stream:
+                    yield chunk
+
+            model_response_stream = client.astream(messages, run_manager=run_manager)
+
+            async for chunk in stream_with_timeout_on_first(model_response_stream):
                 # TODO(bhanu) - assess if we should customize chunking for optimal network performance
                 if hasattr(chunk, "content") and chunk.content:
                     if first_token_timestamp == 0:
