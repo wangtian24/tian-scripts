@@ -429,7 +429,7 @@ def convert_backfill_data(
     output_io.flush()
 
 
-def _update_ranking(
+async def _update_ranking(
     category_names: list[str] | None = None,
     exclude_ties: bool = False,
     from_date: datetime | None = None,
@@ -440,7 +440,7 @@ def _update_ranking(
 ) -> None:
     params = locals()
     ranker = get_default_ranker()
-    asyncio.run(ranker.add_evals_from_db(**params))
+    await ranker.add_evals_from_db(**params)
     for ranked_model in ranker.leaderboard():
         logging.info(ranked_model)
     if category_names:
@@ -467,16 +467,21 @@ def update_ranking(
     user_to_date: datetime | None = None,
     language_codes: list[str] | None = None,
 ) -> None:
-    _update_ranking(category_names, exclude_ties, from_date, to_date, user_from_date, user_to_date, language_codes)
+    asyncio.run(
+        _update_ranking(category_names, exclude_ties, from_date, to_date, user_from_date, user_to_date, language_codes)
+    )
 
 
 @cli.command()
 def update_ranking_all_categories() -> None:
-    for category_name in fetch_categories_with_descriptions_from_db():
-        logging.info(f"Updating ranking for category: {category_name}")
-        _update_ranking(category_names=[category_name])
-    logging.info("Updating ranking with no categories")
-    _update_ranking()
+    async def _do_update() -> None:
+        for category_name in fetch_categories_with_descriptions_from_db():
+            logging.info(f"Updating ranking for category: {category_name}")
+            await _update_ranking(category_names=[category_name])
+        logging.info("Updating ranking with no categories")
+        await _update_ranking()
+
+    asyncio.run(_do_update())
 
 
 @cli.command()
