@@ -42,7 +42,7 @@ async def maybe_extract_memories(chat_id: uuid.UUID, turn_id: uuid.UUID, user_id
         if not source_msg:  # Do not proceed without a source.
             return
 
-        labeler = YuppMemoryExtractor(await get_internal_provider_client("deepseek/deepseek-r1", max_tokens=512))
+        labeler = YuppMemoryExtractor(await get_internal_provider_client("gemini-2.0-flash-001", max_tokens=512))
         extracted_memories = await labeler.alabel(chat_context.messages)
         logging.info(
             json_dumps(
