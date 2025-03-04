@@ -27,6 +27,7 @@ class AbuseEventData:
     state: str
     reviewed_at: datetime | None
     reviewed_by: str | None
+    review_notes: str | None
 
     @classmethod
     def from_abuse_event(cls, event: AbuseEvent) -> "AbuseEventData":
@@ -42,6 +43,7 @@ class AbuseEventData:
             state=event.state.value,
             reviewed_at=event.reviewed_at,
             reviewed_by=event.reviewed_by,
+            review_notes=event.review_notes,
         )
 
 
@@ -81,12 +83,13 @@ async def get_abuse_events_route(
 class AbuseEventReviewRequest(BaseModel):
     abuse_event_id: UUID
     reviewer: str
+    notes: str | None = None
 
 
 @router.post("/abuse_events/review")
 async def review_abuse_event_route(request: AbuseEventReviewRequest) -> AbuseEventData:
     try:
-        event = await review_abuse_event(request.abuse_event_id, request.reviewer)
+        event = await review_abuse_event(request.abuse_event_id, request.reviewer, request.notes)
         if event is None:
             raise HTTPException(status_code=404, detail="Abuse event not found")
         return AbuseEventData.from_abuse_event(event)

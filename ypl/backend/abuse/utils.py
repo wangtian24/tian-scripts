@@ -125,7 +125,7 @@ async def get_abuse_events(
         return events, has_more_rows
 
 
-async def review_abuse_event(abuse_event_id: UUID, reviewer: str) -> AbuseEvent | None:
+async def review_abuse_event(abuse_event_id: UUID, reviewer: str, notes: str | None = None) -> AbuseEvent | None:
     async with get_async_session() as session:
         query = (
             select(AbuseEvent).options(joinedload(AbuseEvent.user)).where(AbuseEvent.abuse_event_id == abuse_event_id)  # type: ignore
@@ -137,6 +137,7 @@ async def review_abuse_event(abuse_event_id: UUID, reviewer: str) -> AbuseEvent 
             event.state = AbuseEventState.REVIEWED
             event.reviewed_at = datetime.now()
             event.reviewed_by = reviewer
+            event.review_notes = notes
             await session.commit()
 
         return event
