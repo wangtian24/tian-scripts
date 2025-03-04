@@ -181,6 +181,7 @@ jobs:
           echo "YAPP_API_KEY=${{ secrets.YAPP_API_KEY_PRODUCTION }}" >> .env
           echo "YAPP_TMP_API_KEY=${{ secrets.YAPP_TMP_API_KEY_PRODUCTION }}" >> .env
           echo "SAMBANOVA_API_KEY=${{ secrets.SAMBANOVA_API_KEY_PRODUCTION }}" >> .env
+          echo "OLK_KRUTRIM_API_KEY=${{ secrets.OLA_KRUTRIM_API_KEY_PRODUCTION }}" >> .env
           echo "SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL_PRODUCTION }}" >> .env
           echo "SLACK_WEBHOOK_CASHOUT=${{ secrets.SLACK_WEBHOOK_CASHOUT_PRODUCTION }}" >> .env
           echo "TWITTER_BEARER_TOKEN=${{ secrets.TWITTER_BEARER_TOKEN_PRODUCTION }}" >> .env
@@ -230,6 +231,7 @@ jobs:
           echo "YAPP_API_KEY=${{ secrets.YAPP_API_KEY_STAGING }}" >> .env
           echo "YAPP_TMP_API_KEY=${{ secrets.YAPP_TMP_API_KEY_STAGING }}" >> .env
           echo "SAMBANOVA_API_KEY=${{ secrets.SAMBANOVA_API_KEY_STAGING }}" >> .env
+          echo "OLK_KRUTRIM_API_KEY=${{ secrets.OLA_KRUTRIM_API_KEY_STAGING }}" >> .env
           echo "SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL_STAGING }}" >> .env
           echo "SLACK_WEBHOOK_CASHOUT=${{ secrets.SLACK_WEBHOOK_CASHOUT_STAGING }}" >> .env
           echo "TWITTER_BEARER_TOKEN=${{ secrets.TWITTER_BEARER_TOKEN_STAGING }}" >> .env
