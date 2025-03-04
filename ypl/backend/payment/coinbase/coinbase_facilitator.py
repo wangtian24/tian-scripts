@@ -14,6 +14,7 @@ from ypl.backend.payment.coinbase.coinbase_payout import (
     CoinbaseRetailPayout,
     CoinbaseRetailPayoutError,
     TransactionStatus,
+    get_all_transactions_from_coinbase,
     get_coinbase_retail_wallet_account_details,
     get_coinbase_retail_wallet_balance_for_currency,
     get_transaction_status,
@@ -422,8 +423,18 @@ class CoinbaseFacilitator(BaseFacilitator):
                     customer_reference_id=str(transaction.partner_reference_id),
                     partner_reference_id=str(transaction.partner_reference_id),
                 )
-        partner_reference_id = str(transaction.partner_reference_id)
+        partner_reference_id = transaction.partner_reference_id
+        if not partner_reference_id:
+            all_transactions = await get_all_transactions_from_coinbase()
+            for each_transaction in all_transactions["data"]:
+                if each_transaction["idem"] == transaction.payment_transaction_id:
+                    partner_reference_id = each_transaction["id"]
+                    break
 
+        if not partner_reference_id:
+            raise PaymentStatusFetchError("Partner reference ID not found")
+
+        partner_reference_id = str(partner_reference_id)
         accounts = await get_coinbase_retail_wallet_account_details()
         account_info = accounts.get(self.currency.value, {})
         account_id = account_info.get("account_id")

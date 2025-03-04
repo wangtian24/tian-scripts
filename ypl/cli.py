@@ -1059,6 +1059,25 @@ def validate_pending_cashouts() -> None:
 
 
 @cli.command()
+def get_all_coinbase_retail_transactions() -> None:
+    """Get all Coinbase retail transactions."""
+
+    from ypl.backend.payment.coinbase.coinbase_payout import get_all_transactions_from_coinbase
+
+    async def _run() -> None:
+        transactions = await get_all_transactions_from_coinbase()
+        log_dict = {
+            "message": "Retrieved Coinbase retail transactions",
+            "total_transactions": len(transactions["data"]),
+            "pagination_info": transactions["pagination"],
+            "transactions": transactions["data"],
+        }
+        logging.info(json_dumps(log_dict))
+
+    asyncio.run(_run())
+
+
+@cli.command()
 @click.option("--min-age-days", default=2, help="Minimum age in days for eligible users")
 @click.option("--min-eval-days", default=2, help="Minimum number of evaluation days")
 @click.option("--min-feedback-count", default=0, help="Minimum number of feedbacks required")

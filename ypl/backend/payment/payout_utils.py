@@ -298,18 +298,10 @@ async def process_pending_coinbase_transaction(payment: PaymentTransaction) -> N
         get_coinbase_retail_wallet_balance_for_currency,
         get_transaction_status,
     )
+    from ypl.backend.payment.coinbase.coinbase_payout import get_all_transactions_from_coinbase
 
     user_id = payment.destination_instrument.user_id
     try:
-        if not payment.partner_reference_id:
-            log_dict = {
-                "message": ":x: - Missing transaction ID for Coinbase retail transaction",
-                "payment_transaction_id": str(payment.payment_transaction_id),
-            }
-            logging.error(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
-            return
-
         # Get the account ID from Coinbase API using the currency
         account_info = await get_coinbase_retail_wallet_balance_for_currency(payment.currency)
         account_id = str(account_info["account_id"])
@@ -323,6 +315,35 @@ async def process_pending_coinbase_transaction(payment: PaymentTransaction) -> N
             asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
             return
 
+        if not payment.partner_reference_id:
+            # in this case, it's possible that the coinbase API had returned error and hence we don't have a tx ID
+            # in this case, we should retrieve all transactions and find the tx id corresponding to the payment tx id
+            transactions = await get_all_transactions_from_coinbase()
+            for transaction in transactions["data"]:
+                log_dict = {
+                    "message": "Processing Coinbase transaction",
+                    "transaction_id": transaction["id"],
+                    "idem": transaction["idem"],
+                    "payment_transaction_id": str(payment.payment_transaction_id),
+                }
+                logging.info(json_dumps(log_dict))
+                if transaction["idem"] == str(payment.payment_transaction_id):
+                    payment.partner_reference_id = transaction["id"]
+                    log_dict = {
+                        "message": ":white_check_mark: - Found transaction ID for pending Coinbase transaction",
+                        "payment_transaction_id": str(payment.payment_transaction_id),
+                        "transaction_id": payment.partner_reference_id,
+                    }
+                    logging.info(json_dumps(log_dict))
+                    break
+
+        if not payment.partner_reference_id:
+            log_dict = {
+                "message": ":x: - Missing transaction ID for Coinbase retail transaction",
+                "payment_transaction_id": str(payment.payment_transaction_id),
+            }
+            logging.error(json_dumps(log_dict))
+            return
         status = await get_transaction_status(account_id=account_id, transaction_id=payment.partner_reference_id)
 
         if status == TransactionStatus.COMPLETED.value:
@@ -337,6 +358,8 @@ async def process_pending_coinbase_transaction(payment: PaymentTransaction) -> N
             asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
             await update_payment_transaction(
                 payment_transaction_id=payment.payment_transaction_id,
+                partner_reference_id=payment.partner_reference_id,
+                customer_reference_id=payment.partner_reference_id,
                 status=PaymentTransactionStatusEnum.SUCCESS,
             )
         elif status == TransactionStatus.FAILED.value:
@@ -347,6 +370,13 @@ async def process_pending_coinbase_transaction(payment: PaymentTransaction) -> N
             }
             logging.error(json_dumps(log_dict))
             asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+
+            await update_payment_transaction(
+                payment_transaction_id=payment.payment_transaction_id,
+                partner_reference_id=payment.partner_reference_id,
+                customer_reference_id=payment.partner_reference_id,
+                status=PaymentTransactionStatusEnum.FAILED,
+            )
 
             points_transaction = await get_points_transaction_from_payment_transaction_id(
                 payment.payment_transaction_id

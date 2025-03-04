@@ -24,6 +24,10 @@ BASE_URL: Final[str] = f"https://api.coinbase.com/{API_VERSION}"
 REQUEST_HOST: Final[str] = "api.coinbase.com"
 ENVIRONMENT: Final[str] = os.getenv("ENVIRONMENT", "staging")
 
+
+COINBASE_RETAIL_API_KEY_NAME: Final[str] = os.getenv("COINBASE_RETAIL_API_KEY_NAME", "")
+COINBASE_RETAIL_API_SECRET: Final[str] = os.getenv("COINBASE_RETAIL_API_SECRET", "")
+
 RETRY_WAIT_MULTIPLIER: Final[int] = 1
 RETRY_WAIT_MIN: Final[int] = 1
 RETRY_WAIT_MAX: Final[int] = 10
@@ -122,16 +126,6 @@ def build_jwt(method: str, path: str, key_name: str, key_secret: str) -> str:
         # If the key contains string literal \n, evaluate them
         key_secret = key_secret.encode("utf-8").decode("unicode_escape")
 
-    # Debug log to see the exact format
-    log_dict = {
-        "message": "Debug PEM key format",
-        "key_length": len(key_secret),
-        "key_start": key_secret[:50],  # Log just the start to avoid exposing the full key
-        "contains_literal_newlines": "\\n" in key_secret,
-        "contains_actual_newlines": "\n" in key_secret,
-    }
-    logging.info(json_dumps(log_dict))
-
     # Ensure the key has proper line endings
     key_lines = key_secret.strip().split("\n")
     key_secret = "\n".join(key_lines) + "\n"  # Ensure there's exactly one newline at the end
@@ -170,16 +164,13 @@ async def get_coinbase_retail_wallet_account_details() -> dict[str, dict[str, st
     Returns:
         dict[str, dict[str, str | Decimal]]: A dictionary mapping currency codes to their IDs and balances
     """
-    key_name = os.getenv("COINBASE_RETAIL_API_KEY_NAME")
-    key_secret = os.getenv("COINBASE_RETAIL_API_SECRET")
-
-    if not key_name or not key_secret:
+    if not COINBASE_RETAIL_API_KEY_NAME or not COINBASE_RETAIL_API_SECRET:
         raise CoinbaseRetailPayoutError(
             "Internal error", details={"error": "Coinbase API credentials not found in environment variables"}
         )
 
     request_path = f"/{API_VERSION}/accounts"
-    jwt_token = build_jwt("GET", request_path, key_name, key_secret)
+    jwt_token = build_jwt("GET", request_path, COINBASE_RETAIL_API_KEY_NAME, COINBASE_RETAIL_API_SECRET)
 
     headers = {
         "Authorization": f"Bearer {jwt_token}",
@@ -398,16 +389,13 @@ async def _create_transaction_internal(
     Raises:
         CoinbaseRetailPayoutError: If required fields are missing from the response or if transaction creation fails
     """
-    key_name = os.getenv("COINBASE_RETAIL_API_KEY_NAME")
-    key_secret = os.getenv("COINBASE_RETAIL_API_SECRET")
-
-    if not key_name or not key_secret:
+    if not COINBASE_RETAIL_API_KEY_NAME or not COINBASE_RETAIL_API_SECRET:
         raise CoinbaseRetailPayoutError(
             GENERIC_ERROR_MESSAGE, {"error": "Coinbase API credentials not found in environment variables"}
         )
 
     request_path = f"/{API_VERSION}/accounts/{account_id}/transactions"
-    jwt_token = build_jwt("POST", request_path, key_name, key_secret)
+    jwt_token = build_jwt("POST", request_path, COINBASE_RETAIL_API_KEY_NAME, COINBASE_RETAIL_API_SECRET)
 
     # Create transaction payload
     payload = {
@@ -501,16 +489,13 @@ async def get_transaction_status(account_id: str, transaction_id: str) -> str:
     Returns:
         str: The status of the transaction, one of: "pending", "completed", "failed", or "unknown"
     """
-    key_name = os.getenv("COINBASE_RETAIL_API_KEY_NAME")
-    key_secret = os.getenv("COINBASE_RETAIL_API_SECRET")
-
-    if not key_name or not key_secret:
+    if not COINBASE_RETAIL_API_KEY_NAME or not COINBASE_RETAIL_API_SECRET:
         raise CoinbaseRetailPayoutError(
             GENERIC_ERROR_MESSAGE, {"error": "Coinbase API credentials not found in environment variables"}
         )
 
     request_path = f"/{API_VERSION}/accounts/{account_id}/transactions/{transaction_id}"
-    jwt_token = build_jwt("GET", request_path, key_name, key_secret)
+    jwt_token = build_jwt("GET", request_path, COINBASE_RETAIL_API_KEY_NAME, COINBASE_RETAIL_API_SECRET)
 
     headers = {
         "Authorization": f"Bearer {jwt_token}",
@@ -553,3 +538,79 @@ async def get_transaction_status(account_id: str, transaction_id: str) -> str:
     except Exception as e:
         details = {"transaction_id": str(transaction_id), "error": str(e)}
         raise CoinbaseRetailPayoutError("Error getting Coinbase retail payout status", details) from e
+
+
+async def get_all_transactions_from_coinbase() -> dict[str, Any]:
+    """Get all transactions for all Coinbase retail accounts.
+
+    Returns:
+        dict[str, Any]: A dictionary containing pagination info and a list of transactions
+    """
+    if not COINBASE_RETAIL_API_KEY_NAME or not COINBASE_RETAIL_API_SECRET:
+        raise CoinbaseRetailPayoutError(
+            GENERIC_ERROR_MESSAGE, {"error": "Coinbase API credentials not found in environment variables"}
+        )
+
+    accounts = await get_coinbase_retail_wallet_account_details()
+
+    all_transactions = []
+    pagination_info = {
+        "ending_before": None,
+        "starting_after": None,
+        "limit": 25,
+        "order": "desc",
+        "previous_uri": None,
+        "next_uri": None,
+    }
+
+    for currency, account_info in accounts.items():
+        account_id = account_info.get("account_id")
+        if not account_id:
+            continue
+
+        request_path = f"/{API_VERSION}/accounts/{account_id}/transactions"
+        jwt_token = build_jwt("GET", request_path, COINBASE_RETAIL_API_KEY_NAME, COINBASE_RETAIL_API_SECRET)
+
+        headers = {
+            "Authorization": f"Bearer {jwt_token}",
+            "Content-Type": "application/json",
+        }
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(f"{BASE_URL}/accounts/{account_id}/transactions", headers=headers)
+                if response.status_code != 200:
+                    log_dict = {
+                        "message": "Failed to get transactions for account",
+                        "account_id": account_id,
+                        "currency": currency,
+                        "status_code": str(response.status_code),
+                        "response": response.text,
+                    }
+                    logging.error(json_dumps(log_dict))
+                    continue
+
+                data = response.json()
+                transactions = data.get("data", [])
+
+                for transaction in transactions:
+                    transaction["currency"] = currency
+
+                all_transactions.extend(transactions)
+
+                if not pagination_info["next_uri"] and data.get("pagination", {}).get("next_uri"):
+                    pagination_info = data["pagination"]
+
+        except Exception as e:
+            log_dict = {
+                "message": "Error fetching transactions for account",
+                "account_id": account_id,
+                "currency": currency,
+                "error": str(e),
+            }
+            logging.error(json_dumps(log_dict))
+            continue
+
+    all_transactions.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+
+    return {"pagination": pagination_info, "data": all_transactions}
