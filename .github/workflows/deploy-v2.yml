@@ -229,6 +229,7 @@ jobs:
         echo "YAPP_API_KEY: '${{ secrets.YAPP_API_KEY_PRODUCTION }}'" >> .env.yml
         echo "YAPP_TMP_API_KEY: '${{ secrets.YAPP_TMP_API_KEY_PRODUCTION }}'" >> .env.yml
         echo "SAMBANOVA_API_KEY: '${{ secrets.SAMBANOVA_API_KEY_PRODUCTION }}'" >> .env.yml
+        echo "OLA_KRUTRIM_API_KEY: '${{ secrets.OLA_KRUTRIM_API_KEY_PRODUCTION }}'" >> .env.yml
         echo "SLACK_WEBHOOK_URL: '${{ secrets.SLACK_WEBHOOK_URL_PRODUCTION }}'" >> .env.yml
         echo "SLACK_WEBHOOK_CASHOUT: '${{ secrets.SLACK_WEBHOOK_CASHOUT_PRODUCTION }}'" >> .env.yml
         echo "SLACK_MODEL_MANAGEMENT_APP_BOT_TOKEN: '${{ secrets.SLACK_MODEL_MANAGEMENT_APP_BOT_TOKEN_PRODUCTION }}'" >> .env.yml
@@ -282,6 +283,7 @@ jobs:
         echo "YAPP_API_KEY: '${{ secrets.YAPP_API_KEY_STAGING }}'" >> .env.yml
         echo "YAPP_TMP_API_KEY: '${{ secrets.YAPP_TMP_API_KEY_STAGING }}'" >> .env.yml
         echo "SAMBANOVA_API_KEY: '${{ secrets.SAMBANOVA_API_KEY_PRODUCTION }}'" >> .env.yml
+        echo "OLA_KRUTRIM_API_KEY: '${{ secrets.OLA_KRUTRIM_API_KEY_STAGING }}'" >> .env.yml
         echo "SLACK_WEBHOOK_URL: '${{ secrets.SLACK_WEBHOOK_URL_STAGING }}'" >> .env.yml
         echo "SLACK_WEBHOOK_CASHOUT: '${{ secrets.SLACK_WEBHOOK_CASHOUT_STAGING }}'" >> .env.yml
         echo "SLACK_MODEL_MANAGEMENT_APP_BOT_TOKEN: '${{ secrets.SLACK_MODEL_MANAGEMENT_APP_BOT_TOKEN_STAGING }}'" >> .env.yml
