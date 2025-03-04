@@ -901,6 +901,7 @@ async def get_curated_chat_context(
                 m.message_type == MessageType.ASSISTANT_MESSAGE
                 and m.turn_id == current_turn_id
                 and m.assistant_model_name
+                and m.completion_status in (CompletionStatus.SUCCESS, CompletionStatus.USER_ABORTED)
             ):
                 current_turn_responses[m.assistant_model_name] = m
             elif (

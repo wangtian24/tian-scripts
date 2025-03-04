@@ -68,12 +68,22 @@ REVIEW_CONFIGS: dict[ReviewType, ReviewConfig] = {
 REVIEW_MODEL_WITH_PDF_SUPPORT = ["gemini-2.0-flash-001"]
 
 # Whitelist of models supported for reviews
-REVIEW_MODEL_WHITELIST = [
+REVIEW_MODEL_ALLOWLIST_PREFERENCES = [
     "gpt-4o",
     "gemini-2.0-flash-001",
     "claude-3-7-sonnet-20250219",
-    "qwen-max-2025-01-25",  # Verify for segmented reviews when the time comes
-    "deepseek/deepseek-chat",  # Verify for segmented reviews when the time comes
+    "qwen-max-2025-01-25",  # TODO(ronak): Verify for segmented reviews when the time comes
+    "deepseek/deepseek-chat",  # TODO(ronak): Verify for segmented reviews when the time comes
+    "meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo",
+    "qwen2.5-vl-72b-instruct",
+]
+
+REVIEW_MODEL_WITH_IMAGE_ALLOWLIST_PREFERENCES = [
+    "gemini-2.0-flash-001",
+    "claude-3-7-sonnet-20250219",
+    "gpt-4o",  # gpt-4o not highest preference for images
+    "meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo",  # Only together has image support
+    "qwen2.5-vl-72b-instruct",
 ]
 
 
@@ -378,7 +388,7 @@ async def get_reviewer(review_type: ReviewType, model: str = "gpt-4o") -> BaseRe
         A reviewer instance of the appropriate type
     """
     # Validate model and use fallback if needed
-    if review_type != ReviewType.NUGGETIZED and model not in REVIEW_MODEL_WHITELIST:
+    if review_type != ReviewType.NUGGETIZED and model not in REVIEW_MODEL_ALLOWLIST_PREFERENCES:
         logging.warning(f"{review_type} reviewer: Unsupported model {model}, using gpt-4o instead")
         model = "gpt-4o"
     elif review_type == ReviewType.NUGGETIZED and model not in ["gpt-4o", "gpt-4o-mini"]:
@@ -513,20 +523,21 @@ async def generate_reviews(
     attachments = [
         attachment for m in chat_history.messages for attachment in m.additional_kwargs.get("attachments", [])
     ]
-    has_attachments = len(attachments) > 0
-    has_pdf_attachments = False
+    has_pdf_attachments = any(attachment.content_type == "application/pdf" for attachment in attachments)
+    has_image_attachments = any(
+        attachment.content_type is not None and attachment.content_type.startswith("image/")
+        for attachment in attachments
+    )
     parse_pdf_locally = settings.PARSE_PDF_LOCALLY_FOR_REVIEW
-    if has_attachments:
-        has_pdf_attachments = any(attachment.content_type == "application/pdf" for attachment in attachments)
-        transform_options: TransformOptions = {
-            "image_type": "thumbnail",
-            "use_signed_url": False,
-            "parse_pdf_locally": parse_pdf_locally,
-            "max_pdf_text": settings.MAX_TEXT_TO_EXTRACT_FROM_PDF,
-        }
-        chat_history.messages = await transform_user_messages(
-            chat_history.messages, REVIEW_MODEL_WITH_PDF_SUPPORT[0], options=transform_options
-        )
+    transform_options: TransformOptions = {
+        "image_type": "thumbnail",
+        "use_signed_url": False,
+        "parse_pdf_locally": parse_pdf_locally,
+        "max_pdf_text": settings.MAX_TEXT_TO_EXTRACT_FROM_PDF,
+    }
+    chat_history.messages = await transform_user_messages(
+        chat_history.messages, REVIEW_MODEL_WITH_PDF_SUPPORT[0], options=transform_options
+    )
     # Extract conversation history until last user message from chat history
     conversation_until_last_user_message = _extract_conversation_until_last_user_message(chat_history.messages)
     last_assistant_responses = responses
@@ -537,7 +548,7 @@ async def generate_reviews(
     all_models: set[str] = set()
     if responses:
         all_models.update(responses.keys())
-        all_models.update(REVIEW_MODEL_WHITELIST)  # Add whitelist models for family lookup
+        all_models.update(REVIEW_MODEL_ALLOWLIST_PREFERENCES)  # Add whitelist models for family lookup
 
     if all_models:
         all_model_families = await get_model_families_and_ids(list(all_models))
@@ -546,7 +557,9 @@ async def generate_reviews(
             {k: v[0] for k, v in all_model_families.items() if k in responses} if responses else {}
         )
         review_llms_model_family_map = {
-            model: all_model_families[model][0] for model in REVIEW_MODEL_WHITELIST if model in all_model_families
+            model: all_model_families[model][0]
+            for model in REVIEW_MODEL_ALLOWLIST_PREFERENCES
+            if model in all_model_families
         }
     else:
         response_model_family_map = {}
@@ -569,8 +582,17 @@ async def generate_reviews(
             ]
             fallback_reviewer_model_name_default = request.fallback_reviewer_model_name or "gpt-4o"
             if has_pdf_attachments and not parse_pdf_locally:
-                reviewer_model_preference = REVIEW_MODEL_WITH_PDF_SUPPORT
-                fallback_reviewer_model_name_default = REVIEW_MODEL_WITH_PDF_SUPPORT[0]
+                reviewer_model_preference = request.reviewer_model_preference or REVIEW_MODEL_WITH_PDF_SUPPORT
+                fallback_reviewer_model_name_default = (
+                    reviewer_model_preference[0] if reviewer_model_preference else "gpt-4o"
+                )
+            elif has_image_attachments:
+                reviewer_model_preference = (
+                    request.reviewer_model_preference or REVIEW_MODEL_WITH_IMAGE_ALLOWLIST_PREFERENCES
+                )
+                fallback_reviewer_model_name_default = (
+                    reviewer_model_preference[0] if reviewer_model_preference else "gpt-4o"
+                )
             reviewer_model = _select_reviewer_model(
                 model_family,
                 reviewer_model_preference,
