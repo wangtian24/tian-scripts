@@ -71,6 +71,7 @@ BILLING_ERROR_CACHE: TTLCache = TTLCache(maxsize=100, ttl=7200)  # 2 hours
 THINKING_TAG_START = "\n\n<think>\n\n"
 THINKING_TAG_END = "\n\n</think>\n\n"
 TTFT_timeout = 30  # seconds
+TTFT_timeout_for_reasoning = 60  # seconds
 
 
 class StreamResponse:
@@ -323,6 +324,8 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
         else:
             if system_prompt:
                 messages.append(SystemMessage(content=system_prompt))
+
+        language_model = await get_language_model(chat_request.model)
         if not chat_request.is_new_chat and chat_request.intent != SelectIntent.TALK_TO_OTHER_MODELS:
             chat_history = await get_curated_chat_context(
                 chat_request.chat_id,
@@ -331,7 +334,6 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                 chat_request.turn_id,
                 context_for_logging="chat_completions",
             )
-            language_model = await get_language_model(chat_request.model)
             chat_context = sanitize_messages(
                 chat_history.messages, system_prompt, language_model.context_window_tokens or DEFAULT_MAX_TOKENS
             )
@@ -395,15 +397,16 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
         claude_thinking_started = False  # Used to insert <think> tag around Claude thinking text.
         try:
 
-            async def stream_with_timeout_on_first(async_stream: AsyncIterator):  # type: ignore[no-untyped-def]
+            async def stream_with_timeout_on_first(async_stream: AsyncIterator, model: LanguageModel):  # type: ignore[no-untyped-def]
+                first_token_timeout = await get_TTFT_timeout_for_model(model)
                 # apply timeout to the first token
-                yield await asyncio.wait_for(async_stream.__anext__(), TTFT_timeout)
+                yield await asyncio.wait_for(async_stream.__anext__(), first_token_timeout)
                 async for chunk in async_stream:
                     yield chunk
 
             model_response_stream = client.astream(messages, run_manager=run_manager)
 
-            async for chunk in stream_with_timeout_on_first(model_response_stream):
+            async for chunk in stream_with_timeout_on_first(model_response_stream, language_model):
                 # TODO(bhanu) - assess if we should customize chunking for optimal network performance
                 if hasattr(chunk, "content") and chunk.content:
                     if first_token_timestamp == 0:
@@ -697,6 +700,13 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
         )
 
     stopwatch.end()
+
+
+async def get_TTFT_timeout_for_model(language_model: LanguageModel) -> int:
+    if language_model.is_reasoning:
+        return TTFT_timeout_for_reasoning
+    else:
+        return TTFT_timeout
 
 
 async def error_stream(error_message: str) -> AsyncIterator[str]:
