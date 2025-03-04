@@ -69,8 +69,8 @@ def test_process_tag_content() -> None:
     from ypl.backend.llm.review import SegmentedReviewLabeler
 
     # Create a minimal instance just for testing the method
-    labeler = SegmentedReviewLabeler()
-
+    labeler = SegmentedReviewLabeler(model="gpt-4o", llm=MagicMock())
+    assert isinstance(labeler, SegmentedReviewLabeler)
     # Test case 1: Basic tag content extraction
     lines = [
         "<segment 1>",

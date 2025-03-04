@@ -19,10 +19,7 @@ from ypl.backend.llm.chat import get_curated_chat_context
 from ypl.backend.llm.labeler import LLMLabeler
 from ypl.backend.llm.nuggetizer import YuppNuggetizer
 from ypl.backend.llm.provider.provider_clients import (
-    get_gemini_2_flash_llm,
-    get_gemini_15_flash_llm,
-    get_gpt_4o_llm,
-    get_gpt_4o_mini_llm,
+    get_internal_provider_client,
 )
 from ypl.backend.llm.review_types import (
     BinaryResult,
@@ -68,7 +65,16 @@ REVIEW_CONFIGS: dict[ReviewType, ReviewConfig] = {
     ),
 }
 
-REVIEW_MODEL_WITH_PDF_SUPPORT = ["gemini-2.0-flash-exp"]
+REVIEW_MODEL_WITH_PDF_SUPPORT = ["gemini-2.0-flash-001"]
+
+# Whitelist of models supported for reviews
+REVIEW_MODEL_WHITELIST = [
+    "gpt-4o",
+    "gemini-2.0-flash-001",
+    "claude-3-7-sonnet-20250219",
+    "qwen-max-2025-01-25",  # Verify for segmented reviews when the time comes
+    "deepseek/deepseek-chat",  # Verify for segmented reviews when the time comes
+]
 
 
 @alru_cache(maxsize=None, ttl=86400)  # 24-hour cache, now async-compatible
@@ -102,39 +108,19 @@ async def get_model_families_and_ids(model_names: list[str]) -> dict[str, tuple[
 REVIEW_LLMS: dict[ReviewType, dict[str, BaseChatModel]] = {}
 
 
-# TODO(Tian): This probably needs some refactoring to use get_internal_provider_client(), but it's not
-# an async function due to the way BaseReviewLabeler is constructed. This needs some bigger refactoring
-# to make all get_xxx_reviewer() functions async and pass LLM clients from outside rather than
-# having each labeler class getting its own LLM clients. Keep as is for now.
-def get_review_llms(review_type: ReviewType = ReviewType.BINARY) -> dict[str, BaseChatModel]:
-    """Get all review LLM instances."""
-    global REVIEW_LLMS
-    if review_type not in REVIEW_LLMS:
-        REVIEW_LLMS[review_type] = {
-            "gpt-4o": get_gpt_4o_llm(REVIEW_CONFIGS[review_type].max_tokens),
-            "gpt-4o-mini": get_gpt_4o_mini_llm(REVIEW_CONFIGS[review_type].max_tokens),
-            "gemini-1.5-flash-002": get_gemini_15_flash_llm(REVIEW_CONFIGS[review_type].max_tokens),
-            "gemini-2.0-flash-exp": get_gemini_2_flash_llm(REVIEW_CONFIGS[review_type].max_tokens),
-        }
-    return REVIEW_LLMS[review_type]
-
-
 class BaseReviewLabeler(LLMLabeler[tuple[str, str], ReviewResultType], Generic[ReviewResultType]):
     """Base class for all review labelers."""
 
     def __init__(
         self,
         review_type: ReviewType,
-        model: str = "gpt-4o",
+        model: str,
+        llm: BaseChatModel,
         timeout_secs: float = settings.DEFAULT_REVIEW_TIMEOUT_SECS,
     ) -> None:
         self.model = model
         self.review_type = review_type
-        llms = get_review_llms(self.review_type)
-        if self.model not in llms:
-            logging.warning(f"{self.__class__.__name__}: Unsupported model {model}, using gpt-4o instead")
-            self.model = "gpt-4o"
-        self.base_llm = llms[self.model]
+        self.base_llm = llm
         super().__init__(self.base_llm, timeout_secs=timeout_secs)
 
     def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
@@ -166,8 +152,10 @@ class BaseReviewLabeler(LLMLabeler[tuple[str, str], ReviewResultType], Generic[R
 class BinaryReviewLabeler(BaseReviewLabeler[bool]):
     """Labeler that determines if a response accurately answers the last human message with a binary true/false."""
 
-    def __init__(self, model: str = "gpt-4o", timeout_secs: float = settings.DEFAULT_REVIEW_TIMEOUT_SECS) -> None:
-        super().__init__(ReviewType.BINARY, model, timeout_secs)
+    def __init__(
+        self, model: str, llm: BaseChatModel, timeout_secs: float = settings.DEFAULT_REVIEW_TIMEOUT_SECS
+    ) -> None:
+        super().__init__(ReviewType.BINARY, model, llm, timeout_secs)
 
     def _parse_output(self, output: BaseMessage) -> bool:
         return str(output.content).strip().lower() == "true"
@@ -176,8 +164,10 @@ class BinaryReviewLabeler(BaseReviewLabeler[bool]):
 class CritiqueReviewLabeler(BaseReviewLabeler[str]):
     """Labeler that provides a short critique of the response."""
 
-    def __init__(self, model: str = "gpt-4o", timeout_secs: float = settings.DEFAULT_REVIEW_TIMEOUT_SECS) -> None:
-        super().__init__(ReviewType.CRITIQUE, model, timeout_secs)
+    def __init__(
+        self, model: str, llm: BaseChatModel, timeout_secs: float = settings.DEFAULT_REVIEW_TIMEOUT_SECS
+    ) -> None:
+        super().__init__(ReviewType.CRITIQUE, model, llm, timeout_secs)
 
     def _parse_output(self, output: BaseMessage) -> str:
         parsed_output = str(output.content).replace("\n", " ").replace("Critique:", "").strip()
@@ -189,8 +179,10 @@ class CritiqueReviewLabeler(BaseReviewLabeler[str]):
 class SegmentedReviewLabeler(BaseReviewLabeler[list[dict[str, str]]]):
     """Labeler that provides segmented review with updates and reasoning."""
 
-    def __init__(self, model: str = "gpt-4o", timeout_secs: float = settings.DEFAULT_REVIEW_TIMEOUT_SECS) -> None:
-        super().__init__(ReviewType.SEGMENTED, model, timeout_secs)
+    def __init__(
+        self, model: str, llm: BaseChatModel, timeout_secs: float = settings.DEFAULT_REVIEW_TIMEOUT_SECS
+    ) -> None:
+        super().__init__(ReviewType.SEGMENTED, model, llm, timeout_secs)
 
     def _process_tag_content(self, lines: list[str], start_idx: int, tag: str) -> tuple[str, int]:
         """Process content for a specific XML-style tag in the segmented review format.
@@ -265,12 +257,11 @@ class SegmentedReviewLabeler(BaseReviewLabeler[list[dict[str, str]]]):
 class NuggetizedReviewLabeler(LLMLabeler[tuple[str, list[tuple[str, str]]], dict[str, NuggetizedResult]]):
     """Labeler that uses nuggetizer to extract and analyze key points from responses."""
 
-    def __init__(self, model: str = "gpt-4o", timeout_secs: float = settings.DEFAULT_REVIEW_TIMEOUT_SECS) -> None:
+    def __init__(
+        self, model: str, llm: BaseChatModel, timeout_secs: float = settings.DEFAULT_REVIEW_TIMEOUT_SECS
+    ) -> None:
         self.model = model
-        if self.model not in ["gpt-4o", "gpt-4o-mini"]:
-            logging.warning(f"NuggetizedReviewLabeler: Unsupported model {model}, using gpt-4o instead")
-            self.model = "gpt-4o"
-        self.base_llm = get_gpt_4o_llm(max_tokens=4096)
+        self.base_llm = llm
         self.nuggetizer: YuppNuggetizer | None = None
         super().__init__(self.base_llm, timeout_secs=timeout_secs)
 
@@ -376,32 +367,38 @@ SEGMENTED_REVIEWER: dict[str, SegmentedReviewLabeler] = {}
 NUGGETIZED_REVIEWER: dict[str, NuggetizedReviewLabeler] = {}
 
 
-def get_binary_reviewer(model: str = "gpt-4o") -> BinaryReviewLabeler:
-    """Get or create the binary reviewer instance for the specified model."""
-    if model not in BINARY_REVIEWER:
-        BINARY_REVIEWER[model] = BinaryReviewLabeler(model=model)
-    return BINARY_REVIEWER[model]
+async def get_reviewer(review_type: ReviewType, model: str = "gpt-4o") -> BaseReviewLabeler[ReviewResultType]:
+    """Get a reviewer instance for the specified review type and model.
 
+    Args:
+        review_type: The type of review to perform
+        model: The model to use for the review (defaults to gpt-4o)
 
-def get_critique_reviewer(model: str = "gpt-4o") -> CritiqueReviewLabeler:
-    """Get or create the critique reviewer instance for the specified model."""
-    if model not in CRITIQUE_REVIEWER:
-        CRITIQUE_REVIEWER[model] = CritiqueReviewLabeler(model=model)
-    return CRITIQUE_REVIEWER[model]
+    Returns:
+        A reviewer instance of the appropriate type
+    """
+    # Validate model and use fallback if needed
+    if review_type != ReviewType.NUGGETIZED and model not in REVIEW_MODEL_WHITELIST:
+        logging.warning(f"{review_type} reviewer: Unsupported model {model}, using gpt-4o instead")
+        model = "gpt-4o"
+    elif review_type == ReviewType.NUGGETIZED and model not in ["gpt-4o", "gpt-4o-mini"]:
+        logging.warning(f"NuggetizedReviewLabeler: Unsupported model {model}, using gpt-4o instead")
+        model = "gpt-4o"
 
+    # Get LLM client (already cached by get_internal_provider_client)
+    max_tokens = REVIEW_CONFIGS[review_type].max_tokens
+    llm = await get_internal_provider_client(model, max_tokens=max_tokens)
 
-def get_segmented_reviewer(model: str = "gpt-4o") -> SegmentedReviewLabeler:
-    """Get or create the segmented reviewer instance for the specified model."""
-    if model not in SEGMENTED_REVIEWER:
-        SEGMENTED_REVIEWER[model] = SegmentedReviewLabeler(model=model)
-    return SEGMENTED_REVIEWER[model]
+    # Create appropriate reviewer instance
+    if review_type == ReviewType.NUGGETIZED:
+        return cast(BaseReviewLabeler[ReviewResultType], NuggetizedReviewLabeler(model=model, llm=llm))
 
-
-def get_nuggetized_reviewer(model: str = "gpt-4o") -> NuggetizedReviewLabeler:
-    """Get or create the nuggetized reviewer instance."""
-    if model not in NUGGETIZED_REVIEWER:
-        NUGGETIZED_REVIEWER[model] = NuggetizedReviewLabeler(model)
-    return NUGGETIZED_REVIEWER[model]
+    reviewer_class = {
+        ReviewType.BINARY: BinaryReviewLabeler,
+        ReviewType.CRITIQUE: CritiqueReviewLabeler,
+        ReviewType.SEGMENTED: SegmentedReviewLabeler,
+    }[review_type]
+    return cast(BaseReviewLabeler[ReviewResultType], reviewer_class(model=model, llm=llm))
 
 
 def _extract_conversation_until_last_user_message(chat_history_messages: list[BaseMessage]) -> str:
@@ -535,13 +532,12 @@ async def generate_reviews(
     last_assistant_responses = responses
     # Default to all review types if none specified
     review_types = request.review_types or list(ReviewType)
-    review_llms = get_review_llms()
+
     # Get response_model_family_map and review_llms_model_family_map from DB
     all_models: set[str] = set()
     if responses:
         all_models.update(responses.keys())
-    if review_llms:
-        all_models.update(review_llms.keys())
+        all_models.update(REVIEW_MODEL_WHITELIST)  # Add whitelist models for family lookup
 
     if all_models:
         all_model_families = await get_model_families_and_ids(list(all_models))
@@ -549,9 +545,9 @@ async def generate_reviews(
         response_model_family_map = (
             {k: v[0] for k, v in all_model_families.items() if k in responses} if responses else {}
         )
-        review_llms_model_family_map = (
-            {k: v[0] for k, v in all_model_families.items() if k in review_llms} if review_llms else {}
-        )
+        review_llms_model_family_map = {
+            model: all_model_families[model][0] for model in REVIEW_MODEL_WHITELIST if model in all_model_families
+        }
     else:
         response_model_family_map = {}
         review_llms_model_family_map = {}
@@ -564,7 +560,13 @@ async def generate_reviews(
     if last_assistant_responses:
         for model in last_assistant_responses.keys():
             model_family = response_model_family_map.get(model)
-            reviewer_model_preference = request.reviewer_model_preference or ["gpt-4o", "gemini-2.0-flash-exp"]
+            reviewer_model_preference = request.reviewer_model_preference or [
+                "gpt-4o",
+                "gemini-2.0-flash-001",
+                "claude-3-7-sonnet-20250219",
+                "qwen-max-2025-01-25",
+                "deepseek/deepseek-chat",
+            ]
             fallback_reviewer_model_name_default = request.fallback_reviewer_model_name or "gpt-4o"
             if has_pdf_attachments and not parse_pdf_locally:
                 reviewer_model_preference = REVIEW_MODEL_WITH_PDF_SUPPORT
@@ -575,9 +577,13 @@ async def generate_reviews(
                 fallback_reviewer_model_name_default,
                 review_llms_model_family_map,
             )
-            binary_reviewers[model] = get_binary_reviewer(reviewer_model)
-            critique_reviewers[model] = get_critique_reviewer(reviewer_model)
-            segmented_reviewers[model] = get_segmented_reviewer(reviewer_model)
+
+            if ReviewType.BINARY in review_types:
+                binary_reviewers[model] = await get_reviewer(ReviewType.BINARY, reviewer_model)
+            if ReviewType.CRITIQUE in review_types:
+                critique_reviewers[model] = await get_reviewer(ReviewType.CRITIQUE, reviewer_model)
+            if ReviewType.SEGMENTED in review_types:
+                segmented_reviewers[model] = await get_reviewer(ReviewType.SEGMENTED, reviewer_model)
 
     async def _run_pointwise_review(
         review_type: ReviewType,
@@ -607,10 +613,8 @@ async def generate_reviews(
             else:
                 logging.warning(f"run_{review_type}: No responses to review, last_assistant_responses is empty")
 
-            # Wait for all reviews to complete
             results = await asyncio.gather(*(task for _, task in review_tasks), return_exceptions=True)
 
-            # Process results with proper type casting
             pointwise_results: dict[str, BinaryResult | CritiqueResult | SegmentedResult] = {}
 
             for (model, _), result in zip(review_tasks, results, strict=True):
@@ -686,7 +690,9 @@ async def generate_reviews(
 
             # Use all responses for nuggetized review
             reviewer_model = "gpt-4o"  # Default to gpt-4o for nuggetized review
-            nuggetized_reviewer = get_nuggetized_reviewer(reviewer_model)
+            nuggetized_reviewer = cast(
+                NuggetizedReviewLabeler, await get_reviewer(ReviewType.NUGGETIZED, reviewer_model)
+            )
 
             # Run the nuggetizer with model-specific responses
             model_specific_results, _ = await nuggetized_reviewer.alabel_full((conversation_history, model_responses))
@@ -701,7 +707,6 @@ async def generate_reviews(
             logging.exception(json_dumps(log_dict))
             return ReviewType.NUGGETIZED, {}
 
-    # Map review types to their corresponding functions
     review_funcs = {
         ReviewType.BINARY: run_binary_review,
         ReviewType.CRITIQUE: run_critique_review,
@@ -722,7 +727,6 @@ async def generate_reviews(
     for review_result in zip(review_types, results, strict=True):
         review_type = review_result[0]
         result_or_exception = review_result[1]
-        logging.info(f"Review result or exception: {result_or_exception}")
         if isinstance(result_or_exception, tuple):
             processed_results[review_type] = cast(ReviewResult, result_or_exception[1])
         elif review_type in error_values:  # Only use error values for requested types
@@ -745,21 +749,29 @@ async def generate_reviews(
     # Persist reviews to database
     if request.turn_id is not None:
         if last_assistant_responses:
+            # Collect all reviewers that were used
+            all_reviewers: dict[ReviewType, dict[str, BaseReviewLabeler[Any]]] = {
+                ReviewType.BINARY: binary_reviewers,
+                ReviewType.CRITIQUE: critique_reviewers,
+                ReviewType.SEGMENTED: segmented_reviewers,
+            }
+
+            # Add nuggetized reviewers if they were used
+            if ReviewType.NUGGETIZED in review_types and ReviewType.NUGGETIZED in processed_results:
+                nuggetized_reviewer_dict: dict[str, BaseReviewLabeler[Any]] = {}
+                # For each model with a nuggetized result, store the reviewer that was used
+                for model_name in processed_results[ReviewType.NUGGETIZED].keys():
+                    if model_name in last_assistant_responses:
+                        # In the nuggetized case, we use a fixed reviewer model
+                        nuggetized_reviewer = await get_reviewer(ReviewType.NUGGETIZED, "gpt-4o")
+                        nuggetized_reviewer_dict[model_name] = cast(BaseReviewLabeler[Any], nuggetized_reviewer)
+                all_reviewers[ReviewType.NUGGETIZED] = nuggetized_reviewer_dict
+
             await store_reviews(
                 processed_results=processed_results,
                 last_assistant_responses=last_assistant_responses,
                 review_types=review_types,
-                reviewers={
-                    ReviewType.BINARY: binary_reviewers,
-                    ReviewType.CRITIQUE: critique_reviewers,
-                    ReviewType.SEGMENTED: segmented_reviewers,
-                    ReviewType.NUGGETIZED: {
-                        model: cast(BaseReviewLabeler[Any], get_nuggetized_reviewer("gpt-4o"))
-                        for model in last_assistant_responses
-                    }
-                    if last_assistant_responses
-                    else {},
-                },
+                reviewers=all_reviewers,
                 has_error=has_error,
                 model_info=all_model_families,
                 chat_id=chat_id,
@@ -807,6 +819,7 @@ async def store_reviews(
                             f"Review type {review_type} not found in processed results "
                             f"(message_id={message.message_id}, turn_id={message.turn_id}, chat_id={chat_id})"
                         )
+                        continue
 
                     # Special handling for nuggetized reviews
                     if review_type == ReviewType.NUGGETIZED:
@@ -841,23 +854,25 @@ async def store_reviews(
                             f"Review result for {model_name} and {review_type} not found in processed results "
                             f"(message_id={message.message_id}, turn_id={message.turn_id}, chat_id={chat_id})"
                         )
+                        continue
 
-                    reviewer = reviewers[review_type].get(model_name)
-                    if not reviewer:
+                    if review_type not in reviewers or model_name not in reviewers[review_type]:
                         logging.warning(
                             f"Reviewer for {model_name} and {review_type} not found in reviewers "
                             f"(message_id={message.message_id}, turn_id={message.turn_id}, chat_id={chat_id})"
                         )
                         continue
 
-                    if reviewer.model not in model_info:
+                    reviewer = reviewers[review_type][model_name]
+                    reviewer_model = reviewer.model
+                    if reviewer_model not in model_info:
                         logging.warning(
-                            f"Reviewer model {reviewer.model} not found in model_info "
+                            f"Reviewer model {reviewer_model} not found in model_info "
                             f"(message_id={message.message_id}, turn_id={message.turn_id}, chat_id={chat_id})"
                         )
                         continue
 
-                    _, reviewer_model_id = model_info[reviewer.model]
+                    _, reviewer_model_id = model_info[reviewer_model]
 
                     review = MessageReview(
                         message_id=message.message_id,

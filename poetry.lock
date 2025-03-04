@@ -3130,13 +3130,13 @@ requests = ["requests (>=2.18.0,<3.0.0dev)"]
 
 [[package]]
 name = "googleapis-common-protos"
-version = "1.68.0"
+version = "1.69.0"
 description = "Common protobufs used in Google APIs"
 optional = false
 python-versions = ">=3.7"
 files = [
-    {file = "googleapis_common_protos-1.68.0-py2.py3-none-any.whl", hash = "sha256:aaf179b2f81df26dfadac95def3b16a95064c76a5f45f07e4c68a21bb371c4ac"},
-    {file = "googleapis_common_protos-1.68.0.tar.gz", hash = "sha256:95d38161f4f9af0d9423eed8fb7b64ffd2568c3464eb542ff02c5bfa1953ab3c"},
+    {file = "googleapis_common_protos-1.69.0-py2.py3-none-any.whl", hash = "sha256:17835fdc4fa8da1d61cfe2d4d5d57becf7c61d4112f8d81c67eaa9d7ce43042d"},
+    {file = "googleapis_common_protos-1.69.0.tar.gz", hash = "sha256:5a46d58af72846f59009b9c4710425b9af2139555c71837081706b213b298187"},
 ]
 
 [package.dependencies]
@@ -3234,13 +3234,13 @@ test = ["objgraph", "psutil"]
 
 [[package]]
 name = "grpc-google-iam-v1"
-version = "0.14.0"
+version = "0.14.1"
 description = "IAM API client library"
 optional = false
 python-versions = ">=3.7"
 files = [
-    {file = "grpc_google_iam_v1-0.14.0-py2.py3-none-any.whl", hash = "sha256:fb4a084b30099ba3ab07d61d620a0d4429570b13ff53bd37bac75235f98b7da4"},
-    {file = "grpc_google_iam_v1-0.14.0.tar.gz", hash = "sha256:c66e07aa642e39bb37950f9e7f491f70dad150ac9801263b42b2814307c2df99"},
+    {file = "grpc_google_iam_v1-0.14.1-py2.py3-none-any.whl", hash = "sha256:b4eca35b2231dd76066ebf1728f3cd30d51034db946827ef63ef138da14eea16"},
+    {file = "grpc_google_iam_v1-0.14.1.tar.gz", hash = "sha256:14149f37af0e5779fa8a22a8ae588663269e8a479d9c2e69a5056e589bf8a891"},
 ]
 
 [package.dependencies]
@@ -3638,13 +3638,13 @@ test = ["flaky", "ipyparallel", "pre-commit", "pytest (>=7.0)", "pytest-asyncio 
 
 [[package]]
 name = "ipython"
-version = "9.0.0"
+version = "9.0.1"
 description = "IPython: Productive Interactive Computing"
 optional = false
 python-versions = ">=3.11"
 files = [
-    {file = "ipython-9.0.0-py3-none-any.whl", hash = "sha256:2cce23069b830a54a5b9d3d66ccd6433047c1503a7b9a3b34593c0b5c2c08477"},
-    {file = "ipython-9.0.0.tar.gz", hash = "sha256:9368d65b3d4a471e9a698fed3ea486bbf6737e45111e915279c971b77f974397"},
+    {file = "ipython-9.0.1-py3-none-any.whl", hash = "sha256:3e878273824b52e0a2280ed84f8193aba8c4ba9a6f45a438348a3d5ef1a34bd0"},
+    {file = "ipython-9.0.1.tar.gz", hash = "sha256:377ea91c8226b48dc9021ac9846a64761abc7ddf74c5efe38e6eb06f6e052f3a"},
 ]
 
 [package.dependencies]
