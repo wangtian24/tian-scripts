@@ -1352,9 +1352,12 @@ Response: Arrange 4 right triangles with sides a, b, c in a square with sides a+
 
 SYSTEM_RETAKE_PROMPT = (
     SYSTEM_QUICKTAKE_PROMPT
-    + """You have previously answered the user's prompt, and multiple other models have provided long-form answers to it.
+    + """You have previously answered the user's prompt briefly, and multiple other models have provided long-form answers to it.
     Generate a response in light of your previous answer, and using these additional answers, if helpful.
-    Do not refer to the names of the models in your response, but you can use the content of their responses."""
+    Do not refer to the names of the models in your response, but you can use the content of their responses.
+    If your previous response was general, referring to additional information later ("more details below"),
+    you can use the additional answers to provide a more specific answer.
+    You may also summarize the responses into a brief answer, if helpful."""
 )
 
 USER_QUICKTAKE_PROMPT_RULES = """Rules:
@@ -1387,7 +1390,10 @@ Here are the long-form responses from other models to the same prompt:
 
 {assistant_responses}
 
-Answer the prompt below again. If you decide your original response was good, just reply <SAME_ANSWER>; otherwise, provide a new response.
+Answer the prompt below again. If you decide your original response was good, just reply <SAME_ANSWER>;
+otherwise, provide a new response, different from your previous response.
+
+Here is the prompt:
 {prompt}"""
 )
 

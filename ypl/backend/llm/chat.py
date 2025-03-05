@@ -672,7 +672,11 @@ def _get_assistant_messages(
     were selected.
     """
     messages: list[BaseMessage] = []
-    assistant_msgs = [msg for msg in turn_messages if msg.message_type == MessageType.ASSISTANT_MESSAGE and msg.content]
+    assistant_msgs = [
+        msg
+        for msg in turn_messages
+        if msg.message_type == MessageType.ASSISTANT_MESSAGE and msg.content and msg.assistant_language_model
+    ]
     if not assistant_msgs:
         return messages
 
