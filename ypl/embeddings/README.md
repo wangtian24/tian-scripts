@@ -20,6 +20,15 @@ This is a FastAPI-based server that provides an endpoint to embed a list of stri
     poetry install
     ```
 
+## Local Run
+
+```bash
+GCP_PROJECT=yupp-llms API_KEY=foobar ypl/embeddings/entrypoint.sh service --port 8080
+```
+
+Note, the entrypoint.sh script binds to port 80 by default. You might need
+to adjust it to 8080 or some other port for your local machine.
+
 ## Deploy to Google Compute Engine
 
 This guide outlines the steps to deploy and run the embedding server.

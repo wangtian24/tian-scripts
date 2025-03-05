@@ -1,12 +1,22 @@
+"""FastAPI server for embedding texts using a pre-trained model.
+
+Run with:
+
+    uvicorn ypl.embeddings.server:app --host
+
+For more information, please see README.md.
+"""
 import os
 import time
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from typing import cast
 
 import google.cloud.logging
 import numpy as np
 import torch
-from fastapi import FastAPI, Header, HTTPException
-from google.cloud import monitoring_v3
+from fastapi import FastAPI, Header, HTTPException, Response
+from google.cloud import logging_v2, monitoring_v3
 from google.cloud.monitoring_v3.types import TimeInterval
 from google.protobuf.timestamp_pb2 import Timestamp
 from pydantic import BaseModel
@@ -22,40 +32,61 @@ GAUGE = 1
 DELTA = 2
 CUMULATIVE = 3
 
+API_KEY: str
+DEVICE: str
+GCP_PROJECT: str
+MODEL_NAME: str
+PROJECT_NAME: str
+logger: logging_v2.logger.Logger
+monitoring_client: monitoring_v3.MetricServiceClient
+model: SentenceTransformer
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    global API_KEY, DEVICE, GCP_PROJECT, MODEL_NAME, PROJECT_NAME, logger, model, monitoring_client
+
+    DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+    MODEL_NAME = os.getenv("MODEL_NAME", "BAAI/bge-m3")
+
+    log_client = google.cloud.logging.Client()
+    logger = log_client.logger("embedding-server", labels={"model_name": MODEL_NAME})
+
+    api_key = os.getenv("API_KEY")
+    if not api_key:
+        logger.log_text("API_KEY environment variable is not set. Aborting.")
+        raise RuntimeError("API_KEY environment variable is not set. Aborting.")
+    else:
+        API_KEY = api_key
+        logger.log_text(f"Starting with API key: {API_KEY[0:4]}...")
+
+    # Retrieve the GCP project ID.
+    gcp_project = os.getenv("GCP_PROJECT")
+    if not gcp_project:
+        logger.log_text("GCP_PROJECT environment variable is not set. Aborting.")
+        raise RuntimeError("GCP_PROJECT environment variable is not set. Aborting.")
+    GCP_PROJECT = gcp_project
+    PROJECT_NAME = f"projects/{GCP_PROJECT}"
+
+    # Initialize Google Cloud Monitoring client.
+    monitoring_client = monitoring_v3.MetricServiceClient()
+
+    # Load and initialize the sentence transformer model.
+    model = SentenceTransformer(MODEL_NAME)
+    model = model.to(DEVICE)
+    logger.log_text(f"[{PROJECT_NAME}] Serving model {MODEL_NAME} on {DEVICE}.")
+
+    # Hand control back to FastAPI so it can process requests
+    yield
+
+
 # Initialize logging and FastAPI app.
-app = FastAPI()
-device = "cuda" if torch.cuda.is_available() else "cpu"
-model_name = os.getenv("MODEL_NAME", "BAAI/bge-m3")
-
-log_client = google.cloud.logging.Client()
-logger = log_client.logger("embedding-server", labels={"model_name": model_name})
-
-API_KEY = os.getenv("API_KEY")
-if not API_KEY:
-    logger.log_text("API_KEY environment variable is not set. Aborting.")
-    raise RuntimeError("API_KEY environment variable is not set. Aborting.")
-else:
-    logger.log_text(f"Starting with API key: {API_KEY[0:4]}...")
-
-# Retrieve the GCP project ID.
-GCP_PROJECT = os.getenv("GCP_PROJECT")
-if not GCP_PROJECT:
-    logger.log_text("GCP_PROJECT environment variable is not set. Aborting.")
-    raise RuntimeError("GCP_PROJECT environment variable is not set. Aborting.")
-PROJECT_NAME = f"projects/{GCP_PROJECT}"
-
-# Initialize Google Cloud Monitoring client.
-monitoring_client = monitoring_v3.MetricServiceClient()
-
-# Load and initialize the sentence transformer model.
-model = SentenceTransformer(model_name)
-model = model.to(device)
-logger.log_text(f"[{PROJECT_NAME}] Serving model {model_name} on {device}.")
+app = FastAPI(lifespan=lifespan)
 
 
 class EmbedRequest(BaseModel):
     texts: list[str]
-    model_name: str = model_name
+    model_name: str | None = None
 
 
 class EmbedResponse(BaseModel):
@@ -149,9 +180,46 @@ def update_embed_metrics(start_time: float, request: EmbedRequest) -> None:
     record_metric(TOTAL_LENGTH_METRIC, total_length, value_type="int", start_time=start_time, end_time=end_time)
 
 
+def extract_sequence_lengths(texts: list[str]) -> list[int]:
+    """Extracts the sequence lengths of the given texts."""
+    return [len(model.tokenizer.encode(text, add_special_tokens=True)) for text in texts]
+
+
+def estimate_batch_size(
+    sequence_lengths: list[int],
+    default_batch_size: int = 32,
+    max_memory: int = 805_306_368,
+    model_name: str | None = None,
+) -> int:
+    if max_memory <= 0:
+        raise ValueError("max_memory must be greater than 0")
+
+    if default_batch_size < 1:
+        raise ValueError("default_batch_size must be greater than 0")
+
+    if not sequence_lengths:
+        return default_batch_size
+
+    if "BAAI/bge-m3" == model_name:
+        # BGE-M3 model memory usage estimation, obtained by
+        # fitting a linear model with design matrix:
+        # X = np.column_stack([
+        #     np.ones_like(B),  # 1
+        #     B * T             # B*T
+        # ])
+        #
+        # mem = -71_670 + 45_052 * batch_size * max_token_count
+
+        result = default_batch_size
+        result = (max_memory - 71_670) // (45_052 * max(sequence_lengths))
+        return 1 if result < 1 else result
+
+    return default_batch_size
+
+
 # TODO(amin): Switch to ypl/backend/routes/api_auth.py.
 @app.post("/embed", response_model=EmbedResponse)
-async def embed_texts(request: EmbedRequest, x_api_key: str = Header(None)) -> EmbedResponse:
+async def embed_texts(request: EmbedRequest, response: Response, x_api_key: str = Header(None)) -> EmbedResponse:
     """Handles embed requests by computing embeddings for the provided texts.
 
     Also tracks custom metrics for each request.
@@ -160,11 +228,35 @@ async def embed_texts(request: EmbedRequest, x_api_key: str = Header(None)) -> E
     if x_api_key != API_KEY:
         raise HTTPException(status_code=404, detail="Not Found")
 
-    if request.model_name != model_name:
+    model_name = request.model_name if request.model_name else MODEL_NAME
+    if model_name != MODEL_NAME:
         logger.log_text(f"Model {request.model_name} not found.")
         raise HTTPException(status_code=404, detail=f"Model {request.model_name} was not found.")
+
+    sequence_lengths = extract_sequence_lengths(request.texts)
+
+    # Let's warn the user if the sequence length is too long.
+    overlong = [len for len in sequence_lengths if len > model.tokenizer.model_max_length]
+
+    # Add a warning header if overlong sequences exist
+    if overlong:
+        response.headers[
+            "X-Warning"
+        ] = f"Some inputs exceed max length ({model.tokenizer.model_max_length}): {overlong}"
+
     try:
-        embeddings = cast(np.ndarray, model.encode(request.texts, device=device, convert_to_numpy=True)).tolist()
+        ebs = estimate_batch_size(sequence_lengths, max_memory=805_306_368, model_name=model_name)
+        logger.log_text(f"Estimating batch size for {len(request.texts)} texts with lengths {sequence_lengths}.")
+        print(f"Estimated batch size: {ebs}")
+        embeddings = cast(
+            np.ndarray,
+            model.encode(
+                request.texts,
+                device=DEVICE,
+                convert_to_numpy=True,
+                batch_size=ebs,
+            ),
+        ).tolist()
         return EmbedResponse(embeddings=embeddings)
     except Exception as error:
         raise HTTPException(status_code=500, detail=str(error)) from error
