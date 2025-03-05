@@ -246,7 +246,7 @@ jobs:
         echo "UPSTASH_REDIS_TOKEN: '${{ secrets.UPSTASH_REDIS_TOKEN_PRODUCTION }}'" >> .env.yml
         echo "ATTACHMENT_BUCKET: '${{ secrets.ATTACHMENT_BUCKET_PROD }}'" >> .env.yml
         echo "WALLET_ENCRYPTION_KEY: '${{ secrets.WALLET_ENCRYPTION_KEY_PRODUCTION }}'" >> .env.yml
-        echo "ATTACHMENT_BUCKET_GEN_IMAGES=\"gs://yupp-generated-images/production\"" >> .env.yml
+        echo "ATTACHMENT_BUCKET_GEN_IMAGES: 'gs://yupp-generated-images/production'" >> .env.yml
 
     - name: Fill in the staging backend ENV variables for 'backend' service in the .env.yml file
       if: env.ENVIRONMENT == 'staging' && (env.SERVICE_NAME == 'backend' || env.SERVICE_NAME == 'backend-pytorch-service')
@@ -302,7 +302,7 @@ jobs:
 
         echo "ROUTING_ERROR_FILTER_SOFT_THRESHOLD: '0.3'" >> .env.yml
         echo "ROUTING_ERROR_FILTER_HARD_THRESHOLD: '0.6'" >> .env.yml
-        echo "ATTACHMENT_BUCKET_GEN_IMAGES=\"gs://yupp-generated-images/staging\"" >> .env.yml
+        echo "ATTACHMENT_BUCKET_GEN_IMAGES: 'gs://yupp-generated-images/staging'" >> .env.yml
 
     - name: Fill in the partner payments server ENV variables for 'partner-payments-server' service in the .env.yml file
       if: env.SERVICE_NAME == 'partner-payments-server'
@@ -312,6 +312,11 @@ jobs:
         echo "X_API_KEY: '${{ secrets.X_API_KEY }}'" >> .env.yml
         echo "USE_GOOGLE_CLOUD_LOGGING: 'true'" >> .env.yml
         echo "SCRIPT_TO_RUN: '/app/ypl/partner_payments/server/entrypoint.sh'" >> .env.yml
+
+    - name: Generate gcloud deploy secrets string
+      id: generate_gcloud_deploy_secrets_string
+      run: |
+        python3 .github/workflows/scripts/generate_gcloud_deploy_secrets_string.py ${{ env.ENVIRONMENT }} ${{ env.SERVICE_NAME }} >> $GITHUB_OUTPUT
 
     - name: Install gcloud beta
       if: github.event.inputs.gpu == 'true'
@@ -347,6 +352,7 @@ jobs:
             --platform managed \
             --subnet=default \
             --vpc-egress=private-ranges-only \
+            --set-secrets="${{ steps.generate_gcloud_deploy_secrets_string.outputs.secrets_string }}" \
             --command="/app/ypl/backend/entrypoint.sh"
         elif [[ "${{ env.SERVICE_NAME }}" == "partner-payments-server" ]]; then
           gcloud run deploy ${{ env.CLOUD_RUN_SERVICE_NAME }} \

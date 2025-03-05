@@ -156,6 +156,26 @@ class Settings(BaseSettings):
     ATTACHMENT_BUCKET: str = "gs://yupp-attachments/staging"
     ATTACHMENT_BUCKET_GEN_IMAGES: str = "gs://yupp-generated-images/staging"
 
+    # Secrets in GCP Secret Manager, loaded as environment variables:
+    # see: https://console.cloud.google.com/secrets/create?project=yupp-llms
+    # If you're adding a new secret, make sure to update the
+    # `.github/workflows/scripts/generate_gcloud_deploy_secrets_string.py` script.
+    CHECKOUT_COM_API_URL: str = ""
+    CHECKOUT_COM_ENTITY_ID: str = ""
+    CHECKOUT_COM_PROCESSING_CHANNEL: str = ""
+    EMBED_X_API_KEY: str = ""
+    GUEST_MANAGEMENT_SLACK_WEBHOOK_URL: str = ""
+    HYPERWALLET_API_URL: str = ""
+    HYPERWALLET_PASSWORD: str = ""
+    HYPERWALLET_PROGRAM_TOKEN: str = ""
+    HYPERWALLET_USERNAME: str = ""
+    IPINFO_API_KEY: str = ""
+    PARTNER_PAYMENTS_API_URL: str = ""
+    PAYPAL_WEBHOOK_ID: str = ""
+    RESEND_API_KEY: str = ""
+    VALIDATE_DESTINATION_IDENTIFIER_SECRET_KEY: str = ""
+    VPNAPI_API_KEY: str = ""
+
     def _get_gcp_secret(self, secret_name: str) -> str:
         """Retrieve secret from Google Cloud Secret Manager."""
 
@@ -217,11 +237,6 @@ class Settings(BaseSettings):
 
     @computed_field  # type: ignore[misc]
     @cached_property
-    def PARTNER_PAYMENTS_API_URL(self) -> str:
-        return self._get_gcp_secret(f"partner-payments-api-url-{self.ENVIRONMENT}")
-
-    @computed_field  # type: ignore[misc]
-    @cached_property
     def AXIS_UPI_CONFIG(self) -> dict:
         secret = self._get_gcp_secret(f"axis-upi-config-{self.ENVIRONMENT}")
         return json.loads(secret)  # type: ignore[no-any-return]
@@ -234,78 +249,8 @@ class Settings(BaseSettings):
 
     @computed_field  # type: ignore[misc]
     @cached_property
-    def VALIDATE_DESTINATION_IDENTIFIER_SECRET_KEY(self) -> str:
-        return self._get_gcp_secret(f"validate-destination-identifier-secret-key-{self.ENVIRONMENT}")
-
-    @computed_field  # type: ignore[misc]
-    @cached_property
-    def RESEND_API_KEY(self) -> str:
-        return self._get_gcp_secret(f"resend-api-key-{self.ENVIRONMENT}")
-
-    @computed_field  # type: ignore[misc]
-    @cached_property
-    def HYPERWALLET_API_URL(self) -> str:
-        return self._get_gcp_secret(f"hyperwallet-api-url-{self.ENVIRONMENT}")
-
-    @computed_field  # type: ignore[misc]
-    @cached_property
-    def HYPERWALLET_PROGRAM_TOKEN(self) -> str:
-        return self._get_gcp_secret(f"hyperwallet-program-token-{self.ENVIRONMENT}")
-
-    @computed_field  # type: ignore[misc]
-    @cached_property
-    def HYPERWALLET_USERNAME(self) -> str:
-        return self._get_gcp_secret(f"hyperwallet-username-{self.ENVIRONMENT}")
-
-    @computed_field  # type: ignore[misc]
-    @cached_property
-    def HYPERWALLET_PASSWORD(self) -> str:
-        return self._get_gcp_secret(f"hyperwallet-password-{self.ENVIRONMENT}")
-
-    @computed_field  # type: ignore[misc]
-    @cached_property
-    def CHECKOUT_COM_API_URL(self) -> str:
-        return self._get_gcp_secret(f"checkout-com-api-url-{self.ENVIRONMENT}")
-
-    @computed_field  # type: ignore[misc]
-    @cached_property
     def CHECKOUT_COM_SECRET(self) -> str:
         return self._get_gcp_secret(f"checkout-com-secret-{self.ENVIRONMENT}")
-
-    @computed_field  # type: ignore[misc]
-    @cached_property
-    def CHECKOUT_COM_PROCESSING_CHANNEL(self) -> str:
-        return self._get_gcp_secret(f"checkout-com-processing-channel-{self.ENVIRONMENT}")
-
-    @computed_field  # type: ignore[misc]
-    @cached_property
-    def CHECKOUT_COM_ENTITY_ID(self) -> str:
-        return self._get_gcp_secret(f"checkout-com-entity-id-{self.ENVIRONMENT}")
-
-    @computed_field  # type: ignore[misc]
-    @cached_property
-    def VPNAPI_API_KEY(self) -> str:
-        return self._get_gcp_secret("vpnapi-api-key")
-
-    @computed_field  # type: ignore[misc]
-    @cached_property
-    def IPINFO_API_KEY(self) -> str:
-        return self._get_gcp_secret("ipinfo-api-key")
-
-    @computed_field  # type: ignore[misc]
-    @cached_property
-    def PAYPAL_WEBHOOK_ID(self) -> str:
-        return self._get_gcp_secret(f"paypal-webhook-id-{self.ENVIRONMENT}")
-
-    @computed_field  # type: ignore[misc]
-    @cached_property
-    def GUEST_MANAGEMENT_SLACK_WEBHOOK_URL(self) -> str:
-        return self._get_gcp_secret(f"guest-mgmt-slack-webhook-url-{self.ENVIRONMENT}")
-
-    @computed_field  # type: ignore[misc]
-    @cached_property
-    def EMBED_X_API_KEY(self) -> str:
-        return self._get_gcp_secret("embedding_service_api_key")
 
     @computed_field  # type: ignore[misc]
     @property
@@ -431,19 +376,7 @@ async def preload_gcp_secrets() -> None:
     results = await asyncio.gather(
         fetch_secret(lambda: settings.AXIS_UPI_CONFIG),
         fetch_secret(lambda: settings.PAYPAL_CONFIG),
-        fetch_secret(lambda: settings.VALIDATE_DESTINATION_IDENTIFIER_SECRET_KEY),
-        fetch_secret(lambda: settings.HYPERWALLET_API_URL),
-        fetch_secret(lambda: settings.HYPERWALLET_PROGRAM_TOKEN),
-        fetch_secret(lambda: settings.HYPERWALLET_USERNAME),
-        fetch_secret(lambda: settings.HYPERWALLET_PASSWORD),
-        fetch_secret(lambda: settings.CHECKOUT_COM_API_URL),
         fetch_secret(lambda: settings.CHECKOUT_COM_SECRET),
-        fetch_secret(lambda: settings.CHECKOUT_COM_PROCESSING_CHANNEL),
-        fetch_secret(lambda: settings.CHECKOUT_COM_ENTITY_ID),
-        fetch_secret(lambda: settings.VPNAPI_API_KEY),
-        fetch_secret(lambda: settings.IPINFO_API_KEY),
-        fetch_secret(lambda: settings.PARTNER_PAYMENTS_API_URL),
-        fetch_secret(lambda: settings.PAYPAL_WEBHOOK_ID),
         return_exceptions=True,
     )
 

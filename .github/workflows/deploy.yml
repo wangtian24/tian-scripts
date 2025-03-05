@@ -251,6 +251,11 @@ jobs:
           echo "ATTACHMENT_BUCKET_GEN_IMAGES=\"gs://yupp-generated-images/staging\""
         fi
 
+    - name: Generate gcloud deploy secrets string
+      id: generate_gcloud_deploy_secrets_string
+      run: |
+        python3 .github/workflows/scripts/generate_gcloud_deploy_secrets_string.py ${{ env.ENVIRONMENT }} backend >> $GITHUB_OUTPUT
+
     - name: Authenticate to Google Cloud
       uses: google-github-actions/auth@v1
       with:
@@ -293,6 +298,7 @@ jobs:
           --network=default \
           --subnet=default \
           --vpc-egress=private-ranges-only \
+          --set-secrets="${{ steps.generate_gcloud_deploy_secrets_string.outputs.secrets_string }}" \
           --timeout=10m \
           "
         if [[ "${{ github.event.inputs.gpu }}" == "true" ]]; then
