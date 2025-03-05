@@ -127,40 +127,59 @@ async def check_inference_with_retries(client: BaseChatModel, model: LanguageMod
         raise
 
 
-BILLING_ERROR_KEYWORDS = [
-    "quota",
-    "plan",
-    "billing",
-    "insufficient",
-    "exceeded",
-    "limit",
-    "payment",
-    "subscription",
-    "credit",
-    "balance",
-    "access",
-    "unauthorized",
-]
+class ModelErrorType(Enum):
+    CONTEXT_LENGTH = "CONTEXT_LENGTH"
+    RATE_LIMIT = "RATE_LIMIT"
+    BILLING = "BILLING"
 
 
-def contains_billing_error_keywords(error_message: str) -> tuple[bool, str]:
-    for keyword in BILLING_ERROR_KEYWORDS:
-        if keyword.lower() in error_message.lower():
-            # Find index of first match
-            match_idx = error_message.lower().find(keyword.lower())
-            # Extract 30 chars before and after, handling string bounds
-            start = max(0, match_idx - 50)
-            end = min(len(error_message), match_idx + len(keyword) + 50)
-            return True, error_message[start:end]
-    return False, ""
+ERROR_KEYWORDS_MAP = {
+    # detect in this order
+    ModelErrorType.CONTEXT_LENGTH: [
+        "payload size exceeds",
+        "context length",
+        "input length",
+        "max tokens",
+    ],
+    ModelErrorType.RATE_LIMIT: ["rate limit"],
+    ModelErrorType.BILLING: [
+        "quota",
+        "plan",
+        "billing",
+        "insufficient",
+        "exceeded",
+        "limit",
+        "payment",
+        "subscription",
+        "credit",
+        "balance",
+        "access",
+        "unauthorized",
+        "purchase",
+        "exhausted",
+    ],
+}
 
 
-async def verify_inference_running(model: LanguageModel) -> tuple[bool, bool, str | None]:
+def contains_error_keywords(error_message: str) -> tuple[ModelErrorType | None, str | None]:
+    for error_type, keywords in ERROR_KEYWORDS_MAP.items():
+        for keyword in keywords:
+            if keyword.lower() in error_message.lower():
+                # Find index of first match
+                match_idx = error_message.lower().replace("_", " ").find(keyword.lower())
+                # Extract excerpts
+                start = max(0, match_idx - 100)
+                end = min(len(error_message), match_idx + len(keyword) + 100)
+                return error_type, error_message[start:end]
+    return None, None
+
+
+async def verify_inference_running(model: LanguageModel) -> tuple[bool, ModelErrorType | None, str | None]:
     """
     Verify if the model is running on the provider's endpoint.
 
     Returns:
-        tuple[bool, bool]: (is_inference_running, has_billing_error)
+        tuple[bool, bool]: (is_inference_running, error_type, excerpt)
     """
     try:
         chat_model_client = await get_provider_client(model.internal_name, include_all_models=True)
@@ -170,7 +189,7 @@ async def verify_inference_running(model: LanguageModel) -> tuple[bool, bool, st
         print(f"... {model.name}")
         is_inference_running = await check_inference_with_retries(client=chat_model_client, model=model)
 
-        return is_inference_running, False, None  # No billing error
+        return is_inference_running, None, None  # No billing error
 
     except Exception as e:
         print(f"Error in _verify_inference_running: {e}")
@@ -181,12 +200,12 @@ async def verify_inference_running(model: LanguageModel) -> tuple[bool, bool, st
         }
         logging.exception(json_dumps(log_dict))
 
-        has_billing_error, excerpt = contains_billing_error_keywords(str(e))
-        if has_billing_error:
+        error_type, excerpt = contains_error_keywords(str(e))
+        if error_type:
             log_dict = {
-                "message": f"Model Management: Potential billing error detected: ... {excerpt} ...",
+                "message": f"Model Management: Potential {error_type.value} error detected: ... {excerpt} ...",
                 "model_name": model.name,
             }
             logging.error(json_dumps(log_dict))
 
-        return False, has_billing_error, excerpt
+        return False, error_type, excerpt

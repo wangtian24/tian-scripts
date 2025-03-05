@@ -41,7 +41,7 @@ from ypl.backend.llm.crawl import enhance_citations
 from ypl.backend.llm.db_helpers import is_image_generation_model
 from ypl.backend.llm.embedding import embed_and_store_chat_message_embeddings
 from ypl.backend.llm.memories import maybe_extract_memories
-from ypl.backend.llm.model.management_common import contains_billing_error_keywords
+from ypl.backend.llm.model.management_common import ModelErrorType, contains_error_keywords
 from ypl.backend.llm.model.model import ModelResponseTelemetry
 from ypl.backend.llm.model_heuristics import ModelHeuristics
 from ypl.backend.llm.prompt_suggestions import maybe_add_suggested_followups
@@ -66,7 +66,7 @@ from ypl.db.chats import (
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum
 
 CITATION_EXTRACTION_TIMEOUT = 20.0
-BILLING_ERROR_CACHE: TTLCache = TTLCache(maxsize=100, ttl=7200)  # 2 hours
+MODEL_ERROR_CACHE: TTLCache = TTLCache(maxsize=100, ttl=7200)  # 2 hours
 
 THINKING_TAG_START = "\n\n<think>\n\n"
 THINKING_TAG_END = "\n\n</think>\n\n"
@@ -531,11 +531,12 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
             log_attachments_in_conversation(messages, chat_request.message_id, chat_request.chat_id)
             # check if it's a potential billing error & async post to Slack
             error_message = str(e)
-            has_billing_error, excerpt = contains_billing_error_keywords(error_message)
-            if has_billing_error and not recently_posted_billing_error(chat_request.model):
+            error_type, excerpt = contains_error_keywords(error_message)
+            if error_type and not recently_posted_error(chat_request.model, error_type=error_type):
+                clean_excerpt = excerpt.replace("`", "\\`").replace("'", "\\'") if excerpt else ""
                 asyncio.create_task(
                     post_to_slack(
-                        f"*Potential billing error for model*: {chat_request.model}: `{excerpt} ...`\n"
+                        f"*Potential {error_type.value} error*: {chat_request.model}: `... {clean_excerpt} ...`\n"
                         f"Chat ID: {chat_request.chat_id}\n"
                         f"Client: {str(client)}\n"
                     )
@@ -805,11 +806,12 @@ def log_attachments_in_conversation(messages: list[BaseMessage], message_id: uui
     logging.info(json_dumps(log_dict))
 
 
-def recently_posted_billing_error(model: str) -> bool:
-    # Returns True if a billing error has been posted to Slack recently for the model.
-    if model in BILLING_ERROR_CACHE:
+def recently_posted_error(model: str, error_type: ModelErrorType) -> bool:
+    # Returns True if a model error has been posted to Slack recently for the model.
+    cache_key = f"{model}_{error_type.value}"
+    if cache_key in MODEL_ERROR_CACHE:
         return True
-    BILLING_ERROR_CACHE[model] = True
+    MODEL_ERROR_CACHE[cache_key] = True
     return False
 
 
