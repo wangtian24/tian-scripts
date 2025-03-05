@@ -5,7 +5,6 @@ from contextvars import ContextVar
 from typing import Any, Generic, Literal, TypeVar, cast
 
 from async_lru import alru_cache
-from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -44,79 +43,6 @@ class StopMultistepProcessing(Exception):
     """
 
     pass
-
-
-class EmbeddingsLabeler(Generic[InputType, OutputType]):
-    """
-    Represents an labeler that uses embeddings to label inputs.
-    """
-
-    def __init__(
-        self,
-        embedding_model: Embeddings,
-        on_error: OnErrorBehavior = "use_error_value",
-        timeout_secs: float = 5.0,
-    ) -> None:
-        self.embedding_model = embedding_model
-        self.on_error = on_error
-        self.timeout_secs = timeout_secs
-
-    @property
-    def error_value(self) -> OutputType:
-        raise NotImplementedError
-
-    def _prepare_input(self, input: InputType) -> tuple[dict[str, Any], list[str]]:
-        """Returns a tuple of a dictionary and the keys to embed"""
-        raise NotImplementedError
-
-    def _parse_output(self, embeddings: dict[str, list[list[float]]], state: dict[str, Any]) -> OutputType:
-        raise NotImplementedError
-
-    def label(self, input: InputType) -> OutputType:
-        try:
-            prepared_input, keys = self._prepare_input(input)
-            embeddings = {key: self.embedding_model.embed_documents(prepared_input[key]) for key in keys}
-            return self._parse_output(embeddings, prepared_input)
-        except Exception as e:
-            if self.on_error == "raise":
-                raise e
-            else:
-                logging.warning(f"Error labeling input {input}: {e}")
-                return self.error_value
-
-    def batch_label(self, inputs: list[InputType]) -> list[OutputType]:
-        return [self.label(input) for input in inputs]
-
-    async def abatch_label(self, inputs: list[InputType], num_parallel: int = 16) -> list[OutputType | None]:
-        async def _do_label(input: InputType, sem: asyncio.Semaphore) -> OutputType | None:
-            async with sem:
-                try:
-                    return await self.alabel(input)
-                except Exception as e:  # noqa catch-all errors for now
-                    logging.exception(f"Error labeling input {input}: {e}")
-
-                    if self.on_error == "raise":
-                        raise e
-                    else:
-                        logging.warning(f"Error labeling input {input}: {e}")
-                        return self.error_value
-
-        sem = asyncio.Semaphore(num_parallel)
-        return await tqdm_asyncio.gather(*[_do_label(input, sem) for input in inputs])  # type: ignore
-
-    async def alabel(self, input: InputType) -> OutputType:
-        """Labels the input asynchronously."""
-        try:
-            async with asyncio.timeout(self.timeout_secs):
-                prepared_input, keys = self._prepare_input(input)
-                embeddings = {key: await self.embedding_model.aembed_documents(prepared_input[key]) for key in keys}
-                return self._parse_output(embeddings, prepared_input)
-        except Exception as e:
-            if self.on_error == "raise":
-                raise e
-            else:
-                logging.warning(f"Error labeling input {input}: {e}")
-                return self.error_value
 
 
 class LLMLabeler(Generic[InputType, OutputType]):

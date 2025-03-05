@@ -281,10 +281,6 @@ SPACE_REGEX = re.compile(r"\s+")
 PUNCT_REGEX = re.compile(r"(\*|:|\.|,|!|;|\?|&|#|%|@|~|`|\(|\)|\"|')")
 
 
-def simple_strip(text: str) -> str:
-    return SPACE_REGEX.sub(" ", PUNCT_REGEX.sub("", text.lower().strip()))
-
-
 MARKDOWN_REGEX = re.compile(r"(^|\n+)\s*(\*\*|\*\s|-|[0-9]+\.)(?P<content>[^\n]*)(\n|$)", re.MULTILINE)
 
 

@@ -14,3 +14,4 @@ class AppFeedback(BaseModel, table=True):
     chat_id: uuid.UUID | None = Field(foreign_key="chats.chat_id", nullable=True, index=True)
     turn_id: uuid.UUID | None = Field(foreign_key="turns.turn_id", nullable=True, index=True)
     user_comment: str | None = Field(nullable=False)
+    quality_score: int | None = Field(nullable=True)

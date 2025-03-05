@@ -34,7 +34,7 @@ async def search_chats(
     """
     message_types = message_types or DEFAULT_MESSAGE_TYPES
 
-    # We con't yet support full boolean format.
+    # We don't yet support full boolean format.
     cleaned_query = query.translate(str.maketrans("", "", ":()&|!\"'"))
     query = cleaned_query.strip()
 
