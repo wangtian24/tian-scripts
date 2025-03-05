@@ -1215,7 +1215,8 @@ async def generate_quicktake(
     # Calculate the length of input with all the information, and check against the context length allowed by the model.
     chat_history_text = "\n".join(get_text_part(m) for m in chat_history)
     chat_history_context_len = len(ModelHeuristics(tokenizer_type="tiktoken").encode_tokens(chat_history_text))
-    min_required_context_len = int(chat_history_context_len * 1.2)  # Add a buffer for system prompt etc.
+    # Add a buffer of 20% or 2000 tokens, whichever is larger, for system prompt etc.
+    min_required_context_len = max(int(chat_history_context_len * 1.2), (chat_history_context_len + 2000))
     context_lengths = get_model_context_lengths()
     stopwatch.record_split("tokenize_and_get_context_lengths")
 
