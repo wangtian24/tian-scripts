@@ -63,6 +63,10 @@ async def create_abuse_event(
     actions: Set[AbuseActionType] = frozenset(),
     skip_if_same_event_within_time_window: timedelta | None = timedelta(hours=1),
 ) -> None:
+    if user.is_internal():
+        logging.info(f"Skipping abuse event {event_type} for internal user {user.email}")
+        return
+
     if skip_if_same_event_within_time_window:
         query = select(AbuseEvent.abuse_event_id).where(
             AbuseEvent.user_id == user.user_id,

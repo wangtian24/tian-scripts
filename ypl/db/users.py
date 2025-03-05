@@ -175,6 +175,9 @@ class User(BaseModel, table=True):
             return True
         return (datetime.now(UTC) - latest_turn_at) > INACTIVE_USER_THRESHOLD
 
+    def is_internal(self) -> bool:
+        return self.email.endswith("@yupp.ai")
+
     def get_latest_turn_at(self) -> datetime | None:
         if not self.turns:
             return self.created_at
