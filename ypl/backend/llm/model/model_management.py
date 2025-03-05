@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -45,8 +44,8 @@ MIN_REQS_FOR_SHORT_TERM = 10
 MIN_REQS_FOR_LONG_TERM = 30
 
 # If the error rates goes above these thresholds, we will put the model in probation.
-MAX_SHORT_TERM_ERROR_RATE = 0.3
-MAX_LONG_TERM_ERROR_RATE = 0.1
+MAX_SHORT_TERM_ERROR_RATE = 0.4
+MAX_LONG_TERM_ERROR_RATE = 0.2
 
 # How many consecutive failures or successes before we exit probation.
 PROBATION_EXIT_SUCCESS_REQS = 3
@@ -313,7 +312,9 @@ async def do_validate_active_models() -> None:
         print(f"-- PROBATION models: {', '.join([model.name for model in probation_models])}")
 
     # Test inference for each model concurrently and write status to DB
-    await asyncio.gather(*[_test_inference_for_model(model) for model in models])
+    # Call test inference for each model one by one instead of concurrently
+    for model in models:
+        await _test_inference_for_model(model)
 
     # Collect all model's error rate info
     ls_error_rate_map = await _get_long_short_term_error_rate_map()
