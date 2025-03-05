@@ -198,6 +198,7 @@ jobs:
           echo "ATTACHMENT_BUCKET=${{ secrets.ATTACHMENT_BUCKET_PROD }}" >> .env
           echo "WALLET_ENCRYPTION_KEY=${{ secrets.WALLET_ENCRYPTION_KEY_PRODUCTION }}" >> .env
           echo "ATTACHMENT_BUCKET_GEN_IMAGES=\"gs://yupp-generated-images/production\"" >> .env
+          echo "SEARCHAPI_API_KEY=${{ secrets.SEARCHAPI_API_KEY_PRODUCTION }}" >> .env
         elif [[ "${{ env.ENVIRONMENT }}" == "staging" ]]; then
           echo "OPENAI_API_KEY_ROUTING=${{ secrets.OPENAI_API_KEY_ROUTING }}" >> .env
           echo "POSTGRES_USER=${{ secrets.POSTGRES_USER_STAGING }}" >> .env
@@ -248,7 +249,8 @@ jobs:
           echo "WALLET_ENCRYPTION_KEY=${{ secrets.WALLET_ENCRYPTION_KEY_STAGING }}" >> .env
           echo "ROUTING_ERROR_FILTER_SOFT_THRESHOLD=0.3" >> .env
           echo "ROUTING_ERROR_FILTER_HARD_THRESHOLD=0.6" >> .env
-          echo "ATTACHMENT_BUCKET_GEN_IMAGES=\"gs://yupp-generated-images/staging\""
+          echo "ATTACHMENT_BUCKET_GEN_IMAGES=\"gs://yupp-generated-images/staging\"" >> .env
+          echo "SEARCHAPI_API_KEY=${{ secrets.SEARCHAPI_API_KEY_STAGING }}" >> .env
         fi
 
     - name: Generate gcloud deploy secrets string
