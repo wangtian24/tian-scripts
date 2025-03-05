@@ -279,6 +279,24 @@ jobs:
       if: github.event.inputs.gpu == 'true'
       run: gcloud components install beta
 
+    - name: Run migrations
+      if: ${{ env.ENVIRONMENT == 'staging' && env.DB_OR_RULES_CHANGED == 'true' }}
+      run: |
+        # Remember current version
+        CURRENT_ALEMBIC_VERSION=$(poetry run alembic current | grep -o '[a-f0-9]\{12\}' | head -1)
+        echo "Current alembic version: $CURRENT_ALEMBIC_VERSION"
+        echo "CURRENT_ALEMBIC_VERSION=$CURRENT_ALEMBIC_VERSION" >> $GITHUB_ENV
+        
+        # Attempt to upgrade
+        if ! echo "yupp" | poetry run alembic upgrade head; then
+          echo "Migration failed, rolling back to $CURRENT_ALEMBIC_VERSION"
+          # Downgrade to the previous version
+          echo "yupp" | poetry run alembic downgrade $CURRENT_ALEMBIC_VERSION
+          # Exit with error
+          exit 1
+        fi
+        echo "Migration completed successfully"
+
     - name: Deploy to Cloud Run
       run: |
         COMMON_ARGS="\
@@ -350,11 +368,6 @@ jobs:
       if: ${{ env.DB_OR_RULES_CHANGED == 'true' }}
       run: poetry install --no-interaction --no-root --sync
 
-    - name: Run migrations
-      if: ${{ env.ENVIRONMENT == 'staging' && env.DB_OR_RULES_CHANGED == 'true' }}
-      run: |
-        echo "yupp" | poetry run alembic upgrade head
-
     - name: Refresh reward rules
       if: ${{ env.DB_OR_RULES_CHANGED == 'true' }}
       run: poetry run python -m ypl.cli refresh-rewards-rules
@@ -391,3 +404,19 @@ jobs:
       env:
         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_GG_PUSH_PRODUCTION }}
         SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+
+  cleanup-job:
+    runs-on: ubuntu-latest
+    needs: build-and-deploy
+    if: failure()  # Runs only if build-and-deploy fails        
+    steps:
+    - name: Undo DB migrations if needed
+      run: |
+        # Only attempt to downgrade if we have a stored version
+        if [[ -n "${{ env.CURRENT_ALEMBIC_VERSION }}" ]]; then
+          echo "Rolling back to previous version: ${{ env.CURRENT_ALEMBIC_VERSION }}"
+          echo "yupp" | poetry run alembic downgrade ${{ env.CURRENT_ALEMBIC_VERSION }}
+        else
+          echo "No previous version stored, skipping downgrade"
+        fi
