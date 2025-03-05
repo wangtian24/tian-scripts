@@ -11,6 +11,7 @@ from langchain_core.messages import BaseMessage, HumanMessage
 
 from ypl.backend.llm.db_helpers import PDF_ATTACHMENT_MIME_TYPE
 from ypl.backend.llm.provider.provider_clients import get_model_provider_tuple
+from ypl.backend.llm.youtube_prompt_modifier import maybe_youtube_transcript_messages
 from ypl.backend.prompts import IMAGE_POLYFILL_PROMPT
 from ypl.backend.utils.json import json_dumps
 from ypl.db.attachments import Attachment
@@ -22,6 +23,8 @@ class TransformOptions(TypedDict, total=False):
     image_type: Literal["thumbnail", "original"]
     parse_pdf_locally: bool
     max_pdf_text: int | None
+    chat_id: str  # mainly used for logging.
+    include_youtube_processing: bool
 
 
 DEFAULT_OPTIONS: TransformOptions = {
@@ -158,7 +161,8 @@ async def transform_user_messages(
     options: TransformOptions = DEFAULT_OPTIONS,
 ) -> list[BaseMessage]:
     """
-    Transform user messages by handling attachments and converting them to a format supported by the model.
+    Transform user messages by handling attachments, youtube video transcripts etc.
+    These messages are converted to a format supported by the model.
 
     Args:
         messages: List of messages to transform
@@ -166,17 +170,19 @@ async def transform_user_messages(
         options: Options for transforming messages, including:
             - use_signed_url: Whether to use signed URLs for images
             - image_type: Type of image to use ('thumbnail' or original)
-
+            - chat_id: Chat ID for logging
+            - include_youtube_processing: Whether to check for youtube video transcripts.
     Returns:
         List of transformed messages with attachments properly formatted for the model
 
     The function:
     1. Checks if the model supports images
-    2. For messages without attachments, returns them unchanged
-    3. For messages with attachments:
+    2. For messages with attachments:
         - Generates image parts (either signed URLs or base64)
         - Combines image content with text content
         - Formats messages according to model requirements
+    3. Checks if the user prompts need youtube video transcripts.
+        - If yes, these video transcripts are added to the messages.
     """
     model_provider = get_model_provider_tuple(model_name, include_all_models=True)
     if not model_provider:
@@ -201,16 +207,22 @@ async def transform_user_messages(
             continue
         filtered_attachments.append(attachment)
 
-    if not filtered_attachments:
-        return [m if not isinstance(m, HumanMessage) else HumanMessage(content=m.content) for m in messages]
-
     attachment_id_to_content_dict: dict[str, dict[str, Any]] = {}
     attachment_tasks = [
         generate_part(attachment, provider=model_provider[1], options=options) for attachment in filtered_attachments
     ]
-    results = await asyncio.gather(*attachment_tasks, return_exceptions=True)
 
-    for attachment, result in zip(filtered_attachments, results, strict=True):
+    if options.get("include_youtube_processing", False):
+        youtube_task: Any = maybe_youtube_transcript_messages(options.get("chat_id", "unknown_chat_id"), messages)
+    else:  # Future with empty list.
+        youtube_task = asyncio.Future()
+        youtube_task.set_result([])
+
+    results = await asyncio.gather(*attachment_tasks, youtube_task, return_exceptions=True)
+    attachment_results = results[:-1]  # This can be empty.
+    youtube_transcript_messages = results[-1]
+
+    for attachment, result in zip(filtered_attachments, attachment_results, strict=True):
         if isinstance(result, BaseException):
             logging.warning(f"Attachments: skipping attachment: {attachment.attachment_id} - {str(result)}")
             continue
@@ -258,6 +270,9 @@ async def transform_user_messages(
         content.append({"type": "text", "text": str(message.content)})
 
         transformed_messages.append(HumanMessage(content=content))  # type: ignore
+
+    if isinstance(youtube_transcript_messages, list):
+        transformed_messages.extend(youtube_transcript_messages)
 
     return transformed_messages
 

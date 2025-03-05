@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     GROQ_API_KEY: str = ""
     CEREBRAS_API_KEY: str = ""
     SAMBANOVA_API_KEY: str = ""
+    SEARCHAPI_API_KEY: str = ""
 
     DOMAIN: str = "localhost"
     ENVIRONMENT: Literal["test", "local", "staging", "production"] = "local"

@@ -283,7 +283,6 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
         metric_inc("stream/chat_completions/num_stream_new")
 
         # Create task to eagerly persist user message
-        # Create task to eagerly persist user message
         # This is a product requirement to enable "I prefer this" button
         # before both side-by-side streams finish generating their responses.
         # The eager persistence allows users to select their preferred response
@@ -372,9 +371,11 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
         transform_options = TransformOptions(
             image_type="thumbnail",
             use_signed_url=False,
+            chat_id=str(chat_request.chat_id),
+            include_youtube_processing=True,
         )
         messages = await transform_user_messages(messages, chat_request.model, transform_options)
-        stopwatch.record_split("process_attachments")
+        stopwatch.record_split("transform_messages")
 
         run_manager = (
             AsyncCallbackManagerForLLMRun(

@@ -139,7 +139,7 @@ class ConsolidatedStreamHandler(RedactingMixin, TruncatingMixin, logging.StreamH
     def emit(self, record: logging.LogRecord) -> None:
         try:
             formatted_msg = self._format_message(record)
-            message = orjson.dumps(formatted_msg) if isinstance(formatted_msg, dict) else str(formatted_msg)
+            message = orjson.dumps(formatted_msg).decode() if isinstance(formatted_msg, dict) else str(formatted_msg)
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
             record.msg = f"[{timestamp} {record.levelname}] [{record.module}] {message}"
