@@ -26,6 +26,7 @@ class LanguageModelStatusEnum(Enum):
     REJECTED = "REJECTED"
     ACTIVE = "ACTIVE"
     INACTIVE = "INACTIVE"
+    PROBATION = "PROBATION"
 
 
 class LicenseEnum(Enum):

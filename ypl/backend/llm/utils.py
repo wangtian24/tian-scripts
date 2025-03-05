@@ -188,7 +188,9 @@ SLACK_APP_TOKEN_ENV_VARS = {
 }
 
 
-def post_to_slack_channel(message: str, channel: str, app: YuppSlackApps = YuppSlackApps.MODEL_MANAGEMENT) -> None:
+async def post_to_slack_channel(
+    message: str, channel: str, app: YuppSlackApps = YuppSlackApps.MODEL_MANAGEMENT
+) -> None:
     """
     Post a message to a Slack channel using a specific app
     """

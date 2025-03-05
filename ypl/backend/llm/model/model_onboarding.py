@@ -23,9 +23,10 @@ from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine
 from ypl.backend.llm.model.management_common import (
     REJECT_AFTER_DAYS,
+    ModelAlertLevel,
     ModelManagementStatus,
-    _verify_inference_running,
     log_and_post,
+    verify_inference_running,
 )
 from ypl.backend.utils.json import json_dumps
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
@@ -127,10 +128,15 @@ async def _verify_one_submitted_model(model: LanguageModel) -> None:
                 try:
                     model_name = model.name  # just for the reference in error handling part
                     print(f"\nModel {model.name}: starting verifying submission")
-                    is_inference_running, has_billing_error, excerpt = await _verify_inference_running(model)
+                    is_inference_running, has_billing_error, excerpt = await verify_inference_running(model)
 
                     if has_billing_error:
-                        await log_and_post(ModelManagementStatus.VALIDATION_BILLING_ERROR, model_name, excerpt)
+                        await log_and_post(
+                            ModelManagementStatus.BILLING_ERROR,
+                            model_name,
+                            excerpt,
+                            level=ModelAlertLevel.ALERT,
+                        )
 
                     if is_inference_running:
                         print(f"Model {model.name}: submission verification done: Success")
@@ -139,7 +145,7 @@ async def _verify_one_submitted_model(model: LanguageModel) -> None:
                         model.modified_at = datetime.now(UTC)
                         session.add(model)
                         await session.commit()
-                        await log_and_post(ModelManagementStatus.ONBOARDING_VALIDATED, model_name)
+                        await log_and_post(ModelManagementStatus.VALIDATED, model_name, level=ModelAlertLevel.ALERT)
                     else:
                         # reject if the model was submitted more than 3 days ago
                         print(f"Model {model.name}: submission verification done: Failed")
@@ -153,14 +159,18 @@ async def _verify_one_submitted_model(model: LanguageModel) -> None:
                             model.modified_at = datetime.now(UTC)
                             session.add(model)
                             await session.commit()
-                            await log_and_post(ModelManagementStatus.ONBOARDING_REJECTED, model_name)
+                            await log_and_post(ModelManagementStatus.REJECTED, model_name, level=ModelAlertLevel.ALERT)
                         else:
                             print(f"Model {model.name}: not yet {REJECT_AFTER_DAYS} days, giving it more chances")
-                            await log_and_post(ModelManagementStatus.ONBOARDING_NOTIFY_MORE_CHANCE, model_name)
+                            await log_and_post(
+                                ModelManagementStatus.PENDING,
+                                model_name,
+                                level=ModelAlertLevel.NOTIFY,
+                            )
 
                 except Exception as e:
                     print(f"Model {model.name}: error while verifying submission: {e}")
-                    await log_and_post(ModelManagementStatus.ERROR, model_name, str(e))
+                    await log_and_post(ModelManagementStatus.ERROR, model_name, str(e), level=ModelAlertLevel.ALERT)
                     raise  # trigger retry
 
 

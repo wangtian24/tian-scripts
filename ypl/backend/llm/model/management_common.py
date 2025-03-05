@@ -5,7 +5,7 @@ from enum import Enum
 from langchain_core.language_models.chat_models import BaseChatModel
 from tenacity import retry, stop_after_attempt, wait_exponential
 from ypl.backend.llm.provider.provider_clients import get_provider_client
-from ypl.backend.llm.utils import post_to_slack
+from ypl.backend.llm.utils import post_to_slack_channel
 from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.utils import StopWatch
 from ypl.db.language_models import LanguageModel
@@ -17,42 +17,54 @@ INFERENCE_ATTEMPTS = 3
 
 
 class ModelManagementStatus(Enum):
-    ONBOARDING_VALIDATED = "VALIDATED"
-    ONBOARDING_REJECTED = "REJECTED"
-    ONBOARDING_NOTIFY_MORE_CHANCE = "NOTIFY_MORE_CHANCE"
-    VALIDATION_DEACTIVATED = "DEACTIVATED"
-    VALIDATION_BILLING_ERROR = "BILLING_ERROR"
-    VALIDATION_NOTIFY_NOT_RUNNING = "NOTIFY_NOT_RUNNING"
-    VALIDATION_NOTIFY_RECOVERED = "NOTIFY_RECOVERED"
+    # -- for onboarding --
+    VALIDATED = "VALIDATED"
+    PENDING = "PENDING"
+    REJECTED = "REJECTED"
+    # -- for periodical validation --
+    PROBATION = "PROBATION"
+    RECOVERED = "NOTIFY_RECOVERED"
+    DEACTIVATED = "DEACTIVATED"
+    NOT_ENOUGH_TRAFFIC = "NOTIFY_NOT_ENOUGH_TRAFFIC"
+    BILLING_ERROR = "BILLING_ERROR"
     ERROR = "FAILED"
 
 
 MODEL_MANAGEMENT_STATUS_MESSAGES = {
-    ModelManagementStatus.ONBOARDING_VALIDATED: (
+    # -- for onboarding --
+    ModelManagementStatus.VALIDATED: (
         "New model submission verification success. Set to ACTIVE after having been validated successfully"
     ),
-    ModelManagementStatus.ONBOARDING_REJECTED: (
+    ModelManagementStatus.REJECTED: (
         f"New model submission verification failed. "
         f"Set to REJECTED due to not being validated after {REJECT_AFTER_DAYS} days"
     ),
-    ModelManagementStatus.ONBOARDING_NOTIFY_MORE_CHANCE: (
-        f"New model submission verification failed. Still more chances, not yet {REJECT_AFTER_DAYS} days"
+    ModelManagementStatus.PENDING: (
+        f"New model submission verification failed. "
+        f"Additional validation tests will be conducted until day {REJECT_AFTER_DAYS}."
     ),
-    ModelManagementStatus.VALIDATION_DEACTIVATED: (
-        "Inference validation failed. Set to INACTIVE due to consecutive inference failures"
-    ),
-    ModelManagementStatus.VALIDATION_BILLING_ERROR: ("Billing error detected"),
-    ModelManagementStatus.VALIDATION_NOTIFY_NOT_RUNNING: (
-        "Inference validation failed. Not running on the provider's endpoint, please investigate"
-    ),
-    ModelManagementStatus.VALIDATION_NOTIFY_RECOVERED: (
-        "Inference validation success. Recovered and now running again on the provider's endpoint"
-    ),
+    # -- for periodical validation --
+    ModelManagementStatus.PROBATION: ("Failed validation, set to PROBATION due to high error rate"),
+    ModelManagementStatus.DEACTIVATED: ("Failed probation, set to INACTIVE after consecutive failures"),
+    ModelManagementStatus.RECOVERED: ("Exited probation, set to ACTIVE again after consecutive successes"),
+    ModelManagementStatus.NOT_ENOUGH_TRAFFIC: ("Not enough traffic to decide, will continue monitoring"),
+    ModelManagementStatus.BILLING_ERROR: ("Billing error detected"),
     ModelManagementStatus.ERROR: ("Error occurred while validating model"),
 }
 
 
-async def log_and_post(status: ModelManagementStatus, model_name: str, extra_msg: str | None = None) -> None:
+class ModelAlertLevel(Enum):
+    LOG_ONLY = 0  # Log only
+    NOTIFY = 10  # Log, send to #alert-model-management
+    ALERT = 20  # Log, send to #alert-model-management and #alert-backend
+
+
+async def log_and_post(
+    status: ModelManagementStatus,
+    model_name: str,
+    extra_msg: str | None = None,
+    level: ModelAlertLevel = ModelAlertLevel.NOTIFY,
+) -> None:
     log_dict = {
         "message": f"Model Management: [{model_name}] - {MODEL_MANAGEMENT_STATUS_MESSAGES[status]}",
         "details": extra_msg,
@@ -64,10 +76,14 @@ async def log_and_post(status: ModelManagementStatus, model_name: str, extra_msg
 
     print(f">> [log/slack] Model {model_name}: {MODEL_MANAGEMENT_STATUS_MESSAGES[status]} - {extra_msg or ''}")
 
-    slack_msg = f"*Model {model_name}: {MODEL_MANAGEMENT_STATUS_MESSAGES[status]} *\n {extra_msg or ''} \n"
-    f"[Environment: ]{os.environ.get('ENVIRONMENT')}]"
-
-    await post_to_slack(slack_msg)
+    if level.value >= ModelAlertLevel.NOTIFY.value:
+        slack_msg = (
+            f"*Model {model_name}*: {MODEL_MANAGEMENT_STATUS_MESSAGES[status]}\n {extra_msg or ''} \n"
+            f"Environment: [{os.environ.get('ENVIRONMENT')}]"
+        )
+        await post_to_slack_channel(slack_msg, "#alert-model-management")
+    if level.value >= ModelAlertLevel.ALERT.value:
+        await post_to_slack_channel(slack_msg, "#alert-backend")
 
 
 @retry(stop=stop_after_attempt(INFERENCE_ATTEMPTS), wait=wait_exponential(multiplier=1, min=4, max=10), reraise=True)
@@ -83,7 +99,7 @@ async def check_inference_with_retries(client: BaseChatModel, model: LanguageMod
     try:
         results = client.invoke(INFERENCE_VERIFICATION_PROMPT)
         is_inference_running = results is not None and results.content is not None
-        print(f"... response: {results.content if results and results.content else '[no response]'}")
+        print(f"...... {results.content if results and results.content else '[no response]'}")
 
         stopwatch.end(f"latency_{model.name}")
         log_dict = {
@@ -139,7 +155,7 @@ def contains_billing_error_keywords(error_message: str) -> tuple[bool, str]:
     return False, ""
 
 
-async def _verify_inference_running(model: LanguageModel) -> tuple[bool, bool, str | None]:
+async def verify_inference_running(model: LanguageModel) -> tuple[bool, bool, str | None]:
     """
     Verify if the model is running on the provider's endpoint.
 
@@ -151,6 +167,7 @@ async def _verify_inference_running(model: LanguageModel) -> tuple[bool, bool, s
         if not chat_model_client:
             raise Exception(f"Model {model.name} not found from any active provider")
 
+        print(f"... {model.name}")
         is_inference_running = await check_inference_with_retries(client=chat_model_client, model=model)
 
         return is_inference_running, False, None  # No billing error

@@ -22,7 +22,7 @@ async def _log_and_post(message: str, details: list[str]) -> None:
 
     details_list = [f"- {detail}\n" for detail in details]
     slack_msg = f":eyeglasses: *Model Metadata Maintenance* [{env}] - {message}\n{''.join(details_list)}"
-    post_to_slack_channel(slack_msg, "#alert-model-management", YuppSlackApps.MODEL_MANAGEMENT)
+    await post_to_slack_channel(slack_msg, "#alert-model-management", YuppSlackApps.MODEL_MANAGEMENT)
 
 
 async def _check_model_provider_and_names() -> None:
