@@ -15,6 +15,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from pydantic import BaseModel
+from rapidfuzz.distance import JaroWinkler
 from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import Insert as pg_insert
 from sqlalchemy.orm import joinedload
@@ -93,6 +94,9 @@ YuppMessage = HumanMessage | AIMessage | SystemMessage  # this is needed for pro
 YuppMessageRow = list[YuppMessage]
 IMAGE_CATEGORY = "image"
 IMAGE_ATTACHMENT_MIME_TYPE_SQL_PATTERN = "image/%"
+
+RETAKE_SAME_ANSWER = "<SAME_ANSWER>"
+RETAKE_QUICKTAKE_MIN_SIMILARITY = 0.7
 
 
 class SelectIntent(str, Enum):
@@ -1132,6 +1136,17 @@ async def _get_qt_model(turn_id: UUID) -> str | None:
         return result.scalar_one_or_none()
 
 
+def _same_as_previous_quicktake(qt: str | None, rt: str | None) -> bool:
+    if not rt or not qt:
+        return False
+
+    if "SAME_ANSWER" in rt or "CANT_ANSWER" in rt:
+        # The LLM doesn't always use the canonical "<SAME_ANSWER>" string.
+        return True
+
+    return JaroWinkler.normalized_similarity(qt, rt) > RETAKE_QUICKTAKE_MIN_SIMILARITY
+
+
 async def _get_turn_and_model(request: QuickTakeRequest) -> tuple[UUID | None, str | None]:
     """Checks the request and returns its turn_id and model if it is valid."""
     turn_id = uuid.UUID(request.turn_id) if request.turn_id else None
@@ -1414,6 +1429,9 @@ async def generate_quicktake(
             errors = "no_response"
 
         if request.is_retake():
+            if _same_as_previous_quicktake(current_turn_context.current_turn_quicktake, response_quicktake):
+                response_quicktake = RETAKE_SAME_ANSWER
+
             logging.info(
                 json_dumps(
                     {
