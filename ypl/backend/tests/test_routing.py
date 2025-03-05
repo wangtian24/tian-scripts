@@ -752,20 +752,28 @@ def test_supports_image_attachment_filter(mock_active_models: Mock, mock_image_a
 
 @patch("ypl.backend.llm.routing.modules.filters.get_model_context_lengths")
 def test_context_length_filter(mock_context_lengths: Mock) -> None:
-    context_lengths = {"m1": 1000, "m2": 1000, "m3": 100}
+    context_lengths = {"m1": 3000, "m2": 2000, "m3": 1000}
     all_models = set(context_lengths.keys())
     mock_context_lengths.return_value = context_lengths
     c = {SelectionCriteria.RANDOM: 1.0}
 
-    def check_excluded_models_by_prompt_len(prompt_len_tokens: int, expected_excluded_models: set[str]) -> None:
-        state = RouterState(all_models=all_models, selected_models={m: c for m in all_models})
-        filter = ContextLengthFilter(prompt="hi " * prompt_len_tokens, max_length_fraction=0.5)
-        state, rejected_models = filter._filter(state)
-        assert state.excluded_models == rejected_models == expected_excluded_models
-        assert state.selected_models == {m: c for m in all_models - expected_excluded_models}
+    class prompt_with_tokens:
+        def __init__(self, token_count: int):
+            self.token_count = token_count
+            self.prompt = "hi " * token_count
 
-    check_excluded_models_by_prompt_len(600, {"m3"})
-    check_excluded_models_by_prompt_len(60, set())
+        def should_exclude(self, expected_excluded_models: set[str]) -> None:
+            state = RouterState(all_models=all_models, selected_models={m: c for m in all_models})
+            filter = ContextLengthFilter(prompt=self.prompt, max_length_fraction=0.5)
+            state, rejected_models = filter._filter(state)
+            assert state.excluded_models == rejected_models
+            assert expected_excluded_models == rejected_models
+            assert state.selected_models == {m: c for m in all_models - expected_excluded_models}
+
+    prompt_with_tokens(1600).should_exclude({"m1", "m2", "m3"})
+    prompt_with_tokens(1200).should_exclude({"m2", "m3"})
+    prompt_with_tokens(800).should_exclude({"m3"})
+    prompt_with_tokens(300).should_exclude(set())
 
 
 @pytest.mark.asyncio

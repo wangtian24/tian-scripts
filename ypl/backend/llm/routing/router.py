@@ -135,6 +135,12 @@ async def get_simple_pro_router(
 
     include_internal_models = preference.user_id is not None and (await is_user_internal(preference.user_id))
 
+    def get_preprocessing_stage(prompt: str) -> RouterModule:
+        """
+        All necessary preprocessing steps, filtering out models we definitely cannot use
+        """
+        return rule_filter | ContextLengthFilter(prompt) | attachment_filter | error_filter
+
     async def get_postprocessing_stage(exclude_models: set[str] | None = None, prefix: str = "first") -> RouterModule:
         """
         Common post-processing stages that's shared in first-turn and non-first-turn routers
@@ -194,7 +200,7 @@ async def get_simple_pro_router(
         # Construct a first-turn router guaranteeing at least one pro model and one reputable model.
         router: RouterModule = (
             # -- candidate prep stage --
-            rule_filter  # apply rules for an initial pass clean up on all candidate models, reject based on prompt
+            get_preprocessing_stage(prompt)
             # -- proposal stage --
             | (
                 # propose through routing table rules
@@ -236,7 +242,7 @@ async def get_simple_pro_router(
 
         router: RouterModule = (  # type: ignore[no-redef]
             # -- preprocessing stage --
-            rule_filter
+            get_preprocessing_stage(prompt)
             # -- proposal stage --
             | (
                 # propose all previous good models (preferred models)

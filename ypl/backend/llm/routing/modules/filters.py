@@ -287,14 +287,14 @@ class ContextLengthFilter(Exclude):
         """
         # We don't know the specific system prompt because routing hasn't happened yet, so we use a default one.
         prompt = FALLBACK_SYSTEM_PROMPT + " " + prompt
-        prompt_length = len(ModelHeuristics(tokenizer_type="tiktoken").encode_tokens(prompt))
+        num_tokens = len(ModelHeuristics(tokenizer_type="tiktoken").encode_tokens(prompt))
         context_lengths = get_model_context_lengths()
         excluded_models = {
             model
             for model, context_length in context_lengths.items()
-            if context_length < prompt_length * max_length_fraction
+            if context_length * max_length_fraction < num_tokens
         }
-        super().__init__(name="-contextLength", exclude_models=excluded_models)
+        super().__init__(name="-ctxLen", exclude_models=excluded_models)
 
 
 def group_models_by_key(model_to_key_map: dict[str, str], sorted_model_list: list[str]) -> dict[str | None, list[str]]:
