@@ -128,13 +128,13 @@ async def _verify_one_submitted_model(model: LanguageModel) -> None:
                 try:
                     model_name = model.name  # just for the reference in error handling part
                     print(f"\nModel {model.name}: starting verifying submission")
-                    is_inference_running, has_billing_error, excerpt = await verify_inference_running(model)
+                    is_inference_running, error_type, excerpt = await verify_inference_running(model)
 
-                    if has_billing_error:
+                    if error_type:
                         await log_and_post(
-                            ModelManagementStatus.BILLING_ERROR,
+                            ModelManagementStatus.OTHER_ERROR,
                             model_name,
-                            excerpt,
+                            f"{error_type}: {excerpt}",
                             level=ModelAlertLevel.ALERT,
                         )
 
@@ -170,7 +170,9 @@ async def _verify_one_submitted_model(model: LanguageModel) -> None:
 
                 except Exception as e:
                     print(f"Model {model.name}: error while verifying submission: {e}")
-                    await log_and_post(ModelManagementStatus.ERROR, model_name, str(e), level=ModelAlertLevel.ALERT)
+                    await log_and_post(
+                        ModelManagementStatus.VALIDATION_ERROR, model_name, str(e), level=ModelAlertLevel.ALERT
+                    )
                     raise  # trigger retry
 
 

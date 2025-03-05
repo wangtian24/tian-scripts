@@ -195,8 +195,10 @@ async def post_to_slack_channel(
     Post a message to a Slack channel using a specific app
     """
     if os.environ.get("ENVIRONMENT") == "local":
-        print(f"Skipping Slack posting in local environment to channel {channel}: \n{message}")
-        return
+        # routing everything to a test channel if it's local model so we don't contaminate the main channel
+        # and still get some messages.
+        channel = "#alert-test-only"
+
     bot_token = os.environ.get(SLACK_APP_TOKEN_ENV_VARS[app])
     message_dict = {
         "channel": channel,

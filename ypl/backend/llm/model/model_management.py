@@ -146,7 +146,7 @@ async def _test_inference_for_model(model: LanguageModel) -> None:
     Do inference check on one model and write the status to DB
     """
     try:
-        is_inference_running, has_billing_error, excerpt = await verify_inference_running(model)
+        is_inference_running, error_type, excerpt = await verify_inference_running(model)
 
         await _insert_language_model_response_status(
             model,
@@ -154,12 +154,19 @@ async def _test_inference_for_model(model: LanguageModel) -> None:
             if is_inference_running
             else LanguageModelResponseStatusEnum.INFERENCE_FAILED,
         )
+        if not is_inference_running:
+            await log_and_post(ModelManagementStatus.INFERENCE_ERROR, model.name, excerpt, level=ModelAlertLevel.NOTIFY)
 
-        if has_billing_error or (datetime.now().minute < 10):  # only alert no more than once an hour
-            await log_and_post(ModelManagementStatus.BILLING_ERROR, model.name, excerpt, level=ModelAlertLevel.ALERT)
+        if error_type and datetime.now().minute < 10:  # alert at most once an hour (cron job runs every 15 minutes)
+            await log_and_post(
+                ModelManagementStatus.OTHER_ERROR,
+                model.name,
+                f"{error_type}: {excerpt}",
+                level=ModelAlertLevel.ALERT,
+            )
     except Exception as e:
         print(f"Model {model.name}: error during validation: {e}")
-        await log_and_post(ModelManagementStatus.ERROR, model.name, str(e), level=ModelAlertLevel.ALERT)
+        await log_and_post(ModelManagementStatus.VALIDATION_ERROR, model.name, str(e), level=ModelAlertLevel.ALERT)
 
 
 @retry(

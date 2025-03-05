@@ -21,35 +21,39 @@ class ModelManagementStatus(Enum):
     VALIDATED = "VALIDATED"
     PENDING = "PENDING"
     REJECTED = "REJECTED"
+    VALIDATION_ERROR = "VALIDATION_ERROR"
     # -- for periodical validation --
     PROBATION = "PROBATION"
     RECOVERED = "NOTIFY_RECOVERED"
     DEACTIVATED = "DEACTIVATED"
     NOT_ENOUGH_TRAFFIC = "NOTIFY_NOT_ENOUGH_TRAFFIC"
-    BILLING_ERROR = "BILLING_ERROR"
-    ERROR = "FAILED"
+    INFERENCE_ERROR = "INFERENCE_ERROR"
+    # -- shared --
+    OTHER_ERROR = "DETECTED_ERROR"
 
 
 MODEL_MANAGEMENT_STATUS_MESSAGES = {
     # -- for onboarding --
     ModelManagementStatus.VALIDATED: (
-        "New model submission verification success. Set to ACTIVE after having been validated successfully"
+        "Onboarding: New model submission verification success. Set to ACTIVE after having been validated successfully"
     ),
     ModelManagementStatus.REJECTED: (
-        f"New model submission verification failed. "
+        f"Onboarding: New model submission verification failed. "
         f"Set to REJECTED due to not being validated after {REJECT_AFTER_DAYS} days"
     ),
     ModelManagementStatus.PENDING: (
-        f"New model submission verification failed. "
+        f"Onboarding: New model submission verification failed. "
         f"Additional validation tests will be conducted until day {REJECT_AFTER_DAYS}."
     ),
+    ModelManagementStatus.VALIDATION_ERROR: ("Error occurred while validating model"),
     # -- for periodical validation --
-    ModelManagementStatus.PROBATION: ("Failed validation, set to PROBATION due to high error rate"),
-    ModelManagementStatus.DEACTIVATED: ("Failed probation, set to INACTIVE after consecutive failures"),
-    ModelManagementStatus.RECOVERED: ("Exited probation, set to ACTIVE again after consecutive successes"),
-    ModelManagementStatus.NOT_ENOUGH_TRAFFIC: ("Not enough traffic to decide, will continue monitoring"),
-    ModelManagementStatus.BILLING_ERROR: ("Billing error detected"),
-    ModelManagementStatus.ERROR: ("Error occurred while validating model"),
+    ModelManagementStatus.PROBATION: ("Validation: Failed validation, set to PROBATION due to high error rate"),
+    ModelManagementStatus.DEACTIVATED: ("Validation: Failed probation, set to INACTIVE after consecutive failures"),
+    ModelManagementStatus.RECOVERED: ("Validation: Exited probation, set to ACTIVE again after consecutive successes"),
+    ModelManagementStatus.NOT_ENOUGH_TRAFFIC: ("Validation: Not enough traffic to decide, will continue monitoring"),
+    ModelManagementStatus.INFERENCE_ERROR: ("Validation: Inference error"),
+    # -- shared --
+    ModelManagementStatus.OTHER_ERROR: ("Detected error"),
 }
 
 
@@ -69,13 +73,14 @@ async def log_and_post(
         "message": f"Model Management: [{model_name}] - {MODEL_MANAGEMENT_STATUS_MESSAGES[status]}",
         "details": extra_msg,
     }
-    if status == ModelManagementStatus.ERROR:
+    if status == ModelManagementStatus.VALIDATION_ERROR:
         logging.error(json_dumps(log_dict))
     else:
         logging.info(json_dumps(log_dict))
 
     print(f">> [log/slack] Model {model_name}: {MODEL_MANAGEMENT_STATUS_MESSAGES[status]} - {extra_msg or ''}")
 
+    # Clean up and escape quotes in extra_msg to ensure it's safe for logging and Slack
     if level.value >= ModelAlertLevel.NOTIFY.value:
         slack_msg = (
             f"*Model {model_name}*: {MODEL_MANAGEMENT_STATUS_MESSAGES[status]}\n {extra_msg or ''} \n"
@@ -99,7 +104,6 @@ async def check_inference_with_retries(client: BaseChatModel, model: LanguageMod
     try:
         results = client.invoke(INFERENCE_VERIFICATION_PROMPT)
         is_inference_running = results is not None and results.content is not None
-        print(f"...... {results.content if results and results.content else '[no response]'}")
 
         stopwatch.end(f"latency_{model.name}")
         log_dict = {
@@ -131,6 +135,7 @@ class ModelErrorType(Enum):
     CONTEXT_LENGTH = "CONTEXT_LENGTH"
     RATE_LIMIT = "RATE_LIMIT"
     BILLING = "BILLING"
+    UNKNOWN = "UNKNOWN"
 
 
 ERROR_KEYWORDS_MAP = {
@@ -171,7 +176,7 @@ def contains_error_keywords(error_message: str) -> tuple[ModelErrorType | None, 
                 start = max(0, match_idx - 100)
                 end = min(len(error_message), match_idx + len(keyword) + 100)
                 return error_type, error_message[start:end]
-    return None, None
+    return ModelErrorType.UNKNOWN, error_message[:200]
 
 
 async def verify_inference_running(model: LanguageModel) -> tuple[bool, ModelErrorType | None, str | None]:
