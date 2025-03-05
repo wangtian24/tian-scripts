@@ -159,7 +159,6 @@ async def _test_inference_for_model(model: LanguageModel) -> None:
             await log_and_post(ModelManagementStatus.BILLING_ERROR, model.name, excerpt, level=ModelAlertLevel.ALERT)
     except Exception as e:
         print(f"Model {model.name}: error during validation: {e}")
-        await _insert_language_model_response_status(model, LanguageModelResponseStatusEnum.INFERENCE_FAILED)
         await log_and_post(ModelManagementStatus.ERROR, model.name, str(e), level=ModelAlertLevel.ALERT)
 
 
