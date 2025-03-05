@@ -78,7 +78,7 @@ class PayPalPayout:
 def _get_paypal_client() -> PayPalHttpClient:
     """Get PayPal client instance."""
 
-    paypal_config = settings.paypal_config
+    paypal_config = settings.PAYPAL_CONFIG
 
     if not all([paypal_config["client_id"], paypal_config["client_secret"]]):
         raise PayPalPayoutError(GENERIC_ERROR_MESSAGE, {"error": "Missing PayPal API credentials"})

@@ -517,7 +517,7 @@ class AxisUpiFacilitator(BaseFacilitator):
             raise PaymentStatusFetchError("Failed to monitor payment status") from e
 
     def _get_validated_destination_details(self, validated_destination_details: str) -> dict:
-        decryptor = Fernet(settings.validate_destination_identifier_secret_key)
+        decryptor = Fernet(settings.VALIDATE_DESTINATION_IDENTIFIER_SECRET_KEY)
         decrypted_string = decryptor.decrypt_at_time(
             validated_destination_details.encode("utf-8"),
             VALIDATE_DESTINATION_IDENTIFIER_TOKEN_TTL_SECONDS,
@@ -905,7 +905,7 @@ class AxisUpiFacilitator(BaseFacilitator):
         verify_vpa_response = await verify_vpa(destination_identifier, destination_identifier_type)
         current_time = datetime.now(UTC)
         validation_token_expiry = current_time + timedelta(seconds=VALIDATE_DESTINATION_IDENTIFIER_TOKEN_TTL_SECONDS)
-        encryptor = Fernet(settings.validate_destination_identifier_secret_key)
+        encryptor = Fernet(settings.VALIDATE_DESTINATION_IDENTIFIER_SECRET_KEY)
         payload = {
             "input_identifier": destination_identifier,
             "input_identifier_type": str(destination_identifier_type),

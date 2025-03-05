@@ -44,7 +44,7 @@ async def get_ip_details(ip_address: str) -> IPInfo | None:
         async with httpx.AsyncClient() as client:
             response = await client.get(
                 f"https://ipinfo.io/{ip_address}",
-                params={"token": settings.ipinfo_api_key},
+                params={"token": settings.IPINFO_API_KEY},
             )
             response.raise_for_status()
             api_response = response.json()

@@ -34,7 +34,7 @@ from ypl.db.webhooks import (
 router = APIRouter(tags=["paypal"])
 
 SLACK_WEBHOOK_CASHOUT = settings.SLACK_WEBHOOK_CASHOUT
-WEBHOOK_ID = settings.paypal_webhook_id
+WEBHOOK_ID = settings.PAYPAL_WEBHOOK_ID
 
 
 class WebhookRequest:

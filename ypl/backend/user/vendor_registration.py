@@ -44,10 +44,10 @@ class VendorRegistration(abc.ABC):
 
 class HyperwalletRegistration(VendorRegistration):
     def __init__(self) -> None:
-        self.api_url = settings.hyperwallet_api_url
-        self.program_token = settings.hyperwallet_program_token
-        self.username = settings.hyperwallet_username
-        self.password = settings.hyperwallet_password
+        self.api_url = settings.HYPERWALLET_API_URL
+        self.program_token = settings.HYPERWALLET_PROGRAM_TOKEN
+        self.username = settings.HYPERWALLET_USERNAME
+        self.password = settings.HYPERWALLET_PASSWORD
 
         if not all([self.program_token, self.username, self.password]):
             raise VendorRegistrationError("Missing required Hyperwallet credentials")

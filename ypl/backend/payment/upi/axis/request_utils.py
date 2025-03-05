@@ -38,7 +38,7 @@ class Request:
 
 
 def _get_config_value(key: str, request_type: RequestType | None = None) -> str:
-    config = settings.axis_upi_config
+    config = settings.AXIS_UPI_CONFIG
     if request_type and key in config[request_type]:
         return config[request_type][key]  # type: ignore[no-any-return]
     if key not in config:

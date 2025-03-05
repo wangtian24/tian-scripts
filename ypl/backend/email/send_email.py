@@ -172,8 +172,8 @@ async def send_email_async(email_config: EmailConfig, print_only: bool = False) 
         email_config.to_address, _get_subject(email_content.subject), email_plaintext, email_content.body_html
     )
 
-    if settings.resend_api_key and not print_only:
-        resend.api_key = settings.resend_api_key
+    if settings.RESEND_API_KEY and not print_only:
+        resend.api_key = settings.RESEND_API_KEY
         email = resend.Emails.send(resend_params)
         await _log_emails_to_db([email_config])
         logging.info(f"Email sent for {email_config.campaign}")
@@ -210,8 +210,8 @@ async def batch_send_emails_async(
             )
         )
 
-    if settings.resend_api_key:
-        resend.api_key = settings.resend_api_key
+    if settings.RESEND_API_KEY:
+        resend.api_key = settings.RESEND_API_KEY
         response = resend.Batch.send(batch_params)
         await _log_emails_to_db(email_configs)
         logging.info(f"Email count sent in batch: {len(email_configs)}")

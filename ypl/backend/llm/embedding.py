@@ -154,7 +154,7 @@ async def _embed_together(inputs: list[str], embedding_model: str) -> list[list[
 
 
 async def _embed_internal(inputs: list[str], embedding_model: str) -> list[list[float]]:
-    headers = {"Content-Type": "application/json", "x-api-key": settings.embed_x_api_key}
+    headers = {"Content-Type": "application/json", "x-api-key": settings.EMBED_X_API_KEY}
     payload = {"texts": inputs}
 
     try:

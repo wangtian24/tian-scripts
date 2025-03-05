@@ -82,7 +82,7 @@ async def generate_invite_code_for_top_users(
 
         await post_to_slack(
             message_to_post,
-            webhook_url=settings.guest_management_slack_webhook_url,
+            webhook_url=settings.GUEST_MANAGEMENT_SLACK_WEBHOOK_URL,
         )
 
     return len(users), codes_created
@@ -117,7 +117,7 @@ async def generate_invite_code_for_user(session: AsyncSession, user_id: str) -> 
                 }
                 logging.warning(json_dumps(log_dict))
                 asyncio.create_task(
-                    post_to_slack(json_dumps(log_dict), webhook_url=settings.guest_management_slack_webhook_url)
+                    post_to_slack(json_dumps(log_dict), webhook_url=settings.GUEST_MANAGEMENT_SLACK_WEBHOOK_URL)
                 )
                 return None
             # The savepoint will be automatically rolled back due to the exception

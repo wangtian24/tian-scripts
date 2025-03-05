@@ -9,9 +9,9 @@ from ypl.backend.config import settings
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import CurrencyEnum
 
-CHECKOUT_API_URL: Final[str] = settings.checkout_com_api_url
-CHECKOUT_SECRET_KEY: Final[str] = settings.checkout_com_secret
-CHECKOUT_PROCESSING_CHANNEL: Final[str] = settings.checkout_com_processing_channel
+CHECKOUT_API_URL: Final[str] = settings.CHECKOUT_COM_API_URL
+CHECKOUT_SECRET_KEY: Final[str] = settings.CHECKOUT_COM_SECRET
+CHECKOUT_PROCESSING_CHANNEL: Final[str] = settings.CHECKOUT_COM_PROCESSING_CHANNEL
 
 MIN_BALANCES: dict[CurrencyEnum, Decimal] = {
     CurrencyEnum.USD: Decimal(1000),
@@ -145,7 +145,7 @@ async def process_checkout_payout(payout: CheckoutPayout) -> tuple[str, str]:
     rounded_amount = int(payout.amount * 100)
 
     try:
-        secret_key = settings.checkout_com_secret
+        secret_key = settings.CHECKOUT_COM_SECRET
 
         if not secret_key:
             raise CheckoutPayoutError(
@@ -172,7 +172,7 @@ async def process_checkout_payout(payout: CheckoutPayout) -> tuple[str, str]:
             "instruction": {
                 "purpose": payout.instruction.purpose,
             },
-            "processing_channel_id": settings.checkout_com_processing_channel,
+            "processing_channel_id": settings.CHECKOUT_COM_PROCESSING_CHANNEL,
         }
 
         log_dict = {
@@ -236,7 +236,7 @@ async def get_transaction_status(transaction_token: str) -> str:
     Returns:
         str: The status of the transaction
     """
-    secret_key = settings.checkout_com_secret
+    secret_key = settings.CHECKOUT_COM_SECRET
 
     if not secret_key:
         raise CheckoutPayoutError(
@@ -391,7 +391,7 @@ async def get_source_instrument_balance() -> Decimal:
     try:
         headers = _get_auth_header(CHECKOUT_SECRET_KEY)
 
-        entity_id = settings.checkout_com_entity_id
+        entity_id = settings.CHECKOUT_COM_ENTITY_ID
         log_dict = {
             "message": "Checkout.com: Getting source instrument balance",
             "entity_id": entity_id,

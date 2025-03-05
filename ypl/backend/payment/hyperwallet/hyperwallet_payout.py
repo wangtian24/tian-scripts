@@ -11,10 +11,10 @@ from ypl.backend.config import settings
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import CurrencyEnum
 
-HYPERWALLET_API_URL: Final[str] = settings.hyperwallet_api_url
-HYPERWALLET_PROGRAM_TOKEN: Final[str] = settings.hyperwallet_program_token
-HYPERWALLET_USERNAME: Final[str] = settings.hyperwallet_username
-HYPERWALLET_PASSWORD: Final[str] = settings.hyperwallet_password
+HYPERWALLET_API_URL: Final[str] = settings.HYPERWALLET_API_URL
+HYPERWALLET_PROGRAM_TOKEN: Final[str] = settings.HYPERWALLET_PROGRAM_TOKEN
+HYPERWALLET_USERNAME: Final[str] = settings.HYPERWALLET_USERNAME
+HYPERWALLET_PASSWORD: Final[str] = settings.HYPERWALLET_PASSWORD
 
 MIN_BALANCES: dict[CurrencyEnum, Decimal] = {
     CurrencyEnum.USD: Decimal(1000),

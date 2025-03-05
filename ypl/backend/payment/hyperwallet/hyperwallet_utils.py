@@ -56,9 +56,9 @@ async def get_hyperwallet_user_tokens(user_id: str) -> UserTokensResponse:
             raise HyperwalletUtilsError("Hyperwallet: User not registered with Hyperwallet")
 
     # Get Hyperwallet API credentials
-    api_username = settings.hyperwallet_username
-    api_password = settings.hyperwallet_password
-    api_url = settings.hyperwallet_api_url
+    api_username = settings.HYPERWALLET_USERNAME
+    api_password = settings.HYPERWALLET_PASSWORD
+    api_url = settings.HYPERWALLET_API_URL
 
     if not all([api_username, api_password, api_url]):
         log_dict = {

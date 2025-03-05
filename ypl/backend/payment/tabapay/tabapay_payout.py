@@ -25,7 +25,7 @@ from ypl.partner_payments.server.partner.tabapay.client import (
 class TabaPayProxyConfig:
     """Configuration for TabaPay integration."""
 
-    api_url: str = settings.partner_payments_api_url
+    api_url: str = settings.PARTNER_PAYMENTS_API_URL
     api_key: str = settings.X_API_KEY
     timeout: int = 30
     memo_template: str = "Thanks for using YUPP"

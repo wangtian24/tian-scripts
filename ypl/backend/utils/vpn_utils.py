@@ -60,7 +60,7 @@ async def get_ip_details(ip_address: str) -> IPDetails | None:
         IPDetails object containing security, location, and network information,
         or None if the API call fails
     """
-    VPNAPI_API_KEY = settings.vpnapi_api_key
+    VPNAPI_API_KEY = settings.VPNAPI_API_KEY
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(
