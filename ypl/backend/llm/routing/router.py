@@ -68,7 +68,7 @@ def needs_attachment(categories: list[str]) -> bool:
 def needs_special_ability(categories: list[str]) -> bool:
     # TODO(tian) - this might be a bit hacky, here we manually maintain a list we know that the routing chain is using.
     # we will change this to a more proper model ability check in the future.
-    return needs_attachment(categories) or categories in ["coding", ONLINE_CATEGORY]
+    return needs_attachment(categories) or "coding" in categories or ONLINE_CATEGORY in categories
 
 
 def _get_good_and_bad_models(preference: RoutingPreference, has_pdf: bool) -> tuple[set[str], set[str]]:
