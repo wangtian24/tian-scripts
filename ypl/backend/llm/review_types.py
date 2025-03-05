@@ -83,6 +83,7 @@ class ReviewConfig(BaseModel):
 
     max_tokens: int
     prompt_template: str
+    user_prompt_template: str = ""
 
 
 AllReviewResults = BinaryResult | CritiqueResult | SegmentedResult | NuggetizedResult

@@ -1629,7 +1629,7 @@ The input will contain a conversation history ending with the user's latest mess
 
 Provide a pointed review in at most two sentences:
 Sentence 1: Evaluate the response's strengths and weaknesses, focusing on how well it addresses the core query
-Sentence 2 (optional): Suggest specific enhancements or improvements within the confines of the user's request
+Sentence 2 (optional): Suggest specific enhancements or improvements within the confines of the user's request, if needed
 
 If the final AI response is empty, then all you need to say is "The response is empty."
 Do not unnaturally extend the critique beyond needed, some responses may be on point and you don't have to say more than a line - it is enough to mention that the response is good.
@@ -1694,6 +1694,18 @@ Rules:
 - Try to provide at least 2 segments and at most 4 segments
 
 Do not add any text, explanations, or markup outside the specified format."""
+
+# User prompt templates for each review type
+BINARY_REVIEW_USER_PROMPT = """Evaluate this AI response with a strict true/false decision.
+Is it factually accurate and does it address the core user request?
+Reply with just 'true' or 'false'."""
+
+CRITIQUE_REVIEW_USER_PROMPT = """Critique this AI response based on the criteria laid out in the instructions.
+Respond with just a concise 1-2 sentence evaluation highlighting strengths and weaknesses, with the second sentence being optional and only used to suggest enhancements if the response requires it."""
+
+SEGMENTED_REVIEW_USER_PROMPT = """Analyze this AI response and identify 2-4 specific segments that need improvement.
+For each segment, provide a concise explanation of the issue and a suggested revision that would enhance the quality, in the exact format laid out in the instructions.
+Do not include any other text or explanation."""
 
 NUGGETIZER_CREATE_PROMPT = """You are NuggetizeLLM, an intelligent assistant that extracts atomic nuggets of information from provided "AI Responses to Create Nuggets From" to address the final user request in a conversation.
 Focus on the final request while considering the conversation history for additional context."""

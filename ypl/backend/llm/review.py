@@ -37,8 +37,11 @@ from ypl.backend.llm.review_types import (
 from ypl.backend.llm.transform_messages import TransformOptions, transform_user_messages
 from ypl.backend.prompts import (
     BINARY_REVIEW_PROMPT,
+    BINARY_REVIEW_USER_PROMPT,
     CRITIQUE_REVIEW_PROMPT,
+    CRITIQUE_REVIEW_USER_PROMPT,
     SEGMENTED_REVIEW_PROMPT,
+    SEGMENTED_REVIEW_USER_PROMPT,
     fill_cur_datetime,
 )
 from ypl.backend.utils.json import json_dumps
@@ -50,14 +53,17 @@ REVIEW_CONFIGS: dict[ReviewType, ReviewConfig] = {
     ReviewType.BINARY: ReviewConfig(
         max_tokens=8,
         prompt_template=BINARY_REVIEW_PROMPT,
+        user_prompt_template=BINARY_REVIEW_USER_PROMPT,
     ),
     ReviewType.CRITIQUE: ReviewConfig(
         max_tokens=512,
         prompt_template=CRITIQUE_REVIEW_PROMPT,
+        user_prompt_template=CRITIQUE_REVIEW_USER_PROMPT,
     ),
     ReviewType.SEGMENTED: ReviewConfig(
         max_tokens=4096,  # Larger token limit for detailed segmented reviews
         prompt_template=SEGMENTED_REVIEW_PROMPT,
+        user_prompt_template=SEGMENTED_REVIEW_USER_PROMPT,
     ),
     ReviewType.NUGGETIZED: ReviewConfig(
         max_tokens=4096,  # Larger token limit for nuggetized reviews
@@ -79,10 +85,10 @@ REVIEW_MODEL_ALLOWLIST_PREFERENCES = [
 ]
 
 REVIEW_MODEL_WITH_IMAGE_ALLOWLIST_PREFERENCES = [
+    "gpt-4o",
     "gemini-2.0-flash-001",
     "claude-3-7-sonnet-20250219",
-    "gpt-4o",  # gpt-4o not highest preference for images
-    "meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo",  # Only together has image support
+    "meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo",
     "qwen2.5-vl-72b-instruct",
 ]
 
@@ -118,7 +124,7 @@ async def get_model_families_and_ids(model_names: list[str]) -> dict[str, tuple[
 REVIEW_LLMS: dict[ReviewType, dict[str, BaseChatModel]] = {}
 
 
-class BaseReviewLabeler(LLMLabeler[tuple[str, str], ReviewResultType], Generic[ReviewResultType]):
+class BaseReviewLabeler(LLMLabeler[tuple[list[BaseMessage], str], ReviewResultType], Generic[ReviewResultType]):
     """Base class for all review labelers."""
 
     def __init__(
@@ -127,45 +133,64 @@ class BaseReviewLabeler(LLMLabeler[tuple[str, str], ReviewResultType], Generic[R
         model: str,
         llm: BaseChatModel,
         timeout_secs: float = settings.DEFAULT_REVIEW_TIMEOUT_SECS,
+        chat_history: list[BaseMessage] | None = None,
     ) -> None:
         self.model = model
         self.review_type = review_type
         self.base_llm = llm
+        self.chat_history = chat_history or []
         super().__init__(self.base_llm, timeout_secs=timeout_secs)
 
     def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
         """Prepare the LLM with the appropriate prompt template."""
         config = REVIEW_CONFIGS[self.review_type]
         prompt = fill_cur_datetime(config.prompt_template)
-        template = ChatPromptTemplate.from_messages(
-            [
-                ("system", prompt),
-                (
-                    "human",
-                    (
-                        "Conversation History and Latest Query: {conversation_until_last_user_message}\n"
-                        "AI Response to Evaluate: {response}"
-                    ),
-                ),
-            ]
+        user_prompt = config.user_prompt_template
+
+        # Extract conversation until last user message
+        conversation_history: list[BaseMessage] = (
+            _extract_conversation_until_last_user_message(self.chat_history) if self.chat_history else []
         )
+
+        # Create prompt messages
+        messages: list[tuple[str, str] | BaseMessage] = [("system", prompt)]
+
+        # Add conversation history
+        messages += conversation_history
+
+        # Add AI response evaluation prompt
+        messages.append(("human", "AI Response to Evaluate: {response}\n\n"))
+
+        messages.append(("human", user_prompt))
+
+        template = ChatPromptTemplate.from_messages(messages)
         return template | llm  # type: ignore
 
-    def _prepare_input(self, input: tuple[str, str]) -> dict[str, Any]:
+    def _prepare_input(self, input: tuple[list[BaseMessage], str]) -> dict[str, Any]:
         """Prepare input for the LLM."""
-        return dict(
-            conversation_until_last_user_message=input[0],
-            response=input[1],
-        )
+        chat_history, response = input
+
+        # If chat_history is provided in init, use it; otherwise use the one from input
+        if self.chat_history and not chat_history:
+            # Already processed in _prepare_llm
+            return dict(response=response)
+        else:
+            # Update chat_history for future calls
+            self.chat_history = chat_history
+            return dict(response=response)
 
 
 class BinaryReviewLabeler(BaseReviewLabeler[bool]):
     """Labeler that determines if a response accurately answers the last human message with a binary true/false."""
 
     def __init__(
-        self, model: str, llm: BaseChatModel, timeout_secs: float = settings.DEFAULT_REVIEW_TIMEOUT_SECS
+        self,
+        model: str,
+        llm: BaseChatModel,
+        timeout_secs: float = settings.DEFAULT_REVIEW_TIMEOUT_SECS,
+        chat_history: list[BaseMessage] | None = None,
     ) -> None:
-        super().__init__(ReviewType.BINARY, model, llm, timeout_secs)
+        super().__init__(ReviewType.BINARY, model, llm, timeout_secs, chat_history)
 
     def _parse_output(self, output: BaseMessage) -> bool:
         return str(output.content).strip().lower() == "true"
@@ -175,9 +200,13 @@ class CritiqueReviewLabeler(BaseReviewLabeler[str]):
     """Labeler that provides a short critique of the response."""
 
     def __init__(
-        self, model: str, llm: BaseChatModel, timeout_secs: float = settings.DEFAULT_REVIEW_TIMEOUT_SECS
+        self,
+        model: str,
+        llm: BaseChatModel,
+        timeout_secs: float = settings.DEFAULT_REVIEW_TIMEOUT_SECS,
+        chat_history: list[BaseMessage] | None = None,
     ) -> None:
-        super().__init__(ReviewType.CRITIQUE, model, llm, timeout_secs)
+        super().__init__(ReviewType.CRITIQUE, model, llm, timeout_secs, chat_history)
 
     def _parse_output(self, output: BaseMessage) -> str:
         parsed_output = str(output.content).replace("\n", " ").replace("Critique:", "").strip()
@@ -190,9 +219,13 @@ class SegmentedReviewLabeler(BaseReviewLabeler[list[dict[str, str]]]):
     """Labeler that provides segmented review with updates and reasoning."""
 
     def __init__(
-        self, model: str, llm: BaseChatModel, timeout_secs: float = settings.DEFAULT_REVIEW_TIMEOUT_SECS
+        self,
+        model: str,
+        llm: BaseChatModel,
+        timeout_secs: float = settings.DEFAULT_REVIEW_TIMEOUT_SECS,
+        chat_history: list[BaseMessage] | None = None,
     ) -> None:
-        super().__init__(ReviewType.SEGMENTED, model, llm, timeout_secs)
+        super().__init__(ReviewType.SEGMENTED, model, llm, timeout_secs, chat_history)
 
     def _process_tag_content(self, lines: list[str], start_idx: int, tag: str) -> tuple[str, int]:
         """Process content for a specific XML-style tag in the segmented review format.
@@ -264,7 +297,7 @@ class SegmentedReviewLabeler(BaseReviewLabeler[list[dict[str, str]]]):
         return segments
 
 
-class NuggetizedReviewLabeler(LLMLabeler[tuple[str, list[tuple[str, str]]], dict[str, NuggetizedResult]]):
+class NuggetizedReviewLabeler(LLMLabeler[tuple[list[BaseMessage], list[tuple[str, str]]], dict[str, NuggetizedResult]]):
     """Labeler that uses nuggetizer to extract and analyze key points from responses."""
 
     def __init__(
@@ -280,7 +313,9 @@ class NuggetizedReviewLabeler(LLMLabeler[tuple[str, list[tuple[str, str]]], dict
             self.nuggetizer = YuppNuggetizer(model=self.model)
         return self.nuggetizer
 
-    async def alabel_full(self, input: tuple[str, list[tuple[str, str]]]) -> tuple[dict[str, NuggetizedResult], str]:
+    async def alabel_full(
+        self, input: tuple[list[BaseMessage], list[tuple[str, str]]]
+    ) -> tuple[dict[str, NuggetizedResult], str]:
         """Labels the input asynchronously using nuggetizer.
 
         Args:
@@ -307,8 +342,19 @@ class NuggetizedReviewLabeler(LLMLabeler[tuple[str, list[tuple[str, str]]], dict
                     logging.warning("No responses to review in nuggetizer")
                     return {}, ""
 
+                # Convert question list into a single string
+                question_text = ""
+                for i, q in enumerate(question):
+                    if i % 2 == 0:
+                        question_text += f"User Message (Turn {i // 2 + 1}): "
+                    else:
+                        question_text += f"AI Response (Turn {i // 2 + 1}): "
+                    if isinstance(q, str):
+                        question_text += f"{q}\n"
+                    elif isinstance(q, list) and q and isinstance(q[-1], dict):
+                        question_text += str(q[-1].get("text", "")) + "\n"
                 # Create nuggetizer request
-                query = Query(qid="review-tmp-qid", text=question)
+                query = Query(qid="review-tmp-qid", text=question_text.strip())
                 documents = [
                     Document(docid=f"review-tmp-response-{i+1}", segment=response)
                     for i, response in enumerate(responses)
@@ -356,7 +402,7 @@ class NuggetizedReviewLabeler(LLMLabeler[tuple[str, list[tuple[str, str]]], dict
     def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
         return llm  # No prompt template needed for nuggetizer
 
-    def _prepare_input(self, input: tuple[str, list[tuple[str, str]]]) -> dict[str, Any]:
+    def _prepare_input(self, input: tuple[list[BaseMessage], list[tuple[str, str]]]) -> dict[str, Any]:
         """Input is (question, list of (model_name, response)) tuple"""
         question, model_responses = input
         return dict(question=question, model_responses=model_responses)
@@ -377,7 +423,9 @@ SEGMENTED_REVIEWER: dict[str, SegmentedReviewLabeler] = {}
 NUGGETIZED_REVIEWER: dict[str, NuggetizedReviewLabeler] = {}
 
 
-async def get_reviewer(review_type: ReviewType, model: str = "gpt-4o") -> BaseReviewLabeler[ReviewResultType]:
+async def get_reviewer(
+    review_type: ReviewType, model: str = "gpt-4o", chat_history: list[BaseMessage] | None = None
+) -> BaseReviewLabeler[ReviewResultType]:
     """Get a reviewer instance for the specified review type and model.
 
     Args:
@@ -401,17 +449,22 @@ async def get_reviewer(review_type: ReviewType, model: str = "gpt-4o") -> BaseRe
 
     # Create appropriate reviewer instance
     if review_type == ReviewType.NUGGETIZED:
-        return cast(BaseReviewLabeler[ReviewResultType], NuggetizedReviewLabeler(model=model, llm=llm))
+        return cast(
+            BaseReviewLabeler[ReviewResultType],
+            NuggetizedReviewLabeler(model=model, llm=llm),
+        )
 
     reviewer_class = {
         ReviewType.BINARY: BinaryReviewLabeler,
         ReviewType.CRITIQUE: CritiqueReviewLabeler,
         ReviewType.SEGMENTED: SegmentedReviewLabeler,
     }[review_type]
-    return cast(BaseReviewLabeler[ReviewResultType], reviewer_class(model=model, llm=llm))
+    return cast(BaseReviewLabeler[ReviewResultType], reviewer_class(model=model, llm=llm, chat_history=chat_history))
 
 
-def _extract_conversation_until_last_user_message(chat_history_messages: list[BaseMessage]) -> str:
+def _extract_conversation_until_last_user_message(
+    chat_history_messages: list[BaseMessage],
+) -> list[BaseMessage]:
     """
     Extract the conversation history until the last human message (inclusive).
     """
@@ -426,25 +479,7 @@ def _extract_conversation_until_last_user_message(chat_history_messages: list[Ba
         raise ValueError("No human messages found in chat history")
 
     # Get all history up to and including last human message as conversation history
-    conversation_history = chat_history_messages[: last_human_idx + 1]
-    conversation_parts = []
-    turn = 1
-    for i in range(0, len(conversation_history), 2):
-        if i + 1 < len(conversation_history):
-            # Complete turn with both user and system message
-            user_msg = conversation_history[i]
-            sys_msg = conversation_history[i + 1]
-            conversation_parts.append(f"User Message (Turn {turn}): {user_msg.content}")
-            conversation_parts.append(f"AI Response (Turn {turn}): {sys_msg.content}")
-            conversation_parts.append("")  # Empty line between turns
-            turn += 1
-        else:
-            # Final user message without response
-            user_msg = conversation_history[i]
-            conversation_parts.append(f"User Message (Turn {turn}): {user_msg.content}")
-
-    conversation_until_last_user_message = "\n".join(conversation_parts)
-    return conversation_until_last_user_message
+    return chat_history_messages[: last_human_idx + 1]
 
 
 def _select_reviewer_model(
@@ -539,7 +574,6 @@ async def generate_reviews(
         chat_history.messages, REVIEW_MODEL_WITH_PDF_SUPPORT[0], options=transform_options
     )
     # Extract conversation history until last user message from chat history
-    conversation_until_last_user_message = _extract_conversation_until_last_user_message(chat_history.messages)
     last_assistant_responses = responses
     # Default to all review types if none specified
     review_types = request.review_types or list(ReviewType)
@@ -601,11 +635,15 @@ async def generate_reviews(
             )
 
             if ReviewType.BINARY in review_types:
-                binary_reviewers[model] = await get_reviewer(ReviewType.BINARY, reviewer_model)
+                binary_reviewers[model] = await get_reviewer(ReviewType.BINARY, reviewer_model, chat_history.messages)
             if ReviewType.CRITIQUE in review_types:
-                critique_reviewers[model] = await get_reviewer(ReviewType.CRITIQUE, reviewer_model)
+                critique_reviewers[model] = await get_reviewer(
+                    ReviewType.CRITIQUE, reviewer_model, chat_history.messages
+                )
             if ReviewType.SEGMENTED in review_types:
-                segmented_reviewers[model] = await get_reviewer(ReviewType.SEGMENTED, reviewer_model)
+                segmented_reviewers[model] = await get_reviewer(
+                    ReviewType.SEGMENTED, reviewer_model, chat_history.messages
+                )
 
     async def _run_pointwise_review(
         review_type: ReviewType,
@@ -630,7 +668,7 @@ async def generate_reviews(
             if last_assistant_responses:
                 for model, response in last_assistant_responses.items():
                     reviewer = reviewers[model]
-                    task = reviewer.alabel((conversation_until_last_user_message, response.content))
+                    task = reviewer.alabel((chat_history.messages, response.content))
                     review_tasks.append((model, task))
             else:
                 logging.warning(f"run_{review_type}: No responses to review, last_assistant_responses is empty")
@@ -665,7 +703,7 @@ async def generate_reviews(
         except Exception as e:
             log_dict = {
                 "message": f"_run_{review_type}: Error in {review_type} review for turn_id {request.turn_id}: {str(e)}",
-                "conversation_until_last_user_message": conversation_until_last_user_message,
+                "chat_history": chat_history.messages,
                 "last_assistant_responses": last_assistant_responses,
             }
             logging.exception(json_dumps(log_dict))
