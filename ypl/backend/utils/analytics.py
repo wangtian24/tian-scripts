@@ -903,6 +903,8 @@ async def post_cashout_metrics(start_date: datetime, end_date: datetime) -> None
         SUM(total_amount) as total_amount
     FROM
         base_data
+    WHERE
+        date_trunc('month', date)::date = date_trunc('month', current_date)::date
     GROUP BY
         period_start,
         currency
