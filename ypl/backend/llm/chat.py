@@ -136,7 +136,9 @@ class SelectedModelInfo(BaseModel):
     model: str  # the model name
     provider: str  # the provider name
     type: SelectedModelType
-    prompt_modfiers: list[tuple[str, str]]  # a list of (prompt modifier ID, prompt modifier)
+    prompt_style_modifier_id: str | None  # the prompt style modifier
+    reasons: list[str]  # components of the reasons
+    reason_desc: str  # the description of the reason
 
 
 class SelectModelsV2Response(BaseModel):
@@ -372,6 +374,11 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         }
         logging.info(json_dumps(log_dict))
 
+    def _get_modifier(model: str) -> str | None:
+        modifiers = prompt_modifiers_by_model.get(model, [])
+        # just get the first one, there's only one right now.
+        return modifiers[0][1] if len(modifiers) > 0 else None
+
     # Prepare the response
     response = SelectModelsV2Response(
         models=[(model, prompt_modifiers_by_model.get(model, [])) for model in primary_models],
@@ -382,7 +389,9 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
                 model=model,
                 provider=providers_by_model[model],
                 type=SelectedModelType.PRIMARY if model in primary_models else SelectedModelType.FALLBACK,
-                prompt_modfiers=prompt_modifiers_by_model.get(model, []),
+                prompt_style_modifier_id=_get_modifier(model),
+                reasons=[],
+                reason_desc="",
             )
             for model in primary_models + fallback_models
         ],

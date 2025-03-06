@@ -113,10 +113,9 @@ async def get_provider_client(model_name: str, include_all_models: bool = False,
 
     # Split the model name into base and variant. The variant is not directly used, variant-specific parameters
     # are stored in the LanguageModel.parameters field.
-    if "o3-mini" in model.internal_name:
-        model_name = model.internal_name.split(":")[0]  # only allow ":" syntax in GPT o3 models for now.
-    else:
-        model_name = model.internal_name
+    # Use "::" as a internal delimiter for model name and variant, the double colon is necessary as there are some
+    # models that have ":" in their name, we don't want thtem to be split.
+    model_name = model.internal_name.split("::")[0]
     # model_variant = model.internal_name.split(":")[1] if ":" in model.internal_name else None
 
     match provider.name:
