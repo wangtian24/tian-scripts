@@ -40,13 +40,16 @@ class LanguageModelStruct(BaseModel):
     provider_id: UUID | None
     parameters: dict[str, Any] | None
     supported_attachment_mime_types: list[str] | None
-    # below are not directly dumped from the LanguageModel fields
+    external_model_info_url: str | None
+    # below are inferred from elsewhere and not directly dumped from the LanguageModel fields
     provider_name: str | None
-    taxo_label: str | None
+    taxonomy_id: UUID | None
+    taxonomy_label: str | None
     taxonomy_path: str | None  # joining publisher, family, class, version, release
-    flags: list[str] | None  # a list of PRO, STRONG, LIVE, FAST tags if available
+    flags: list[str] | None  # a list of PRO, STRONG, LIVE, FAST, etc
     is_internal: bool | None
     keywords: list[str] | None  # a list of keywords the client can match on in typeahead
+    priority: int | None
 
 
 def clean_provider_name(provider_name: str) -> str:
@@ -178,8 +181,9 @@ class ModelTaxonomyQuery(BaseModel):
 
 
 class ModelTaxonomyResponse(BaseModel):
-    language_model_taxonomy_id: UUID
-    taxo_label: str
+    taxonomy_id: UUID
+    taxonomy_label: str
+    taxonomy_path: str | None  # joining publisher, family, class, version, release
     model_publisher: str
     model_family: str
     model_class: str | None
@@ -187,11 +191,14 @@ class ModelTaxonomyResponse(BaseModel):
     model_release: str | None
     # other metadata
     avatar_url: str | None
-    is_pro: bool
-    is_live: bool
-    is_new: bool  # synthetic field, not directly from DB
+    parameter_count: int | None
+    context_window_tokens: int | None
+    knowledge_cutoff_date: date | None
     supported_attachment_mime_types: list[str] | None
+    # below are inferred from elsewhere and not directly dumped from the LanguageModel fields
+    flags: list[str] | None  # a list of PRO, STRONG, LIVE, FAST, etc
     is_internal: bool | None
+    keywords: list[str] | None  # a list of keywords the client can match on in typeahead
     priority: int | None
 
 
@@ -200,6 +207,46 @@ MAX_NEW_MODEL_AGE_DAYS = 30
 
 def _is_none_or_null(value: str) -> bool:
     return value.lower() in ["none", "null"]
+
+
+def _make_taxo_path_from_taxonomy(taxo: LanguageModelTaxonomy | None) -> str:
+    return _make_taxo_path(
+        taxo.model_publisher if taxo else None,
+        taxo.model_family if taxo else None,
+        taxo.model_class if taxo else None,
+        taxo.model_version if taxo else None,
+        taxo.model_release if taxo else None,
+    )
+
+
+def _make_taxo_path(
+    publisher: str | None, family: str | None, class_: str | None, version: str | None, release: str | None
+) -> str:
+    return f"/{publisher or ''}/{family or ''}/{class_ or ''}/{version or ''}/{release or ''}"
+
+
+def _clean_keywords_list(raw_keywords: list[str | None]) -> list[str]:
+    flattened = []
+    for keyword in raw_keywords:
+        if keyword is not None and keyword != "":
+            flattened.extend(re.split(r"[ :()\[\]]+", keyword.lower()))
+    # Filter out empty strings and return unique keywords
+    return [keyword for keyword in set(flattened) if keyword]
+
+
+def _create_keywords_from_taxonomy(taxo: LanguageModelTaxonomy, flags: list[str]) -> list[str]:
+    keywords: list[str | None] = list(flags)
+    if taxo.taxo_label:
+        keywords.append(taxo.taxo_label)
+    keywords.extend(
+        [
+            taxo.model_publisher,
+            taxo.model_family,
+            taxo.model_class,
+            taxo.model_version,
+        ]
+    )
+    return _clean_keywords_list(keywords)
 
 
 async def get_model_taxonomies(query: ModelTaxonomyQuery) -> list[ModelTaxonomyResponse]:
@@ -271,24 +318,35 @@ async def get_model_taxonomies(query: ModelTaxonomyQuery) -> list[ModelTaxonomyR
 
         results = (await session.exec(sql_query)).all()
 
-        return [
-            ModelTaxonomyResponse(
-                **result.model_dump(exclude={"is_pro", "is_live", "is_new", "priority"}),
-                is_pro=result.is_pro or False,
-                is_live=result.is_live or False,
-                is_new=(
-                    result.created_at is not None
-                    and result.created_at > datetime.now(UTC) - timedelta(days=MAX_NEW_MODEL_AGE_DAYS)
-                ),
-                priority=result.priority or 0,
+        response = []
+        for result in results:
+            flags = _infer_flags_from_taxonomy(result)
+            keywords = _create_keywords_from_taxonomy(result, flags)
+            response.append(
+                ModelTaxonomyResponse(
+                    **result.model_dump(
+                        exclude={
+                            "is_pro",
+                            "is_strong",
+                            "is_live",
+                            "is_reasoning",
+                            "is_image_generation",
+                            "priority",
+                        }
+                    ),
+                    taxonomy_id=result.language_model_taxonomy_id,
+                    taxonomy_label=result.taxo_label,
+                    taxonomy_path=_make_taxo_path_from_taxonomy(result),
+                    flags=flags,
+                    priority=result.priority or 0,
+                    keywords=keywords,
+                )
             )
-            for result in results
-        ]
+        return response
 
 
-def _create_keywords(model: LanguageModel, flags: list[str]) -> list[str]:
-    keywords: list[str | None] = []
-    keywords.extend(flags)
+def _create_keywords_from_model(model: LanguageModel, flags: list[str]) -> list[str]:
+    keywords: list[str | None] = list(flags)
     if model.label:
         keywords.append(model.label)
     if model.taxonomy:
@@ -302,23 +360,24 @@ def _create_keywords(model: LanguageModel, flags: list[str]) -> list[str]:
                 model.taxonomy.model_version,
             ]
         )
-    # split and unique
-    flattened = []
-    for keyword in keywords:
-        if keyword is not None and keyword != "":
-            flattened.extend(re.split(r"[ :()\[\]]+", keyword.lower()))
-    # Filter out empty strings and return unique keywords
-    return [keyword for keyword in set(flattened) if keyword]
+    return _clean_keywords_list(keywords)
 
 
-def _infer_flags(model: LanguageModel) -> list[str]:
+def _is_new(created_at: datetime | None) -> bool:
+    return created_at is not None and created_at > datetime.now(UTC) - timedelta(days=MAX_NEW_MODEL_AGE_DAYS)
+
+
+def _infer_flags_from_model(model: LanguageModel) -> list[str]:
     flags = [
         flag
         for flag, value in {
+            "NEW": _is_new(model.created_at),
             "PRO": model.is_pro,
             "STRONG": model.is_strong,
             "LIVE": model.is_live,
             "FAST": model.provider.is_fast,
+            "REASONING": model.is_reasoning,
+            "IMAGE_GENERATION": model.is_image_generation,
             "IMAGE": (model.supported_attachment_mime_types and supports_image(model.supported_attachment_mime_types)),
             "PDF": model.supported_attachment_mime_types and supports_pdf(model.supported_attachment_mime_types),
         }.items()
@@ -327,13 +386,41 @@ def _infer_flags(model: LanguageModel) -> list[str]:
     return flags
 
 
+def _infer_flags_from_taxonomy(taxo: LanguageModelTaxonomy) -> list[str]:
+    # note that there is no "FAST" as it's a provider-related flag
+    flags = [
+        flag
+        for flag, value in {
+            "NEW": _is_new(taxo.created_at),
+            "PRO": taxo.is_pro,
+            "STRONG": taxo.is_strong,
+            "LIVE": taxo.is_live,
+            "REASONING": taxo.is_reasoning,
+            "IMAGE_GENERATION": taxo.is_image_generation,
+            "IMAGE": (taxo.supported_attachment_mime_types and supports_image(taxo.supported_attachment_mime_types)),
+            "PDF": taxo.supported_attachment_mime_types and supports_pdf(taxo.supported_attachment_mime_types),
+        }.items()
+        if value
+    ]
+    return flags
+
+
 def _create_language_model_struct(model: LanguageModel) -> LanguageModelStruct:
-    flags = _infer_flags(model)
-    keywords = _create_keywords(model, flags)
+    flags = _infer_flags_from_model(model)
+    keywords = _create_keywords_from_model(model, flags)
 
     return LanguageModelStruct(
         **model.model_dump(
-            exclude={"organization", "model_publisher", "family", "model_class", "model_version", "model_release"}
+            exclude={
+                "organization",
+                "model_publisher",
+                "family",
+                "model_class",
+                "model_version",
+                "model_release",
+                "taxonomy_id",
+                "priority",
+            }
         ),
         model_publisher=model.taxonomy.model_publisher if model.taxonomy else model.model_publisher,
         model_family=model.taxonomy.model_family if model.taxonomy else model.family,
@@ -342,16 +429,12 @@ def _create_language_model_struct(model: LanguageModel) -> LanguageModelStruct:
         model_release=model.taxonomy.model_release if model.taxonomy else model.model_release,
         organization_name=model.organization.organization_name if model.organization else None,
         provider_name=model.provider.name if model.provider else None,
-        taxo_label=model.taxonomy.taxo_label if model.taxonomy else None,
-        taxonomy_path=(
-            f"/{model.taxonomy.model_publisher or ''}/{model.taxonomy.model_family or ''}"
-            f"/{model.taxonomy.model_class or ''}/{model.taxonomy.model_version or ''}"
-            f"/{model.taxonomy.model_release or ''}"
-            if model.taxonomy
-            else None
-        ),
+        taxonomy_id=model.taxonomy_id,
+        taxonomy_label=model.taxonomy.taxo_label if model.taxonomy else None,
+        taxonomy_path=_make_taxo_path_from_taxonomy(model.taxonomy),
         flags=flags,
         keywords=keywords,
+        priority=model.priority if model.priority is not None else 0,
     )
 
 

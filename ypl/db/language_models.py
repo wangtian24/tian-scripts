@@ -264,6 +264,9 @@ class LanguageModel(BaseModel, table=True):
     # Model-specific parameters, allowing us to configure virutal models
     parameters: dict[str, Any] = Field(default_factory=dict, sa_type=JSONB, nullable=True)
 
+    # a priority number to rank model types in the UI, larger number means more front positions.
+    priority: int | None = Field(nullable=True, default=None)
+
     # taxonomy id
     taxonomy_id: uuid.UUID | None = Field(
         foreign_key="language_model_taxonomy.language_model_taxonomy_id", nullable=True, default=None
@@ -324,9 +327,13 @@ class LanguageModelTaxonomy(BaseModel, table=True):
 
     # provider-independent model attributes
     # These are migrated from the language_models table, we will store all provider-independent attributes here.
-    is_strong: bool | None = Field(nullable=True, default=False)
-    is_pro: bool | None = Field(nullable=True, default=False)
-    is_live: bool | None = Field(nullable=True, default=False)
+    is_strong: bool | None = Field(nullable=True, default=False, index=True)
+    is_pro: bool | None = Field(nullable=True, default=False, index=True)
+    is_live: bool | None = Field(nullable=True, default=False, index=True)
+    # Whether the model is a reasoning model, not exposed to users but used for routing.
+    is_reasoning: bool | None = Field(nullable=True, default=None, index=True)
+    # Whether the model is an image-generation model, such as DALL-E.
+    is_image_generation: bool | None = Field(nullable=True, default=None, index=True)
     # Whether this model type is for internal use only (only Yuppsters will see it or use it)
     # There is a separate field for individual models in LanguageModel which has priority over this though.
     is_internal: bool | None = Field(nullable=True, default=False)
@@ -338,6 +345,9 @@ class LanguageModelTaxonomy(BaseModel, table=True):
     supported_attachment_mime_types: list[str] | None = Field(
         default=None, sa_column=Column(ARRAY(String), nullable=True)
     )
+
+    # Eventually we will link to our own model info pages. But this is a short term solution.
+    external_model_info_url: str | None = Field(nullable=True, default=None)
 
     # a priority number to rank model types in the UI, larger number means more front positions.
     priority: int | None = Field(nullable=True, default=None)
