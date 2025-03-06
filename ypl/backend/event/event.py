@@ -306,14 +306,11 @@ async def create_new_event(request: CreateEventRequest) -> EventResponse | None:
 
 
 async def send_slack_notification_for_admin_actions(event: Event) -> None:
-    # Currently only sending invite code to the guest management slack channel.
-    if event.event_name in [
-        "UPDATE_INVITE_CODE",
-        "CREATE_INVITE_CODE",
-    ]:
-        slack_message = f"Admin invite code action: {event.event_name}"
+    # Currently only sending invite code events to the guest management slack channel.
+    if event.event_name.endswith("INVITE_CODE"):
+        slack_message = f"- {event.event_name}"
         if event.event_params:
             slack_message += f"\nPerformed by: {event.event_params.get('creator_user_email')}"
-        slack_message += f"\nDetails: {json_dumps(event.event_params)}"
+        slack_message += f"\nDetails:\n {json_dumps(event.event_params, indent=2)}"
 
         await post_to_slack_with_user_name(event.user_id, slack_message, settings.GUEST_MANAGEMENT_SLACK_WEBHOOK_URL)
