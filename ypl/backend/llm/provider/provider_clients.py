@@ -46,7 +46,10 @@ PROVIDER_KWARGS = {
 
 @ttl_cache(ttl=600)  # 600 seconds = 10 minutes
 def load_models_with_providers(include_all_models: bool = False) -> dict[str, tuple[LanguageModel, Provider]]:
-    """Load all active language models with their provider information from the database."""
+    """
+    Load all active language models with their provider information from the database.
+    Returns a map from model name (not internal_name!!) to (model, provider) tuple.
+    """
     with Session(get_engine()) as session:
         conditions = [
             LanguageModel.deleted_at.is_(None),  # type: ignore
@@ -66,35 +69,48 @@ def load_models_with_providers(include_all_models: bool = False) -> dict[str, tu
         results = session.exec(query)
         models_with_providers = results.all()
 
-        return {model.internal_name: (model, provider) for model, provider in models_with_providers}
+        return {model.name: (model, provider) for model, provider in models_with_providers}
 
 
-# TODO: Ralph's comment: probably want to standardize the provider name using `standardize_provider_name`
 def get_model_provider_tuple(
-    model_name: str, include_all_models: bool = False
+    internal_name: str | None = None, name: str | None = None, include_all_models: bool = False
 ) -> tuple[LanguageModel, Provider] | None:
     """
-    Look up the (model, provider) tuple for a given model name.
+    Look up the (model, provider) tuple for a given model internal_name of (full) name.
     Cache results for 10 minutes using ttl_cache.
     Returns None if the model is not found.
     """
-    model_provider_map = load_models_with_providers(include_all_models)
-    return model_provider_map.get(model_name)
+    model_provider_map_by_name = load_models_with_providers(include_all_models)
+    if name is not None:
+        return model_provider_map_by_name.get(name)
+    elif internal_name is not None:
+        model_provider_map_by_internal_name = {
+            model.internal_name: (model, provider) for model, provider in model_provider_map_by_name.values()
+        }
+        return model_provider_map_by_internal_name.get(internal_name)
+    else:
+        raise ValueError("Either internal_name or name must be provided")
 
 
 # TODO(bhanu) - add provider to client mapping in DB and remove switch cases (pre-work API key storage)
-async def get_provider_client(model_name: str, include_all_models: bool = False, **func_kwargs: Any) -> BaseChatModel:
+async def get_provider_client(
+    internal_name: str | None = None, name: str | None = None, include_all_models: bool = False, **func_kwargs: Any
+) -> BaseChatModel:
     """
     Initialize a LangChain client based on model name.
     Uses cached model and provider details to configure appropriate client.
 
     Args:
-        model_name: Name of the model to initialize client for
+        internal_name: Name of the model to initialize client for, to be deprecated as this is not globally unique
+        name: Name of the model, in the form of provider_name/model_name, from the 'name' field in DB
         include_all: If True, include all models, even if they are not active
     """
-    model_provider = get_model_provider_tuple(model_name, include_all_models)
+    if name is not None:
+        model_provider = get_model_provider_tuple(name=name, include_all_models=include_all_models)
+    elif internal_name is not None:
+        model_provider = get_model_provider_tuple(internal_name=internal_name, include_all_models=include_all_models)
     if not model_provider:
-        raise ValueError(f"No model-provider configuration found for: {model_name}")
+        raise ValueError("Either internal_name or name must be provided")
 
     model, provider = model_provider
     model_db_parameters = model.parameters
@@ -115,7 +131,7 @@ async def get_provider_client(model_name: str, include_all_models: bool = False,
     # are stored in the LanguageModel.parameters field.
     # Use "::" as a internal delimiter for model name and variant, the double colon is necessary as there are some
     # models that have ":" in their name, we don't want thtem to be split.
-    model_name = model.internal_name.split("::")[0]
+    internal_name = model.internal_name.split("::")[0]
     # model_variant = model.internal_name.split(":")[1] if ":" in model.internal_name else None
 
     match provider.name:
@@ -124,28 +140,28 @@ async def get_provider_client(model_name: str, include_all_models: bool = False,
             # to avoid this we are sending them to the default location of us-central1.
             # Gemini 1.5 & 2 are available in multiple AZs (including us-east4), we are not specifying project and LOC.
             # Ref - https://cloud.google.com/vertex-ai/generative-ai/docs/learn/locations#available-regions
-            if "exp" in model_name or "preview" in model_name:
+            if "exp" in internal_name or "preview" in internal_name:
                 return ChatVertexAI(
-                    model_name=model_name,
+                    model_name=internal_name,
                     project=settings.GCP_PROJECT_ID,
                     location=settings.GCP_REGION_GEMINI_2,
                     **combined_kwargs,
                 )
             else:
-                return ChatVertexAI(model_name=model_name, **combined_kwargs)
+                return ChatVertexAI(model_name=internal_name, **combined_kwargs)
         case "GroundedVertexAI":
-            if "exp" in model_name or "preview" in model_name:
+            if "exp" in internal_name or "preview" in internal_name:
                 return GroundedVertexAI(
-                    model=model_name.replace("-online", ""),
+                    model=internal_name.replace("-online", ""),
                     project=settings.GCP_PROJECT_ID,
                     location=settings.GCP_REGION_GEMINI_2,
                     **combined_kwargs,
                 )
             else:
-                return GroundedVertexAI(model=model_name.replace("-online", ""), **combined_kwargs)
+                return GroundedVertexAI(model=internal_name.replace("-online", ""), **combined_kwargs)
         case "Google":
             return ChatGoogleGenerativeAI(
-                model=model_name,
+                model=internal_name,
                 api_key=SecretStr(os.getenv("GOOGLE_API_KEY", "")),
                 **combined_kwargs,
             )
@@ -154,7 +170,7 @@ async def get_provider_client(model_name: str, include_all_models: bool = False,
             return GoogleGroundedGemini(  # type: ignore[call-arg]
                 model_info=ModelInfo(
                     provider="GoogleGrounded",
-                    model=model_name.replace("-online", ""),  # TODO: make more robust
+                    model=internal_name.replace("-online", ""),  # TODO: make more robust
                     api_key=settings.GOOGLE_API_KEY,
                 ),
                 model_config_=dict(
@@ -166,28 +182,30 @@ async def get_provider_client(model_name: str, include_all_models: bool = False,
             )
 
         case "OpenAI":
-            return ChatOpenAI(model=model_name, api_key=SecretStr(os.getenv("OPENAI_API_KEY", "")), **combined_kwargs)
+            return ChatOpenAI(
+                model=internal_name, api_key=SecretStr(os.getenv("OPENAI_API_KEY", "")), **combined_kwargs
+            )
 
         case "OpenAIDallE":
             return DallEChatModel(openai_api_key=os.getenv("OPENAI_API_KEY", ""), **combined_kwargs)
 
         case "Anthropic":
             return ChatAnthropic(
-                model_name=model_name, api_key=SecretStr(os.getenv("ANTHROPIC_API_KEY", "")), **combined_kwargs
+                model_name=internal_name, api_key=SecretStr(os.getenv("ANTHROPIC_API_KEY", "")), **combined_kwargs
             )
 
         case "Mistral AI":
             return ChatMistralAI(
-                model_name=model_name, api_key=SecretStr(os.getenv("MISTRAL_API_KEY", "")), **combined_kwargs
+                model_name=internal_name, api_key=SecretStr(os.getenv("MISTRAL_API_KEY", "")), **combined_kwargs
             )
         case "Hugging Face":
             llm = HuggingFaceEndpoint(
-                model=model_name, huggingfacehub_api_token=os.getenv("HUGGINGFACE_API_KEY", ""), **combined_kwargs
+                model=internal_name, huggingfacehub_api_token=os.getenv("HUGGINGFACE_API_KEY", ""), **combined_kwargs
             )
             return ChatHuggingFace(llm=llm)
         case "Perplexity":
             return CustomChatPerplexity(
-                model=model_name, api_key=os.getenv("PERPLEXITY_API_KEY", ""), **combined_kwargs
+                model=internal_name, api_key=os.getenv("PERPLEXITY_API_KEY", ""), **combined_kwargs
             )
 
         case _:
@@ -195,7 +213,7 @@ async def get_provider_client(model_name: str, include_all_models: bool = False,
             if provider.api_key_env_name is None and provider.name not in API_KEY_MAP:
                 logging.warning(f"No API key env var name for provider [{provider.name}]")
             return ChatOpenAI(
-                model=model_name,
+                model=internal_name,
                 api_key=SecretStr(os.getenv(provider.api_key_env_name or API_KEY_MAP[provider.name], "")),
                 base_url=merge_base_url_with_port(provider.base_api_url, provider_port),
                 **combined_kwargs,
@@ -312,6 +330,6 @@ async def get_internal_provider_client(model_name: str, max_tokens: int, tempera
             COMMON_INTERNAL_LLMS[(model_name, params)] = SPECIAL_INTERNAL_LLM_GETTERS[model_name](max_tokens)
         else:
             COMMON_INTERNAL_LLMS[(model_name, params)] = await get_provider_client(
-                model_name, include_all_models=True, temperature=temperature, max_tokens=max_tokens
+                internal_name=model_name, include_all_models=True, temperature=temperature, max_tokens=max_tokens
             )
     return COMMON_INTERNAL_LLMS[(model_name, params)]

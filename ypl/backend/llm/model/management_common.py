@@ -190,7 +190,7 @@ async def verify_inference_running(model: LanguageModel) -> tuple[bool, ModelErr
         tuple[bool, bool]: (is_inference_running, error_type, excerpt)
     """
     try:
-        chat_model_client = await get_provider_client(model.internal_name, include_all_models=True)
+        chat_model_client = await get_provider_client(internal_name=model.internal_name, include_all_models=True)
         if not chat_model_client:
             raise Exception(f"Model {model.name} not found from any active provider")
 

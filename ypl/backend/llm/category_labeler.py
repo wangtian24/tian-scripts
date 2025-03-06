@@ -74,20 +74,20 @@ async def _get_yapp_matcher() -> YappAgentClassifier:
 
 async def get_prompt_category_classifier_llm(model_name: str | None = None) -> BaseChatModel:
     if model_name:
-        return await get_provider_client(model_name)
+        return await get_provider_client(internal_name=model_name)
     else:
         return await get_default_routing_llm()
 
 
 async def get_prompt_online_classifier_llm(model_name: str | None = None) -> BaseChatModel:
     if model_name:
-        return await get_provider_client(model_name)
+        return await get_provider_client(internal_name=model_name)
     else:
         return await get_default_routing_llm()
 
 
 async def get_yapp_agent_classifier_llm(model_name: str | None = None) -> BaseChatModel:
     if model_name:
-        return await get_provider_client(model_name)
+        return await get_provider_client(internal_name=model_name)
     else:
         return await get_default_routing_llm()

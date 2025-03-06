@@ -115,9 +115,7 @@ class SelectModelsV2Request(BaseModel):
     intent: SelectIntent
     prompt: str | None = None  # prompt to use for routing
     num_models: int = 2  # number of models to select
-    required_models: list[str] | None = None  # models selected explicitly by the user
-    # model taxonomy IDs selected explicitly by the user, if used, will ignore the required_models field
-    required_models_types: list[uuid.UUID] | None = None
+    required_models: list[str] | None = None  # models selected explicitly by the user, these are internal names!
     chat_id: str  # chat ID to use for routing
     turn_id: str  # turn ID to use for routing
     provided_categories: list[str] | None = None  # categories provided by the user
@@ -958,7 +956,7 @@ async def upsert_chat_message(
     intent: Intent,
     turn_id: UUID,
     message_id: UUID,
-    model: str,
+    model_internal_name: str,
     message_type: MessageType,
     turn_seq_num: int,
     assistant_selection_source: AssistantSelectionSource,
@@ -979,10 +977,10 @@ async def upsert_chat_message(
     Please respect the above convention for future enhancements.
 
     """
-    result = get_model_provider_tuple(model)
+    result = get_model_provider_tuple(internal_name=model_internal_name)
 
     if result is None:
-        raise ValueError(f"No model and provider found for {model}")
+        raise ValueError(f"No model and provider found for {model_internal_name}")
     language_model = result[0]
 
     async with AsyncSession(get_async_engine()) as session:
@@ -993,7 +991,7 @@ async def upsert_chat_message(
                 "message_id": message_id,
                 "message_type": message_type,
                 "content": content,
-                "assistant_model_name": model,
+                "assistant_model_name": model_internal_name,
                 "streaming_metrics": streaming_metrics or {},
                 "turn_sequence_number": turn_seq_num,
                 "assistant_language_model_id": language_model.language_model_id,

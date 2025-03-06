@@ -5,31 +5,8 @@ from tqdm import tqdm
 
 from ypl.backend.llm.chat import SelectModelsV2Request, SelectModelsV2Response, select_models_plus
 from ypl.backend.llm.ranking import get_ranker
-from ypl.backend.llm.routing.route_data_type import RoutingPreference
-from ypl.backend.llm.routing.router import (
-    get_simple_pro_router,
-)
-from ypl.backend.llm.routing.router_state import RouterState
 
 router = APIRouter()
-
-
-@router.post("/select_models")
-async def select_models(
-    prompt: str = Query(..., description="Prompt"),
-    num_models: int = Query(default=2, description="Number of different models to route to"),
-    preference: None | RoutingPreference = Body(default=None, description="List of past outcomes"),  # noqa: B008
-) -> list[str]:
-    router = await get_simple_pro_router(
-        prompt,
-        num_models,
-        preference or RoutingPreference(turns=[], user_id=None, same_turn_shown_models=[]),
-    )
-    all_models_state = await RouterState.new_all_models_state()
-    selected_models = router.select_models(state=all_models_state)
-    return_models = selected_models.get_sorted_selected_models()
-
-    return return_models
 
 
 @router.post("/select_models_plus")

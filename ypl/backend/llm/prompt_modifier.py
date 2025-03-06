@@ -58,6 +58,6 @@ async def _get_modifier_labeler() -> PromptModifierLabeler:
 
 async def get_prompt_modifier_llm(model_name: str | None = None) -> BaseChatModel:
     if model_name:
-        return await get_provider_client(model_name)
+        return await get_provider_client(internal_name=model_name)
     else:
         return await get_default_routing_llm()

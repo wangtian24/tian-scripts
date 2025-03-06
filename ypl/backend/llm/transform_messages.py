@@ -157,7 +157,7 @@ async def generate_part(
 
 async def transform_user_messages(
     messages: list[BaseMessage],
-    model_name: str,
+    model_internal_name: str,
     options: TransformOptions = DEFAULT_OPTIONS,
 ) -> list[BaseMessage]:
     """
@@ -185,9 +185,9 @@ async def transform_user_messages(
         - If yes, these video transcripts are added to the messages.
         - These are actually system prompts, and are added to the front of the message list.
     """
-    model_provider = get_model_provider_tuple(model_name, include_all_models=True)
+    model_provider = get_model_provider_tuple(internal_name=model_internal_name, include_all_models=True)
     if not model_provider:
-        raise ValueError(f"No model-provider configuration found for: {model_name}")
+        raise ValueError(f"No model-provider configuration found for: {model_internal_name}")
 
     model = model_provider[0]
 

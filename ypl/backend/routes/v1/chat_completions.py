@@ -93,7 +93,8 @@ class StreamResponse:
 
 class ChatRequest(BaseModel):
     prompt: str = Field(..., min_length=0, description="Prompt string")
-    model: str = Field(..., description="Model internal name")
+    model: str = Field(..., description="Model internal name, to be deprecated")  # TODO(Tian) deprecate!
+    model_name: str | None = Field(default=None, description="Model name with provider/internal_name")
     is_new_chat: bool = True
     chat_id: uuid.UUID = Field(..., description="Chat Id  of generated on client")
     turn_id: uuid.UUID = Field(..., description="Turn Id of Chat generated on client")
@@ -164,7 +165,7 @@ async def chat_completions(
             detail="User prompt must have either text or attachment",
         )
     try:
-        client: BaseChatModel = await get_provider_client(chat_request.model)
+        client: BaseChatModel = await get_provider_client(internal_name=chat_request.model)
         return StreamingResponse(_stream_chat_completions(client, chat_request), media_type="text/event-stream")
     except Exception as e:
         logging.error(f"Error initializing model: {e} \n" + traceback.format_exc())
@@ -182,11 +183,15 @@ def _log_request_details(chat_request: ChatRequest, message: str, additional_fie
         message: The phase of the request ("start" or "end")
     """
     log_dict = {
-        "message": f"chat_completions: {message} - (model: {chat_request.model})",
+        "message": (
+            f"chat_completions: {message} - "
+            f"[{chat_request.model_name if chat_request.model_name else chat_request.model}]"
+        ),
         "chat_id": str(chat_request.chat_id),
         "turn_id": str(chat_request.turn_id),
         "message_id": str(chat_request.message_id),
-        "model": chat_request.model,
+        "model_internal_name": chat_request.model,
+        "model__name": chat_request.model_name,
     }
     if additional_fields:
         log_dict.update(additional_fields)
@@ -209,7 +214,8 @@ async def _handle_existing_message(
         "turn_id": str(chat_request.turn_id),
         "message_id": str(existing_message.message_id),
         "content_length": str(len(existing_message.content)),
-        "model": chat_request.model,
+        "model_internal_name": chat_request.model,
+        "model_name": chat_request.model_name,
     }
     if chat_request.prompt_modifier_ids:
         log_dict["prompt_modifier_ids"] = ",".join(str(id) for id in chat_request.prompt_modifier_ids)
@@ -292,7 +298,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                 intent=Intent.EAGER_PERSIST,
                 turn_id=chat_request.turn_id,
                 message_id=chat_request.message_id,
-                model=chat_request.model,
+                model_internal_name=chat_request.model,
                 message_type=MessageType.ASSISTANT_MESSAGE,
                 turn_seq_num=chat_request.turn_seq_num,
                 assistant_selection_source=chat_request.assistant_selection_source,
@@ -611,7 +617,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                 intent=Intent.FINAL_PERSIST,
                 turn_id=chat_request.turn_id,
                 message_id=chat_request.message_id,
-                model=chat_request.model,
+                model_internal_name=chat_request.model,
                 message_type=MessageType.ASSISTANT_MESSAGE,
                 turn_seq_num=chat_request.turn_seq_num,
                 prompt_modifier_ids=chat_request.prompt_modifier_ids,
