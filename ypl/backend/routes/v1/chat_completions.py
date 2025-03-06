@@ -439,7 +439,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                         content = str(chunk.content)  # Type is str | list.
                     # Only log in local environment
                     if settings.ENVIRONMENT == "local":
-                        print(f"[{chunk.content}]")
+                        logging.info(f"Streamed chunk from {chat_request.model}: {chunk.content}")
                     full_response += str(content)
                     if not ttft_recorded:
                         stopwatch.end_lap("total_time_to_first_token")
