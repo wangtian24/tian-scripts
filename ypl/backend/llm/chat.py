@@ -375,7 +375,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
     def _get_modifier(model: str) -> str | None:
         modifiers = prompt_modifiers_by_model.get(model, [])
         # just get the first one, there's only one right now.
-        return modifiers[0][1] if len(modifiers) > 0 else None
+        return modifiers[0][0] if len(modifiers) > 0 else None
 
     # Prepare the response
     response = SelectModelsV2Response(
