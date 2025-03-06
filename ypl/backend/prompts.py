@@ -528,6 +528,21 @@ PROMPT_MULTILABEL_CLASSIFICATION_PROMPT = """You are given the categories below:
 - Science
 - Small Talk
 - Gibberish
+- Image Generation
+
+If the prompt explicitly requests drawing or generating an image or scene, classify it as "Image Generation".
+If it does not mention generate or draw, do not classify it as "Image Generation".
+
+Examples for classification as "Image Generation":
+  - Draw a picture of a cute cat
+  - Dharamshala has a beautiful cricket stadium with snow clad mountains in the background. Draw a picture of it.
+  - Generate an image of lightning striking a tree
+  - Show me a picture of busy Tokyo street with cherry blossoms
+
+Examples for not being classified as "Image Generation":
+  - How does a dolphin leaping out of water look like?
+  - How amazing is the Eiffel Tower?
+  - Describe the early moments of large volcano eruption in Hawaii look like
 
 Classify the following prompt into one or more categories. Do not explain; return a JSON response {{"categories": [...]}}.
 
