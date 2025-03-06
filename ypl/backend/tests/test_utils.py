@@ -8,7 +8,7 @@ import pytest
 from pytest import approx, raises
 
 from ypl.backend.llm.utils import ThresholdCounter, norm_softmax
-from ypl.utils import Delegator, EarlyTerminatedException
+from ypl.utils import Delegator, EarlyTerminatedException, extract_json_dict_from_text
 
 
 def check_array_approx(ar1: Iterable[float], ar2: Iterable[float]) -> None:
@@ -241,6 +241,38 @@ async def test_multi_delegate() -> None:
     assert results["add_3_medium"] == 4
     assert results["add_3_fast_1"] == 4
     assert results["add_3_fast_2"] == 4
+
+
+def test_extract_json_dict_from_text() -> None:
+    assert extract_json_dict_from_text('```json{id = 1, name="xyz"}```') == '{id = 1, name="xyz"}'
+    assert extract_json_dict_from_text('{id = 1, name="xyz"}random_text') == '{id = 1, name="xyz"}'
+    assert extract_json_dict_from_text("no braces in text") == "no braces in text"
+    assert extract_json_dict_from_text("no starting brace }") == "no starting brace }"
+    assert extract_json_dict_from_text("{ no ending brace") == "{ no ending brace"
+    assert extract_json_dict_from_text("in reverse order } {") == "in reverse order } {"
+    assert (
+        extract_json_dict_from_text(
+            """
+                Nested multi-line json:
+                {
+                    "id": 1,
+                    "name": "xyz",
+                    "nested": {
+                        "id": 2,
+                        "name": "abc"
+                    }
+                }
+        """
+        )
+        == """{
+                    "id": 1,
+                    "name": "xyz",
+                    "nested": {
+                        "id": 2,
+                        "name": "abc"
+                    }
+                }"""
+    )
 
 
 class MockSession:

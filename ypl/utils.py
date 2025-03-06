@@ -337,3 +337,21 @@ def ifnull(value: Any, default_value: T) -> T:
     This is useful for avoiding type check errors while accessing ORM fields which are often defined as 'type | None'.
     """
     return default_value if value is None else value  # type: ignore[no-any-return]
+
+
+def extract_json_dict_from_text(text: str) -> str:
+    """
+    Returns the substring in text between first '{' and last '}', including the braces.
+    This does not validate if the returned string is valid json.
+    This is often used to extract json response from an LLM. This response can contain extra text
+    before and after the actual json.
+
+    If the braces are not found or not in the correct order, it returns the original text.
+    It does not raise an error.
+    """
+
+    first, last = text.find("{"), text.rfind("}")
+    if first == -1 or last == -1 or first > last:
+        return text
+    else:
+        return text[first : last + 1]

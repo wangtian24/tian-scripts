@@ -18,6 +18,7 @@ from ypl.backend.llm.labeler import LLMLabeler
 from ypl.backend.llm.provider.provider_clients import get_internal_provider_client
 from ypl.backend.utils.utils import StopWatch
 from ypl.db.redis import get_upstash_redis_client
+from ypl.utils import extract_json_dict_from_text
 
 YOUTUBE_VIDEOS_FOR_CHAT_KEY_FORMAT = "youtube_videos_for_chat:{chat_id}"
 YOUTUBE_TRANSCRIPT_FOR_VIDEO_ID_KEY_FORMAT = "youtube_transcript_for_video_id:{video_id}"
@@ -181,7 +182,7 @@ class YoutubeVideoLabeler(LLMLabeler[list[HumanMessage], YoutubeLabelerResponse]
         return {"prompts": user_prompts}
 
     def _parse_output(self, output: BaseMessage) -> YoutubeLabelerResponse:
-        reply_json_text = str(output.content).replace("```json", "").replace("```", "")
+        reply_json_text = extract_json_dict_from_text(str(output.content))
 
         return YoutubeLabelerResponse.model_validate_json(reply_json_text)
 
@@ -247,7 +248,7 @@ async def maybe_youtube_transcript_messages(chat_id: str, chat_history: list[Bas
             return messages
 
     except Exception as e:
-        logging.error(f"Error while youtube video processing for {chat_id}: {e}", exc_info=True)
+        logging.error(f"Error while processing youtube video for {chat_id}: {e}", exc_info=True)
 
     return []
 
