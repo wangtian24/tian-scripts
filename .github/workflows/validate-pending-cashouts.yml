@@ -2,7 +2,7 @@ name: Validate Pending Cashouts
 
 on:
   schedule:
-    - cron: '0 * * * *'  # Runs every hour
+    - cron: '0 0 * * *'  # Runs every 24 hours at midnight UTC
   workflow_dispatch:
 
 jobs:
