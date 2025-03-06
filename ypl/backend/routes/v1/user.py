@@ -4,6 +4,7 @@ from datetime import datetime
 from enum import Enum
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query
+from sqlalchemy import column, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -22,6 +23,7 @@ from ypl.backend.user.user import (
 from ypl.backend.utils.ip_utils import UserIPDetailsResponse, get_user_ip_details
 from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.soul_utils import SoulPermission, validate_permissions
+from ypl.db.events import Event
 from ypl.db.invite_codes import SpecialInviteCode, SpecialInviteCodeClaimLog
 from ypl.db.users import User, VendorNameEnum, WaitlistedUser
 
@@ -47,6 +49,7 @@ class RelatedUser:
     relationship_basis: RelationshipBasis
     points: int
     created_at: datetime | None
+    last_event_at: datetime | None
 
 
 @dataclass
@@ -208,6 +211,23 @@ async def get_related_users(user_id: str = Path(..., description="User ID")) -> 
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+async def _get_latest_event(session: AsyncSession, user_id: str) -> datetime | None:
+    """Get the latest event's created_at datetime for a user."""
+    try:
+        query = select(Event).where(Event.user_id == user_id).order_by(desc(column("created_at"))).limit(1)
+        result = await session.execute(query)
+        event = result.scalar_one_or_none()
+        return event.created_at if event else None
+    except Exception as e:
+        log_dict = {
+            "message": "Error getting latest event",
+            "user_id": user_id,
+            "error": str(e),
+        }
+        logging.error(json_dumps(log_dict))
+        return None
+
+
 async def _get_parent_user(session: AsyncSession, user_id: str) -> RelatedUser | None:
     """Get the user who referred this user (parent) or created this user."""
     try:
@@ -273,6 +293,9 @@ async def _get_parent_user(session: AsyncSession, user_id: str) -> RelatedUser |
         if not parent:
             return None
 
+        # Get the latest event for the parent
+        latest_event = await _get_latest_event(session, parent.user_id)
+
         return RelatedUser(
             user_id=parent.user_id,
             name=parent.name,
@@ -280,6 +303,7 @@ async def _get_parent_user(session: AsyncSession, user_id: str) -> RelatedUser |
             relationship_basis=RelationshipBasis.REFERRAL,
             points=parent.points,
             created_at=parent.created_at,
+            last_event_at=latest_event,
         )
     except Exception as e:
         log_dict = {
@@ -330,18 +354,19 @@ async def _get_children_users(session: AsyncSession, user_id: str) -> list[Relat
         }
         logging.info(json_dumps(log_dict))
 
-        # Combine both lists and remove duplicates
-        all_children = {
-            child.user_id: RelatedUser(
+        # Get latest events for all children
+        all_children = {}
+        for child in list(children) + list(created_children):
+            latest_event = await _get_latest_event(session, child.user_id)
+            all_children[child.user_id] = RelatedUser(
                 user_id=child.user_id,
                 name=child.name,
                 relationship_type=RelationshipType.CHILD,
                 relationship_basis=RelationshipBasis.REFERRAL,
                 points=child.points,
                 created_at=child.created_at,
+                last_event_at=latest_event,
             )
-            for child in list(children) + list(created_children)
-        }
 
         return list(all_children.values())
     except Exception as e:
@@ -378,38 +403,24 @@ async def _get_sibling_users(session: AsyncSession, user_id: str, parent_user_id
         result = await session.execute(query)
         referred_users = result.scalars().all()
 
-        referred_siblings = [
-            RelatedUser(
-                user_id=user.user_id,
-                name=user.name,
-                relationship_type=RelationshipType.SIBLING,
-                relationship_basis=RelationshipBasis.REFERRAL,
-                points=user.points,
-                created_at=user.created_at,
-            )
-            for user in referred_users
-        ]
-
         # Get all users created by the parent
         query = select(User).where(User.creator_user_id == parent_user_id)
         result = await session.execute(query)
         created_users = result.scalars().all()
 
-        # Convert created users to RelatedUser format
-        created_siblings = [
-            RelatedUser(
+        # Get latest events for all users and create RelatedUser objects
+        all_siblings = {}
+        for user in list(referred_users) + list(created_users):
+            latest_event = await _get_latest_event(session, user.user_id)
+            all_siblings[user.user_id] = RelatedUser(
                 user_id=user.user_id,
                 name=user.name,
                 relationship_type=RelationshipType.SIBLING,
                 relationship_basis=RelationshipBasis.REFERRAL,
                 points=user.points,
                 created_at=user.created_at,
+                last_event_at=latest_event,
             )
-            for user in created_users
-        ]
-
-        # Combine both lists and remove duplicates based on user_id
-        all_siblings = {sibling.user_id: sibling for sibling in referred_siblings + created_siblings}
 
         # Filter out the original user
         if user_id in all_siblings:
