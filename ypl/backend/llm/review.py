@@ -24,6 +24,7 @@ from ypl.backend.llm.provider.provider_clients import (
 from ypl.backend.llm.review_types import (
     BinaryResult,
     CritiqueResult,
+    CrossCheckResult,
     NuggetizedResult,
     ReviewConfig,
     ReviewRequest,
@@ -40,9 +41,12 @@ from ypl.backend.prompts import (
     BINARY_REVIEW_USER_PROMPT,
     CRITIQUE_REVIEW_PROMPT,
     CRITIQUE_REVIEW_USER_PROMPT,
+    CROSS_CHECK_PROMPT,
+    CROSS_CHECK_USER_PROMPT,
     SEGMENTED_REVIEW_PROMPT,
     SEGMENTED_REVIEW_USER_PROMPT,
     fill_cur_datetime,
+    partial_format,
 )
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import ChatMessage, Turn
@@ -69,6 +73,11 @@ REVIEW_CONFIGS: dict[ReviewType, ReviewConfig] = {
         max_tokens=4096,  # Larger token limit for nuggetized reviews
         prompt_template="",  # No prompt template needed as we use YuppNuggetizer
     ),
+    ReviewType.CROSS_CHECK: ReviewConfig(
+        max_tokens=1024,
+        prompt_template=CROSS_CHECK_PROMPT,
+        user_prompt_template=CROSS_CHECK_USER_PROMPT,
+    ),
 }
 
 REVIEW_MODEL_WITH_PDF_SUPPORT = ["gemini-2.0-flash-001"]
@@ -91,6 +100,8 @@ REVIEW_MODEL_WITH_IMAGE_ALLOWLIST_PREFERENCES = [
     "meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo",
     "qwen2.5-vl-72b-instruct",
 ]
+
+REVIEW_MODEL_FALLBACK = "gpt-4o"
 
 
 @alru_cache(maxsize=None, ttl=86400)  # 24-hour cache, now async-compatible
@@ -144,7 +155,7 @@ class BaseReviewLabeler(LLMLabeler[tuple[list[BaseMessage], str], ReviewResultTy
     def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
         """Prepare the LLM with the appropriate prompt template."""
         config = REVIEW_CONFIGS[self.review_type]
-        prompt = fill_cur_datetime(config.prompt_template)
+        system_prompt = fill_cur_datetime(config.prompt_template)
         user_prompt = config.user_prompt_template
 
         # Extract conversation until last user message
@@ -153,7 +164,7 @@ class BaseReviewLabeler(LLMLabeler[tuple[list[BaseMessage], str], ReviewResultTy
         )
 
         # Create prompt messages
-        messages: list[tuple[str, str] | BaseMessage] = [("system", prompt)]
+        messages: list[tuple[str, str] | BaseMessage] = [("system", system_prompt)]
 
         # Add conversation history
         messages += conversation_history
@@ -416,32 +427,106 @@ class NuggetizedReviewLabeler(LLMLabeler[tuple[list[BaseMessage], list[tuple[str
         return {}
 
 
-# Singleton instances with model tracking
+class CrossCheckReviewLabeler(LLMLabeler[tuple[list[BaseMessage], str, str], str]):
+    """Labeler that provides a cross-check review comparing a model's response with other models' responses."""
+
+    def __init__(
+        self,
+        model: str,
+        llm: BaseChatModel,
+        timeout_secs: float = settings.DEFAULT_REVIEW_TIMEOUT_SECS,
+        chat_history: list[BaseMessage] | None = None,
+        other_model_names: str | None = None,
+    ) -> None:
+        self.model = model
+        self.review_type = ReviewType.CROSS_CHECK
+        self.base_llm = llm
+        self.chat_history = chat_history or []
+        self.other_model_names = other_model_names
+        super().__init__(self.base_llm, timeout_secs=timeout_secs)
+
+    def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
+        """Prepare the LLM with the appropriate prompt template."""
+        config = REVIEW_CONFIGS[self.review_type]
+        prompt = fill_cur_datetime(config.prompt_template)
+        # Apply partial formatting for other_model_names
+        prompt = partial_format(prompt, other_model_names=self.other_model_names)
+        user_prompt = config.user_prompt_template
+
+        # Extract conversation until last user message
+        conversation_history: list[BaseMessage] = (
+            _extract_conversation_until_last_user_message(self.chat_history) if self.chat_history else []
+        )
+
+        # Create prompt messages
+        messages: list[tuple[str, str] | BaseMessage] = [("system", prompt)]
+
+        # Add conversation history
+        messages += conversation_history
+        # Add other assistant's response to evaluate
+        final_human_message = "Other Assistants' Responses to Evaluate: {other_response}\n\n"
+        final_human_message += "Your previous response to the user's prompt was: {your_response}\n\n"
+        final_human_message += user_prompt
+        messages.append(("human", final_human_message))
+
+        template = ChatPromptTemplate.from_messages(messages)
+        return template | llm  # type: ignore
+
+    def _prepare_input(self, input: tuple[list[BaseMessage], str, str]) -> dict[str, Any]:
+        """Prepare input for the LLM.
+
+        Args:
+            input: Tuple of (chat_history, your_response, other_response)
+        """
+        chat_history, your_response, other_response = input
+
+        if not self.chat_history:
+            self.chat_history = chat_history
+        return dict(your_response=your_response, other_response=other_response)
+
+    def _parse_output(self, output: BaseMessage) -> str:
+        """Parse the output from the LLM."""
+        return str(output.content).strip()
+
+    @property
+    def error_value(self) -> str:
+        return ""
+
+
 BINARY_REVIEWER: dict[str, BinaryReviewLabeler] = {}
 CRITIQUE_REVIEWER: dict[str, CritiqueReviewLabeler] = {}
 SEGMENTED_REVIEWER: dict[str, SegmentedReviewLabeler] = {}
 NUGGETIZED_REVIEWER: dict[str, NuggetizedReviewLabeler] = {}
+CROSS_CHECK_REVIEWER: dict[str, CrossCheckReviewLabeler] = {}
 
 
 async def get_reviewer(
-    review_type: ReviewType, model: str = "gpt-4o", chat_history: list[BaseMessage] | None = None
+    review_type: ReviewType,
+    model: str = REVIEW_MODEL_FALLBACK,
+    chat_history: list[BaseMessage] | None = None,
+    other_model_names: str | None = None,
 ) -> BaseReviewLabeler[ReviewResultType]:
     """Get a reviewer instance for the specified review type and model.
 
     Args:
         review_type: The type of review to perform
-        model: The model to use for the review (defaults to gpt-4o)
+        model: The model to use for the review (defaults to REVIEW_MODEL_FALLBACK)
+        chat_history: Optional chat history to provide to the reviewer
+        other_model_names: Names of other models for cross-check review (only used with CROSS_CHECK)
 
     Returns:
         A reviewer instance of the appropriate type
     """
     # Validate model and use fallback if needed
-    if review_type != ReviewType.NUGGETIZED and model not in REVIEW_MODEL_ALLOWLIST_PREFERENCES:
-        logging.warning(f"{review_type} reviewer: Unsupported model {model}, using gpt-4o instead")
-        model = "gpt-4o"
+    if (
+        review_type not in [ReviewType.NUGGETIZED, ReviewType.CROSS_CHECK]
+        and model not in REVIEW_MODEL_ALLOWLIST_PREFERENCES
+    ):
+        logging.warning(f"{review_type} reviewer: Unsupported model {model}, using {REVIEW_MODEL_FALLBACK} instead")
+        model = REVIEW_MODEL_FALLBACK
     elif review_type == ReviewType.NUGGETIZED and model not in ["gpt-4o", "gpt-4o-mini"]:
-        logging.warning(f"NuggetizedReviewLabeler: Unsupported model {model}, using gpt-4o instead")
-        model = "gpt-4o"
+        logging.warning(f"NuggetizedReviewLabeler: Unsupported model {model}, using {REVIEW_MODEL_FALLBACK} instead")
+        model = REVIEW_MODEL_FALLBACK
 
     # Get LLM client (already cached by get_internal_provider_client)
     max_tokens = REVIEW_CONFIGS[review_type].max_tokens
@@ -452,6 +537,13 @@ async def get_reviewer(
         return cast(
             BaseReviewLabeler[ReviewResultType],
             NuggetizedReviewLabeler(model=model, llm=llm),
+        )
+    elif review_type == ReviewType.CROSS_CHECK:
+        return cast(
+            BaseReviewLabeler[ReviewResultType],
+            CrossCheckReviewLabeler(
+                model=model, llm=llm, chat_history=chat_history, other_model_names=other_model_names
+            ),
         )
 
     reviewer_class = {
@@ -485,7 +577,7 @@ def _extract_conversation_until_last_user_message(
 def _select_reviewer_model(
     response_model_family: str | None,
     reviewer_model_preference: list[str] | None,
-    default_model: str = "gpt-4o",
+    default_model: str = REVIEW_MODEL_FALLBACK,
     review_llms_model_family_map: dict[str, str] | None = None,
 ) -> str:
     """Select appropriate reviewer model based on response model family, preferences, and review LLMs model family map.
@@ -541,7 +633,7 @@ async def generate_reviews(
     chat_history = await get_curated_chat_context(
         chat_id=UUID(chat_id),
         use_all_models_in_chat_history=False,
-        model=request.fallback_reviewer_model_name or "gpt-4o",
+        model=request.fallback_reviewer_model_name or REVIEW_MODEL_FALLBACK,
         current_turn_id=turn_id,
         context_for_logging="review",
         include_current_turn=True,
@@ -575,6 +667,7 @@ async def generate_reviews(
     )
     # Extract conversation history until last user message from chat history
     last_assistant_responses = responses
+    last_assistant_response_models = chat_history.current_turn_models
     # Default to all review types if none specified
     review_types = request.review_types or list(ReviewType)
 
@@ -614,18 +707,18 @@ async def generate_reviews(
                 "qwen-max-2025-01-25",
                 "deepseek/deepseek-chat",
             ]
-            fallback_reviewer_model_name_default = request.fallback_reviewer_model_name or "gpt-4o"
+            fallback_reviewer_model_name_default = request.fallback_reviewer_model_name or REVIEW_MODEL_FALLBACK
             if has_pdf_attachments and not parse_pdf_locally:
                 reviewer_model_preference = request.reviewer_model_preference or REVIEW_MODEL_WITH_PDF_SUPPORT
                 fallback_reviewer_model_name_default = (
-                    reviewer_model_preference[0] if reviewer_model_preference else "gpt-4o"
+                    reviewer_model_preference[0] if reviewer_model_preference else REVIEW_MODEL_FALLBACK
                 )
             elif has_image_attachments:
                 reviewer_model_preference = (
                     request.reviewer_model_preference or REVIEW_MODEL_WITH_IMAGE_ALLOWLIST_PREFERENCES
                 )
                 fallback_reviewer_model_name_default = (
-                    reviewer_model_preference[0] if reviewer_model_preference else "gpt-4o"
+                    reviewer_model_preference[0] if reviewer_model_preference else REVIEW_MODEL_FALLBACK
                 )
             reviewer_model = _select_reviewer_model(
                 model_family,
@@ -749,7 +842,7 @@ async def generate_reviews(
             conversation_history = _extract_conversation_until_last_user_message(chat_history.messages)
 
             # Use all responses for nuggetized review
-            reviewer_model = "gpt-4o"  # Default to gpt-4o for nuggetized review
+            reviewer_model = REVIEW_MODEL_FALLBACK  # Default to REVIEW_MODEL_FALLBACK (gpt-4o) for nuggetized review
             nuggetized_reviewer = cast(
                 NuggetizedReviewLabeler, await get_reviewer(ReviewType.NUGGETIZED, reviewer_model)
             )
@@ -767,11 +860,88 @@ async def generate_reviews(
             logging.exception(json_dumps(log_dict))
             return ReviewType.NUGGETIZED, {}
 
+    async def run_cross_check_review() -> tuple[ReviewType, dict[str, CrossCheckResult]]:
+        """Run cross check review."""
+        try:
+            cross_check_results: dict[str, CrossCheckResult] = {}
+
+            if last_assistant_responses is None or len(last_assistant_responses.keys()) < 2:
+                logging.warning(" Need at least 2 responses to compare with cross-check")
+                return ReviewType.CROSS_CHECK, {}
+
+            # Get conversation history until last user message
+            conversation_history = _extract_conversation_until_last_user_message(chat_history.messages)
+
+            # Prepare all cross-check tasks
+            review_tasks = []
+            for model_name, response in last_assistant_responses.items():
+                other_model_responses = {
+                    other_model: other_response
+                    for other_model, other_response in last_assistant_responses.items()
+                    if other_model != model_name
+                }
+                # Skip if no other models to compare with
+                if not other_model_responses:
+                    continue
+                if not last_assistant_response_models:
+                    continue
+                # Build combined response of other models
+                other_models_text = "\n---\n".join(
+                    [
+                        f"Response from {last_assistant_response_models.get(other_model, other_model)}:\n{r.content}"
+                        for other_model, r in other_model_responses.items()
+                    ]
+                )
+                other_model_names = ", ".join(
+                    [
+                        last_assistant_response_models.get(other_model, other_model)
+                        for other_model in other_model_responses.keys()
+                    ]
+                )
+                # Default to model_name for cross check review
+                reviewer_model = model_name
+
+                # Create reviewer and run task
+                cross_check_reviewer = cast(
+                    CrossCheckReviewLabeler,
+                    await get_reviewer(ReviewType.CROSS_CHECK, reviewer_model, conversation_history, other_model_names),
+                )
+
+                # Add task to the list
+                task = cross_check_reviewer.alabel((conversation_history, response.content, other_models_text))
+                review_tasks.append((model_name, reviewer_model, other_model_names, task))
+
+            # Run all tasks in parallel
+            results = await asyncio.gather(*(task for _, _, _, task in review_tasks), return_exceptions=True)
+
+            # Process results
+            for (model_name, reviewer_model, other_model_names, _), result in zip(review_tasks, results, strict=True):
+                if isinstance(result, Exception):
+                    logging.warning(f"Error in cross check review: {str(result)}")
+                    continue
+                cross_check_results[model_name] = {
+                    "response": result if isinstance(result, str) else str(result),
+                    "reviewer_model": reviewer_model,
+                    "other_model_names": other_model_names,
+                }
+
+            return ReviewType.CROSS_CHECK, cross_check_results
+
+        except Exception as e:
+            log_dict = {
+                "message": f"Error in cross check review: {str(e)}",
+                "question": _extract_conversation_until_last_user_message(chat_history.messages),
+                "last_assistant_responses": last_assistant_responses,
+            }
+            logging.exception(json_dumps(log_dict))
+            return ReviewType.CROSS_CHECK, {}
+
     review_funcs = {
         ReviewType.BINARY: run_binary_review,
         ReviewType.CRITIQUE: run_critique_review,
         ReviewType.SEGMENTED: run_segmented_review,
         ReviewType.NUGGETIZED: run_nuggetized_review,
+        ReviewType.CROSS_CHECK: run_cross_check_review,
     }
 
     # Map review types to their error values with proper type annotations
@@ -823,9 +993,19 @@ async def generate_reviews(
                 for model_name in processed_results[ReviewType.NUGGETIZED].keys():
                     if model_name in last_assistant_responses:
                         # In the nuggetized case, we use a fixed reviewer model
-                        nuggetized_reviewer = await get_reviewer(ReviewType.NUGGETIZED, "gpt-4o")
+                        nuggetized_reviewer = await get_reviewer(ReviewType.NUGGETIZED, REVIEW_MODEL_FALLBACK)
                         nuggetized_reviewer_dict[model_name] = cast(BaseReviewLabeler[Any], nuggetized_reviewer)
                 all_reviewers[ReviewType.NUGGETIZED] = nuggetized_reviewer_dict
+
+            # Add cross check reviewers if they were used
+            if ReviewType.CROSS_CHECK in review_types and ReviewType.CROSS_CHECK in processed_results:
+                cross_check_reviewer_dict: dict[str, BaseReviewLabeler[Any]] = {}
+                # For each comparison key with a cross check result, store the reviewer that was used
+                for model_name in processed_results[ReviewType.CROSS_CHECK].keys():
+                    # In the cross check case, we use a fixed reviewer model
+                    cross_check_reviewer = await get_reviewer(ReviewType.CROSS_CHECK, model_name, None, None)
+                    cross_check_reviewer_dict[model_name] = cast(BaseReviewLabeler[Any], cross_check_reviewer)
+                all_reviewers[ReviewType.CROSS_CHECK] = cross_check_reviewer_dict
 
             await store_reviews(
                 processed_results=processed_results,
@@ -845,6 +1025,7 @@ async def generate_reviews(
         critique=cast(dict[str, CritiqueResult], processed_results.get(ReviewType.CRITIQUE)),
         segmented=cast(dict[str, SegmentedResult], processed_results.get(ReviewType.SEGMENTED)),
         nuggetized=cast(dict[str, NuggetizedResult], processed_results.get(ReviewType.NUGGETIZED)),
+        cross_check=cast(dict[str, CrossCheckResult], processed_results.get(ReviewType.CROSS_CHECK)),
         status=ReviewStatus.ERROR if has_error else ReviewStatus.SUCCESS,
     )
 
@@ -890,7 +1071,7 @@ async def store_reviews(
                             continue
 
                         # For nuggetized reviews, we use a fixed reviewer model (gpt-4o)
-                        reviewer_model = "gpt-4o"
+                        reviewer_model = REVIEW_MODEL_FALLBACK
                         if reviewer_model not in model_info:
                             logging.warning(f"Reviewer model {reviewer_model} not found in model_info")
                             continue

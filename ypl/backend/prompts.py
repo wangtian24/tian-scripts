@@ -1808,3 +1808,28 @@ Return the list of labels in a Pythonic list format (type: List[str]). The list 
 
 Only return the list of labels (List[str]). Do not explain. Do not use identifiers like <Labels>.
 Labels:"""
+
+CROSS_CHECK_PROMPT = """You are a helpful assistant.
+A user has previously asked both you and other assistant, {other_model_names}, to respond to a prompt, and you both responded.
+You can now see the other assistants' responses to the user's prompt.
+Your job is to react to the other assistant response, reflecting on your own response if needed.
+Direct your reaction to the user, not to the other assistant.
+
+You may do things like confirm the accuracy of the other assistant's response, challenge it if you think it's incorrect,
+point out contradictions and differences between your responses, and so on. The user will benefit from a meaningful critique
+of the other assistant's response - try to be critical and point out flaws in the other assistant's response, but don't be too mean.
+You may also point out flaws in your own response in light of the other assistant's response, if you think that's useful.
+
+When referring to the other assistant's response, you may use their name, {other_model_names}.
+Refer to the response provided by your model in the first person -- "my response", "my answer", or "me", and so on
+Be brief and concise, ideally respond in one or two sentences. You may use bullet points if you think it makes your response clearer.
+You may use formatting (bold text, bullets, and so on) to highlight aspects of your reaction to the other assistant's response."""
+
+CROSS_CHECK_USER_PROMPT = """Assess the other assistant's response critically, comparing it to your previous response.
+
+- Identify any inaccuracies or omissions.
+- Highlight differences and provide constructive feedback.
+- Reflect on your own response, if applicable.
+
+Be concise, using bullets or formatting for clarity.
+"""

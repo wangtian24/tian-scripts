@@ -20,6 +20,7 @@ class ReviewType(str, enum.Enum):
     CRITIQUE = "critique"
     SEGMENTED = "segmented"
     NUGGETIZED = "nuggetized"
+    CROSS_CHECK = "cross_check"
 
 
 class ReviewStatus(str, enum.Enum):
@@ -68,6 +69,14 @@ class NuggetizedResult(TypedDict):
     reviewer_model: str
 
 
+class CrossCheckResult(TypedDict):
+    """Result from cross check review."""
+
+    response: str
+    reviewer_model: str
+    other_model_names: str
+
+
 class ReviewResponse(BaseModel):
     """Response model for all review types."""
 
@@ -75,6 +84,7 @@ class ReviewResponse(BaseModel):
     critique: dict[str, CritiqueResult] | None = None
     segmented: dict[str, SegmentedResult] | None = None
     nuggetized: dict[str, NuggetizedResult] | None = None
+    cross_check: dict[str, CrossCheckResult] | None = None
     status: ReviewStatus
 
 
@@ -86,5 +96,5 @@ class ReviewConfig(BaseModel):
     user_prompt_template: str = ""
 
 
-AllReviewResults = BinaryResult | CritiqueResult | SegmentedResult | NuggetizedResult
+AllReviewResults = BinaryResult | CritiqueResult | SegmentedResult | NuggetizedResult | CrossCheckResult
 ReviewResult = dict[str, AllReviewResults]

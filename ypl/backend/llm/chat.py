@@ -773,6 +773,7 @@ class ChatContext(BaseModel):
     uuids: list[uuid.UUID | None]
     messages: list[BaseMessage]
     current_turn_responses: dict[str, ChatMessage] | None = None
+    current_turn_models: dict[str, str] | None = None
     current_turn_quicktake: str | None = None
 
 
@@ -817,7 +818,10 @@ async def get_curated_chat_context(
         .join(Chat, Chat.chat_id == Turn.chat_id)  # type: ignore[arg-type]
         .outerjoin(Attachment, Attachment.chat_message_id == ChatMessage.message_id)  # type: ignore[arg-type]
         .options(
-            joinedload(ChatMessage.assistant_language_model).load_only(LanguageModel.internal_name),  # type: ignore
+            joinedload(ChatMessage.assistant_language_model).load_only(  # type: ignore[arg-type]
+                LanguageModel.internal_name,  # type: ignore[arg-type]
+                LanguageModel.label,  # type: ignore[arg-type]
+            ),
             joinedload(ChatMessage.attachments),  # type: ignore
         )
         .where(
@@ -903,6 +907,7 @@ async def get_curated_chat_context(
 
     if return_all_current_turn_responses:
         current_turn_responses = {}
+        current_turn_models = {}
         current_turn_quicktake = None
         for m in messages[::-1]:
             if (
@@ -912,6 +917,7 @@ async def get_curated_chat_context(
                 and m.completion_status in (CompletionStatus.SUCCESS, CompletionStatus.USER_ABORTED)
             ):
                 current_turn_responses[m.assistant_model_name] = m
+                current_turn_models[m.assistant_model_name] = str(m.assistant_language_model.label)
             elif (
                 m.message_type == MessageType.QUICK_RESPONSE_MESSAGE
                 and m.turn_id == current_turn_id
@@ -924,6 +930,7 @@ async def get_curated_chat_context(
             messages=[msg for _, msg in formatted_messages],
             uuids=[msg_uuid for msg_uuid, _ in formatted_messages],
             current_turn_responses=current_turn_responses,
+            current_turn_models=current_turn_models,
             current_turn_quicktake=current_turn_quicktake,
         )
 
