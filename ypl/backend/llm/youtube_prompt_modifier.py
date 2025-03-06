@@ -221,7 +221,13 @@ async def maybe_youtube_transcript_messages(chat_id: str, chat_history: list[Bas
         labeler = YoutubeVideoLabeler(llm)
         label_resp = await labeler.alabel(user_prompts)
 
-        logging.info({"message": f"Youtube labeler response for {chat_id}", "response": label_resp.model_dump()})
+        logging.info(
+            {
+                "message": f"Youtube labeler response for {chat_id}",
+                "response": label_resp.model_dump(),
+                "model": YOUTUBE_VIDEO_LABELLING_MODEL,
+            }
+        )
 
         # Note: We are invoking labeler for each chat_completion. We only need to call to once per turn for all the
         # selected models. We could use redis to avoid extra labeler invocations to void it. Since very small fraction

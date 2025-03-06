@@ -183,6 +183,7 @@ async def transform_user_messages(
         - Formats messages according to model requirements
     3. Checks if the user prompts need youtube video transcripts.
         - If yes, these video transcripts are added to the messages.
+        - These are actually system prompts, and are added to the front of the message list.
     """
     model_provider = get_model_provider_tuple(model_name, include_all_models=True)
     if not model_provider:
@@ -229,6 +230,11 @@ async def transform_user_messages(
         attachment_id_to_content_dict[attachment.attachment_id] = result
 
     transformed_messages: list[BaseMessage] = []
+
+    # Add youtube system prompts (if any) the front to place them before any human messages.
+    if isinstance(youtube_transcript_messages, list):
+        transformed_messages.extend(youtube_transcript_messages)
+
     for message in messages:
         # if it's not a human message (from AI responses), just added it.
         if not isinstance(message, HumanMessage):
@@ -270,9 +276,6 @@ async def transform_user_messages(
         content.append({"type": "text", "text": str(message.content)})
 
         transformed_messages.append(HumanMessage(content=content))  # type: ignore
-
-    if isinstance(youtube_transcript_messages, list):
-        transformed_messages.extend(youtube_transcript_messages)
 
     return transformed_messages
 
