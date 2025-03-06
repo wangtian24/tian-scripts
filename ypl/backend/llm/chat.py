@@ -250,7 +250,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
     logging.debug(json_dumps({"message": "select_models_plus request"} | request.model_dump(mode="json")))
     metric_inc(f"routing/intent_{request.intent}")
     stopwatch = StopWatch(f"routing/latency/{request.intent}/", auto_export=True)
-    if request.user_id is not None:
+    if request.user_id is not None and settings.ENVIRONMENT != "local":
         asyncio.create_task(check_activity_volume_abuse(request.user_id, time_windows=SHORT_TIME_WINDOWS))
 
     # Prepare the prompt and past turn information
