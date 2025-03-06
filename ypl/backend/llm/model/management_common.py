@@ -80,15 +80,18 @@ async def log_and_post(
 
     print(f">> [log/slack] Model {model_name}: {MODEL_MANAGEMENT_STATUS_MESSAGES[status]} - {extra_msg or ''}")
 
+    env = os.environ.get("ENVIRONMENT") or "unknown"
+
     # Clean up and escape quotes in extra_msg to ensure it's safe for logging and Slack
     if level.value >= ModelAlertLevel.NOTIFY.value:
         slack_msg = (
-            f"*Model {model_name}*: {MODEL_MANAGEMENT_STATUS_MESSAGES[status]}\n {extra_msg or ''} \n"
-            f"Environment: [{os.environ.get('ENVIRONMENT')}]"
+            f"[{env}] Model *{model_name}*: " f"{MODEL_MANAGEMENT_STATUS_MESSAGES[status]}\n {extra_msg or ''} \n"
         )
         await post_to_slack_channel(slack_msg, "#alert-model-management")
     if level.value >= ModelAlertLevel.ALERT.value:
-        await post_to_slack_channel(slack_msg, "#alert-backend")
+        await post_to_slack_channel(
+            slack_msg, "#alert-backend" if env.lower() == "production" else "#alert-backend-staging"
+        )
 
 
 @retry(stop=stop_after_attempt(INFERENCE_ATTEMPTS), wait=wait_exponential(multiplier=1, min=4, max=10), reraise=True)

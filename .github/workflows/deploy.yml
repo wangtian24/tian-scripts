@@ -184,6 +184,7 @@ jobs:
           echo "OLA_KRUTRIM_API_KEY=${{ secrets.OLA_KRUTRIM_API_KEY_PRODUCTION }}" >> .env
           echo "SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL_PRODUCTION }}" >> .env
           echo "SLACK_WEBHOOK_CASHOUT=${{ secrets.SLACK_WEBHOOK_CASHOUT_PRODUCTION }}" >> .env
+          echo "SLACK_MODEL_MANAGEMENT_APP_BOT_TOKEN=${{ secrets.SLACK_MODEL_MANAGEMENT_APP_BOT_TOKEN_PRODUCTION }}" >> .env
           echo "TWITTER_BEARER_TOKEN=${{ secrets.TWITTER_BEARER_TOKEN_PRODUCTION }}" >> .env
           echo "TWITTER_CONSUMER_KEY=${{ secrets.TWITTER_CONSUMER_KEY_PRODUCTION }}" >> .env
           echo "TWITTER_CONSUMER_SECRET=${{ secrets.TWITTER_CONSUMER_SECRET_PRODUCTION }}" >> .env
@@ -199,6 +200,7 @@ jobs:
           echo "WALLET_ENCRYPTION_KEY=${{ secrets.WALLET_ENCRYPTION_KEY_PRODUCTION }}" >> .env
           echo "ATTACHMENT_BUCKET_GEN_IMAGES=\"gs://yupp-generated-images/production\"" >> .env
           echo "SEARCHAPI_API_KEY=${{ secrets.SEARCHAPI_API_KEY_PRODUCTION }}" >> .env
+
         elif [[ "${{ env.ENVIRONMENT }}" == "staging" ]]; then
           echo "OPENAI_API_KEY_ROUTING=${{ secrets.OPENAI_API_KEY_ROUTING }}" >> .env
           echo "POSTGRES_USER=${{ secrets.POSTGRES_USER_STAGING }}" >> .env
@@ -235,6 +237,7 @@ jobs:
           echo "OLA_KRUTRIM_API_KEY=${{ secrets.OLA_KRUTRIM_API_KEY_STAGING }}" >> .env
           echo "SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL_STAGING }}" >> .env
           echo "SLACK_WEBHOOK_CASHOUT=${{ secrets.SLACK_WEBHOOK_CASHOUT_STAGING }}" >> .env
+          echo "SLACK_MODEL_MANAGEMENT_APP_BOT_TOKEN: '${{ secrets.SLACK_MODEL_MANAGEMENT_APP_BOT_TOKEN_STAGING }}'" >> .env.yml
           echo "TWITTER_BEARER_TOKEN=${{ secrets.TWITTER_BEARER_TOKEN_STAGING }}" >> .env
           echo "TWITTER_CONSUMER_KEY=${{ secrets.TWITTER_CONSUMER_KEY_STAGING }}" >> .env
           echo "TWITTER_CONSUMER_SECRET=${{ secrets.TWITTER_CONSUMER_SECRET_STAGING }}" >> .env
