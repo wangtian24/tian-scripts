@@ -3,7 +3,6 @@ import logging
 import math
 import os
 import random
-import time
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
@@ -14,7 +13,6 @@ import pytz
 import yaml
 from cachetools.func import ttl_cache
 from dotenv import load_dotenv
-from langchain_core.language_models import BaseChatModel
 from pydantic import BaseModel
 from scipy import stats
 from sqlalchemy import and_, func
@@ -25,14 +23,14 @@ from tenacity import after_log, retry, retry_if_exception_type, stop_after_attem
 
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine, get_engine
+from ypl.backend.feedback.app_feedback import (
+    AVERAGE_FEEDBACK_SCORE,
+    EXCELLENT_FEEDBACK_SCORE,
+    FALLBACK_QUALITY_SCORE,
+    GOOD_FEEDBACK_SCORE,
+)
 from ypl.backend.jobs.tasks import post_to_slack_task
-from ypl.backend.llm.constants import ChatProvider
-from ypl.backend.llm.db_helpers import get_chat_model
-from ypl.backend.llm.judge import FeedbackQualityLabeler
-from ypl.backend.llm.labeler import MultiLLMLabeler
-from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.turn_quality import LOW_EVAL_QUALITY_SCORE, update_user_eval_quality_scores
-from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import Chat, Eval, EvalType, Turn, TurnQuality
 from ypl.db.invite_codes import SpecialInviteCode, SpecialInviteCodeClaimLog
@@ -56,13 +54,6 @@ FEEDBACK_REWARD_LOWER_BOUND = 75
 FEEDBACK_REWARD_UPPER_BOUND = 175
 QT_EVAL_REWARD_LOWER_BOUND = 50
 QT_EVAL_REWARD_UPPER_BOUND = 100
-
-FEEDBACK_QUALITY_JUDGING_TIMEOUT = 0.4
-VERY_POOR_FEEDBACK_SCORE = 1
-POOR_FEEDBACK_SCORE = 2
-AVERAGE_FEEDBACK_SCORE = 3
-GOOD_FEEDBACK_SCORE = 4
-EXCELLENT_FEEDBACK_SCORE = 5
 
 # Number of recent evals to check for low-quality evals.
 NUM_RECENT_EVALS_FOR_QUALITY_CHECK = 5
@@ -89,54 +80,6 @@ FEEDBACK_QUALITY_MULTIPLIER = {
     # Excellent quality (5)
     5: 1.0,
 }
-
-FALLBACK_QUALITY_SCORE = AVERAGE_FEEDBACK_SCORE
-
-_JUDGE_4O_MINI: BaseChatModel | None = None
-_JUDGE_GEMINI: GeminiLangChainAdapter | None = None
-_LABELER_4O_MINI: FeedbackQualityLabeler | None = None
-_LABELER_GEMINI: FeedbackQualityLabeler | None = None
-_MULTI_LABELER: MultiLLMLabeler | None = None
-
-
-def get_multi_labeler() -> MultiLLMLabeler:
-    """Lazy initialization of LLM models and labelers."""
-    global _JUDGE_4O_MINI, _JUDGE_GEMINI, _LABELER_4O_MINI, _LABELER_GEMINI, _MULTI_LABELER
-
-    if _MULTI_LABELER is None:
-        _JUDGE_4O_MINI = get_chat_model(
-            ModelInfo(
-                provider=ChatProvider.OPENAI,
-                model="gpt-4o-mini",
-                api_key=settings.OPENAI_API_KEY,
-            ),
-            temperature=0.0,
-        )
-
-        _JUDGE_GEMINI = GeminiLangChainAdapter(
-            model_info=ModelInfo(
-                provider=ChatProvider.GOOGLE,
-                model="gemini-pro",
-                api_key=settings.GOOGLE_API_KEY,
-            ),
-            model_config_={
-                "project_id": settings.GCP_PROJECT_ID,
-                "region": settings.GCP_REGION,
-                "temperature": 0.0,
-                "candidate_count": 1,
-            },
-        )
-
-        _LABELER_4O_MINI = FeedbackQualityLabeler(_JUDGE_4O_MINI)
-        _LABELER_GEMINI = FeedbackQualityLabeler(_JUDGE_GEMINI)
-
-        _MULTI_LABELER = MultiLLMLabeler(
-            labelers={"gpt4": _LABELER_4O_MINI, "gemini": _LABELER_GEMINI},
-            timeout_secs=FEEDBACK_QUALITY_JUDGING_TIMEOUT,
-            early_terminate_on=["gpt4", "gemini"],
-        )
-
-    return _MULTI_LABELER
 
 
 @dataclass
@@ -697,73 +640,6 @@ def _get_reward_points_summary(user_id: str, session: Session) -> dict[str, int]
     return results
 
 
-async def get_feedback_quality_score(user_id: str, feedback: str) -> int:
-    """
-    Evaluate the quality of user feedback using multiple LLM models.
-    Uses MultiLLMLabeler to get the fastest response from available models.
-
-    Args:
-        user_id: The ID of the user providing feedback
-        feedback: The feedback text to evaluate
-
-    Returns:
-        int: Quality score from 1-5, where:
-            1 = Very Poor
-            2 = Poor
-            3 = Average
-            4 = Good
-            5 = Excellent
-    """
-    start_time = time.time()
-
-    try:
-        multi_labeler = get_multi_labeler()
-        results = await multi_labeler.alabel(feedback)
-
-        for model_name, result in results.items():
-            if isinstance(result, int):
-                elapsed_ms = (time.time() - start_time) * 1000
-                log_dict = {
-                    "message": "Feedback quality score latency",
-                    "feedback": feedback,
-                    "latency_ms": elapsed_ms,
-                    "score": result,
-                    "user_id": user_id,
-                    "winning_model": model_name,
-                }
-                logging.info(json_dumps(log_dict))
-                if result == -1:
-                    log_dict = {
-                        "message": "Error evaluating feedback quality",
-                        "error": "Fallback quality score",
-                        "user_id": user_id,
-                        "feedback_length": len(feedback),
-                    }
-                    logging.warning(json_dumps(log_dict))
-                else:
-                    return result
-
-        log_dict = {
-            "message": "Timeout getting feedback quality score",
-            "feedback": feedback,
-            "user_id": user_id,
-            "timeout": time.time() - start_time,
-            "results": str(results),
-        }
-        logging.warning(json_dumps(log_dict))
-        return FALLBACK_QUALITY_SCORE
-
-    except Exception as e:
-        log_dict = {
-            "message": "Error evaluating feedback quality",
-            "error": str(e),
-            "user_id": user_id,
-            "feedback_length": len(feedback),
-        }
-        logging.warning(json_dumps(log_dict))
-        return FALLBACK_QUALITY_SCORE
-
-
 async def generate_bounded_reward(lower_bound: int, upper_bound: int, quality_score: int | None = None) -> int:
     """
     Generate a reward amount between lower and upper bounds, adjusted by quality score.
@@ -813,8 +689,6 @@ async def feedback_based_reward(
     """
     # Get quality score for the comment
     quality_score = FALLBACK_QUALITY_SCORE
-    # COMMENTING THIS BECAUSE THIS TIMES OUT ANYWAY AND WASTES TIME
-    # await get_feedback_quality_score(user_id, feedback_comment)
     action_type = RewardActionEnum.FEEDBACK
 
     reward_params = {

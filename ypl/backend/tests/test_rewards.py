@@ -200,8 +200,6 @@ def get_reward_points_summary(daily: int, weekly: int, monthly: int, last_award:
 
 
 @patch("ypl.backend.llm.reward.get_async_engine")
-@patch("ypl.backend.llm.reward.get_chat_model")
-@patch("ypl.backend.llm.reward.GeminiLangChainAdapter")
 @patch("ypl.backend.llm.reward._get_reward_points_summary")
 @patch("ypl.backend.llm.reward.Session")
 @patch("ypl.backend.config.settings")
@@ -211,8 +209,6 @@ async def test_feedback_and_qt_eval_reward(
     mock_settings: Any,
     mock_session: Any,
     mock_get_reward_points_summary: Any,
-    mock_get_chat_model: Any,
-    mock_gemini_adapter: Any,
     mock_engine: Any,
 ) -> None:
     # Mock PostgresDsn.build to return a valid URL string
@@ -220,11 +216,6 @@ async def test_feedback_and_qt_eval_reward(
 
     mock_session.return_value = MockSession()
     mock_engine.return_value = AsyncMock()
-
-    # Configure both model mocks to return MockLLM
-    mock_llm_instance = MockLLM()
-    mock_get_chat_model.return_value = mock_llm_instance
-    mock_gemini_adapter.return_value = mock_llm_instance
 
     mock_get_reward_points_summary.side_effect = lambda user_id, session: get_reward_points_summary(100, 500, 2000, 10)
 
@@ -455,8 +446,6 @@ async def test_referral_bonus_reward_referrer(
 
 
 @patch("ypl.backend.llm.reward.get_async_engine")
-@patch("ypl.backend.llm.reward.get_chat_model")
-@patch("ypl.backend.llm.reward.GeminiLangChainAdapter")
 @patch("ypl.backend.llm.reward._get_reward_points_summary")
 @patch("ypl.backend.llm.reward._get_recent_eval_quality_scores")
 @patch("ypl.backend.llm.reward.Session")
@@ -468,17 +457,10 @@ def test_turn_reward_amount(
     mock_session: Any,
     mock_get_reward_points_summary: Any,
     mock_get_recent_eval_quality_scores: Any,
-    mock_get_chat_model: Any,
-    mock_gemini_adapter: Any,
     mock_engine: Any,
 ) -> None:
     daily_points_limit = RULES.get("constants", {}).get("daily_points_limit", None)
     assert daily_points_limit
-
-    # Configure both model mocks to return MockLLM
-    mock_llm_instance = MockLLM()
-    mock_get_chat_model.return_value = mock_llm_instance
-    mock_gemini_adapter.return_value = mock_llm_instance
 
     utr_low_points = create_user_turn_reward(
         points_last_day=10,
