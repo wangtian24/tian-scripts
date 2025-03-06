@@ -48,6 +48,24 @@ MIN_RESPONSE_TIME_SECS = 2.5
 SELECTED_MODEL_SCORE = 100
 
 
+STATIC_TURN_NOTES = {
+    "positive_notes": [
+        "On target! 🎯",
+        "Fast 🔥",
+        "Style ✍️",
+        "Interesting 🤔",
+        "Nice tone 😊",
+    ],
+    "negative_notes": [
+        "Slow 🐌",
+        "Too long 📝",
+        "Not detailed ❓",
+        "Off course 🙄",
+        "Outdated ☎️",
+    ],
+}
+
+
 def get_llm() -> BaseChatModel:
     global LLM
     if LLM is None:
@@ -455,6 +473,16 @@ async def _aggregate_evals(session: AsyncSession, query: Select) -> list[TurnEva
     ]
 
 
+def _get_turn_notes(details_dict: dict[str, Any], attr: str, max_notes: int = 5) -> list[tuple[str, str]]:
+    """Returns the first 2 static notes of type `attr`, followed by the dynamic notes, up to `max_notes`."""
+    static_notes = STATIC_TURN_NOTES.get(attr, [])
+    dynamic_notes = details_dict.get(attr, [])
+    notes = static_notes[:2] + dynamic_notes + static_notes[2:]
+    seen = set()
+    notes = [note for note in notes if not (note in seen or seen.add(note))]  # type: ignore
+    return [tuple(n.rsplit(maxsplit=1)) for n in notes[:max_notes]]
+
+
 async def get_turn_annotations(turn_id: UUID) -> TurnAnnotations:
     async with get_async_session() as session:
         annotations = TurnAnnotations()
@@ -464,10 +492,9 @@ async def get_turn_annotations(turn_id: UUID) -> TurnAnnotations:
         if details:
             details_dict = json.loads(details)
             annotations.comment = details_dict.get("comment")
-            if "positive_notes" in details_dict:
-                annotations.positive_notes = [tuple(n.rsplit(maxsplit=1)) for n in details_dict["positive_notes"]]
-            if "negative_notes" in details_dict:
-                annotations.negative_notes = [tuple(n.rsplit(maxsplit=1)) for n in details_dict["negative_notes"]]
+            for attr in ("positive_notes", "negative_notes"):
+                if attr in details_dict and attr in STATIC_TURN_NOTES:
+                    setattr(annotations, attr, _get_turn_notes(details_dict, attr))
 
         # Add past battle results for the same user and for all users.
         same_user_same_models_query = _get_evals_with_same_models_in_turn(turn_id, limit_to_turn_creator=True)
