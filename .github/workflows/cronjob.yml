@@ -76,6 +76,13 @@ jobs:
       with:
         credentials_json: ${{ secrets.GCP_SA_KEY }}
 
+    - name: Generate gcloud deploy secrets string
+      id: generate_gcloud_deploy_secrets_string
+      # Using `backend` as the service name for now, which should be fine for now.
+      # TODO(arawind): Find a better way to map secrets to services and jobs.
+      run: |
+        python3 .github/workflows/scripts/generate_gcloud_deploy_secrets_string.py ${{ inputs.ENVIRONMENT }} backend >> $GITHUB_OUTPUT
+
     - name: Set up Cloud SDK
       uses: google-github-actions/setup-gcloud@v1
       with:
@@ -88,19 +95,24 @@ jobs:
         ARGS=$(echo "${{ inputs.args }}" | tr ' ' ',')
         JOB_NAME="cron-job-${COMMAND}-${{ inputs.environment }}"
 
-        # Create the job if it doesn't exist
-        if ! gcloud run jobs describe $JOB_NAME --region ${{ env.REGION }} &> /dev/null; then
-          gcloud run jobs create $JOB_NAME \
-            --image ${{ env.IMAGE_NAME }} \
-            --region ${{ env.REGION }} \
-            --cpu=${{ env.CPU }} \
-            --memory=${{ env.MEMORY }} \
-            --vpc-egress=private-ranges-only \
-            --network=default \
-            --subnet=default \
-            --command="/app/ypl/backend/entrypoint.sh" \
-            --args="$COMMAND,$ARGS"
+        # Create the job if it doesn't exist, update it if it does
+        # Consider using `gcloud run jobs replace` instead of this, but it works for now
+        CREATE_OR_UPDATE="create"
+        if gcloud run jobs describe $JOB_NAME --region ${{ env.REGION }} &> /dev/null; then
+          CREATE_OR_UPDATE="update"
         fi
+
+        gcloud run jobs $CREATE_OR_UPDATE $JOB_NAME \
+          --image ${{ env.IMAGE_NAME }} \
+          --region ${{ env.REGION }} \
+          --cpu=${{ env.CPU }} \
+          --memory=${{ env.MEMORY }} \
+          --vpc-egress=private-ranges-only \
+          --network=default \
+          --subnet=default \
+          --set-secrets="${{ steps.generate_gcloud_deploy_secrets_string.outputs.secrets_string }}" \
+          --command="/app/ypl/backend/entrypoint.sh" \
+          --args="$COMMAND,$ARGS"
 
         gcloud run jobs execute $JOB_NAME \
           --region ${{ env.REGION }} \
