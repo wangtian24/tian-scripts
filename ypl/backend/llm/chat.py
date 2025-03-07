@@ -1560,28 +1560,6 @@ async def check_for_stop_request(chat_uuid: UUID, turn_uuid: UUID, model_name: s
         return False
 
 
-BILLING_ERROR_KEYWORDS = [
-    "quota",
-    "plan",
-    "billing",
-    "insufficient",
-    "exceeded",
-    "limit",
-    "payment",
-    "subscription",
-    "credit",
-    "balance",
-    "access",
-    "unauthorized",
-]
-
-
-def contains_billing_keywords(message: str) -> bool:
-    """Checks if a message contains keywords that indicate severe billing/quota issues"""
-    message_lower = message.lower()
-    return any(keyword in message_lower for keyword in BILLING_ERROR_KEYWORDS)
-
-
 async def update_failed_message_status(message_id: UUID) -> None:
     """Update completion status of failed message to streaming_error_with_retry"""
     async with get_async_session() as session:

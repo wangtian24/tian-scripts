@@ -82,10 +82,9 @@ async def log_and_post(
 
     env = os.environ.get("ENVIRONMENT") or "unknown"
 
-    # Clean up and escape quotes in extra_msg to ensure it's safe for logging and Slack
     if level.value >= ModelAlertLevel.NOTIFY.value:
         slack_msg = (
-            f"[{env}] Model *{model_name}*: " f"{MODEL_MANAGEMENT_STATUS_MESSAGES[status]}\n {extra_msg or ''} \n"
+            f"[{env}] Model *{model_name}*: " f"{MODEL_MANAGEMENT_STATUS_MESSAGES[status]} ``` {extra_msg or ''} ```"
         )
         await post_to_slack_channel(slack_msg, "#alert-model-management")
     if level.value >= ModelAlertLevel.ALERT.value:
@@ -148,6 +147,7 @@ ERROR_KEYWORDS_MAP = {
         "context length",
         "input length",
         "max tokens",
+        "sequence length",
     ],
     ModelErrorType.RATE_LIMIT: ["rate limit"],
     ModelErrorType.BILLING: [
@@ -176,10 +176,10 @@ def contains_error_keywords(error_message: str) -> tuple[ModelErrorType | None, 
                 # Find index of first match
                 match_idx = error_message.lower().replace("_", " ").find(keyword.lower())
                 # Extract excerpts
-                start = max(0, match_idx - 100)
-                end = min(len(error_message), match_idx + len(keyword) + 100)
+                start = max(0, match_idx - 200)
+                end = min(len(error_message), match_idx + len(keyword) + 200)
                 return error_type, error_message[start:end]
-    return ModelErrorType.UNKNOWN, error_message[:200]
+    return ModelErrorType.UNKNOWN, error_message[:400]
 
 
 async def verify_inference_running(model: LanguageModel) -> tuple[bool, ModelErrorType | None, str | None]:

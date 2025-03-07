@@ -99,6 +99,7 @@ async def get_simple_pro_router(
     show_me_more_models: list[str] | None = None,
     provided_categories: list[str] | None = None,
     chat_id: str | None = None,
+    turn_id: str | None = None,
     is_new_turn: bool = False,
     with_fallback: bool = False,
 ) -> RouterModule:
@@ -184,6 +185,7 @@ async def get_simple_pro_router(
                 metadata={
                     "user_id": preference.user_id,
                     "chat_id": chat_id,
+                    "turn_id": turn_id,
                     "categories": categories,
                 },
             )
