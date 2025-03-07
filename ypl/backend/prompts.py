@@ -1546,6 +1546,7 @@ Output format:
 [{{"suggestion": "...", "label": "..."}}, {{"suggestion": "...", "label": "..."}}]
 
 Do not explain; only return the list as JSON. Do not include "```json" or "```" in your response.
+Use the same language as the user's prompt.
 
 Conversation history:
 {chat_history}
