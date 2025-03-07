@@ -56,7 +56,7 @@ class DallEChatModel(BaseChatModel):
     def _wrap_url(self, url: str | None) -> str:
         if not url:
             return IMAGE_GEN_ERROR_MESSAGE
-        return f'\n\n<yapp class="image">\n{{\n   "url": "{url}",\n   "caption": "Generated image"\n}}\n</yapp>'
+        return f'\n\n<yapp class="image-gen">\n{{\n   "url": "{url}",\n   "caption": "Generated image"\n}}\n</yapp>'
 
     def _generate(
         self,
