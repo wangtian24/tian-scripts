@@ -529,6 +529,7 @@ class VendorNameEnum(enum.Enum):
     """Represents supported vendor names."""
 
     HYPERWALLET = "hyperwallet"
+    STRIPE = "stripe"
 
 
 class UserVendorProfile(BaseModel, table=True):
