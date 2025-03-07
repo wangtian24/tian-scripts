@@ -20,6 +20,7 @@ from ypl.utils import async_timed_cache
 
 
 class LanguageModelStruct(BaseModel):
+    created_at: datetime
     language_model_id: UUID
     name: str
     internal_name: str
@@ -181,6 +182,7 @@ class ModelTaxonomyQuery(BaseModel):
 
 
 class ModelTaxonomyResponse(BaseModel):
+    created_at: datetime
     taxonomy_id: UUID
     taxonomy_label: str
     taxonomy_path: str | None  # joining publisher, family, class, version, release
