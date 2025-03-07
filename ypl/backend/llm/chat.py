@@ -51,7 +51,10 @@ from ypl.backend.llm.provider.provider_clients import (
     get_internal_provider_client,
     get_model_provider_tuple,
 )
+from ypl.backend.llm.routing.common import SelectIntent
 from ypl.backend.llm.routing.debug import RoutingDebugInfo, build_routing_debug_info
+from ypl.backend.llm.routing.features import RequestContext, collect_model_features
+from ypl.backend.llm.routing.reasons import summarize_reasons
 from ypl.backend.llm.routing.route_data_type import RoutingPreference
 from ypl.backend.llm.routing.router import needs_special_ability
 from ypl.backend.llm.routing.router_state import RouterState
@@ -92,22 +95,10 @@ DEFAULT_HIGH_SIM_THRESHOLD = 0.825
 DEFAULT_UNIQUENESS_THRESHOLD = 0.75
 YuppMessage = HumanMessage | AIMessage | SystemMessage  # this is needed for proper Pydantic typecasting
 YuppMessageRow = list[YuppMessage]
-IMAGE_CATEGORY = "image"
 IMAGE_ATTACHMENT_MIME_TYPE_SQL_PATTERN = "image/%"
 
 RETAKE_SAME_ANSWER = "<SAME_ANSWER>"
 RETAKE_QUICKTAKE_MIN_SIMILARITY = 0.7
-
-
-class SelectIntent(str, Enum):
-    NEW_CHAT = "new_chat"
-    NEW_TURN = "new_turn"
-    # TODO(bhanu): remove this after consolidating enum in YuppHead
-    SHOW_ME_MORE = "show_me_more"
-    SHOW_MORE_WITH_SAME_TURN = "show_more_with_same_turn"
-    RETRY = "retry"
-    NEW_STYLE = "new_style"
-    TALK_TO_OTHER_MODELS = "talk_to_other_models"
 
 
 class SelectModelsV2Request(BaseModel):
@@ -296,13 +287,17 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
     prompt_categories, prompt_modifiers = await asyncio.gather(
         get_prompt_categories(prompt), get_prompt_modifiers(prompt)
     )
+    # merge two sources of category labels, from latest classifier runs and from the frontend (like image and pdf)
+    all_categories = (prompt_categories or []) + (request.provided_categories or [])
+
     log_dict = {
         "message": f"Model routing: prompt classification for [{prompt[:100]}]",
         "chat_id": request.chat_id,
         "turn_id": request.turn_id,
         "user_id": request.user_id,
         "preference": preference,
-        "prompt_categories": ", ".join(prompt_categories) if prompt_categories else "None",
+        "prompt_categories": ", ".join(all_categories or []),
+        "provided_categories": ", ".join(request.provided_categories or []),
         "prompt_modifiers": ", ".join(prompt_modifiers) if prompt_modifiers else "None",
     }
     logging.info(json_dumps(log_dict))
@@ -326,7 +321,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
             preference,
             required_models=required_models_for_routing,
             show_me_more_models=preference.same_turn_shown_models or [],
-            provided_categories=(prompt_categories or []) + (request.provided_categories or []),
+            provided_categories=all_categories,
             chat_id=request.chat_id,
             is_new_turn=(request.intent == SelectIntent.NEW_TURN),
             with_fallback=True,
@@ -377,6 +372,18 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         # just get the first one, there's only one right now.
         return modifiers[0][0] if len(modifiers) > 0 else None
 
+    # Summarize the reasons for routing the models
+    # TODO(Tian): right now we build context and collect model features from DB just for constructing reasons,
+    # later these logic will be moved to the earlier part of routing and used for the routing.
+    request_context = RequestContext(
+        intent=request.intent,
+        user_required_models=required_models_for_routing,
+        inherited_models=required_models_for_routing,
+        prompt_categories=all_categories,
+    )
+    model_features = await collect_model_features()
+    reasons_by_model = summarize_reasons(request_context, model_features, models_rs)
+
     # Prepare the response
     response = SelectModelsV2Response(
         models=[(model, prompt_modifiers_by_model.get(model, [])) for model in primary_models],
@@ -388,23 +395,24 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
                 provider=providers_by_model[model],
                 type=SelectedModelType.PRIMARY if model in primary_models else SelectedModelType.FALLBACK,
                 prompt_style_modifier_id=_get_modifier(model),
-                reasons=[],
-                reason_desc="",
+                reasons=reasons_by_model[model].reasons or [],
+                reason_desc=reasons_by_model[model].description or "",
             )
             for model in primary_models + fallback_models
         ],
         routing_debug_info=routing_debug_info if request.debug_level > 0 else None,
         num_models_remaining=num_models_remaining,
     )
-    log_dict = {
+    response_log = {
         "message": f"Model routing final response for [{request.intent}]: prompt = [{prompt[:100]}]",
         "chat_id": request.chat_id,
         "turn_id": request.turn_id,
         "primary_models": str(primary_models),
         "fallback_models": str(fallback_models),
         "num_models_remaining": str(num_models_remaining),
+        "reasons": reasons_by_model,
     }
-    logging.info(json_dumps(log_dict))
+    logging.info(json_dumps(response_log))
     stopwatch.end("prepare_response")
 
     metric_inc_by("routing/count_models_served", len(primary_models))

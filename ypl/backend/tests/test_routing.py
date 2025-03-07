@@ -9,9 +9,10 @@ import pytest
 from pytest import approx, mark
 
 from ypl.backend.config import settings
-from ypl.backend.llm.chat import SelectIntent, SelectModelsV2Request, select_models_plus
+from ypl.backend.llm.chat import SelectModelsV2Request, select_models_plus
 from ypl.backend.llm.prompt_selector import CategorizedPromptModifierSelector
 from ypl.backend.llm.ranking import Battle, ChoixRanker, ChoixRankerConfIntervals, EloRanker
+from ypl.backend.llm.routing.common import SelectIntent
 from ypl.backend.llm.routing.modules.filters import ContextLengthFilter, SupportsImageAttachmentModelFilter, TopK
 from ypl.backend.llm.routing.modules.proposers import (
     AlwaysGoodModelMetaRouter,
@@ -821,7 +822,9 @@ def test_context_length_filter(mock_context_lengths: Mock) -> None:
 @patch("ypl.backend.llm.prompt_selector.CategorizedPromptModifierSelector.make_default_from_db")
 @patch("ypl.backend.llm.chat.get_user_message", return_value="hi")
 @patch("ypl.backend.llm.chat.get_modifiers_by_model_and_position", return_value=({}, (None, None)))
+@patch("ypl.backend.llm.chat.collect_model_features")
 async def test_select_models_plus(
+    mock_collect_model_features: Mock,
     mock_get_modifiers_by_model_and_position: AsyncMock,
     mock_get_user_message: Mock,
     mock_make_default_from_db: Mock,

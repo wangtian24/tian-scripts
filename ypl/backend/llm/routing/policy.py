@@ -65,13 +65,14 @@ class SelectionCriteria(Enum):
     # Select the models routed by the prompt categorizer
     PROMPT_CATEGORIZER = "prompt_categorizer"
 
-    # -- Model designation related
+    # -- Model designation and capabilities related
     PRO_MODELS = "pro_models"
     STRONG_MODELS = "strong_models"
     PRO_AND_STRONG_MODELS = "pro_and_strong_models"
     FAST_MODELS = "fast_models"
     LIVE_MODELS = "live_models"
     REASONING_MODELS = "reasoning_models"
+    IMAGE_GENERATION_MODELS = "image_generation_models"
 
     # -- Attachment related
     IMAGE_MODELS = "image_models"

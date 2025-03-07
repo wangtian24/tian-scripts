@@ -119,6 +119,9 @@ class RouterState(BaseModel):
         """
         return list(self.selected_models.keys())
 
+    def get_selected_models_with_criteria(self) -> dict[str, dict[SelectionCriteria, float]]:
+        return self.selected_models
+
     def get_sorted_selected_models(self, priority_models: list[str] | None = None) -> list[str]:
         """
         Return the models that have been selected, sorted by the sum of their scores, highest to lowest.
