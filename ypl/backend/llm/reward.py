@@ -21,6 +21,7 @@ from sqlmodel import Session, select, update
 from sqlmodel.ext.asyncio.session import AsyncSession
 from tenacity import after_log, retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
+from ypl.backend.abuse.content import check_model_feedback_abuse
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine, get_engine
 from ypl.backend.feedback.app_feedback import (
@@ -452,6 +453,7 @@ async def turn_based_reward(
     """
 
     asyncio.create_task(_update_user_eval_quality_scores(user_id))
+    asyncio.create_task(check_model_feedback_abuse(user_id))
     return _handle_turn_based_reward(UserTurnReward(user_id, turn_id))
 
 

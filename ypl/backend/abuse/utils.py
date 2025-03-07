@@ -1,17 +1,18 @@
 import logging
-from collections.abc import Sequence, Set
+from collections.abc import Mapping, Sequence, Set
 from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
 from sqlalchemy.orm import joinedload, selectinload
-from sqlmodel import select
+from sqlmodel import desc, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ypl.backend.abuse import AbuseException
 from ypl.backend.db import get_async_session
 from ypl.backend.utils.json import json_dumps
 from ypl.db.abuse import AbuseActionType, AbuseEvent, AbuseEventState, AbuseEventType
+from ypl.db.events import Event
 from ypl.db.invite_codes import SpecialInviteCode, SpecialInviteCodeClaimLog
 from ypl.db.users import IPs, User
 
@@ -145,3 +146,21 @@ async def review_abuse_event(abuse_event_id: UUID, reviewer: str, notes: str | N
             await session.commit()
 
         return event
+
+
+async def get_user_events(
+    user_id: str, end_time: datetime | None = None, event_names: list[str] | None = None, limit: int = 50
+) -> Sequence[tuple[str, str, Mapping[Any, Any] | None, datetime | None]]:
+    """Returns tuples of (name, category, params, created_at) for the last `limit` events of the user."""
+    async with get_async_session() as session:
+        query = (
+            select(Event.event_name, Event.event_category, Event.event_params, Event.created_at)
+            .where(Event.user_id == user_id)
+            .order_by(desc(Event.created_at))
+            .limit(limit)
+        )
+        if end_time:
+            query = query.where(Event.created_at < end_time)  # type: ignore
+        if event_names:
+            query = query.where(Event.event_name.in_(event_names))  # type: ignore
+        return (await session.exec(query)).all()
