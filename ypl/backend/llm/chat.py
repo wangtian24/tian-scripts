@@ -41,7 +41,7 @@ from ypl.backend.llm.db_helpers import (
 from ypl.backend.llm.labeler import QT_CANT_ANSWER, CantAnswerException, QuickTakeGenerator
 from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.model_heuristics import ModelHeuristics
-from ypl.backend.llm.prompt_modifier import attach_prompt_modifiers_to_models, get_prompt_modifiers
+from ypl.backend.llm.prompt_modifier import get_prompt_modifiers
 from ypl.backend.llm.prompt_selector import (
     CategorizedPromptModifierSelector,
     get_modifiers_by_model_and_position,
@@ -101,6 +101,14 @@ RETAKE_SAME_ANSWER = "<SAME_ANSWER>"
 RETAKE_QUICKTAKE_MIN_SIMILARITY = 0.7
 
 
+class ModelAndStyleSelector(BaseModel):
+    # choose a combination of a model selector and a modifier style, at least one of them must be provided
+    # the model selector, today this is just model internal_name, we will support other selectors syntax in the future
+    model: str | None = None
+    # the style modifier UUID
+    modifier_id: uuid.UUID | None = None
+
+
 class SelectModelsV2Request(BaseModel):
     user_id: str | None = None
     intent: SelectIntent
@@ -114,6 +122,10 @@ class SelectModelsV2Request(BaseModel):
     prompt_modifier_id: uuid.UUID | None = None  # prompt modifier ID to apply to all models
     # whether to set prompt modifiers automatically, if prompt_modifier_id is not provided
     auto_select_prompt_modifiers: bool = True
+
+    # model and style selectors to use for routing
+    # TODO(Tian): this will eventually replace required_models and prompt_modifier_id
+    selectors: list[ModelAndStyleSelector] | None = None
 
 
 class SelectedModelType(str, Enum):
@@ -160,9 +172,51 @@ async def has_image_attachments(chat_id: str) -> bool:
         return result.first() is not None
 
 
+def _get_modifier(
+    modifier_id: str, modifier_selector: CategorizedPromptModifierSelector, request: SelectModelsV2Request
+) -> PromptModifier | None:
+    if modifier_id in modifier_selector.modifiers_by_id:
+        return modifier_selector.modifiers_by_id[modifier_id]
+    else:
+        logging.warning(
+            json_dumps(
+                {
+                    "message": f"Unknown modifier ID: {modifier_id}",
+                    "chat_id": request.chat_id,
+                    "turn_id": request.turn_id,
+                }
+            )
+        )
+        return None
+
+
+def _get_modifiers_from_request(
+    request: SelectModelsV2Request, modifier_selector: CategorizedPromptModifierSelector
+) -> tuple[PromptModifier | None, dict[str, PromptModifier]]:
+    """
+    Extract global and per-model modifiers from the request, filter out the ones that don't exist in the DB.
+    Returns a tuple of (global_modifier_id, per_model_modifiers).
+    """
+    global_modifier = None
+    per_model_modifiers = {}
+    if request.selectors:
+        for selector in request.selectors:
+            if selector.model is None or selector.model == "*":
+                global_modifier = _get_modifier(str(selector.modifier_id), modifier_selector, request)
+            else:
+                modifier = _get_modifier(str(selector.modifier_id), modifier_selector, request)
+                if modifier:
+                    per_model_modifiers[selector.model] = modifier
+    else:
+        global_modifier = _get_modifier(str(request.prompt_modifier_id), modifier_selector, request)
+    return global_modifier, per_model_modifiers
+
+
 async def _set_prompt_modifiers(
     request: SelectModelsV2Request,
-    selected_models_rs: RouterState,
+    primary_models: list[str],
+    fallback_models: list[str],
+    applicable_modifiers: list[str],
 ) -> dict[str, list[tuple[str, str]]]:
     """
     Sets prompt modifiers for the selected models.
@@ -174,29 +228,27 @@ async def _set_prompt_modifiers(
     - If a model has previously been modified in a certain way, use the same modifier for it.
     - If a model is unmodified after all checks above, and `auto_select_prompt_modifiers` is set in the request,
       select a random modifier for it.
+
+    Returns:
+        A dictionary mapping each model name to its selected modifier, as a tuple of (ID, text).
     """
     prompt_modifiers: dict[str, list[tuple[str, str]]] = {}
-
-    selected_models = selected_models_rs.get_sorted_selected_models()
-
     modifier_selector = CategorizedPromptModifierSelector.make_default_from_db()
-    if request.intent == SelectIntent.NEW_CHAT and request.prompt_modifier_id:
-        modifier = modifier_selector.modifiers_by_id.get(str(request.prompt_modifier_id))
-        if modifier:
-            prompt_modifiers = {m: [(str(request.prompt_modifier_id), modifier.text)] for m in (selected_models)}
-        else:
-            logging.warning(
-                json_dumps(
-                    {
-                        "message": f"Unknown modifier ID: {request.prompt_modifier_id}",
-                        "chat_id": request.chat_id,
-                        "turn_id": request.turn_id,
-                    }
-                )
-            )
-        return prompt_modifiers
 
+    # extract from request, if no valid modifer could be found by those ids,
+    # the request-specified modifiers will be ignored
+    global_modifier, per_model_modifiers = _get_modifiers_from_request(request, modifier_selector)
+
+    if global_modifier:
+        # global modifier is set, apply it to every model unless otherwise specified
+        for model in primary_models + fallback_models:
+            if model in per_model_modifiers:
+                modifier = per_model_modifiers[model]
+                prompt_modifiers[model] = [(str(modifier.prompt_modifier_id), modifier.text)]
+            else:
+                prompt_modifiers[model] = [(str(global_modifier.prompt_modifier_id), global_modifier.text)]
     else:
+        # no global modifier, use rules
         try:
             if request.chat_id:
                 modifier_history, modifiers_by_position = await get_modifiers_by_model_and_position(request.chat_id)
@@ -208,14 +260,27 @@ async def _set_prompt_modifiers(
                 SelectIntent.SHOW_MORE_WITH_SAME_TURN,
             )
 
+            # merge the modifiers from primary and fallback models, here we treat fallback models as if they are
+            # otherwise returned as the primary models.
             prompt_modifiers = modifier_selector.select_modifiers(
-                selected_models,
+                primary_models,
                 modifier_history,
-                selected_models_rs.applicable_modifiers,
-                user_selected_modifier_id=request.prompt_modifier_id,
+                applicable_modifiers,
+                modifiers_by_position=modifiers_by_position,
+                should_auto_select_modifiers=should_auto_select_modifiers,
+            ) | modifier_selector.select_modifiers(
+                fallback_models,
+                modifier_history,
+                applicable_modifiers,
                 modifiers_by_position=modifiers_by_position,
                 should_auto_select_modifiers=should_auto_select_modifiers,
             )
+            # override if any has been specified by the request
+            for model in per_model_modifiers:
+                prompt_modifiers[model] = [
+                    (str(per_model_modifiers[model].prompt_modifier_id), per_model_modifiers[model].text)
+                ]
+
         except Exception as e:
             logging.error(f"Error selecting modifiers: {e}")
 
@@ -269,12 +334,21 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
     # 1. get it from request, if none, from DB, if none, from preference (inferred from history messages in the chat)
     # 2. add all previous turn non-downvoted models for stability (2/4/2025, see routing decision log)
     # 3. remove all same-turn already-shown user-selected models (when it's SMM)
-    required_models = request.required_models
-    if not required_models:
+    required_models: list[str] = []
+    if request.selectors:
+        required_models = [s.model for s in request.selectors if s.model is not None]
+    elif request.required_models:
+        required_models = request.required_models
+    else:
+        # infer from the history in DB
         required_models = list(await get_chat_required_models(UUID(request.chat_id), UUID(request.turn_id)))
+    # construct the required model from routing, it's the combination of required models from the request and the
+    # past-turn models we must inherit and use. See model decision log:
+    # https://docs.google.com/document/d/1C941VwVwFFrv1k2iPMLkLN9ckaEjOlJpwfzOLwB7SsY/edit
     required_models_for_routing = list(required_models) + preference.get_inherited_models(
         is_show_me_more=(request.intent == SelectIntent.SHOW_ME_MORE)
     )
+    # exclude models already used in earlier rounds in the same turn (due to "Show More AIs")
     required_models_for_routing = (
         [m for m in required_models_for_routing if m not in (preference.same_turn_shown_models or [])]
         if request.intent == SelectIntent.SHOW_ME_MORE
@@ -291,7 +365,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
     all_categories = (prompt_categories or []) + (request.provided_categories or [])
 
     log_dict = {
-        "message": f"Model routing: prompt classification for [{prompt[:100]}]",
+        "message": f"Model routing: prompt classification and required models for [{prompt[:100]}]",
         "chat_id": request.chat_id,
         "turn_id": request.turn_id,
         "user_id": request.user_id,
@@ -299,6 +373,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         "prompt_categories": ", ".join(all_categories or []),
         "provided_categories": ", ".join(request.provided_categories or []),
         "prompt_modifiers": ", ".join(prompt_modifiers) if prompt_modifiers else "None",
+        "required_models_for_routing": ", ".join(required_models_for_routing),
     }
     logging.info(json_dumps(log_dict))
     stopwatch.record_split("prompt_classification")
@@ -340,8 +415,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
     stopwatch.record_split("routing_total")
 
     # Attach prompt modifiers to the models we selected
-    prompt_modifiers_rs = await attach_prompt_modifiers_to_models(prompt_modifiers, primary_models)
-    prompt_modifiers_by_model = await _set_prompt_modifiers(request, prompt_modifiers_rs)
+    prompt_modifiers_by_model = await _set_prompt_modifiers(request, primary_models, fallback_models, prompt_modifiers)
     stopwatch.record_split("set_prompt_modifiers")
 
     # Deduce the provider information for models
@@ -367,7 +441,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         }
         logging.info(json_dumps(log_dict))
 
-    def _get_modifier(model: str) -> str | None:
+    def _get_modifier_id(model: str) -> str | None:
         modifiers = prompt_modifiers_by_model.get(model, [])
         # just get the first one, there's only one right now.
         return modifiers[0][0] if len(modifiers) > 0 else None
@@ -394,7 +468,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
                 model=model,
                 provider=providers_by_model[model],
                 type=SelectedModelType.PRIMARY if model in primary_models else SelectedModelType.FALLBACK,
-                prompt_style_modifier_id=_get_modifier(model),
+                prompt_style_modifier_id=_get_modifier_id(model),
                 reasons=reasons_by_model[model].reasons or [],
                 reason_desc=reasons_by_model[model].description or "",
             )

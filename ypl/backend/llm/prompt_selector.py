@@ -146,7 +146,6 @@ class CategorizedPromptModifierSelector(RNGMixin):
         models: list[str],
         modifier_history: dict[str, list[str]] | None = None,
         applicable_modifiers: list[str] | None = None,
-        user_selected_modifier_id: uuid.UUID | None = None,
         modifiers_by_position: tuple[str | None, str | None] = (None, None),
         should_auto_select_modifiers: bool = True,
     ) -> dict[str, list[tuple[str, str]]]:
@@ -160,7 +159,6 @@ class CategorizedPromptModifierSelector(RNGMixin):
             models: A list of model names.
             modifier_history: A dictionary mapping model names to previously chosen modifier IDs.
             applicable_modifiers: A list of modifier IDs that are applicable to the models.
-            user_selected_modifier_id: The ID of the modifier that the user selected, if any.
             modifiers_by_position: A tuple of the modifier most recently applied to the LHS and RHS.
             should_auto_select_modifiers: Whether to select modifiers for unmodified models.
 
@@ -197,12 +195,6 @@ class CategorizedPromptModifierSelector(RNGMixin):
                     logging.debug(f"Reusing modifier {modifiers_by_model[model]} for model {model}")
         unmodified_models = [model for model in models if model not in modifiers_by_model]
 
-        # Apply any user-selected modifiers to unmodified models.
-        if user_selected_modifier_id:
-            for model in unmodified_models:
-                modifiers_by_model[model] = [self.modifiers_by_id[str(user_selected_modifier_id)]]
-                unmodified_models.remove(model)
-                logging.debug(f"Applying user-selected modifier {user_selected_modifier_id} to model {model}")
         if (
             not unmodified_models  # No models to modify.
             or not should_auto_select_modifiers  # Client requested no modifiers.
