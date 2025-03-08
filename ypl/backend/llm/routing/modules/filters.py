@@ -12,6 +12,7 @@ from ypl.backend.llm.db_helpers import (
     deduce_original_providers,
     deduce_semantic_groups,
     get_active_models,
+    get_all_live_models,
     get_image_attachment_models,
     get_model_context_lengths,
     get_pdf_attachment_models,
@@ -264,7 +265,7 @@ class SupportsImageAttachmentModelFilter(Exclude):
 
     def __init__(self) -> None:
         non_image_attachment_models = set(get_active_models()) - set(get_image_attachment_models())
-        super().__init__(name="-noImageAttachment", exclude_models=non_image_attachment_models)
+        super().__init__(name="-noImage", exclude_models=non_image_attachment_models)
 
 
 class SupportsPdfAttachmentModelFilter(Exclude):
@@ -272,7 +273,15 @@ class SupportsPdfAttachmentModelFilter(Exclude):
 
     def __init__(self) -> None:
         non_pdf_attachment_models = set(get_active_models()) - set(get_pdf_attachment_models())
-        super().__init__(name="-noPdfAttachment", exclude_models=non_pdf_attachment_models)
+        super().__init__(name="-noPDF", exclude_models=non_pdf_attachment_models)
+
+
+class LiveModelFilter(Exclude):
+    """Filter to models that supports live Internet access."""
+
+    def __init__(self) -> None:
+        non_live_models = set(get_active_models()) - set(get_all_live_models())
+        super().__init__(name="-noLive", exclude_models=non_live_models)
 
 
 class ContextLengthFilter(Exclude):

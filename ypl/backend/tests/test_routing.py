@@ -791,7 +791,6 @@ def test_context_length_filter(mock_context_lengths: Mock) -> None:
 @patch("ypl.backend.llm.chat.get_chat_required_models", return_value=[])
 @patch("ypl.backend.llm.routing.modules.filters.get_active_models", return_value=ACTIVE_MODELS)
 @patch("ypl.backend.llm.routing.modules.filters.get_image_attachment_models", return_value=IMAGE_ATTACHMENT_MODELS)
-@patch("ypl.backend.llm.routing.modules.proposers.get_image_attachment_models", return_value=IMAGE_ATTACHMENT_MODELS)
 @patch("ypl.backend.llm.routing.modules.proposers.get_all_pro_models", return_value=PRO_MODELS)
 @patch("ypl.backend.llm.routing.modules.proposers.get_all_strong_models", return_value=STRONG_MODELS)
 @patch(
@@ -850,8 +849,7 @@ async def test_select_models_plus(
     mock_get_all_pro_and_strong_models: Mock,
     mock_get_all_strong_models: Mock,
     mock_get_all_pro_models: Mock,
-    mock_get_image_attachment_models1: Mock,
-    mock_get_image_attachment_models2: Mock,
+    mock_get_image_attachment_models: Mock,
     mock_active_models: Mock,
     mock_get_chat_required_models: Mock,
     mock_label_turn_quality: Mock,

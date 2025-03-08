@@ -16,6 +16,7 @@ from ypl.backend.llm.routing.modules.filters import (
     FirstK,
     HighErrorRateFilter,
     Inject,
+    LiveModelFilter,
     OnePerSemanticGroupFilter,
     ProviderFilter,
     RandomJitter,
@@ -30,11 +31,9 @@ from ypl.backend.llm.routing.modules.proposers import (
     CostModelProposer,
     EloProposer,
     FastModelProposer,
-    ImageModelProposer,
     LiveModelProposer,
     MaxSpeedProposer,
     ModelProposer,
-    PdfModelProposer,
     ProAndStrongModelProposer,
     ProModelProposer,
     RandomModelProposer,
@@ -121,26 +120,30 @@ async def get_simple_pro_router(
     has_image = IMAGE_CATEGORY in categories
     has_pdf = PDF_CATEGORY in categories
     has_attachment = has_image or has_pdf
+    needs_online_access = ONLINE_CATEGORY in categories
 
     rule_proposer = RoutingRuleProposer(*categories)
     rule_filter = RoutingRuleFilter(*categories)
     error_filter = HighErrorRateFilter() if not has_pdf else HighErrorRateFilter(soft_threshold=0.2, hard_threshold=0.4)
 
-    image_proposer = ImageModelProposer() if IMAGE_CATEGORY in categories else Passthrough()
-    pdf_proposer = PdfModelProposer() if PDF_CATEGORY in categories else Passthrough()
-    attachment_proposer = image_proposer | pdf_proposer
-
     image_filter = SupportsImageAttachmentModelFilter() if IMAGE_CATEGORY in categories else Passthrough()
     pdf_filter = SupportsPdfAttachmentModelFilter() if PDF_CATEGORY in categories else Passthrough()
     attachment_filter = image_filter | pdf_filter
+
+    # only apply live filter if there's no attachment requirement or we will have so few (1!) models to use.
+    # TODO(Tian): now we will still likely get one online model and one attachment model, even solving an aspect of the
+    # prompt, maybe we can help users to use cross-check to get a synthesized answer?
+    live_model_filter = LiveModelFilter() if needs_online_access and not has_attachment else Passthrough()
 
     include_internal_models = preference.user_id is not None and (await is_user_internal(preference.user_id))
 
     def get_preprocessing_stage(prompt: str) -> RouterModule:
         """
-        All necessary preprocessing steps, filtering out models we definitely cannot use
+        All necessary preprocessing steps, filtering out models we definitely cannot use.
+
+        TODO(Tian): today, only gemini-2.0-flash-001 can handle both attachments and online access.
         """
-        return rule_filter | ContextLengthFilter(prompt) | attachment_filter | error_filter
+        return rule_filter | ContextLengthFilter(prompt) | attachment_filter | live_model_filter | error_filter
 
     async def get_postprocessing_stage(exclude_models: set[str] | None = None, prefix: str = "first") -> RouterModule:
         """
@@ -219,8 +222,6 @@ async def get_simple_pro_router(
                 )
                 # propose promoted models
                 & (PromotionModelProposer() | error_filter).with_flags(always_include=True)
-                # propose models with image or pdf capabilities, strong offset
-                & (attachment_proposer | error_filter).with_flags(always_include=True, offset=200_000)
                 # propose reputable models
                 & (
                     reputable_proposer
@@ -256,12 +257,6 @@ async def get_simple_pro_router(
                 ).with_probs(1 - no_proposal_prob, no_proposal_prob)
                 # propose through routing table rules
                 & (rule_proposer.with_flags(always_include=True) | error_filter | RandomJitter(jitter_range=1))
-                # propose models with attachment capabilities, strong offset
-                & (
-                    attachment_proposer.with_flags(always_include=True, offset=20_000_000)
-                    | error_filter
-                    | RandomJitter(jitter_range=1)
-                )
                 # propose pro OR reputable OR random models, choosing them random using the probabilities in with_probs
                 & (
                     (

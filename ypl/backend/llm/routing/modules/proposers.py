@@ -13,8 +13,6 @@ from ypl.backend.llm.db_helpers import (
     get_all_pro_models,
     get_all_reasoning_models,
     get_all_strong_models,
-    get_image_attachment_models,
-    get_pdf_attachment_models,
 )
 from ypl.backend.llm.ranking import ConfidenceIntervalRankerMixin, Ranker
 from ypl.backend.llm.routing.modules.base import RouterModule
@@ -132,16 +130,6 @@ class LiveModelProposer(ProvidedModelProposer):
 class ReasoningModelProposer(ProvidedModelProposer):
     def __init__(self) -> None:
         super().__init__(list(get_all_reasoning_models()), SelectionCriteria.REASONING_MODELS)
-
-
-class ImageModelProposer(ProvidedModelProposer):
-    def __init__(self) -> None:
-        super().__init__(list(get_image_attachment_models()), SelectionCriteria.IMAGE_MODELS)
-
-
-class PdfModelProposer(ProvidedModelProposer):
-    def __init__(self) -> None:
-        super().__init__(list(get_pdf_attachment_models()), SelectionCriteria.PDF_MODELS)
 
 
 class RandomModelProposer(RNGMixin, ModelProposer):
