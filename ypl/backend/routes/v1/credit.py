@@ -206,10 +206,6 @@ async def validate_cashout_request(request: CashoutCreditsRequest) -> None:
         if request.destination_additional_details is None:
             raise HTTPException(status_code=400, detail="Please enter additional details!")
 
-    if request.cashout_currency == CurrencyEnum.USD and request.facilitator == PaymentInstrumentFacilitatorEnum.STRIPE:
-        if request.destination_additional_details is None:
-            raise HTTPException(status_code=400, detail="Please enter additional details!")
-
     try:
         validate_destination_identifier_for_currency(request.cashout_currency, request.destination_identifier_type)
     except ValueError as e:
