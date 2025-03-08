@@ -112,12 +112,62 @@ class StripeUseCaseType(StrEnum):
     ACCOUNT_UPDATE = "account_update"
 
 
+class StripePaymentMethodType(StrEnum):
+    BANK_ACCOUNT = "bank_account"
+    CARD = "card"
+
+
 @dataclass
 class StripeAccountLinkCreateRequest:
     """Data class representing a Stripe account link creation request."""
 
     account: str
     use_case_type: StripeUseCaseType
+
+
+@dataclass
+class StripeBankAccount:
+    """Data class representing a Stripe bank account."""
+
+    archived: bool
+    bank_name: str
+    country: str
+    last4: str
+    enabled_methods: list[str]
+    supported_currencies: list[str]
+    type: str
+
+
+@dataclass
+class StripeCardAccount:
+    """Data class representing a Stripe card account."""
+
+    archived: bool
+    exp_month: int
+    exp_year: int
+    last4: str
+    type: str
+
+
+@dataclass
+class StripeEligibilityReason:
+    """Data class representing Stripe eligibility reason."""
+
+    invalid_parameter: list[str]
+
+
+@dataclass
+class StripePaymentMethod:
+    """Data class representing a Stripe payment method."""
+
+    id: str
+    object: str
+    eligibility: str
+    eligibility_reason: StripeEligibilityReason
+    created: str
+    type: StripePaymentMethodType
+    bank_account: StripeBankAccount | None = None
+    card: StripeCardAccount | None = None
 
 
 def _get_stripe_client() -> StripeClient:
@@ -396,3 +446,88 @@ async def get_stripe_transaction_status(transaction_id: str) -> StripeTransactio
         log_dict = {"message": "Stripe: Error getting transaction status", "error": str(e)}
         logging.error(json_dumps(log_dict))
         raise StripePayoutError("Failed to get Stripe transaction status", {"error": str(e)}) from e
+
+
+async def get_payment_methods(account_id: str) -> list[StripePaymentMethod]:
+    """Get all payment methods for a Stripe account.
+
+    Args:
+        account_id: The ID of the Stripe account
+
+    Returns:
+        list[StripePaymentMethod]: List of payment methods associated with the account
+    """
+    try:
+        log_dict = {"message": "Stripe: Getting payment methods", "account_id": account_id}
+        logging.info(json_dumps(log_dict))
+
+        client = _get_stripe_client()
+        options = cast(RequestOptions, {"stripe_context": account_id})
+
+        response = client.v2.payment_methods.outbound_destinations.list(options=options)
+        if not response or not response.data:
+            log_dict = {"message": "Stripe: No payment methods found"}
+            logging.warning(json_dumps(log_dict))
+            return []
+
+        payment_methods: list[StripePaymentMethod] = []
+        for method in response.data:
+            if method.type == StripePaymentMethodType.BANK_ACCOUNT and method.bank_account:
+                bank_account = StripeBankAccount(
+                    archived=method.bank_account.archived,
+                    bank_name=method.bank_account.bank_name,
+                    country=method.bank_account.country,
+                    last4=method.bank_account.last4,
+                    enabled_methods=method.bank_account.enabled_methods,
+                    supported_currencies=method.bank_account.supported_currencies,
+                    type=method.bank_account.type,
+                )
+                payment_method = StripePaymentMethod(
+                    id=method.id,
+                    object=method.object,
+                    bank_account=bank_account,
+                    card=None,
+                    eligibility=method.eligibility,
+                    eligibility_reason=StripeEligibilityReason(
+                        invalid_parameter=cast(list[str], method.eligibility_reason.invalid_parameter),
+                    ),
+                    created=method.created,
+                    type=StripePaymentMethodType(method.type),
+                )
+            elif method.type == StripePaymentMethodType.CARD and method.card:
+                card_account = StripeCardAccount(
+                    archived=method.card.archived,
+                    exp_month=method.card.exp_month,
+                    exp_year=method.card.exp_year,
+                    last4=method.card.last4,
+                    type=method.card.type,
+                )
+                payment_method = StripePaymentMethod(
+                    id=method.id,
+                    object=method.object,
+                    bank_account=None,
+                    card=card_account,
+                    eligibility=method.eligibility,
+                    eligibility_reason=StripeEligibilityReason(
+                        invalid_parameter=cast(list[str], method.eligibility_reason.invalid_parameter),
+                    ),
+                    created=method.created,
+                    type=StripePaymentMethodType(method.type),
+                )
+            else:
+                continue
+
+            payment_methods.append(payment_method)
+
+        log_dict = {
+            "message": "Stripe: Retrieved payment methods",
+            "payment_methods": json_dumps([vars(m) for m in payment_methods]),
+        }
+        logging.info(json_dumps(log_dict))
+
+        return payment_methods
+
+    except Exception as e:
+        log_dict = {"message": "Stripe: Error getting payment methods", "error": str(e)}
+        logging.error(json_dumps(log_dict))
+        raise StripePayoutError("Failed to get payment methods", {"error": str(e)}) from e

@@ -79,6 +79,7 @@ from ypl.backend.payment.stripe.stripe_payout import (
     create_recipient_account,
     create_stripe_payout,
     create_stripe_us_bank_account,
+    get_payment_methods,
     get_stripe_balances,
     get_stripe_transaction_status,
 )
@@ -1807,6 +1808,13 @@ def get_stripe_transaction_status_util(transaction_id: str) -> None:
     """Get the status of a Stripe transaction."""
     status = asyncio.run(get_stripe_transaction_status(transaction_id))
     logging.info(f"Transaction status: {status}")
+
+
+@cli.command()
+@click.option("--account-id", required=True, help="The ID of the Stripe account")
+def get_stripe_payment_methods_for_account(account_id: str) -> None:
+    """Get the available payment methods for an account."""
+    asyncio.run(get_payment_methods(account_id))
 
 
 if __name__ == "__main__":
