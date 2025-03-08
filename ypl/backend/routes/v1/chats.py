@@ -15,8 +15,8 @@ from ypl.backend.db import get_async_engine, get_async_session
 from ypl.backend.llm.chat import (
     get_active_prompt_modifiers,
 )
-from ypl.backend.llm.chat.quicktake import QuickTakeRequest, QuickTakeResponse, generate_quicktake
 from ypl.backend.llm.chat_title import get_chat_title_suggestion
+from ypl.backend.llm.quicktake import QuickTakeRequest, QuickTakeResponse, generate_quicktake
 from ypl.backend.llm.review import (
     ReviewRequest,
     ReviewResponse,
