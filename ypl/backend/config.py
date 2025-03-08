@@ -254,6 +254,12 @@ class Settings(BaseSettings):
         return self._get_gcp_secret(f"checkout-com-secret-{self.ENVIRONMENT}")
 
     @computed_field  # type: ignore[misc]
+    @cached_property
+    def STRIPE_CONFIG(self) -> dict:
+        secret = self._get_gcp_secret(f"stripe-config-{self.ENVIRONMENT}")
+        return json.loads(secret)  # type: ignore[no-any-return]
+
+    @computed_field  # type: ignore[misc]
     @property
     def server_host(self) -> str:
         # Use HTTPS for anything other than local development
@@ -378,6 +384,7 @@ async def preload_gcp_secrets() -> None:
         fetch_secret(lambda: settings.AXIS_UPI_CONFIG),
         fetch_secret(lambda: settings.PAYPAL_CONFIG),
         fetch_secret(lambda: settings.CHECKOUT_COM_SECRET),
+        fetch_secret(lambda: settings.STRIPE_CONFIG),
         return_exceptions=True,
     )
 
