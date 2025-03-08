@@ -93,9 +93,11 @@ async def send_marketing_emails_async(
     - week_1_inactive: for users who haven't completed any evals (after 1 week)
     - week_5_inactive: for users with no evals (after 5 weeks)
     - week_6_deactivation: for users with no evals (after 6 weeks)
+        Note: Users receiving the week 6 deactivation email will have their accounts deactivated
     """
-
     all_email_configs = []
+    users_to_deactivate = []
+
     for timeframe in MARKETING_EMAIL_TIMEFRAMES:
         now = datetime.now(UTC)
         time_ago_start = now - timedelta(days=timeframe.days + RETRY_DAYS)
@@ -137,6 +139,10 @@ async def send_marketing_emails_async(
                     if already_sent:
                         logging.info(f"Skipping {user.email} for {inactive_campaign} because email was already sent")
                     continue
+
+                if inactive_campaign == "week_6_deactivation":
+                    users_to_deactivate.append(user)
+
                 all_email_configs.append(
                     EmailConfig(
                         campaign=inactive_campaign,
@@ -153,6 +159,8 @@ async def send_marketing_emails_async(
         logging.info(f"[PRINT-ONLY] Found {len(all_email_configs)} total emails to send:")
         for config in all_email_configs:
             logging.info(f"  - To: {config.to_address} | Campaign: {config.campaign}")
+        if users_to_deactivate:
+            logging.info(f"[PRINT-ONLY] Would deactivate {len(users_to_deactivate)} users")
     elif all_email_configs:
         # Send emails in batches of RESEND_BATCH_SIZE
         for i in range(0, len(all_email_configs), RESEND_BATCH_SIZE):
@@ -166,6 +174,15 @@ async def send_marketing_emails_async(
             except Exception as e:
                 logging.error(f"Error sending batch emails {i + 1}: {str(e)}")
                 raise
+
+        # After successfully sending emails, deactivate users
+        if users_to_deactivate:
+            logging.info(f"Deactivating {len(users_to_deactivate)} inactive users")
+            for user in users_to_deactivate:
+                user.status = UserStatus.DEACTIVATED
+                logging.info(f"Deactivated user {user.email}")
+            session.commit()
+
         logging.info("✓ All emails batched successfully")
 
 
