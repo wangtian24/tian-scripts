@@ -16,6 +16,48 @@ from ypl.backend.utils.json import json_dumps
 GENERIC_ERROR_MESSAGE: Final[str] = "Internal error"
 
 
+class StripePayoutError(Exception):
+    """Custom exception for Stripe payout related errors."""
+
+    def __init__(self, message: str = GENERIC_ERROR_MESSAGE, details: dict[str, Any] | None = None):
+        """Initialize the error with a message and optional details.
+
+        Args:
+            message: Error description
+            details: Additional context about the error
+        """
+        super().__init__(message)
+        self.details = details or {}
+        # Log the error with details
+        log_dict: dict[str, Any] = {"message": message, "details": self.details}
+        logging.error(json_dumps(log_dict))
+
+
+try:
+    stripe_config = settings.STRIPE_CONFIG
+    if not stripe_config or not isinstance(stripe_config, dict):
+        raise StripePayoutError(
+            "Invalid Stripe configuration", {"error": "Stripe configuration is not a valid dictionary"}
+        )
+
+    secret_key = stripe_config.get("secret_key")
+    refresh_url = stripe_config.get("refresh_url")
+    return_url = stripe_config.get("return_url")
+
+    if not secret_key:
+        raise StripePayoutError("Missing Stripe credentials", {"error": "Stripe secret key is not configured"})
+
+    stripe_client: Final[StripeClient] = StripeClient(secret_key)
+except Exception as e:
+    log_dict = {
+        "message": "Error initializing Stripe client",
+        "error": str(e),
+        "error_type": type(e).__name__,
+    }
+    logging.error(json_dumps(log_dict))
+    raise StripePayoutError("Failed to initialize Stripe client", {"error": str(e)}) from e
+
+
 class StripeTransactionStatus(StrEnum):
     """Enum for Stripe transaction statuses."""
 
@@ -65,56 +107,22 @@ class StripePayout:
     amount: int
 
 
+class StripeUseCaseType(StrEnum):
+    ACCOUNT_ONBOARDING = "account_onboarding"
+    ACCOUNT_UPDATE = "account_update"
+
+
 @dataclass
 class StripeAccountLinkCreateRequest:
     """Data class representing a Stripe account link creation request."""
 
     account: str
-    use_case_type: str
-    refresh_url: str
-    return_url: str
-
-
-class StripePayoutError(Exception):
-    """Custom exception for Stripe payout related errors."""
-
-    def __init__(self, message: str = GENERIC_ERROR_MESSAGE, details: dict[str, Any] | None = None):
-        """Initialize the error with a message and optional details.
-
-        Args:
-            message: Error description
-            details: Additional context about the error
-        """
-        super().__init__(message)
-        self.details = details or {}
-        # Log the error with details
-        log_dict: dict[str, Any] = {"message": message, "details": self.details}
-        logging.error(json_dumps(log_dict))
+    use_case_type: StripeUseCaseType
 
 
 def _get_stripe_client() -> StripeClient:
     """Get Stripe client instance."""
-    try:
-        stripe_config = settings.STRIPE_CONFIG
-        if not stripe_config or not isinstance(stripe_config, dict):
-            raise StripePayoutError(
-                "Invalid Stripe configuration", {"error": "Stripe configuration is not a valid dictionary"}
-            )
-
-        secret_key = stripe_config.get("secret_key")
-        if not secret_key:
-            raise StripePayoutError("Missing Stripe credentials", {"error": "Stripe secret key is not configured"})
-
-        return StripeClient(secret_key)
-
-    except Exception as e:
-        log_dict = {
-            "message": "Error initializing Stripe client",
-            "error": str(e),
-            "error_type": type(e).__name__,
-        }
-        logging.error(json_dumps(log_dict))
-        raise StripePayoutError("Failed to initialize Stripe client", {"error": str(e)}) from e
+    return stripe_client
 
 
 async def get_stripe_balances() -> list[StripeBalance]:
@@ -244,8 +252,8 @@ async def create_account_link(request: StripeAccountLinkCreateRequest) -> str:
                     "type": request.use_case_type,
                     request.use_case_type: {
                         "configurations": ["recipient"],
-                        "refresh_url": request.refresh_url,
-                        "return_url": request.return_url,
+                        "refresh_url": refresh_url,
+                        "return_url": return_url,
                     },
                 },
             },

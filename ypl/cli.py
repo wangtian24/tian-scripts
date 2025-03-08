@@ -74,6 +74,7 @@ from ypl.backend.payment.stripe.stripe_payout import (
     StripePayout,
     StripeRecipientCreateRequest,
     StripeUSBankAccountCreateRequest,
+    StripeUseCaseType,
     create_account_link,
     create_recipient_account,
     create_stripe_payout,
@@ -1752,9 +1753,7 @@ def create_stripe_account_link(account: str, refresh_url: str, return_url: str, 
 
     asyncio.run(
         create_account_link(
-            StripeAccountLinkCreateRequest(
-                account=account, refresh_url=refresh_url, return_url=return_url, use_case_type=use_case_type
-            )
+            StripeAccountLinkCreateRequest(account=account, use_case_type=StripeUseCaseType(use_case_type))
         )
     )
 

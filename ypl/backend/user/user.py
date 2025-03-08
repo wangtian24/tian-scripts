@@ -77,6 +77,7 @@ class VendorProfileResponse:
     created_at: datetime | None
     modified_at: datetime | None
     deleted_at: datetime | None
+    vendor_url_link: str | None = None
 
 
 @retry(
@@ -193,6 +194,7 @@ async def register_user_with_vendor(request: RegisterVendorRequest) -> VendorPro
                 created_at=profile.created_at,
                 modified_at=profile.modified_at,
                 deleted_at=profile.deleted_at,
+                vendor_url_link=vendor_response.vendor_url_link,
             )
 
     except VendorRegistrationError as e:

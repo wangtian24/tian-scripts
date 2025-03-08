@@ -4,15 +4,24 @@ from typing import Any
 
 import httpx
 from ypl.backend.config import settings
-from ypl.backend.payment.stripe.stripe_payout import StripeRecipientCreateRequest, create_recipient_account
+from ypl.backend.payment.stripe.stripe_payout import (
+    StripeAccountLinkCreateRequest,
+    StripeRecipientCreateRequest,
+    StripeUseCaseType,
+    create_account_link,
+    create_recipient_account,
+)
 from ypl.backend.user.vendor_details import AdditionalDetails, HyperwalletDetails, StripeDetails
 from ypl.backend.utils.json import json_dumps
 
 
 class VendorRegistrationResponse:
-    def __init__(self, vendor_id: str, additional_details: dict[str, Any] | AdditionalDetails):
+    def __init__(
+        self, vendor_id: str, additional_details: dict[str, Any] | AdditionalDetails, vendor_url_link: str | None = None
+    ):
         self.vendor_id = vendor_id
         self.additional_details = additional_details
+        self.vendor_url_link = vendor_url_link
 
 
 class VendorRegistrationError(Exception):
@@ -229,7 +238,6 @@ class StripeRegistration(VendorRegistration):
             }
             logging.info(json_dumps(log_dict))
 
-            # Convert AdditionalDetails to a dictionary for JSON serialization
             additional_details_dict = {
                 "stripe_details": {
                     "given_name": stripe_details.given_name,
@@ -239,9 +247,18 @@ class StripeRegistration(VendorRegistration):
                 }
             }
 
+            # for stripe also create the one time link to the account
+            vendor_url_link = await create_account_link(
+                StripeAccountLinkCreateRequest(
+                    account=account_id,
+                    use_case_type=StripeUseCaseType.ACCOUNT_ONBOARDING,
+                )
+            )
+
             return VendorRegistrationResponse(
                 vendor_id=account_id,
                 additional_details=additional_details_dict,
+                vendor_url_link=vendor_url_link,
             )
 
         except Exception as e:
