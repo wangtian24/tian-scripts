@@ -1,6 +1,7 @@
 import logging
 from dataclasses import dataclass
 from decimal import Decimal
+from enum import StrEnum
 from typing import Any, Final, cast
 
 from stripe import StripeClient
@@ -12,6 +13,16 @@ from ypl.backend.config import settings
 from ypl.backend.utils.json import json_dumps
 
 GENERIC_ERROR_MESSAGE: Final[str] = "Internal error"
+
+
+class StripeTransactionStatus(StrEnum):
+    """Enum for Stripe transaction statuses."""
+
+    PROCESSING = "processing"
+    FAILED = "failed"
+    POSTED = "posted"
+    RETURNED = "returned"
+    CANCELLED = "cancelled"
 
 
 @dataclass
@@ -291,3 +302,33 @@ async def create_stripe_payout(request: StripePayout) -> tuple[str, str]:
         log_dict = {"message": "Stripe: Error creating Stripe payout", "error": str(e)}
         logging.error(json_dumps(log_dict))
         raise StripePayoutError("Failed to create Stripe payout", {"error": str(e)}) from e
+
+
+async def get_stripe_transaction_status(transaction_id: str) -> StripeTransactionStatus:
+    """Get the status of a Stripe transaction.
+
+    Args:
+        transaction_id: The ID of the Stripe transaction
+
+    Returns:
+        StripeTransactionStatus: The status of the Stripe transaction
+    """
+    try:
+        log_dict = {"message": "Stripe: Getting transaction status", "transaction_id": transaction_id}
+        logging.info(json_dumps(log_dict))
+
+        client = _get_stripe_client()
+
+        response = client.v2.outbound_payments.retrieve(transaction_id)
+        if not response:
+            raise StripePayoutError("Failed to get Stripe transaction status", {"error": "No response from Stripe"})
+
+        log_dict = {"message": "Stripe: Transaction status retrieved", "response": json_dumps(response)}
+        logging.info(json_dumps(log_dict))
+
+        return StripeTransactionStatus(response.status)
+
+    except Exception as e:
+        log_dict = {"message": "Stripe: Error getting transaction status", "error": str(e)}
+        logging.error(json_dumps(log_dict))
+        raise StripePayoutError("Failed to get Stripe transaction status", {"error": str(e)}) from e

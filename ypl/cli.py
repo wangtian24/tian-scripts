@@ -77,6 +77,7 @@ from ypl.backend.payment.stripe.stripe_payout import (
     create_stripe_payout,
     create_stripe_us_bank_account,
     get_stripe_balances,
+    get_stripe_transaction_status,
 )
 from ypl.backend.utils.analytics import post_analytics_to_slack
 from ypl.backend.utils.generate_invite_codes import generate_invite_code_for_top_users
@@ -1780,6 +1781,14 @@ def create_stripe_payout_util(
         )
     )
     logging.info(f"Payout ID: {payout_id}, Status: {payout_status}")
+
+
+@cli.command()
+@click.option("--transaction-id", required=True, help="The ID of the Stripe transaction")
+def get_stripe_transaction_status_util(transaction_id: str) -> None:
+    """Get the status of a Stripe transaction."""
+    status = asyncio.run(get_stripe_transaction_status(transaction_id))
+    logging.info(f"Transaction status: {status}")
 
 
 if __name__ == "__main__":
