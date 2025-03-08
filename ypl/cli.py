@@ -1702,5 +1702,14 @@ def abuse_check_recent_activity_volume() -> None:
     asyncio.run(run_check())
 
 
+# create utility methods for testing stripe integration
+@cli.command()
+def get_stripe_balance() -> None:
+    """Get the balance of a Stripe account."""
+    from ypl.backend.payment.stripe.stripe_payout import get_stripe_balances
+
+    asyncio.run(get_stripe_balances())
+
+
 if __name__ == "__main__":
     cli()
