@@ -606,11 +606,11 @@ async def get_payment_instrument_from_id(payment_instrument_id: uuid.UUID) -> Pa
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=RETRY_WAIT_MULTIPLIER, min=RETRY_WAIT_MIN, max=RETRY_WAIT_MAX),
 )
-async def get_source_instrument_id(
+async def get_source_instrument(
     facilitator: PaymentInstrumentFacilitatorEnum,
     identifier_type: PaymentInstrumentIdentifierTypeEnum,
     identifier: str | None = None,
-) -> uuid.UUID:
+) -> PaymentInstrument | None:
     """Get the source payment instrument ID for a given facilitator and identifier type.
 
     Args:
@@ -644,16 +644,44 @@ async def get_source_instrument_id(
             }
             logging.exception(json_dumps(log_dict))
             raise PaymentInstrumentNotFoundError(f"Payment instrument not found for {facilitator}")
-        return instrument.payment_instrument_id
+        return instrument
 
 
-async def get_destination_instrument_id(
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=RETRY_WAIT_MULTIPLIER, min=RETRY_WAIT_MIN, max=RETRY_WAIT_MAX),
+)
+async def get_source_instrument_id(
+    facilitator: PaymentInstrumentFacilitatorEnum,
+    identifier_type: PaymentInstrumentIdentifierTypeEnum,
+    identifier: str | None = None,
+) -> uuid.UUID:
+    """Get the source payment instrument ID for a given facilitator and identifier type.
+
+    Args:
+        facilitator: The payment facilitator type
+        identifier_type: The type of identifier for the payment instrument
+        identifier: The identifier for the payment instrument to filter on, if provided
+
+    Returns:
+        UUID: The payment instrument ID
+
+    Raises:
+        PaymentInstrumentNotFoundError: If no payment instrument is found
+    """
+    instrument = await get_source_instrument(**locals())
+    if not instrument:
+        raise PaymentInstrumentNotFoundError(f"Payment instrument not found for {facilitator}")
+    return instrument.payment_instrument_id
+
+
+async def get_destination_instrument(
     facilitator: PaymentInstrumentFacilitatorEnum,
     user_id: str,
     destination_identifier: str,
     destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
     instrument_metadata: dict | None = None,
-) -> uuid.UUID:
+) -> PaymentInstrument | None:
     """Get or create the destination payment instrument ID.
 
     Args:
@@ -664,7 +692,7 @@ async def get_destination_instrument_id(
         instrument_metadata: The metadata for the payment instrument
 
     Returns:
-        UUID: The payment instrument ID
+        PaymentInstrument | None: The payment instrument if found, None otherwise
     """
     async with get_async_session() as session:
         query = select(PaymentInstrument).where(
@@ -780,7 +808,32 @@ async def get_destination_instrument_id(
                         instrument.instrument_metadata = new_metadata
 
         await session.commit()
-        return instrument.payment_instrument_id
+        return instrument
+
+
+async def get_destination_instrument_id(
+    facilitator: PaymentInstrumentFacilitatorEnum,
+    user_id: str,
+    destination_identifier: str,
+    destination_identifier_type: PaymentInstrumentIdentifierTypeEnum,
+    instrument_metadata: dict | None = None,
+) -> uuid.UUID:
+    """Get or create the destination payment instrument ID.
+
+    Args:
+        facilitator: The payment facilitator type
+        user_id: The ID of the user
+        destination_identifier: The destination identifier (e.g. wallet address)
+        destination_identifier_type: The type of identifier for the payment instrument
+        instrument_metadata: The metadata for the payment instrument
+
+    Returns:
+        UUID: The payment instrument ID
+    """
+    instrument = await get_destination_instrument(**locals())
+    if not instrument:
+        raise PaymentInstrumentNotFoundError(f"Payment instrument not found for {facilitator}")
+    return instrument.payment_instrument_id
 
 
 async def get_instrument_details(instrument_id: uuid.UUID) -> PaymentInstrument | None:
