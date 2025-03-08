@@ -69,6 +69,11 @@ from ypl.backend.payment.payment import (
 from ypl.backend.payment.payout_utils import validate_pending_cashouts_async
 from ypl.backend.payment.paypal.paypal_payout import get_paypal_balances
 from ypl.backend.payment.plaid.plaid_payout import PlaidPayout, process_plaid_payout
+from ypl.backend.payment.stripe.stripe_payout import (
+    StripeRecipientCreateRequest,
+    create_recipient_account,
+    get_stripe_balances,
+)
 from ypl.backend.utils.analytics import post_analytics_to_slack
 from ypl.backend.utils.generate_invite_codes import generate_invite_code_for_top_users
 from ypl.backend.utils.json import json_dumps
@@ -1706,9 +1711,28 @@ def abuse_check_recent_activity_volume() -> None:
 @cli.command()
 def get_stripe_balance() -> None:
     """Get the balance of a Stripe account."""
-    from ypl.backend.payment.stripe.stripe_payout import get_stripe_balances
 
     asyncio.run(get_stripe_balances())
+
+
+@cli.command()
+@click.option("--given-name", required=True, help="The given name of the recipient")
+@click.option("--surname", required=True, help="The surname of the recipient")
+@click.option("--email", required=True, help="The email of the recipient")
+@click.option("--country", required=True, help="The country of the recipient")
+def create_stripe_recipient(given_name: str, surname: str, email: str, country: str) -> None:
+    """Create a Stripe recipient account."""
+
+    asyncio.run(
+        create_recipient_account(
+            StripeRecipientCreateRequest(
+                given_name=given_name,
+                surname=surname,
+                email=email,
+                country=country,
+            )
+        )
+    )
 
 
 if __name__ == "__main__":

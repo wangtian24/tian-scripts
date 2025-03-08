@@ -1,9 +1,10 @@
 import logging
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any, Final
+from typing import Any, Final, cast
 
 from stripe import StripeClient
+from stripe.v2._account_service import AccountService
 from ypl.backend.config import settings
 from ypl.backend.utils.json import json_dumps
 
@@ -17,6 +18,16 @@ class StripeBalance:
     account_id: str
     currency: str
     balance_amount: Decimal
+
+
+@dataclass
+class StripeRecipientCreateRequest:
+    """Data class representing a Stripe recipient account."""
+
+    given_name: str
+    surname: str
+    email: str
+    country: str
 
 
 class StripePayoutError(Exception):
@@ -112,3 +123,54 @@ async def get_stripe_balances() -> list[StripeBalance]:
         log_dict = {"message": "Stripe: Error getting account balances", "error": str(e)}
         logging.warning(json_dumps(log_dict))
         return []
+
+
+async def create_recipient_account(request: StripeRecipientCreateRequest) -> str:
+    """Create a recipient account for a Stripe account.
+
+    Args:
+        request: The request to create a recipient account
+
+    Returns:
+        str: The ID of the created recipient account
+    """
+    try:
+        log_dict = {"message": "Stripe: Creating recipient account", "request": json_dumps(request)}
+        logging.info(json_dumps(log_dict))
+
+        client = _get_stripe_client()
+
+        legal_entity_data = {
+            "business_type": "individual",
+            "country": request.country.lower(),
+            "representative": {"given_name": request.given_name, "surname": request.surname},
+        }
+
+        stripe_request = AccountService.CreateParams(
+            include=["legal_entity_data", "configuration.recipient_data"],
+            name=f"{request.given_name} {request.surname}",
+            email=request.email,
+            legal_entity_data=cast(AccountService.CreateParamsLegalEntityData, legal_entity_data),
+            configuration={
+                "recipient_data": {
+                    "features": {
+                        "bank_accounts": {"local": {"requested": True}, "wire": {"requested": True}},
+                        "cards": {"requested": True},
+                    }
+                }
+            },
+        )
+
+        response = client.v2.accounts.create(stripe_request)
+        if not response:
+            raise StripePayoutError("Failed to create recipient account", {"error": "No response from Stripe"})
+
+        log_dict = {"message": "Stripe: Recipient account created", "response": json_dumps(response)}
+        logging.info(json_dumps(log_dict))
+
+        return response.id
+
+    except Exception as e:
+        log_dict = {"message": "Stripe: Error creating recipient account", "error": str(e)}
+        logging.error(json_dumps(log_dict))
+        raise StripePayoutError("Failed to create recipient account", {"error": str(e)}) from e
