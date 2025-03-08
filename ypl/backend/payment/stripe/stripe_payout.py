@@ -4,7 +4,9 @@ from decimal import Decimal
 from typing import Any, Final, cast
 
 from stripe import StripeClient
+from stripe._request_options import RequestOptions
 from stripe.v2._account_service import AccountService
+from stripe.v2.payment_methods._us_bank_account_service import UsBankAccountService
 from ypl.backend.config import settings
 from ypl.backend.utils.json import json_dumps
 
@@ -28,6 +30,15 @@ class StripeRecipientCreateRequest:
     surname: str
     email: str
     country: str
+
+
+@dataclass
+class StripeUSBankAccountCreateRequest:
+    """Data class representing a US Bank account to create a payment method for a recipient."""
+
+    account_number: str
+    routing_number: str
+    recipient_account_id: str
 
 
 class StripePayoutError(Exception):
@@ -174,3 +185,45 @@ async def create_recipient_account(request: StripeRecipientCreateRequest) -> str
         log_dict = {"message": "Stripe: Error creating recipient account", "error": str(e)}
         logging.error(json_dumps(log_dict))
         raise StripePayoutError("Failed to create recipient account", {"error": str(e)}) from e
+
+
+async def create_stripe_us_bank_account(request: StripeUSBankAccountCreateRequest) -> str:
+    """Create a Stripe US Bank account for a recipient.
+
+    Args:
+        request: The request to create a US Bank account
+
+    Returns:
+        str: The ID of the created US Bank account
+    """
+    try:
+        log_dict = {"message": "Stripe: Creating Stripe US Bank account", "request": json_dumps(request)}
+        logging.info(json_dumps(log_dict))
+
+        client = _get_stripe_client()
+
+        bank_account_data = cast(
+            UsBankAccountService.CreateParams,
+            {
+                "account_number": request.account_number,
+                "routing_number": request.routing_number,
+            },
+        )
+        stripe_context = cast(RequestOptions, {"stripe_context": request.recipient_account_id})
+
+        response = client.v2.payment_methods.us_bank_accounts.create(
+            params=bank_account_data,
+            options=stripe_context,
+        )
+        if not response:
+            raise StripePayoutError("Failed to create Stripe US Bank account", {"error": "No response from Stripe"})
+
+        log_dict = {"message": "Stripe: Stripe US Bank account created", "response": json_dumps(response)}
+        logging.info(json_dumps(log_dict))
+
+        return response.id
+
+    except Exception as e:
+        log_dict = {"message": "Stripe: Error creating Stripe US Bank account", "error": str(e)}
+        logging.error(json_dumps(log_dict))
+        raise StripePayoutError("Failed to create Stripe US Bank account", {"error": str(e)}) from e

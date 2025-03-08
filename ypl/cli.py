@@ -71,7 +71,9 @@ from ypl.backend.payment.paypal.paypal_payout import get_paypal_balances
 from ypl.backend.payment.plaid.plaid_payout import PlaidPayout, process_plaid_payout
 from ypl.backend.payment.stripe.stripe_payout import (
     StripeRecipientCreateRequest,
+    StripeUSBankAccountCreateRequest,
     create_recipient_account,
+    create_stripe_us_bank_account,
     get_stripe_balances,
 )
 from ypl.backend.utils.analytics import post_analytics_to_slack
@@ -1730,6 +1732,24 @@ def create_stripe_recipient(given_name: str, surname: str, email: str, country: 
                 surname=surname,
                 email=email,
                 country=country,
+            )
+        )
+    )
+
+
+@cli.command()
+@click.option("--account-number", required=True, help="The account number of the recipient")
+@click.option("--routing-number", required=True, help="The routing number of the recipient")
+@click.option("--recipient-account-id", required=True, help="The recipient account ID of the recipient")
+def create_stripe_us_bank_account_utility(account_number: str, routing_number: str, recipient_account_id: str) -> None:
+    """Create a Stripe US Bank account."""
+
+    asyncio.run(
+        create_stripe_us_bank_account(
+            StripeUSBankAccountCreateRequest(
+                account_number=account_number,
+                routing_number=routing_number,
+                recipient_account_id=recipient_account_id,
             )
         )
     )
