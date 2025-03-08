@@ -70,9 +70,11 @@ from ypl.backend.payment.payout_utils import validate_pending_cashouts_async
 from ypl.backend.payment.paypal.paypal_payout import get_paypal_balances
 from ypl.backend.payment.plaid.plaid_payout import PlaidPayout, process_plaid_payout
 from ypl.backend.payment.stripe.stripe_payout import (
+    StripePayout,
     StripeRecipientCreateRequest,
     StripeUSBankAccountCreateRequest,
     create_recipient_account,
+    create_stripe_payout,
     create_stripe_us_bank_account,
     get_stripe_balances,
 )
@@ -1753,6 +1755,31 @@ def create_stripe_us_bank_account_utility(account_number: str, routing_number: s
             )
         )
     )
+
+
+@cli.command()
+@click.option("--from-account-id", required=True, help="The account ID of the sender")
+@click.option("--amount", required=True, help="The amount to send")
+@click.option("--currency", required=True, help="The currency of the amount")
+@click.option("--recipient-account-id", required=True, help="The account ID of the recipient")
+@click.option("--destination-id", required=True, help="The destination ID of the payout")
+def create_stripe_payout_util(
+    from_account_id: str, amount: str, currency: str, recipient_account_id: str, destination_id: str
+) -> None:
+    """Create a Stripe payout."""
+
+    payout_id, payout_status = asyncio.run(
+        create_stripe_payout(
+            StripePayout(
+                from_account_id=from_account_id,
+                amount=int(amount),
+                currency=currency,
+                recipient_account_id=recipient_account_id,
+                destination_id=destination_id,
+            )
+        )
+    )
+    logging.info(f"Payout ID: {payout_id}, Status: {payout_status}")
 
 
 if __name__ == "__main__":

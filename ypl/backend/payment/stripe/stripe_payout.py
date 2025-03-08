@@ -6,6 +6,7 @@ from typing import Any, Final, cast
 from stripe import StripeClient
 from stripe._request_options import RequestOptions
 from stripe.v2._account_service import AccountService
+from stripe.v2._outbound_payment_service import OutboundPaymentService
 from stripe.v2.payment_methods._us_bank_account_service import UsBankAccountService
 from ypl.backend.config import settings
 from ypl.backend.utils.json import json_dumps
@@ -39,6 +40,17 @@ class StripeUSBankAccountCreateRequest:
     account_number: str
     routing_number: str
     recipient_account_id: str
+
+
+@dataclass
+class StripePayout:
+    """Data class representing a Stripe payout."""
+
+    from_account_id: str
+    currency: str
+    recipient_account_id: str
+    destination_id: str
+    amount: int
 
 
 class StripePayoutError(Exception):
@@ -227,3 +239,55 @@ async def create_stripe_us_bank_account(request: StripeUSBankAccountCreateReques
         log_dict = {"message": "Stripe: Error creating Stripe US Bank account", "error": str(e)}
         logging.error(json_dumps(log_dict))
         raise StripePayoutError("Failed to create Stripe US Bank account", {"error": str(e)}) from e
+
+
+async def create_stripe_payout(request: StripePayout) -> tuple[str, str]:
+    """Create a Stripe payout.
+
+    Args:
+        request: The request to create a Stripe payout
+
+    Returns:
+        tuple[str, str]: The ID of the created Stripe payout and the status of the created Stripe payout
+    """
+    try:
+        log_dict = {"message": "Stripe: Creating Stripe payout", "request": json_dumps(request)}
+        logging.info(json_dumps(log_dict))
+
+        client = _get_stripe_client()
+
+        amount_in_cents = int(request.amount * 100)  # Stripe requires amount in cents
+        payout_params = cast(
+            OutboundPaymentService.CreateParams,
+            {
+                "from": {
+                    "financial_account": request.from_account_id,
+                    "currency": request.currency.lower(),
+                },
+                "to": {
+                    "recipient": request.recipient_account_id,
+                    "destination": request.destination_id,
+                    "currency": request.currency.lower(),
+                },
+                "amount": {
+                    "currency": request.currency.lower(),
+                    "value": amount_in_cents,
+                },
+            },
+        )
+
+        response = client.v2.outbound_payments.create(
+            params=payout_params,
+        )
+        if not response:
+            raise StripePayoutError("Failed to create Stripe payout", {"error": "No response from Stripe"})
+
+        log_dict = {"message": "Stripe: Stripe payout created", "response": json_dumps(response)}
+        logging.info(json_dumps(log_dict))
+
+        return response.id, response.status
+
+    except Exception as e:
+        log_dict = {"message": "Stripe: Error creating Stripe payout", "error": str(e)}
+        logging.error(json_dumps(log_dict))
+        raise StripePayoutError("Failed to create Stripe payout", {"error": str(e)}) from e
