@@ -70,9 +70,11 @@ from ypl.backend.payment.payout_utils import validate_pending_cashouts_async
 from ypl.backend.payment.paypal.paypal_payout import get_paypal_balances
 from ypl.backend.payment.plaid.plaid_payout import PlaidPayout, process_plaid_payout
 from ypl.backend.payment.stripe.stripe_payout import (
+    StripeAccountLinkCreateRequest,
     StripePayout,
     StripeRecipientCreateRequest,
     StripeUSBankAccountCreateRequest,
+    create_account_link,
     create_recipient_account,
     create_stripe_payout,
     create_stripe_us_bank_account,
@@ -1735,6 +1737,23 @@ def create_stripe_recipient(given_name: str, surname: str, email: str, country: 
                 surname=surname,
                 email=email,
                 country=country,
+            )
+        )
+    )
+
+
+@cli.command()
+@click.option("--account", required=True, help="The account ID of the Stripe account")
+@click.option("--refresh-url", required=True, help="The refresh URL of the Stripe account")
+@click.option("--return-url", required=True, help="The return URL of the Stripe account")
+@click.option("--use-case-type", required=True, help="The type of account link to create")
+def create_stripe_account_link(account: str, refresh_url: str, return_url: str, use_case_type: str) -> None:
+    """Create a Stripe account link."""
+
+    asyncio.run(
+        create_account_link(
+            StripeAccountLinkCreateRequest(
+                account=account, refresh_url=refresh_url, return_url=return_url, use_case_type=use_case_type
             )
         )
     )

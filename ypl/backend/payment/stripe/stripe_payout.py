@@ -6,6 +6,7 @@ from typing import Any, Final, cast
 
 from stripe import StripeClient
 from stripe._request_options import RequestOptions
+from stripe.v2._account_link_service import AccountLinkService
 from stripe.v2._account_service import AccountService
 from stripe.v2._outbound_payment_service import OutboundPaymentService
 from stripe.v2.payment_methods._us_bank_account_service import UsBankAccountService
@@ -62,6 +63,16 @@ class StripePayout:
     recipient_account_id: str
     destination_id: str
     amount: int
+
+
+@dataclass
+class StripeAccountLinkCreateRequest:
+    """Data class representing a Stripe account link creation request."""
+
+    account: str
+    use_case_type: str
+    refresh_url: str
+    return_url: str
 
 
 class StripePayoutError(Exception):
@@ -208,6 +219,51 @@ async def create_recipient_account(request: StripeRecipientCreateRequest) -> str
         log_dict = {"message": "Stripe: Error creating recipient account", "error": str(e)}
         logging.error(json_dumps(log_dict))
         raise StripePayoutError("Failed to create recipient account", {"error": str(e)}) from e
+
+
+async def create_account_link(request: StripeAccountLinkCreateRequest) -> str:
+    """Create an account link for a Stripe account.
+
+    Args:
+        request: The request to create an account link
+
+    Returns:
+        str: The URL of the created account link
+    """
+    try:
+        log_dict = {"message": "Stripe: Creating account link", "request": json_dumps(request)}
+        logging.info(json_dumps(log_dict))
+
+        client = _get_stripe_client()
+
+        account_link_params = cast(
+            AccountLinkService.CreateParams,
+            {
+                "account": request.account,
+                "use_case": {
+                    "type": request.use_case_type,
+                    request.use_case_type: {
+                        "configurations": ["recipient"],
+                        "refresh_url": request.refresh_url,
+                        "return_url": request.return_url,
+                    },
+                },
+            },
+        )
+
+        response = client.v2.account_links.create(params=account_link_params)
+        if not response:
+            raise StripePayoutError("Failed to create account link", {"error": "No response from Stripe"})
+
+        log_dict = {"message": "Stripe: Account link created", "response": json_dumps(response)}
+        logging.info(json_dumps(log_dict))
+
+        return response.url
+
+    except Exception as e:
+        log_dict = {"message": "Stripe: Error creating account link", "error": str(e)}
+        logging.error(json_dumps(log_dict))
+        raise StripePayoutError("Failed to create account link", {"error": str(e)}) from e
 
 
 async def create_stripe_us_bank_account(request: StripeUSBankAccountCreateRequest) -> str:
