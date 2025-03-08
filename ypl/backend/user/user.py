@@ -86,6 +86,23 @@ class VendorProfileResponse:
     after=after_log(logging.getLogger(), logging.WARNING),
     retry=retry_if_exception_type((OperationalError, DatabaseError)),
 )
+async def get_user_vendor_profile(user_id: str, vendor_name: VendorNameEnum) -> UserVendorProfile | None:
+    async with get_async_session() as session:
+        stmt = select(UserVendorProfile).where(
+            UserVendorProfile.user_id == user_id,  # type: ignore
+            UserVendorProfile.vendor_name == vendor_name,  # type: ignore
+            UserVendorProfile.deleted_at.is_(None),  # type: ignore
+        )
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_fixed(0.1),
+    after=after_log(logging.getLogger(), logging.WARNING),
+    retry=retry_if_exception_type((OperationalError, DatabaseError)),
+)
 async def register_user_with_vendor(request: RegisterVendorRequest) -> VendorProfileResponse:
     """Register a user with a vendor by creating a user vendor profile.
 
