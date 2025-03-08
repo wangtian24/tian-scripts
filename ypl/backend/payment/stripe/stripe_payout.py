@@ -257,7 +257,8 @@ async def create_recipient_account(request: StripeRecipientCreateRequest) -> str
             configuration={
                 "recipient_data": {
                     "features": {
-                        "bank_accounts": {"local": {"requested": True}, "wire": {"requested": True}},
+                        # disable bank accounts for now
+                        # "bank_accounts": {"local": {"requested": True}, "wire": {"requested": True}},
                         "cards": {"requested": True},
                     }
                 }
