@@ -1788,7 +1788,7 @@ def create_stripe_payout_util(
 ) -> None:
     """Create a Stripe payout."""
 
-    payout_id, payout_status = asyncio.run(
+    payout_id, payout_status, receipt_url = asyncio.run(
         create_stripe_payout(
             StripePayout(
                 from_account_id=from_account_id,
@@ -1799,7 +1799,7 @@ def create_stripe_payout_util(
             )
         )
     )
-    logging.info(f"Payout ID: {payout_id}, Status: {payout_status}")
+    logging.info(f"Payout ID: {payout_id}, Status: {payout_status}, Receipt URL: {receipt_url}")
 
 
 @cli.command()

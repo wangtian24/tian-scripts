@@ -366,14 +366,15 @@ async def create_stripe_us_bank_account(request: StripeUSBankAccountCreateReques
         raise StripePayoutError("Failed to create Stripe US Bank account", {"error": str(e)}) from e
 
 
-async def create_stripe_payout(request: StripePayout) -> tuple[str, str]:
+async def create_stripe_payout(request: StripePayout) -> tuple[str, str, str]:
     """Create a Stripe payout.
 
     Args:
         request: The request to create a Stripe payout
 
     Returns:
-        tuple[str, str]: The ID of the created Stripe payout and the status of the created Stripe payout
+        tuple[str, str, str]: The ID of the created Stripe payout, the status of the created Stripe payout,
+        and the receipt URL
     """
     try:
         log_dict = {"message": "Stripe: Creating Stripe payout", "request": json_dumps(request)}
@@ -410,7 +411,7 @@ async def create_stripe_payout(request: StripePayout) -> tuple[str, str]:
         log_dict = {"message": "Stripe: Stripe payout created", "response": json_dumps(response)}
         logging.info(json_dumps(log_dict))
 
-        return response.id, response.status
+        return response.id, response.status, response.receipt_url
 
     except Exception as e:
         log_dict = {"message": "Stripe: Error creating Stripe payout", "error": str(e)}
