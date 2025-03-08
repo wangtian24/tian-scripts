@@ -7803,6 +7803,25 @@ anyio = ">=3.4.0,<5"
 full = ["httpx (>=0.22.0)", "itsdangerous", "jinja2", "python-multipart (>=0.0.7)", "pyyaml"]
 
 [[package]]
+name = "stripe"
+version = "0.25.0"
+description = "Python bindings for the Stripe API"
+optional = false
+python-versions = ">=3.6"
+files = []
+develop = false
+
+[package.dependencies]
+requests = {version = ">=2.20", markers = "python_version >= \"3.0\""}
+typing_extensions = {version = ">=4.5.0", markers = "python_version >= \"3.7\""}
+
+[package.source]
+type = "git"
+url = "https://github.com/stripe/stripe-python-next.git"
+reference = "v0.25.0"
+resolved_reference = "4f06e9d927a3ac61083566518db04fb7e6546002"
+
+[[package]]
 name = "sympy"
 version = "1.13.3"
 description = "Computer algebra system (CAS) in Python"
@@ -9388,4 +9407,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.11,<3.12"
-content-hash = "f82ce5558b6044a3415a3df7ffb5c45878993c6888a9c55ce9f432ddbc39b667"
+content-hash = "8082454b809db1ebf375813e51099a0ccddd693df78e4b064613a16ed962a674"

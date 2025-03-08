@@ -16,7 +16,19 @@ COPY ./data/ /app/data
 COPY ./.env /app/.env
 COPY ./README.md /app/README.md
 
-RUN bash -c "poetry install --no-root"
+# Need this as the Stripe package is private
+ARG STRIPE_GITHUB_TOKEN
+RUN if [ -n "$STRIPE_GITHUB_TOKEN" ]; then \
+    poetry config http-basic.github $STRIPE_GITHUB_TOKEN x-oauth-basic && \
+    git config --global url."https://${STRIPE_GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/" && \
+    echo "GitHub authentication configured successfully"; \
+    else \
+    echo "Error: STRIPE_GITHUB_TOKEN is required but was not provided" && \
+    exit 1; \
+    fi
+
+RUN echo "Installing dependencies..." && \
+    STRIPE_GITHUB_TOKEN=$STRIPE_GITHUB_TOKEN poetry install --no-root || (echo "Poetry install failed. Check the logs above for details." && exit 1)
 RUN bash -c "poetry build"
 RUN bash -c "pip install ."
 

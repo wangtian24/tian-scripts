@@ -164,6 +164,8 @@ jobs:
         cache-from: type=gha
         cache-to: type=gha,mode=max
         file: ${{ env.DOCKERFILE }}
+        build-args: |
+          STRIPE_GITHUB_TOKEN=${{ secrets.STRIPE_GITHUB_TOKEN }}
 
     - name: Create the .env and .env.yml files
       run: |

@@ -134,6 +134,7 @@ requests = "2.32.3"
 scikit-learn = "1.4.2"
 scipy = "1.15.0"
 sentence-transformers = "3.0.1"
+stripe = {git = "https://github.com/stripe/stripe-python-next.git", tag = "v0.25.0"}
 sqlalchemy = {version = "2.0.32", extras = ["asyncio"]}
 sqlmodel = "0.0.21"
 tenacity = "8.5.0"

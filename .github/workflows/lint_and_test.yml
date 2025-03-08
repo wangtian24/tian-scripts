@@ -78,6 +78,20 @@ jobs:
             pydeps-${{ hashFiles('**/poetry.lock') }}-
             pydeps
 
+      - name: Configure GitHub authentication
+        run: |
+          if [ -n "${{ secrets.STRIPE_GITHUB_TOKEN }}" ]; then
+            echo "Configuring GitHub authentication with provided token..."
+            # Configure Poetry authentication
+            poetry config http-basic.github ${{ secrets.STRIPE_GITHUB_TOKEN }} x-oauth-basic
+            # Configure Git authentication
+            git config --global url."https://${{ secrets.STRIPE_GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
+            echo "GitHub authentication configured successfully"
+          else
+            echo "Error: STRIPE_GITHUB_TOKEN is required but was not provided"
+            exit 1
+          fi
+
       - name: Install dependencies
         run: poetry install --no-interaction --no-root --sync
 
