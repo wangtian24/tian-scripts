@@ -354,7 +354,7 @@ async def record_reward_action(reward_action_log: RewardActionLog) -> RewardCrea
         log_dict = {
             "message": "Error recording reward action",
             "user_id": reward_action_log.user_id,
-            "reward_action_log": reward_action_log,
+            "reward_action_log": reward_action_log.model_dump(),
             "error": str(e),
         }
         logging.exception(json_dumps(log_dict))
