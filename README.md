@@ -82,6 +82,18 @@ Make sure Homebrew is installed. If not, follow instructions [here](https://brew
     ```
 - Now all your dependencies are installed in the virtual environment.
 
+If you face any issues specifically due to Stripe repo cloing (temporary problem), run the following command
+
+```sh
+git config --global url."https://${STRIPE_GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+poetry install --no-root
+```
+
+If you made the above change, then remember to change the git config back to your own PAT to use your own account for git push and pull. run the following command
+
+```sh
+git config --global --unset url."https://${STRIPE_GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+```
 ### 2. Set Up Credentials
 
 The backend server needs to load all necessary credentials from `.env` file in the repo root to access various services. We have these secrets stored in 1Password (and Vercel for production). To run the server locally, you need to create this file by downloading it from 1Password (it's under the entry "yupp-mind .env file"). Here is the command lines to do it on macOS using the command line:
