@@ -5,7 +5,9 @@ import traceback
 import uuid
 from collections.abc import AsyncIterator
 from datetime import datetime
+from enum import Enum
 from typing import Any
+from uuid import UUID
 
 from cachetools import TTLCache
 from fastapi import APIRouter, HTTPException, status
@@ -15,6 +17,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 from sqlalchemy import func, update
+from sqlalchemy.dialects.postgresql import Insert as pg_insert
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -23,19 +26,13 @@ from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine, get_async_session
 from ypl.backend.jobs.tasks import astore_language_code
 from ypl.backend.llm.attachment import get_attachments, link_attachments
-from ypl.backend.llm.chat import (
-    Intent,
-    check_for_stop_request,
-    get_curated_chat_context,
-    update_failed_message_status,
-    upsert_chat_message,
-)
 from ypl.backend.llm.chat_instrumentation_service import (
     ChatInstrumentationRequest,
     EventSource,
     create_or_update_instrumentation,
 )
 from ypl.backend.llm.chat_title import maybe_set_chat_title
+from ypl.backend.llm.context import get_curated_chat_context
 from ypl.backend.llm.crawl import enhance_citations
 from ypl.backend.llm.db_helpers import is_image_generation_model
 from ypl.backend.llm.embedding import embed_and_store_chat_message_embeddings
@@ -44,7 +41,7 @@ from ypl.backend.llm.model.management_common import ModelErrorType, contains_err
 from ypl.backend.llm.model.model import ModelResponseTelemetry
 from ypl.backend.llm.model_heuristics import ModelHeuristics
 from ypl.backend.llm.prompt_suggestions import maybe_add_suggested_followups
-from ypl.backend.llm.provider.provider_clients import get_language_model, get_provider_client
+from ypl.backend.llm.provider.provider_clients import get_language_model, get_model_provider_tuple, get_provider_client
 from ypl.backend.llm.routing.common import SelectIntent
 from ypl.backend.llm.sanitize_messages import DEFAULT_MAX_TOKENS, sanitize_messages
 from ypl.backend.llm.transform_messages import TransformOptions, transform_user_messages
@@ -64,6 +61,7 @@ from ypl.db.chats import (
     Turn,
 )
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum
+from ypl.db.redis import get_upstash_redis_client
 
 CITATION_EXTRACTION_TIMEOUT = 20.0
 MODEL_ERROR_CACHE: TTLCache = TTLCache(maxsize=100, ttl=7200)  # 2 hours
@@ -254,6 +252,119 @@ async def get_prev_turn_id(chat_id: uuid.UUID, turn_id: uuid.UUID) -> uuid.UUID 
         )
         result = await session.exec(query)
         return result.first()
+
+
+async def update_failed_message_status(message_id: UUID) -> None:
+    """Update completion status of failed message to streaming_error_with_retry"""
+    async with get_async_session() as session:
+        try:
+            query = (
+                update(ChatMessage)
+                .where(ChatMessage.message_id == message_id)  # type: ignore
+                .values(completion_status=CompletionStatus.STREAMING_ERROR_WITH_FALLBACK)
+            )
+            await session.exec(query)  # type: ignore[call-overload]
+            await session.commit()
+        except Exception as e:
+            info = {
+                "message": "Error updating failed message status",
+                "error_details": str(e),
+            }
+            logging.error(json_dumps(info))
+
+
+class Intent(Enum):
+    EAGER_PERSIST = "eager_persist"
+    FINAL_PERSIST = "final_persist"
+
+
+async def upsert_chat_message(
+    intent: Intent,
+    turn_id: UUID,
+    message_id: UUID,
+    model_internal_name: str,
+    message_type: MessageType,
+    turn_seq_num: int,
+    assistant_selection_source: AssistantSelectionSource,
+    prompt_modifier_ids: list[UUID] | None,
+    content: str | None = "",  # DB doesn't accept null value, defaulting to empty string.
+    streaming_metrics: dict[str, str] | None = None,
+    message_metadata: dict[str, str] | None = None,
+    completion_status: CompletionStatus | None = None,
+    modifier_status: MessageModifierStatus | None = None,
+) -> UUID:
+    """
+    We have split the columns into two parts.
+    items that are available before streaming - turn_id, message_id, message_type, turn_sequence_number,
+    assistant_model_name,assistant_language_model_id, assistant_selection_source, message_metadata (etc)
+    items that are available after streaming - content, streaming_metrics, message_metadata (etc)
+    Items #1 are eager persisted.
+    Items #2 are persisted after streaming (while addressing conflict and potential race condition)
+    Please respect the above convention for future enhancements.
+
+    """
+    result = get_model_provider_tuple(internal_name=model_internal_name)
+
+    if result is None:
+        raise ValueError(f"No model and provider found for {model_internal_name}")
+    language_model = result[0]
+
+    async with AsyncSession(get_async_engine()) as session:
+        try:
+            # Prepare values for upsert
+            values = {
+                "turn_id": turn_id,
+                "message_id": message_id,
+                "message_type": message_type,
+                "content": content,
+                "assistant_model_name": model_internal_name,
+                "streaming_metrics": streaming_metrics or {},
+                "turn_sequence_number": turn_seq_num,
+                "assistant_language_model_id": language_model.language_model_id,
+                "assistant_selection_source": assistant_selection_source,
+                "message_metadata": message_metadata,
+                "completion_status": completion_status,
+                "modifier_status": modifier_status,
+            }
+
+            # Perform upsert using ON CONFLICT for ChatMessage
+            stmt = pg_insert(ChatMessage).values(**values)
+            # For the edge case that Eager_Persist faces conflict,
+            # it implies that final_persist has already been executed, so do_nothing, all fields already persisted.
+            if intent == Intent.EAGER_PERSIST:
+                stmt = stmt.on_conflict_do_nothing()
+            else:
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["message_id"],
+                    set_={
+                        "content": stmt.excluded.content,
+                        "streaming_metrics": stmt.excluded.streaming_metrics,
+                        "message_metadata": stmt.excluded.message_metadata,
+                        "completion_status": stmt.excluded.completion_status,
+                        "modified_at": func.current_timestamp(),
+                        "modifier_status": stmt.excluded.modifier_status,
+                    },
+                )
+            await session.exec(stmt)  # type: ignore[call-overload]
+
+            # Insert prompt modifier associations with ON CONFLICT DO NOTHING
+            if prompt_modifier_ids:
+                assoc_values = [
+                    {"prompt_modifier_id": modifier_id, "chat_message_id": message_id}
+                    for modifier_id in prompt_modifier_ids
+                ]
+                assoc_stmt = pg_insert(PromptModifierAssoc).values(assoc_values)
+                # if it's already present, no need to update any new fields, do nothing.
+                assoc_stmt = assoc_stmt.on_conflict_do_nothing()
+                await session.exec(assoc_stmt)  # type: ignore[call-overload]
+
+            await session.commit()
+            return message_id
+
+        except Exception as e:
+            await session.rollback()
+            logging.error(f"Error upserting chat message: {str(e)} \n" + traceback.format_exc())
+            raise
 
 
 async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequest) -> AsyncIterator[str]:
@@ -745,6 +856,50 @@ async def _get_message(chat_request: ChatRequest) -> ChatMessage | None:
         result = await session.execute(query)
         row = result.first()
         return row[0] if row else None
+
+
+async def check_for_stop_request(chat_uuid: UUID, turn_uuid: UUID, model_name: str) -> bool:
+    """
+    Check if there's a stop request for the current stream.
+
+    Args:
+        chat_id: The chat ID
+        turn_id: The turn ID
+        model_name: The model name
+
+    Returns:
+        bool: True if streaming should stop, False otherwise
+    """
+    try:
+        chat_id = str(chat_uuid)
+        turn_id = str(turn_uuid)
+        redis_client = await get_upstash_redis_client()
+
+        # Create the same keys as in the JS version
+        key = f"stop-stream-request-chat:{chat_id}-{turn_id}:model"
+        key_without_turn = f"stop-stream-request-chat:{chat_id}-:model"
+
+        # Get multiple values at once
+        all_values = await redis_client.mget(key, key_without_turn)
+
+        for value in all_values:
+            if value == model_name or value == "":
+                logging.info(f"Found stop signal for model: {model_name}, key: {str(key)}")
+                # Clear the KV store value since we've detected it
+                try:
+                    await redis_client.delete(key)
+                    await redis_client.delete(key_without_turn)
+                except Exception as e:
+                    logging.warning(
+                        f"Error while attempting to clear stop streaming signal for"
+                        f"{chat_id}-{turn_id}-{model_name}: {str(e)}"
+                    )
+                return True
+        return False
+
+    except Exception as e:
+        logging.error(f"Error checking stop request: {str(e)}")
+        return False
 
 
 async def stop_stream_check(chat_id: uuid.UUID, turn_id: uuid.UUID, model: str) -> bool:

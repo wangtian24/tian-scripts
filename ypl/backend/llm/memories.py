@@ -6,7 +6,7 @@ from langchain_core.messages import HumanMessage
 from sqlmodel import select
 
 from ypl.backend.db import get_async_session
-from ypl.backend.llm.chat import get_curated_chat_context
+from ypl.backend.llm.context import get_curated_chat_context
 from ypl.backend.llm.judge import YuppMemoryExtractor
 from ypl.backend.llm.provider.provider_clients import get_internal_provider_client
 from ypl.backend.utils.json import json_dumps

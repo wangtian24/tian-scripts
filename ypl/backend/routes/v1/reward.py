@@ -5,7 +5,6 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Path, Query
 
 from ypl.backend.email.referrals import send_referral_bonus_emails
-from ypl.backend.llm.chat import get_turn_id_from_message_id
 from ypl.backend.llm.reward import (
     RewardAmountRule,
     RewardClaimedResponse,
@@ -17,6 +16,7 @@ from ypl.backend.llm.reward import (
     feedback_based_reward,
     get_referrer_user_id_for_reward,
     get_reward_action_log_by_user_and_turn,
+    get_turn_id_from_message_id,
     process_reward_claim,
     qt_eval_reward,
     referral_bonus_reward,

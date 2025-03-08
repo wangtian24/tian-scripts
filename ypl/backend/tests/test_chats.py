@@ -3,8 +3,8 @@ from unittest.mock import Mock
 
 from sqlalchemy.orm.state import InstanceState
 
-from ypl.backend.llm.chat import RESPONSE_SEPARATOR, _get_assistant_messages
-from ypl.backend.prompts import ALL_MODELS_IN_CHAT_HISTORY_PREAMBLE
+from ypl.backend.llm.context import _get_assistant_messages
+from ypl.backend.prompts import ALL_MODELS_IN_CHAT_HISTORY_PREAMBLE, RESPONSE_SEPARATOR
 from ypl.db.chats import ChatMessage, MessageType, MessageUIStatus
 
 
@@ -89,6 +89,6 @@ def test_get_assistant_messages() -> None:
 
         Response from assistant 3.
         """
-    ).strip().replace("\n\n---\n\n", RESPONSE_SEPARATOR)
+    ).strip().replace("\n\n---\n\n", RESPONSE_SEPARATOR)  # noqa: F821
 
     assert messages[0].content == expected

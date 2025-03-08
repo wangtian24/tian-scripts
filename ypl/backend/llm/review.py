@@ -15,7 +15,7 @@ from sqlalchemy import select
 
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
-from ypl.backend.llm.chat import get_curated_chat_context
+from ypl.backend.llm.context import get_curated_chat_context
 from ypl.backend.llm.labeler import LLMLabeler
 from ypl.backend.llm.nuggetizer import YuppNuggetizer
 from ypl.backend.llm.provider.provider_clients import (

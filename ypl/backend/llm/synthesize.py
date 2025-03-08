@@ -5,11 +5,13 @@ import random
 import uuid
 from collections.abc import Generator
 from datetime import datetime
-from typing import Any
+from pathlib import Path
+from typing import Any, Generic, TypeVar
 
 import numpy as np
+from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from pydantic import BaseModel, ValidationError
@@ -17,19 +19,13 @@ from sqlmodel import Session
 from tqdm.asyncio import tqdm_asyncio
 
 from ypl.backend.db import get_engine
-from ypl.backend.llm.chat import (
-    LLMChatAssistant,
-    MultiChatUser,
-    Persona,
-    YuppChatIO,
-    YuppChatMessageHistory,
-    YuppChatUserGenerator,
-    YuppMessage,
-    chat_message_cast_to,
-    get_chat_history_model,
-    get_db_message_type,
+from ypl.backend.llm.constants import (
+    ACTIVE_MODELS_BY_PROVIDER,
+    ALL_MODELS_BY_PROVIDER,
+    FIRST_NAMES,
+    LAST_NAMES,
+    ChatProvider,
 )
-from ypl.backend.llm.constants import ALL_MODELS_BY_PROVIDER, FIRST_NAMES, LAST_NAMES
 from ypl.backend.llm.db_helpers import get_chat_model
 from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.prompts import SYNTHESIZER_FIRST_ASSISTANT_PROMPT, SYNTHESIZER_GENERATE_PERSONA_PROMPT
@@ -37,12 +33,34 @@ from ypl.db.all_models import users
 from ypl.db.chats import Chat, ChatMessage, Eval, EvalType, MessageType, Turn
 from ypl.db.users import SyntheticBackfillAttributes
 
+ChatMessageType1 = TypeVar("ChatMessageType1", bound=BaseMessage)
+ChatMessageType2 = TypeVar("ChatMessageType2", bound=BaseMessage)
+
 
 class SampleLLMEntry(BaseModel):
     """Represents an LLM to be sampled during synthetic conversation generation"""
 
     info: ModelInfo
     sample_weight: float = 1  # this LLM will be drawn with probability `sample_weight / sum(all)`
+
+
+class Persona(BaseModel):
+    persona: str = ""
+    interests: list[str] = []
+    style: str = ""
+
+    def __hash__(self) -> int:
+        return hash((self.persona, tuple(self.interests), self.style))
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, Persona):
+            return False
+
+        return (
+            self.persona == other.persona
+            and tuple(self.interests) == tuple(other.interests)
+            and self.style == other.style
+        )
 
 
 # langchain uses Pydantic v1 in BaseMessage; using for compatibility
@@ -67,6 +85,70 @@ class SynthesizerConfig(BaseModel):
     num_min_initial_characters: int = 15
     num_min_initial_words: int = 2
     timeout: int = 30  # seconds
+
+
+YuppMessage = HumanMessage | AIMessage | SystemMessage  # this is needed for proper Pydantic typecasting
+
+
+class MultiChatUser:
+    """
+    Represents a conversational agent capable of responding to one or more messages simultaneously. Keeps track of the
+    chat history and various attributes. Each context is associated with a unique chat history.
+    """
+
+    def __init__(self) -> None:
+        self.chat_history: ChatMessageHistory | None = None
+
+    def copy(self) -> "MultiChatUser":
+        """Creates a copy of the chat user."""
+        raise NotImplementedError
+
+    @property
+    def last_message(self) -> YuppMessage:
+        """Returns the last generated message from the synthetic user."""
+        assert self.chat_history is not None, "Must be called within the context"
+        return self.chat_history.messages[-1]  # type: ignore
+
+    def reset(self) -> None:
+        self.chat_history = ChatMessageHistory()
+
+    async def areset(self) -> None:
+        self.chat_history = ChatMessageHistory()
+
+    async def __aenter__(self) -> "MultiChatUser":
+        await self.areset()
+        return self
+
+    def __enter__(self) -> "MultiChatUser":
+        self.reset()
+        return self
+
+    def __exit__(self, exc_type: None, exc_val: None, exc_tb: None) -> None:
+        self.reset()
+
+    async def __aexit__(self, exc_type: None, exc_val: None, exc_tb: None) -> None:
+        await self.areset()
+
+    def respond(self, *messages: YuppMessage) -> YuppMessage:
+        """Responds to messages from one or more LLMs."""
+        assert self.chat_history is not None, "Chat history not set. Did you forget to enter the context?"
+        return self._respond(*messages)
+
+    def _respond(self, *messages: YuppMessage) -> YuppMessage:
+        raise NotImplementedError
+
+    async def arespond(self, *messages: YuppMessage) -> YuppMessage:
+        """Responds to a message asynchronously."""
+        assert self.chat_history is not None, "Chat history not set. Did you forget to enter the context?"
+        return await self._arespond(*messages)
+
+    async def _arespond(self, *messages: YuppMessage) -> YuppMessage:
+        raise NotImplementedError
+
+
+def chat_message_cast_to(message: ChatMessageType1, target_type: type[ChatMessageType2]) -> ChatMessageType2:
+    message.type = target_type.schema()["properties"]["type"]["default"]
+    return target_type(**message.dict())
 
 
 class SyntheticYuppChatUser(MultiChatUser):
@@ -148,6 +230,21 @@ class SyntheticYuppChatUser(MultiChatUser):
         self.chat_history.messages.append(chat_message_cast_to(response, HumanMessage))
 
         return chat_message_cast_to(response, HumanMessage)
+
+
+ChatUserType = TypeVar("ChatUserType", bound=MultiChatUser)
+
+
+class YuppChatUserGenerator(Generic[ChatUserType]):
+    """Generates chat users."""
+
+    async def agenerate_users(self) -> Generator[ChatUserType, None, None]:
+        """Generates chat users asynchronously. Defaults to synchronous implementation if not overriden."""
+        return self.generate_users()
+
+    def generate_users(self) -> Generator[ChatUserType, None, None]:
+        """Generates chat users."""
+        raise NotImplementedError
 
 
 class SyntheticUserGenerator(YuppChatUserGenerator[SyntheticYuppChatUser]):
@@ -234,6 +331,85 @@ class SyntheticUserGenerator(YuppChatUserGenerator[SyntheticYuppChatUser]):
             )
 
 
+def get_chat_history_model(
+    info: ModelInfo,
+    chat_model_pool: dict[ChatProvider, list[str]] = ACTIVE_MODELS_BY_PROVIDER,
+    **chat_kwargs: Any | None,
+) -> BaseChatModel:
+    llm = get_chat_model(info, chat_model_pool=chat_model_pool, **chat_kwargs)
+    conv_template = ChatPromptTemplate.from_messages(
+        [
+            MessagesPlaceholder("chat_history"),
+            ("human", "{input}"),
+        ]
+    )
+
+    return conv_template | llm  # type: ignore
+
+
+YuppMessageRow = list[YuppMessage]
+
+
+class YuppChatMessageHistory(BaseModel):
+    """
+    Holds the chat history for a Yupp chat. Each turn can be composed of multiple chat messages (e.g., from two
+    LLMs in parallel), so we use a list of messages to represent a turn.
+    """
+
+    messages: list[YuppMessageRow] = []
+    judgements: list[int | None] = []  # for v1, it is assumed that all judgements are between 1 and 100 inclusive
+    eval_llms: list[str] = []
+    judge_llm: str | None = None
+    user_persona: Persona | None = None
+    chat_id: str | None = None
+
+    def initial_prompt_and_responses(self) -> tuple[str | None, Any, list[Any]]:
+        """Returns the prompt and respones from the initial turn."""
+        return self.chat_id, self.messages[0][0].content, [m.content for m in self.messages[1]]
+
+    def triplet_blocks(self) -> Generator[tuple[YuppMessage, YuppMessage, YuppMessage], None, None]:
+        """Generates triplet blocks of user-llm1-llm2 messages, similar to the front-end's behavior."""
+        for idx in range(0, (len(self.messages) // 2) * 2, 2):
+            if len(self.messages[idx]) != 1 or len(self.messages[idx + 1]) != 2:
+                raise ValueError("Each block must have one user message and two LLM messages")
+
+            yield self.messages[idx][0], self.messages[idx + 1][0], self.messages[idx + 1][1]
+
+
+class LLMChatAssistant(MultiChatUser):
+    def __init__(self, llm: BaseChatModel):
+        super().__init__()
+        self.llm = llm
+
+    def _respond(self, *messages: YuppMessage) -> YuppMessage:
+        """Responds to the first message only"""
+        assert len(messages) == 1, "Only one message is supported"
+        assert self.chat_history is not None
+
+        message = messages[0]
+        response = self.llm.invoke(
+            dict(input=message.content, chat_history=self.chat_history.messages)  # type: ignore
+        )
+        self.chat_history.messages.append(message)
+        self.chat_history.messages.append(response)
+
+        return response  # type: ignore
+
+    async def _arespond(self, *messages: YuppMessage) -> YuppMessage:
+        """Responds to the first message only"""
+        assert len(messages) == 1, "Only one message is supported"
+        assert self.chat_history is not None
+
+        message = messages[0]
+        response = await self.llm.ainvoke(
+            dict(input=message.content, chat_history=self.chat_history.messages)  # type: ignore
+        )
+        self.chat_history.messages.append(message)
+        self.chat_history.messages.append(response)
+
+        return response  # type: ignore
+
+
 async def asynthesize_chat(
     config: SynthesizerConfig,
     user: SyntheticYuppChatUser,
@@ -313,6 +489,40 @@ def generate_random_user(**kwargs: Any | None) -> users.User:
         email_verified=datetime.now(),
         **kwargs,
     )
+
+
+class YuppChatIO:
+    def append_chat(self, chat: YuppChatMessageHistory) -> "YuppChatIO":
+        """Appends a chat to the writer."""
+        raise NotImplementedError
+
+    def write_all_chats(self, chats: list[YuppChatMessageHistory]) -> "YuppChatIO":
+        for chat in chats:
+            self.append_chat(chat)
+
+        return self
+
+    def read_chats(self) -> list[YuppChatMessageHistory]:
+        """Reads chats from the writer."""
+        raise NotImplementedError
+
+    def delete(self) -> None:
+        """Deletes the object underlying the writer."""
+        raise NotImplementedError
+
+    def flush(self) -> None:
+        """Flushes the writer."""
+        pass
+
+
+def get_db_message_type(message: ChatMessageType1) -> MessageType:
+    match message:
+        case HumanMessage():
+            return MessageType.USER_MESSAGE
+        case AIMessage():
+            return MessageType.ASSISTANT_MESSAGE
+        case _:
+            raise ValueError(f"Unsupported message type: {type(message)}")
 
 
 class SQLChatIO(YuppChatIO):
@@ -439,3 +649,34 @@ class SQLChatIO(YuppChatIO):
             self.session.commit()
 
         return self
+
+
+class JsonChatIO(YuppChatIO):
+    def __init__(self, filename: str) -> None:
+        self.path = Path(filename)
+        self.chats: list[YuppChatMessageHistory] = []
+
+    def append_chat(self, chat: YuppChatMessageHistory) -> "JsonChatIO":
+        self.chats.append(chat)
+        return self
+
+    def read_chats(self) -> list[YuppChatMessageHistory]:
+        chats = []
+
+        with self.path.open() as f:
+            for line in f:
+                chats.append(YuppChatMessageHistory.parse_raw(line))
+
+        self.chats = chats
+        return self.chats
+
+    def delete(self) -> None:
+        self.path.unlink()
+
+    def flush(self, mode: str = "a") -> None:
+        with self.path.open(mode=mode) as f:
+            for chat in self.chats:
+                f.write(chat.json())
+                f.write("\n")
+
+        self.chats = []

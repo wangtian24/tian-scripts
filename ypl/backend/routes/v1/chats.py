@@ -13,12 +13,9 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from ypl.backend.db import get_async_engine, get_async_session
 from ypl.backend.llm.chat import (
-    PromptModifierInfo,
-    QuickTakeRequest,
-    QuickTakeResponse,
-    generate_quicktake,
     get_active_prompt_modifiers,
 )
+from ypl.backend.llm.chat.quicktake import QuickTakeRequest, QuickTakeResponse, generate_quicktake
 from ypl.backend.llm.chat_title import get_chat_title_suggestion
 from ypl.backend.llm.review import (
     ReviewRequest,
@@ -363,6 +360,12 @@ async def get_message_debug_info(message_id: UUID) -> MessageDebugInfo | None:
         }
         logging.exception(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+class PromptModifierInfo(BaseModel):
+    prompt_modifier_id: str
+    name: str
+    description: str | None = None
 
 
 @router.get("/chats/prompt_modifiers", response_model=list[PromptModifierInfo])

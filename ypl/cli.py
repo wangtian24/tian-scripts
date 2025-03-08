@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 import yaml
 from dotenv import load_dotenv
+from langchain_core.messages import AIMessage, HumanMessage
 from sqlalchemy import and_, case, func, or_
 from sqlalchemy.orm import load_only, selectinload
 from sqlmodel import Session, select, text
@@ -32,16 +33,7 @@ from ypl.backend.config import settings
 from ypl.backend.db import get_async_session, get_engine
 from ypl.backend.email.marketing import send_marketing_emails_async, send_monthly_summary_emails_async
 from ypl.backend.email.send_email import EmailConfig, send_email_async
-from ypl.backend.llm.chat import (
-    AIMessage,
-    ChatProvider,
-    HumanMessage,
-    JsonChatIO,
-    YuppChatIO,
-    YuppChatMessageHistory,
-    YuppMessageRow,
-)
-from ypl.backend.llm.constants import MODEL_HEURISTICS
+from ypl.backend.llm.constants import MODEL_HEURISTICS, ChatProvider
 from ypl.backend.llm.db_helpers import get_chat_model
 from ypl.backend.llm.judge import (
     JudgeConfig,
@@ -59,7 +51,16 @@ from ypl.backend.llm.moderation import LLAMA_GUARD_3_8B_MODEL_NAME, ModerationRe
 from ypl.backend.llm.prompt_classifiers import categorize_user_messages
 from ypl.backend.llm.prompt_suggestions import refresh_conversation_starters
 from ypl.backend.llm.ranking import get_default_ranker
-from ypl.backend.llm.synthesize import SQLChatIO, SynthesizerConfig, SyntheticUserGenerator, asynthesize_chats
+from ypl.backend.llm.synthesize import (
+    JsonChatIO,
+    SQLChatIO,
+    SynthesizerConfig,
+    SyntheticUserGenerator,
+    YuppChatIO,
+    YuppChatMessageHistory,
+    YuppMessageRow,
+    asynthesize_chats,
+)
 from ypl.backend.llm.utils import fetch_categories_with_descriptions_from_db
 from ypl.backend.payment.crypto.crypto_payout import process_pending_crypto_rewards
 from ypl.backend.payment.crypto.crypto_wallet import create_wallet

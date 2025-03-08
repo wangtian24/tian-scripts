@@ -33,7 +33,7 @@ from ypl.backend.feedback.app_feedback import (
 from ypl.backend.jobs.tasks import post_to_slack_task
 from ypl.backend.llm.turn_quality import LOW_EVAL_QUALITY_SCORE, update_user_eval_quality_scores
 from ypl.backend.utils.json import json_dumps
-from ypl.db.chats import Chat, Eval, EvalType, Turn, TurnQuality
+from ypl.db.chats import Chat, ChatMessage, Eval, EvalType, Turn, TurnQuality
 from ypl.db.invite_codes import SpecialInviteCode, SpecialInviteCodeClaimLog
 from ypl.db.point_transactions import PointsActionEnum, PointTransaction
 from ypl.db.rewards import (
@@ -1206,3 +1206,12 @@ async def get_user_reward_count_by_action_type(user_id: str, action_type: str) -
         )
         result = await session.exec(query)
         return result.one() or 0
+
+
+async def get_turn_id_from_message_id(message_id: UUID) -> UUID | None:
+    """Get turn_id from message_id by querying the chat_messages table."""
+    async with AsyncSession(get_async_engine()) as session:
+        message = await session.get(ChatMessage, message_id)
+        if message:
+            return message.turn_id
+        return None

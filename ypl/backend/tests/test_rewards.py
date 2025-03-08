@@ -182,7 +182,7 @@ class MockLLM(BaseChatModel):
 @fixture(autouse=True)
 def mock_chat_model() -> Generator[Any, None, None]:
     """Mock get_chat_model to prevent OpenAI client creation during import."""
-    with patch("ypl.backend.llm.chat.get_chat_model") as mock:
+    with patch("ypl.backend.llm.synthesize.get_chat_model") as mock:
         mock.return_value = MockLLM()
         yield mock
 
