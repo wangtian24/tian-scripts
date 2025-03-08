@@ -4,12 +4,13 @@ from typing import Any
 
 import httpx
 from ypl.backend.config import settings
-from ypl.backend.user.vendor_details import AdditionalDetails, HyperwalletDetails
+from ypl.backend.payment.stripe.stripe_payout import StripeRecipientCreateRequest, create_recipient_account
+from ypl.backend.user.vendor_details import AdditionalDetails, HyperwalletDetails, StripeDetails
 from ypl.backend.utils.json import json_dumps
 
 
 class VendorRegistrationResponse:
-    def __init__(self, vendor_id: str, additional_details: AdditionalDetails):
+    def __init__(self, vendor_id: str, additional_details: dict[str, Any] | AdditionalDetails):
         self.vendor_id = vendor_id
         self.additional_details = additional_details
 
@@ -173,6 +174,86 @@ class HyperwalletRegistration(VendorRegistration):
             raise VendorRegistrationError(f"Failed to register user with Hyperwallet: {str(e)}") from e
 
 
+class StripeRegistration(VendorRegistration):
+    def __init__(self) -> None:
+        pass
+
+    async def register_user(
+        self,
+        user_id: str,
+        additional_details: AdditionalDetails,
+        client: httpx.AsyncClient | None = None,
+    ) -> VendorRegistrationResponse:
+        """Register a user with Stripe.
+
+        Args:
+            user_id: The ID of the user to register
+            additional_details: Additional details for Stripe registration
+            client: Optional httpx client to use for the request (not used for Stripe)
+
+        Returns:
+            VendorRegistrationResponse containing the Stripe account ID and raw response
+
+        Raises:
+            VendorRegistrationError: If Stripe registration fails
+        """
+        try:
+            log_dict: dict[str, Any] = {
+                "message": "Stripe: Registering user",
+                "user_id": user_id,
+                "additional_details": additional_details,
+            }
+            logging.info(json_dumps(log_dict))
+
+            if isinstance(additional_details.stripe_details, dict):
+                additional_details.stripe_details = StripeDetails(**additional_details.stripe_details)
+
+            if not additional_details.stripe_details:
+                raise VendorRegistrationError("StripeDetails are required for Stripe registration")
+
+            stripe_details = additional_details.stripe_details
+
+            request = StripeRecipientCreateRequest(
+                given_name=stripe_details.given_name,
+                surname=stripe_details.surname,
+                email=stripe_details.email,
+                country=stripe_details.country,
+            )
+
+            account_id = await create_recipient_account(request)
+
+            log_dict = {
+                "message": "Stripe: User registered successfully",
+                "user_id": user_id,
+                "vendor_id": account_id,
+            }
+            logging.info(json_dumps(log_dict))
+
+            # Convert AdditionalDetails to a dictionary for JSON serialization
+            additional_details_dict = {
+                "stripe_details": {
+                    "given_name": stripe_details.given_name,
+                    "surname": stripe_details.surname,
+                    "email": stripe_details.email,
+                    "country": stripe_details.country,
+                }
+            }
+
+            return VendorRegistrationResponse(
+                vendor_id=account_id,
+                additional_details=additional_details_dict,
+            )
+
+        except Exception as e:
+            log_dict = {
+                "message": "Stripe: General error registering user",
+                "user_id": user_id,
+                "error": str(e),
+            }
+            logging.error(json_dumps(log_dict))
+            raise VendorRegistrationError(f"Failed to register user with Stripe: {str(e)}") from e
+
+
 def get_vendor_registration(vendor_name: str) -> VendorRegistration:
     """Factory function to get the appropriate vendor registration handler.
 
@@ -187,6 +268,7 @@ def get_vendor_registration(vendor_name: str) -> VendorRegistration:
     """
     vendor_map = {
         "hyperwallet": HyperwalletRegistration,
+        "stripe": StripeRegistration,
     }
 
     vendor_class = vendor_map.get(vendor_name.lower())
