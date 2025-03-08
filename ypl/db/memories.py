@@ -24,6 +24,14 @@ class MemorySource(enum.Enum):
     ASSISTANT_MESSAGE = "assistant_message"
 
 
+class ChatMessageMemoryAssociation(BaseModel, table=True):
+    __tablename__ = "chat_message_memory_associations"
+
+    association_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
+    memory_id: uuid.UUID = Field(foreign_key="memories.memory_id", primary_key=True, nullable=False)
+    message_id: uuid.UUID = Field(foreign_key="chat_messages.message_id", primary_key=True, nullable=False)
+
+
 class Memory(BaseModel, table=True):
     """
     Represents a 'memory' object. Each memory can store text, plus an embedding
@@ -48,9 +56,6 @@ class Memory(BaseModel, table=True):
     # The embedding vector.
     content_tsvector: TSVECTOR | None = Field(default=None, sa_column=Column(TSVECTOR))
 
-    # Reference to the original chat message
-    source_message_id: uuid.UUID | None = Field(default=None, foreign_key="chat_messages.message_id")
-
     # The agent model that created this memory (if any).
     # Adjust the type to match your primary key field type for language_models.
     agent_language_model_id: uuid.UUID | None = Field(foreign_key="language_models.language_model_id", default=None)
@@ -66,7 +71,9 @@ class Memory(BaseModel, table=True):
     # Relationships
     # -------------------------------------------------------------------------
     user: "User" = Relationship(back_populates="memories")
-    source_message: "ChatMessage" = Relationship(back_populates="memories")
+    source_messages: list["ChatMessage"] = Relationship(
+        back_populates="memories", link_model=ChatMessageMemoryAssociation
+    )
     content_embedding: "MemoryEmbedding" = Relationship(
         back_populates="memory", sa_relationship_kwargs={"uselist": False}
     )

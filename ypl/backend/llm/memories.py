@@ -11,7 +11,7 @@ from ypl.backend.llm.judge import YuppMemoryExtractor
 from ypl.backend.llm.provider.provider_clients import get_internal_provider_client
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import ChatMessage, Turn
-from ypl.db.memories import Memory, MemorySource
+from ypl.db.memories import ChatMessageMemoryAssociation, Memory, MemorySource
 
 
 async def maybe_extract_memories(chat_id: uuid.UUID, turn_id: uuid.UUID, user_id: str) -> None:
@@ -72,13 +72,11 @@ async def maybe_extract_memories(chat_id: uuid.UUID, turn_id: uuid.UUID, user_id
                     user_id=user_id,
                     memory_content=mem_content,
                     memory_source=memory_source,
-                    source_message_id=source_uuid,
-                    # Eventually, we will store the embedding.
-                    # content_pgvector=some_embedding_vector,
-                    # tags=['extracted'],
-                    # agent_language_model_id=some_llm_id,  # Source is human for now.
                 )
                 session.add(memory_obj)
+                await session.flush()
+                # connect to the source message.
+                session.add(ChatMessageMemoryAssociation(memory_id=memory_obj.memory_id, message_id=source_uuid))
 
             await session.commit()
 
@@ -92,19 +90,36 @@ async def get_memories(
     chat_id: uuid.UUID | None = None,
     limit: int = 10,
     offset: int = 0,
-) -> tuple[Sequence[Memory], bool]:
+) -> tuple[Sequence[tuple[Memory, list[uuid.UUID]]], bool]:
+    """Returns a list of memories with their associated message IDs, and an indicator of whether there are more rows."""
     async with get_async_session() as session:
         query = select(Memory).order_by(Memory.created_at.desc())  # type: ignore
         if user_id:
             query = query.where(Memory.user_id == user_id)
         if message_id:
-            query = query.where(Memory.source_message_id == message_id)
+            query = query.join(ChatMessageMemoryAssociation).where(
+                ChatMessageMemoryAssociation.message_id == message_id
+            )
         if chat_id:
-            query = query.join(ChatMessage).join(Turn).where(Turn.chat_id == chat_id)
+            query = query.join(ChatMessageMemoryAssociation).join(ChatMessage).join(Turn).where(Turn.chat_id == chat_id)
+
         query = query.offset(offset).limit(limit + 1)
         results = await session.exec(query)
         memories = results.all()
+
         has_more_rows = len(memories) > limit
         if has_more_rows:
             memories = memories[:-1]
-        return memories, has_more_rows
+
+        # get the associated messages for the memories.
+        memory_ids = [memory.memory_id for memory in memories]
+        memory_to_messages: dict[uuid.UUID, list[uuid.UUID]] = {memory_id: [] for memory_id in memory_ids}
+        if memory_ids:
+            associations_query = select(
+                ChatMessageMemoryAssociation.memory_id, ChatMessageMemoryAssociation.message_id
+            ).where(ChatMessageMemoryAssociation.memory_id.in_(memory_ids))  # type: ignore
+            associations_results = await session.exec(associations_query)
+            for memory_id, message_id in associations_results:
+                memory_to_messages[memory_id].append(message_id)
+
+        return [(memory, memory_to_messages[memory.memory_id]) for memory in memories], has_more_rows

@@ -14,7 +14,7 @@ class MemoryEntry(BaseModel):
     memory_id: UUID
     user_id: str
     memory_content: str
-    source_message_id: UUID
+    source_message_ids: list[UUID]
 
 
 class MemoriesResponse(BaseModel):
@@ -32,8 +32,11 @@ async def list_memories_route(
 ) -> MemoriesResponse:
     params = locals()
     try:
-        memories, has_more_rows = await get_memories(**params)
-        entries = [MemoryEntry(**memory.model_dump(include=MemoryEntry.model_fields)) for memory in memories]
+        memories_with_message_ids, has_more_rows = await get_memories(**params)
+        entries = [
+            MemoryEntry(**memory.model_dump(include=MemoryEntry.model_fields), source_message_ids=message_ids)
+            for memory, message_ids in memories_with_message_ids
+        ]
         return MemoriesResponse(memories=entries, has_more_rows=has_more_rows)
     except Exception as e:
         logging.exception(
