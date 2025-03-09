@@ -104,13 +104,20 @@ class CashoutInstrument:
     identifier: str
     identifier_type: PaymentInstrumentIdentifierTypeEnum
     facilitator: PaymentInstrumentFacilitatorEnum
+    last4: str
 
     @classmethod
     def from_payment_instrument(cls, payment_instrument: PaymentInstrument) -> "CashoutInstrument":
+        last4 = payment_instrument.identifier[-4:]
+        if payment_instrument.facilitator == PaymentInstrumentFacilitatorEnum.STRIPE:
+            if payment_instrument.instrument_metadata and "card" in payment_instrument.instrument_metadata:
+                last4 = payment_instrument.instrument_metadata["card"].get("last4", "")
+
         return cls(
             identifier=payment_instrument.identifier,
             identifier_type=payment_instrument.identifier_type,
             facilitator=payment_instrument.facilitator,
+            last4=last4,
         )
 
 
