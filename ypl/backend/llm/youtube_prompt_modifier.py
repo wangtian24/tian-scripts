@@ -224,7 +224,7 @@ async def maybe_youtube_transcript_messages(chat_id: str, chat_history: list[Bas
         logging.info(
             {
                 "message": f"Youtube labeler response for {chat_id}",
-                "response": label_resp.model_dump(),
+                "response": label_resp.model_dump(mode="json"),
                 "model": YOUTUBE_VIDEO_LABELLING_MODEL,
             }
         )
