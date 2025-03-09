@@ -211,6 +211,10 @@ class LanguageModel(BaseModel, table=True):
     is_reasoning: bool | None = Field(nullable=True, default=None, index=True)
     # Whether the model is an image-generation model, such as DALL-E.
     is_image_generation: bool | None = Field(nullable=True, default=None, index=True)
+    # Whether the model supports streaming.
+    is_streaming_supported: bool | None = Field(
+        default=True, sa_column=Column(Boolean(), server_default="TRUE", nullable=False)
+    )
 
     # Whether this model is for internal use only (only Yuppsters will see it or use it)
     is_internal: bool | None = Field(nullable=True, default=None, index=True)
