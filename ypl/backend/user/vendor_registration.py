@@ -48,6 +48,30 @@ class VendorRegistration(abc.ABC):
         """
         raise NotImplementedError
 
+    @abc.abstractmethod
+    async def update_user(
+        self,
+        user_id: str,
+        additional_details: AdditionalDetails,
+        user_vendor_id: str | None = None,
+        client: httpx.AsyncClient | None = None,
+    ) -> VendorRegistrationResponse:
+        """Update a user in the vendor's system.
+
+        Args:
+            user_id: The ID of the user to update
+            additional_details: Vendor-specific update details
+            user_vendor_id: The ID of the user in the vendor's system
+            client: Optional httpx client to use for the request
+
+        Returns:
+            VendorRegistrationResponse containing the vendor's ID for the user and raw response
+
+        Raises:
+            VendorRegistrationError: If update fails
+        """
+        raise NotImplementedError
+
 
 class HyperwalletRegistration(VendorRegistration):
     def __init__(self) -> None:
@@ -179,6 +203,29 @@ class HyperwalletRegistration(VendorRegistration):
             logging.error(json_dumps(log_dict))
             raise VendorRegistrationError(f"Failed to register user with Hyperwallet: {str(e)}") from e
 
+    async def update_user(
+        self,
+        user_id: str,
+        additional_details: AdditionalDetails,
+        user_vendor_id: str | None = None,
+        client: httpx.AsyncClient | None = None,
+    ) -> VendorRegistrationResponse:
+        """Update a user in Hyperwallet.
+
+        Args:
+            user_id: The ID of the user to update
+            additional_details: Additional details for Hyperwallet update containing HyperwalletDetails
+            user_vendor_id: The ID of the user in the vendor's system
+            client: Optional httpx client to use for the request
+
+        Returns:
+            VendorRegistrationResponse containing the Hyperwallet user token and raw response
+
+        Raises:
+            VendorRegistrationError: If Hyperwallet update fails
+        """
+        raise VendorRegistrationError("Hyperwallet update not implemented")
+
 
 class StripeRegistration(VendorRegistration):
     def __init__(self) -> None:
@@ -293,6 +340,55 @@ class StripeRegistration(VendorRegistration):
             }
             logging.error(json_dumps(log_dict))
             raise VendorRegistrationError(f"Failed to register user with Stripe: {str(e)}") from e
+
+    async def update_user(
+        self,
+        user_id: str,
+        additional_details: AdditionalDetails,
+        user_vendor_id: str | None = None,
+        client: httpx.AsyncClient | None = None,
+    ) -> VendorRegistrationResponse:
+        """Update a user in Stripe.
+
+        Args:
+            user_id: The ID of the user to update
+            additional_details: Additional details for Stripe update
+            user_vendor_id: The ID of the user in the vendor's system
+            client: Optional httpx client to use for the request (not used for Stripe)
+
+        Returns:
+            VendorRegistrationResponse containing the Stripe account ID and raw response
+
+        Raises:
+            VendorRegistrationError: If Stripe update fails
+        """
+        if not user_vendor_id:
+            raise VendorRegistrationError("user_vendor_id is required for Stripe update")
+
+        code = random.randint(10000000, 99999999)
+
+        redis = await get_upstash_redis_client()
+        redis_key = f"{STRIPE_PAYMENT_CONFIRMATION_CODE_KEY_PREFIX}{code}"
+        await redis.set(redis_key, user_vendor_id, ex=STRIPE_PAYMENT_CONFIRMATION_CODE_TTL)
+
+        # for stripe also create the one time link to the account
+        vendor_url_link = await create_account_link(
+            StripeAccountLinkCreateRequest(
+                account=user_vendor_id,
+                use_case_type=StripeUseCaseType.ACCOUNT_UPDATE,
+                return_url=f"{additional_details.return_url}&code={code}",
+            )
+        )
+
+        return VendorRegistrationResponse(
+            vendor_id=user_vendor_id,
+            additional_details={
+                "stripe_details": additional_details.stripe_details.__dict__
+                if additional_details.stripe_details
+                else {}
+            },
+            vendor_url_link=vendor_url_link,
+        )
 
 
 def get_vendor_registration(vendor_name: str) -> VendorRegistration:

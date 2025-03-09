@@ -69,6 +69,13 @@ class RegisterVendorRequest:
 
 
 @dataclass
+class UpdateUserVendorDetailsRequest:
+    user_id: str
+    vendor_name: str
+    additional_details: dict[str, Any] | None = None
+
+
+@dataclass
 class VendorProfileResponse:
     user_vendor_profile_id: UUID
     user_id: str
@@ -228,6 +235,110 @@ async def register_user_with_vendor(request: RegisterVendorRequest) -> VendorPro
     except Exception as e:
         log_dict = {
             "message": "General error registering user with vendor",
+            "error": str(e),
+            "user_id": request.user_id,
+            "vendor_name": request.vendor_name,
+        }
+        logging.error(json_dumps(log_dict))
+        raise VendorRegistrationError(str(e)) from e
+
+
+async def update_user_vendor_details(request: UpdateUserVendorDetailsRequest) -> VendorProfileResponse:
+    """Update the user's vendor details.
+
+    Args:
+        request: The request containing user_id, vendor_name and optional additional details
+
+    Returns:
+        The updated user vendor profile
+
+    Raises:
+        ValueError: If the user is not found or vendor is not supported
+        VendorRegistrationError: If vendor registration fails
+    """
+    log_dict: dict[str, Any] = {
+        "message": "Updating user vendor details",
+        "user_id": request.user_id,
+        "vendor_name": request.vendor_name,
+        "additional_details": request.additional_details,
+    }
+    logging.info(json_dumps(log_dict))
+
+    try:
+        async with get_async_session() as session:
+            user_stmt = select(User).where(
+                User.user_id == request.user_id,  # type: ignore
+                User.deleted_at.is_(None),  # type: ignore
+            )
+            user = (await session.execute(user_stmt)).scalar_one_or_none()
+
+            if not user:
+                log_dict = {
+                    "message": "Error: User not found",
+                    "user_id": request.user_id,
+                }
+                logging.warning(json_dumps(log_dict))
+                raise ValueError("Internal error: Invalid user")
+
+            user_vendor_profile_stmt = select(UserVendorProfile).where(
+                UserVendorProfile.user_id == request.user_id,  # type: ignore
+                UserVendorProfile.vendor_name == request.vendor_name,  # type: ignore
+                UserVendorProfile.deleted_at.is_(None),  # type: ignore
+            )
+            user_vendor_profile = (await session.execute(user_vendor_profile_stmt)).scalar_one_or_none()
+
+            if not user_vendor_profile:
+                log_dict = {
+                    "message": "Error: User vendor profile not found",
+                    "user_id": request.user_id,
+                    "vendor_name": request.vendor_name,
+                }
+                logging.warning(json_dumps(log_dict))
+                raise ValueError("Internal error: Invalid user vendor profile")
+
+            if not request.additional_details:
+                raise VendorRegistrationError("Additional details are required for vendor update")
+
+            vendor_registration = get_vendor_registration(request.vendor_name)
+            vendor_response = await vendor_registration.update_user(
+                user_id=request.user_id,
+                user_vendor_id=user_vendor_profile.user_vendor_id,
+                additional_details=AdditionalDetails(**request.additional_details),
+            )
+
+            log_dict = {
+                "message": "Successfully updated user vendor details",
+                "user_id": request.user_id,
+                "vendor_name": request.vendor_name,
+                "profile_id": str(user_vendor_profile.user_vendor_profile_id),
+            }
+            logging.info(json_dumps(log_dict))
+
+            return VendorProfileResponse(
+                user_vendor_profile_id=user_vendor_profile.user_vendor_profile_id,
+                user_id=user_vendor_profile.user_id,
+                user_vendor_id=user_vendor_profile.user_vendor_id,
+                vendor_name=user_vendor_profile.vendor_name.value,
+                additional_details=user_vendor_profile.additional_details,
+                created_at=user_vendor_profile.created_at,
+                modified_at=user_vendor_profile.modified_at,
+                deleted_at=user_vendor_profile.deleted_at,
+                vendor_url_link=vendor_response.vendor_url_link,
+            )
+
+    except VendorRegistrationError as e:
+        log_dict = {
+            "message": "Vendor registration error: Error updating user vendor details",
+            "error": str(e),
+            "user_id": request.user_id,
+            "vendor_name": request.vendor_name,
+        }
+        logging.error(json_dumps(log_dict))
+        raise VendorRegistrationError(str(e)) from e
+
+    except Exception as e:
+        log_dict = {
+            "message": "General error updating user vendor details",
             "error": str(e),
             "user_id": request.user_id,
             "vendor_name": request.vendor_name,

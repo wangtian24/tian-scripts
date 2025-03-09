@@ -12,6 +12,7 @@ from ypl.backend.db import get_async_session
 from ypl.backend.payment.hyperwallet.hyperwallet_utils import UserTokensResponse, get_hyperwallet_user_tokens
 from ypl.backend.user.user import (
     RegisterVendorRequest,
+    UpdateUserVendorDetailsRequest,
     UserSearchResponse,
     VendorProfileResponse,
     deactivate_user,
@@ -19,6 +20,7 @@ from ypl.backend.user.user import (
     get_users,
     reactivate_user,
     register_user_with_vendor,
+    update_user_vendor_details,
 )
 from ypl.backend.utils.ip_utils import UserIPDetailsResponse, get_user_ip_details
 from ypl.backend.utils.json import json_dumps
@@ -76,6 +78,26 @@ async def register_user_with_vendor_route(request: RegisterVendorRequest) -> Ven
     except Exception as e:
         log_dict = {
             "message": "Error registering the user with the vendor",
+            "error": str(e),
+        }
+        logging.error(json_dumps(log_dict))
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/users/update-user-vendor-details", response_model=VendorProfileResponse)
+async def update_user_vendor_details_route(request: UpdateUserVendorDetailsRequest) -> VendorProfileResponse:
+    """Update the user's vendor details.
+
+    Args:
+        request: The request containing user_id, vendor_name and optional additional details
+    """
+    try:
+        return await update_user_vendor_details(request)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except Exception as e:
+        log_dict = {
+            "message": "Error updating the user's details",
             "error": str(e),
         }
         logging.error(json_dumps(log_dict))

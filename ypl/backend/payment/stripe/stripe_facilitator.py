@@ -3,6 +3,7 @@ import logging
 import os
 import time
 import uuid
+from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -19,8 +20,11 @@ from ypl.backend.payment.facilitator import (
 from ypl.backend.payment.payment import (
     CashoutPointTransactionRequest,
     PaymentTransactionRequest,
+    UpdatePaymentInstrumentRequest,
     create_cashout_point_transaction,
     create_payment_transaction,
+    get_user_payment_instruments,
+    update_payment_instrument,
     update_payment_transaction,
     update_user_points,
 )
@@ -148,6 +152,35 @@ class StripeFacilitator(BaseFacilitator):
                     "type": first_method.card.type,
                 }
 
+            preferred_instrument = await get_generic_destination_instrument(
+                PaymentInstrumentFacilitatorEnum.STRIPE,
+                user_id,
+                destination_identifier,
+                destination_identifier_type,
+                instrument_metadata,
+            )
+
+            if preferred_instrument:
+                # incase of stripe if any other instrument is found,
+                # then soft delete the other instrument of similar type as stripe only supports one instrument
+                other_instruments = await get_user_payment_instruments(user_id)
+                for instrument in other_instruments:
+                    if instrument.payment_instrument_id != preferred_instrument.payment_instrument_id and dict(
+                        instrument.instrument_metadata or {}
+                    ).get("type") == dict(preferred_instrument.instrument_metadata or {}).get("type"):
+                        logging.info(f"Soft deleting instrument: {instrument.payment_instrument_id}")
+                        updated_instrument_metadata = dict(instrument.instrument_metadata or {})
+                        updated_instrument = UpdatePaymentInstrumentRequest(
+                            instrument_metadata=updated_instrument_metadata,
+                            deleted_at=datetime.now(),
+                        )
+                        await update_payment_instrument(
+                            instrument.payment_instrument_id,
+                            updated_instrument,
+                        )
+
+                return preferred_instrument
+
         return await get_generic_destination_instrument(
             PaymentInstrumentFacilitatorEnum.STRIPE,
             user_id,
@@ -266,6 +299,7 @@ class StripeFacilitator(BaseFacilitator):
                     if not account_id:
                         raise PaymentInstrumentError("Invalid payment confirmation code - Key not found")
                     if account_id != recipient_account_id:
+                        logging.info(f"Recipient account ID: {recipient_account_id}")
                         raise PaymentInstrumentError("Invalid payment confirmation code - Account ID mismatch")
 
             try:
