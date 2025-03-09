@@ -4,8 +4,6 @@ from ypl.db.payments import CurrencyEnum
 
 def get_supported_currencies(country_code: str) -> list[CurrencyEnum]:
     all_supported_currencies = [
-        CurrencyEnum.INR,
-        CurrencyEnum.USD,
         CurrencyEnum.BTC,
         CurrencyEnum.CBBTC,
         CurrencyEnum.DOGE,
@@ -13,6 +11,8 @@ def get_supported_currencies(country_code: str) -> list[CurrencyEnum]:
         CurrencyEnum.SOL,
         CurrencyEnum.USDC,
         CurrencyEnum.USDT,
+        CurrencyEnum.USD,
+        CurrencyEnum.INR,
     ]
     # Only for testing
     if settings.ENVIRONMENT != "production":
