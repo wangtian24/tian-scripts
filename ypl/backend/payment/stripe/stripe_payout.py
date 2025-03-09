@@ -103,7 +103,7 @@ class StripePayout:
     currency: str
     recipient_account_id: str
     destination_id: str
-    amount: int
+    amount: Decimal
 
 
 class StripeUseCaseType(StrEnum):

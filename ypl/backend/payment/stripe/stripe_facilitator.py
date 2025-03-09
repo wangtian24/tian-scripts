@@ -313,7 +313,7 @@ class StripeFacilitator(BaseFacilitator):
                     currency=self.currency.value,
                     recipient_account_id=recipient_account_id,
                     destination_id=destination_instrument.identifier,
-                    amount=int(amount),
+                    amount=amount,
                 )
                 payout_id, payout_status, receipt_url = await create_stripe_payout(stripe_payout)
 

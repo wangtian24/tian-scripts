@@ -1795,7 +1795,7 @@ def create_stripe_payout_util(
         create_stripe_payout(
             StripePayout(
                 from_account_id=from_account_id,
-                amount=int(amount),
+                amount=Decimal(amount),
                 currency=currency,
                 recipient_account_id=recipient_account_id,
                 destination_id=destination_id,
