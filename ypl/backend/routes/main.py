@@ -50,10 +50,12 @@ from ypl.backend.utils.json import json_dumps
 def log_sql_query(conn, cursor, statement, parameters, context, executemany):  # type: ignore
     log_dict = {
         "message": "SQL Query",
-        "statement": statement,
+        "statement": statement[:500] + "... (truncated)" if len(statement) > 500 else statement,
     }
     if parameters:
-        log_dict["parameters"] = parameters
+        log_dict["parameters"] = [
+            p[:100] + "... (truncated)" if isinstance(p, str) and len(p) > 100 else p for p in parameters
+        ]
 
     logging.info(json_dumps(log_dict))
 
