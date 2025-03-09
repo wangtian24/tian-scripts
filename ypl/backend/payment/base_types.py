@@ -182,26 +182,32 @@ class BaseFacilitator(ABC):
         from ypl.backend.payment.hyperwallet.hyperwallet_facilitator import HyperwalletFacilitator
         from ypl.backend.payment.paypal.paypal_facilitator import PayPalFacilitator
         from ypl.backend.payment.plaid.plaid_facilitator import PlaidFacilitator
+        from ypl.backend.payment.stripe.stripe_facilitator import StripeFacilitator
         from ypl.backend.payment.tabapay.tabapay_facilitator import TabaPayFacilitator
         from ypl.backend.payment.upi.axis.facilitator import AxisUpiFacilitator
 
+        facilitator_map: dict[PaymentInstrumentFacilitatorEnum, type[BaseFacilitator]] = {
+            PaymentInstrumentFacilitatorEnum.COINBASE: CoinbaseFacilitator,
+            PaymentInstrumentFacilitatorEnum.PAYPAL: PayPalFacilitator,
+            PaymentInstrumentFacilitatorEnum.ON_CHAIN: OnChainFacilitator,
+            PaymentInstrumentFacilitatorEnum.PLAID: PlaidFacilitator,
+            PaymentInstrumentFacilitatorEnum.STRIPE: StripeFacilitator,
+            PaymentInstrumentFacilitatorEnum.CHECKOUT_COM: CheckoutFacilitator,
+            PaymentInstrumentFacilitatorEnum.HYPERWALLET: HyperwalletFacilitator,
+            PaymentInstrumentFacilitatorEnum.TABAPAY: TabaPayFacilitator,
+            PaymentInstrumentFacilitatorEnum.UPI: AxisUpiFacilitator,
+        }
+
         if currency == CurrencyEnum.INR:
             return AxisUpiFacilitator(currency, destination_identifier_type, facilitator)
-        elif currency == CurrencyEnum.USD and facilitator == PaymentInstrumentFacilitatorEnum.HYPERWALLET:
-            return HyperwalletFacilitator(currency, destination_identifier_type, facilitator)
-        elif currency == CurrencyEnum.USD and facilitator == PaymentInstrumentFacilitatorEnum.CHECKOUT_COM:
-            return CheckoutFacilitator(currency, destination_identifier_type, facilitator)
-        elif currency == CurrencyEnum.USD and facilitator == PaymentInstrumentFacilitatorEnum.PAYPAL:
-            return PayPalFacilitator(currency, destination_identifier_type, facilitator)
-        elif currency.is_crypto():
+
+        if currency.is_crypto():
             if facilitator == PaymentInstrumentFacilitatorEnum.COINBASE:
                 return CoinbaseFacilitator(currency, destination_identifier_type, facilitator)
-            else:
-                return OnChainFacilitator(currency, destination_identifier_type, facilitator)
-        elif currency == CurrencyEnum.USD and facilitator == PaymentInstrumentFacilitatorEnum.PLAID:
-            return PlaidFacilitator(currency, destination_identifier_type, facilitator, destination_additional_details)
-        elif currency == CurrencyEnum.USD and facilitator == PaymentInstrumentFacilitatorEnum.TABAPAY:
-            return TabaPayFacilitator(currency, destination_identifier_type, facilitator)
+            return OnChainFacilitator(currency, destination_identifier_type, facilitator)
+
+        if currency == CurrencyEnum.USD and facilitator in facilitator_map:
+            return facilitator_map[facilitator](currency, destination_identifier_type, facilitator)
 
         raise ValueError(f"Unsupported currency: {currency}")
 
