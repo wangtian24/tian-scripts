@@ -43,6 +43,9 @@ from ypl.backend.payment.stripe.stripe_payout import (
     get_stripe_balances,
     get_stripe_transaction_status,
 )
+from ypl.backend.payment.stripe.stripe_utils import (
+    STRIPE_PAYMENT_CONFIRMATION_CODE_KEY_PREFIX,
+)
 from ypl.backend.user.user import get_user_vendor_profile
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import (
@@ -54,6 +57,7 @@ from ypl.db.payments import (
     PaymentTransactionStatusEnum,
 )
 from ypl.db.point_transactions import PointsActionEnum
+from ypl.db.redis import get_upstash_redis_client
 from ypl.db.users import VendorNameEnum
 
 SYSTEM_USER_ID = "SYSTEM"
@@ -152,6 +156,35 @@ class StripeFacilitator(BaseFacilitator):
             instrument_metadata,
         )
 
+    async def verify_stripe_payment_confirmation_code(self, code: str) -> str | None:
+        """Verify a Stripe payment confirmation code and return the associated account ID.
+
+        Args:
+            code: The registration code to verify
+
+        Returns:
+            The Stripe account ID if the code is valid, None otherwise
+
+        Note:
+            This function will delete the code from Redis after successful verification
+            since it's meant to be used only once.
+        """
+
+        try:
+            redis = await get_upstash_redis_client()
+            redis_key = f"{STRIPE_PAYMENT_CONFIRMATION_CODE_KEY_PREFIX}{code}"
+
+            account_id = await redis.get(redis_key)
+            if account_id:
+                await redis.delete(redis_key)
+                return str(account_id)
+
+            return None
+
+        except Exception as e:
+            logging.error(f"Error verifying Stripe payment confirmation code: {str(e)}")
+            return None
+
     @staticmethod
     def map_stripe_status_to_internal(status: str) -> PaymentTransactionStatusEnum:
         """Map Stripe's transaction status to our internal PaymentTransactionStatusEnum.
@@ -221,6 +254,19 @@ class StripeFacilitator(BaseFacilitator):
                 }
                 logging.exception(json_dumps(log_dict))
                 raise PaymentInstrumentError("Failed to get payment instruments") from e
+
+            if (
+                destination_additional_details
+                and destination_additional_details.get("facilitator", "").lower()
+                == PaymentInstrumentFacilitatorEnum.STRIPE.value.lower()
+            ):
+                code = destination_additional_details.get("code")
+                if code:
+                    account_id = await self.verify_stripe_payment_confirmation_code(code)
+                    if not account_id:
+                        raise PaymentInstrumentError("Invalid payment confirmation code - Key not found")
+                    if account_id != recipient_account_id:
+                        raise PaymentInstrumentError("Invalid payment confirmation code - Account ID mismatch")
 
             try:
                 payment_transaction_request = PaymentTransactionRequest(

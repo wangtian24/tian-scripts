@@ -1,6 +1,7 @@
 import abc
 import logging
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 from sqlalchemy import select
@@ -13,10 +14,34 @@ from ypl.backend.payment.stripe.stripe_payout import (
     create_account_link,
     create_recipient_account,
 )
+from ypl.backend.payment.stripe.stripe_utils import (
+    STRIPE_PAYMENT_CONFIRMATION_CODE_KEY_PREFIX,
+    STRIPE_PAYMENT_CONFIRMATION_CODE_TTL,
+)
 from ypl.backend.user.vendor_details import AdditionalDetails, HyperwalletDetails, StripeDetails
 from ypl.backend.user.vendor_types import VendorRegistrationError, VendorRegistrationResponse
 from ypl.backend.utils.json import json_dumps
+from ypl.db.redis import get_upstash_redis_client
 from ypl.db.users import User
+
+
+def extract_code_from_url(url: str) -> str | None:
+    """Extract the code parameter from a URL.
+
+    Args:
+        url: The URL to extract the code from
+
+    Returns:
+        The code parameter value or None if not found
+    """
+    try:
+        parsed_url = urlparse(url)
+        query_params = parse_qs(parsed_url.query)
+        code = query_params.get("code", [None])[0]
+        return code
+    except Exception as e:
+        logging.error(f"Error extracting code from URL: {str(e)}")
+        return None
 
 
 class VendorRegistration(abc.ABC):
@@ -257,6 +282,14 @@ class StripeRegistration(VendorRegistration):
 
             if not additional_details.return_url:
                 raise VendorRegistrationError("return_url is required for Stripe registration")
+
+            code = extract_code_from_url(additional_details.return_url)
+            if not code:
+                raise VendorRegistrationError("Invalid return URL: missing code parameter")
+
+            redis = await get_upstash_redis_client()
+            redis_key = f"{STRIPE_PAYMENT_CONFIRMATION_CODE_KEY_PREFIX}{code}"
+            await redis.set(redis_key, account_id, ex=STRIPE_PAYMENT_CONFIRMATION_CODE_TTL)
 
             # for stripe also create the one time link to the account
             vendor_url_link = await create_account_link(
