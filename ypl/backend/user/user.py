@@ -19,7 +19,8 @@ from tenacity import after_log, retry, retry_if_exception_type, stop_after_attem
 from ypl.backend.db import get_async_session
 from ypl.backend.llm.utils import post_to_slack_with_user_name
 from ypl.backend.user.vendor_details import AdditionalDetails
-from ypl.backend.user.vendor_registration import VendorRegistrationError, get_vendor_registration
+from ypl.backend.user.vendor_registration import get_vendor_registration
+from ypl.backend.user.vendor_types import VendorRegistrationError
 from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.utils import CapabilityType
 from ypl.db.chats import Turn

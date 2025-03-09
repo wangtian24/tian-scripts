@@ -3,7 +3,9 @@ import logging
 from typing import Any
 
 import httpx
+from sqlalchemy import select
 from ypl.backend.config import settings
+from ypl.backend.db import get_async_session
 from ypl.backend.payment.stripe.stripe_payout import (
     StripeAccountLinkCreateRequest,
     StripeRecipientCreateRequest,
@@ -12,20 +14,9 @@ from ypl.backend.payment.stripe.stripe_payout import (
     create_recipient_account,
 )
 from ypl.backend.user.vendor_details import AdditionalDetails, HyperwalletDetails, StripeDetails
+from ypl.backend.user.vendor_types import VendorRegistrationError, VendorRegistrationResponse
 from ypl.backend.utils.json import json_dumps
-
-
-class VendorRegistrationResponse:
-    def __init__(
-        self, vendor_id: str, additional_details: dict[str, Any] | AdditionalDetails, vendor_url_link: str | None = None
-    ):
-        self.vendor_id = vendor_id
-        self.additional_details = additional_details
-        self.vendor_url_link = vendor_url_link
-
-
-class VendorRegistrationError(Exception):
-    pass
+from ypl.db.users import User
 
 
 class VendorRegistration(abc.ABC):
@@ -214,7 +205,24 @@ class StripeRegistration(VendorRegistration):
             }
             logging.info(json_dumps(log_dict))
 
+            # retrieve the user's email and country from the database
+            async with get_async_session() as session:
+                stmt = select(User).where(
+                    User.user_id == user_id,  # type: ignore
+                )
+            user = (await session.execute(stmt)).scalar_one_or_none()
+            if not user:
+                raise ValueError("User not found")
+
+            email = user.email
+            country = user.country_code
+
+            if not email or not country:
+                raise VendorRegistrationError("User email and country code are required for Stripe registration")
+
             if isinstance(additional_details.stripe_details, dict):
+                additional_details.stripe_details["email"] = email
+                additional_details.stripe_details["country"] = country
                 additional_details.stripe_details = StripeDetails(**additional_details.stripe_details)
 
             if not additional_details.stripe_details:
