@@ -5,6 +5,7 @@ from uuid import UUID
 
 from fastapi import HTTPException
 from pydantic import BaseModel
+from sqlalchemy.dialects.postgresql import Insert as pg_insert
 
 from ypl.backend.db import get_async_session
 from ypl.db.chats import ChatInstrumentation
@@ -38,16 +39,10 @@ async def create_or_update_instrumentation(
     chat_instrumentation_request: ChatInstrumentationRequest,
 ) -> None:
     """
-    Creates or updates chat instrumentation data.
+    Creates or updates chat instrumentation data using PostgreSQL's UPSERT functionality.
 
     Args:
-        message_id: UUID of the message
-        event_source: Source of the event (head_client, head_server, mind_server)
-        streaming_metrics: Metrics data for the chat
-        session: Database session
-
-    Returns:
-        Dict containing status and message
+        chat_instrumentation_request: Request containing message_id, event_source, and streaming_metrics
 
     Raises:
         HTTPException: If event_source is invalid
@@ -55,24 +50,20 @@ async def create_or_update_instrumentation(
     # Validate event source
     if chat_instrumentation_request.event_source not in EventSource:
         raise HTTPException(status_code=400, detail=f"Invalid event_source. Must be one of: {', '.join(EventSource)}")
+
+    column_name = chat_instrumentation_request.event_source.value
+
     async with get_async_session() as session:
-        # Get existing record or create new one
-        instrumentation = await session.get(ChatInstrumentation, chat_instrumentation_request.message_id)
-        if not instrumentation:
-            instrumentation = ChatInstrumentation(message_id=chat_instrumentation_request.message_id)
-            session.add(instrumentation)
+        stmt = pg_insert(ChatInstrumentation).values(
+            message_id=chat_instrumentation_request.message_id,
+            **{column_name: chat_instrumentation_request.streaming_metrics},
+        )
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["message_id"],
+            set_={column_name: stmt.excluded[column_name]},
+        )
 
-        # Update the appropriate column based on event_source
-        match chat_instrumentation_request.event_source:
-            case EventSource.HEAD_CLIENT:
-                instrumentation.head_client = chat_instrumentation_request.streaming_metrics
-            case EventSource.HEAD_SERVER:
-                instrumentation.head_server = chat_instrumentation_request.streaming_metrics
-            case EventSource.MIND_SERVER:
-                instrumentation.mind_server = chat_instrumentation_request.streaming_metrics
-            case _:
-                raise ValueError(f"Unexpected event source: {chat_instrumentation_request.event_source}")
-
+        await session.exec(stmt)  # type: ignore[call-overload]
         await session.commit()
 
 
