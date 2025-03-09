@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 from ypl.backend.config import settings
 from ypl.backend.llm.provider.provider_clients import load_models_with_providers
 from ypl.backend.llm.ranking import get_ranker
-from ypl.backend.prompts import load_prompt_modifiers
+from ypl.backend.prompts.prompt_modifiers import load_prompt_modifiers
 from ypl.backend.routes.api_auth import validate_admin_api_key, validate_api_key
 from ypl.backend.routes.v1 import (
     abuse,

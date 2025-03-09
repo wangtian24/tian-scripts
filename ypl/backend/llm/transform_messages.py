@@ -12,7 +12,7 @@ from langchain_core.messages import BaseMessage, HumanMessage
 from ypl.backend.llm.db_helpers import PDF_ATTACHMENT_MIME_TYPE
 from ypl.backend.llm.provider.provider_clients import get_model_provider_tuple
 from ypl.backend.llm.youtube_prompt_modifier import maybe_youtube_transcript_messages
-from ypl.backend.prompts import IMAGE_POLYFILL_PROMPT
+from ypl.backend.prompts.images import IMAGE_POLYFILL_PROMPT
 from ypl.backend.utils.json import json_dumps
 from ypl.db.attachments import Attachment
 from ypl.db.language_models import Provider

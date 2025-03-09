@@ -9,9 +9,8 @@ from sqlalchemy.orm import joinedload
 from sqlmodel import Session, or_, select
 
 from ypl.backend.db import get_engine
-from ypl.backend.llm.chat import MAX_LOGGED_MESSAGE_LENGTH
+from ypl.backend.llm.chat import ALL_MODELS_IN_CHAT_HISTORY_PREAMBLE, MAX_LOGGED_MESSAGE_LENGTH, RESPONSE_SEPARATOR
 from ypl.backend.llm.db_helpers import is_image_generation_model
-from ypl.backend.prompts import ALL_MODELS_IN_CHAT_HISTORY_PREAMBLE, RESPONSE_SEPARATOR
 from ypl.backend.utils.json import json_dumps
 from ypl.db.attachments import Attachment
 from ypl.db.chats import Chat, ChatMessage, CompletionStatus, MessageType, MessageUIStatus, Turn

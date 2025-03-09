@@ -46,7 +46,8 @@ from ypl.backend.llm.routing.common import SelectIntent
 from ypl.backend.llm.sanitize_messages import DEFAULT_MAX_TOKENS, sanitize_messages
 from ypl.backend.llm.transform_messages import TransformOptions, transform_user_messages
 from ypl.backend.llm.utils import post_to_slack
-from ypl.backend.prompts import get_system_prompt_with_modifiers, talk_to_other_models_system_prompt
+from ypl.backend.prompts.prompt_modifiers import get_system_prompt_with_modifiers
+from ypl.backend.prompts.reviews import talk_to_other_models_system_prompt
 from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.monitoring import metric_inc
 from ypl.backend.utils.utils import StopWatch

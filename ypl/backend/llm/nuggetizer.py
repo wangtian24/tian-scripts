@@ -4,7 +4,7 @@
 from nuggetizer.core.types import Nugget, NuggetAssignMode, Request, ScoredNugget
 from nuggetizer.models.async_nuggetizer import AsyncNuggetizer
 
-from ypl.backend.prompts import (
+from ypl.backend.prompts.reviews import (
     NUGGETIZER_ASSIGN_PROMPT,
     NUGGETIZER_ASSIGN_PROMPT_SUPPORT_GRADE_2,
     NUGGETIZER_ASSIGN_USER_PROMPT,

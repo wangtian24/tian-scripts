@@ -26,7 +26,7 @@ extend-include = ["*.ipynb"]
 # ignore star and unused imports
 "__init__.py" = ["F403", "F405"]
 # ignore prompt line too long
-"prompts.py" = ["E501"]
+"ypl/backend/prompts/*.py" = ["E501"]
 
 [tool.ruff.lint]
 select = [

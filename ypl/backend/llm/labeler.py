@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 from tqdm.asyncio import tqdm_asyncio
 
-from ypl.backend.prompts import (
+from ypl.backend.prompts.quicktake import (
     SYSTEM_QUICKTAKE_PROMPT,
     USER_QUICKTAKE_PROMPT,
 )

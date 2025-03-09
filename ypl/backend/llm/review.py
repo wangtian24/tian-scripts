@@ -36,7 +36,7 @@ from ypl.backend.llm.review_types import (
     SegmentedResult,
 )
 from ypl.backend.llm.transform_messages import TransformOptions, transform_user_messages
-from ypl.backend.prompts import (
+from ypl.backend.prompts.reviews import (
     BINARY_REVIEW_PROMPT,
     BINARY_REVIEW_USER_PROMPT,
     CRITIQUE_REVIEW_PROMPT,
@@ -45,9 +45,8 @@ from ypl.backend.prompts import (
     CROSS_CHECK_USER_PROMPT,
     SEGMENTED_REVIEW_PROMPT,
     SEGMENTED_REVIEW_USER_PROMPT,
-    fill_cur_datetime,
-    partial_format,
 )
+from ypl.backend.prompts.system_prompts import fill_cur_datetime, partial_format
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import ChatMessage, Turn
 from ypl.db.language_models import LanguageModel

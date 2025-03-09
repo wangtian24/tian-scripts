@@ -19,27 +19,38 @@ from ypl.backend.llm.db_helpers import get_yapp_descriptions
 from ypl.backend.llm.labeler import InputType, LLMLabeler, OnErrorBehavior, OutputType
 from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.prompt_classifiers import CategorizerResponse, PromptCategorizer
-from ypl.backend.prompts import (
+from ypl.backend.prompts.feedback_quality import (
     FEEDBACK_QUALITY_PROMPT_TEMPLATE,
-    JUDGE_CHAT_TITLE_PROMPT_TEMPLATE,
-    JUDGE_CONVERSATION_STARTERS_PROMPT_TEMPLATE,
-    JUDGE_PROMPT_MODIFIER_PROMPT,
-    JUDGE_QUICK_RESPONSE_QUALITY_PROMPT_TEMPLATE,
-    JUDGE_RESPONSE_REFUSAL_PROMPT,
-    JUDGE_SUGGESTED_FOLLOWUPS_PROMPT_TEMPLATE,
-    JUDGE_SUGGESTED_PROMPTBOX_PROMPT_TEMPLATE,
-    JUDGE_YUPP_CHAT_PROMPT_TEMPLATE,
+)
+from ypl.backend.prompts.memory_extraction import PROMPT_MEMORY_EXTRACTION_PROMPT_TEMPLATE
+from ypl.backend.prompts.prompt_classification import (
     JUDGE_YUPP_ONLINE_PROMPT,
+    PROMPT_MULTILABEL_CLASSIFICATION_PROMPT_TEMPLATE,
+    get_yapp_classification_prompt_template,
+)
+from ypl.backend.prompts.prompt_difficulty import (
     JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT_SIMPLE_TEMPLATE,
     JUDGE_YUPP_PROMPT_DIFFICULTY_PROMPT_TEMPLATE,
     JUDGE_YUPP_PROMPT_DIFFICULTY_WITH_COMMENT_PROMPT_TEMPLATE,
-    PROMPT_MEMORY_EXTRACTION_PROMPT_TEMPLATE,
-    PROMPT_MULTILABEL_CLASSIFICATION_PROMPT_TEMPLATE,
+)
+from ypl.backend.prompts.prompt_modifiers import (
+    JUDGE_PROMPT_MODIFIER_PROMPT,
+)
+from ypl.backend.prompts.quicktake import (
+    JUDGE_QUICK_RESPONSE_QUALITY_PROMPT_TEMPLATE,
+)
+from ypl.backend.prompts.response_quality import (
+    JUDGE_RESPONSE_REFUSAL_PROMPT,
     RESPONSE_DIFFICULTY_PROMPT_TEMPLATE,
     RESPONSE_QUALITY_PROMPT_TEMPLATE,
-    fill_cur_datetime,
-    get_yapp_classification_prompt_template,
 )
+from ypl.backend.prompts.suggestions import (
+    JUDGE_CHAT_TITLE_PROMPT_TEMPLATE,
+    JUDGE_CONVERSATION_STARTERS_PROMPT_TEMPLATE,
+    JUDGE_SUGGESTED_FOLLOWUPS_PROMPT_TEMPLATE,
+    JUDGE_SUGGESTED_PROMPTBOX_PROMPT_TEMPLATE,
+)
+from ypl.backend.prompts.system_prompts import fill_cur_datetime
 from ypl.db.chats import PromptModifier
 
 DEFAULT_PROMPT_DIFFICULTY = 4  # Most common value.
@@ -75,22 +86,6 @@ def choose_llm(
             )
         case _:
             raise ValueError(f"Invalid choice strategy: {strategy}")
-
-
-class YuppEvaluationLabeler(LLMLabeler[tuple[str, str, str], int]):
-    def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
-        return JUDGE_YUPP_CHAT_PROMPT_TEMPLATE | llm  # type: ignore
-
-    def _prepare_input(self, input: tuple[str, str, str]) -> dict[str, Any]:
-        """Tuple is (user_prompt, response1, response2)"""
-        return dict(response1=input[1], response2=input[2], user_prompt=input[0])
-
-    def _parse_output(self, output: BaseMessage) -> int:
-        return int(str(output.content).strip()[0])
-
-    @property
-    def error_value(self) -> int:
-        return -1
 
 
 class YuppPromptDifficultyLabeler(LLMLabeler[tuple[str, str, str], int]):

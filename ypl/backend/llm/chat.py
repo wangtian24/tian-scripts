@@ -42,6 +42,14 @@ from ypl.db.chats import (
 
 MAX_LOGGED_MESSAGE_LENGTH = 200
 
+HORIZONTAL_RULE = "---"
+RESPONSE_SEPARATOR = f"\n\n{HORIZONTAL_RULE}\n\n"
+
+ALL_MODELS_IN_CHAT_HISTORY_PREAMBLE = f"""
+Multiple assistants responded to the user's prompt.
+These responses are listed below and separated by "{HORIZONTAL_RULE}".
+"""
+
 
 class ModelAndStyleSelector(BaseModel):
     # choose a combination of a model selector and a modifier style, at least one of them must be provided

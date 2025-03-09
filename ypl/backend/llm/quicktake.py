@@ -20,7 +20,7 @@ from ypl.backend.llm.labeler import QT_CANT_ANSWER, CantAnswerException, QuickTa
 from ypl.backend.llm.model_heuristics import ModelHeuristics
 from ypl.backend.llm.provider.provider_clients import get_internal_provider_client
 from ypl.backend.llm.transform_messages import TransformOptions, transform_user_messages
-from ypl.backend.prompts import (
+from ypl.backend.prompts.quicktake import (
     SYSTEM_QUICKTAKE_FALLBACK_PROMPT,
     SYSTEM_QUICKTAKE_PROMPT,
     SYSTEM_RETAKE_PROMPT,

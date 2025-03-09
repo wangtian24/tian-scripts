@@ -28,7 +28,7 @@ from ypl.backend.llm.constants import (
 )
 from ypl.backend.llm.db_helpers import get_chat_model
 from ypl.backend.llm.model_data_type import ModelInfo
-from ypl.backend.prompts import SYNTHESIZER_FIRST_ASSISTANT_PROMPT, SYNTHESIZER_GENERATE_PERSONA_PROMPT
+from ypl.backend.prompts.synthesize import SYNTHESIZER_FIRST_ASSISTANT_PROMPT, SYNTHESIZER_GENERATE_PERSONA_PROMPT
 from ypl.db.all_models import users
 from ypl.db.chats import Chat, ChatMessage, Eval, EvalType, MessageType, Turn
 from ypl.db.users import SyntheticBackfillAttributes

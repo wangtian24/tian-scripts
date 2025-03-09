@@ -21,7 +21,7 @@ from ypl.backend.llm.model_heuristics import ModelHeuristics
 from ypl.backend.llm.routing.modules.base import RouterModule
 from ypl.backend.llm.routing.policy import SelectionCriteria
 from ypl.backend.llm.routing.router_state import RouterState
-from ypl.backend.prompts import FALLBACK_SYSTEM_PROMPT
+from ypl.backend.prompts.system_prompts import FALLBACK_SYSTEM_PROMPT
 from ypl.db.language_models import LanguageModel, LanguageModelResponseStatus, LanguageModelResponseStatusEnum
 from ypl.utils import RNGMixin
 

@@ -10,9 +10,9 @@ import requests
 from sqlmodel import select
 from tenacity import retry, stop_after_attempt, wait_random_exponential
 
-from ypl.backend import prompts
 from ypl.backend.db import Session, get_engine
 from ypl.backend.llm.utils import fetch_categories_with_descriptions_from_db
+from ypl.backend.prompts.prompt_difficulty import PROMPT_CATEGORY_SYSTEM_TEMPLATE
 from ypl.db.chats import ChatMessage, MessageType
 from ypl.db.ratings import Category, OVERALL_CATEGORY_NAME
 from ypl.backend.utils.json import json_dumps
@@ -82,7 +82,7 @@ def llm_setup() -> tuple[str, type[PromptCategoryResponse]]:
         if description is not None
     }
 
-    system_prompt = construct_system_prompt(prompts.PROMPT_CATEGORY_SYSTEM_TEMPLATE, category_descriptions_dict)
+    system_prompt = construct_system_prompt(PROMPT_CATEGORY_SYSTEM_TEMPLATE, category_descriptions_dict)
     PromptCategory = Enum(  # type: ignore
         "PromptCategory",
         {category.replace(" ", "_").upper(): category for category in category_descriptions_dict.keys()},
