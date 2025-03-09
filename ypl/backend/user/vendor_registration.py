@@ -255,11 +255,15 @@ class StripeRegistration(VendorRegistration):
                 }
             }
 
+            if not additional_details.return_url:
+                raise VendorRegistrationError("return_url is required for Stripe registration")
+
             # for stripe also create the one time link to the account
             vendor_url_link = await create_account_link(
                 StripeAccountLinkCreateRequest(
                     account=account_id,
                     use_case_type=StripeUseCaseType.ACCOUNT_ONBOARDING,
+                    return_url=additional_details.return_url,
                 )
             )
 

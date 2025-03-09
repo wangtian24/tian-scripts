@@ -36,6 +36,7 @@ class AdditionalDetails:
 
     hyperwallet_details: HyperwalletDetails | None = None
     stripe_details: StripeDetails | None = None
+    return_url: str | None = None
 
 
 class StripeDetailsRequest(BaseModel):
@@ -52,6 +53,7 @@ class AdditionalDetailsRequest(BaseModel):
 
     stripe_details: StripeDetailsRequest | None = Field(None, description="Details for Stripe registration")
     hyperwallet_details: dict[str, Any] | None = Field(None, description="Details for Hyperwallet registration")
+    return_url: str | None = Field(None, description="Return URL for vendor onboarding flow")
 
 
 class VendorRegistrationRequest(BaseModel):

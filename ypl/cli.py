@@ -1755,7 +1755,9 @@ def create_stripe_account_link(account: str, refresh_url: str, return_url: str, 
 
     asyncio.run(
         create_account_link(
-            StripeAccountLinkCreateRequest(account=account, use_case_type=StripeUseCaseType(use_case_type))
+            StripeAccountLinkCreateRequest(
+                account=account, use_case_type=StripeUseCaseType(use_case_type), return_url=return_url
+            )
         )
     )
 

@@ -42,7 +42,6 @@ try:
 
     secret_key = stripe_config.get("secret_key")
     refresh_url = stripe_config.get("refresh_url")
-    return_url = stripe_config.get("return_url")
 
     if not secret_key:
         raise StripePayoutError("Missing Stripe credentials", {"error": "Stripe secret key is not configured"})
@@ -123,6 +122,7 @@ class StripeAccountLinkCreateRequest:
 
     account: str
     use_case_type: StripeUseCaseType
+    return_url: str
 
 
 @dataclass
@@ -304,7 +304,7 @@ async def create_account_link(request: StripeAccountLinkCreateRequest) -> str:
                     request.use_case_type: {
                         "configurations": ["recipient"],
                         "refresh_url": refresh_url,
-                        "return_url": return_url,
+                        "return_url": request.return_url,
                     },
                 },
             },
