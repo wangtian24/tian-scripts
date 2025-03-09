@@ -33,30 +33,6 @@ class StripePayoutError(Exception):
         logging.error(json_dumps(log_dict))
 
 
-try:
-    stripe_config = settings.STRIPE_CONFIG
-    if not stripe_config or not isinstance(stripe_config, dict):
-        raise StripePayoutError(
-            "Invalid Stripe configuration", {"error": "Stripe configuration is not a valid dictionary"}
-        )
-
-    secret_key = stripe_config.get("secret_key")
-    refresh_url = stripe_config.get("refresh_url")
-
-    if not secret_key:
-        raise StripePayoutError("Missing Stripe credentials", {"error": "Stripe secret key is not configured"})
-
-    stripe_client: Final[StripeClient] = StripeClient(secret_key)
-except Exception as e:
-    log_dict = {
-        "message": "Error initializing Stripe client",
-        "error": str(e),
-        "error_type": type(e).__name__,
-    }
-    logging.error(json_dumps(log_dict))
-    raise StripePayoutError("Failed to initialize Stripe client", {"error": str(e)}) from e
-
-
 class StripeTransactionStatus(StrEnum):
     """Enum for Stripe transaction statuses."""
 
@@ -170,9 +146,33 @@ class StripePaymentMethod:
     card: StripeCardAccount | None = None
 
 
+stripe_client: StripeClient | None = None
+
+
 def _get_stripe_client() -> StripeClient:
     """Get Stripe client instance."""
-    return stripe_client
+    global stripe_client
+    if stripe_client:
+        return stripe_client
+    try:
+        stripe_config = settings.STRIPE_CONFIG
+        if not stripe_config or not isinstance(stripe_config, dict):
+            raise StripePayoutError(
+                "Invalid Stripe configuration", {"error": "Stripe configuration is not a valid dictionary"}
+            )
+        secret_key = stripe_config.get("secret_key")
+        if not secret_key:
+            raise StripePayoutError("Missing Stripe credentials", {"error": "Stripe secret key is not configured"})
+        stripe_client = StripeClient(secret_key)
+        return stripe_client
+    except Exception as e:
+        log_dict = {
+            "message": "Error initializing Stripe client",
+            "error": str(e),
+            "error_type": type(e).__name__,
+        }
+        logging.error(json_dumps(log_dict))
+        raise StripePayoutError("Failed to initialize Stripe client", {"error": str(e)}) from e
 
 
 async def get_stripe_balances() -> list[StripeBalance]:
@@ -303,7 +303,7 @@ async def create_account_link(request: StripeAccountLinkCreateRequest) -> str:
                     "type": request.use_case_type,
                     request.use_case_type: {
                         "configurations": ["recipient"],
-                        "refresh_url": refresh_url,
+                        "refresh_url": settings.STRIPE_CONFIG.get("refresh_url"),
                         "return_url": request.return_url,
                     },
                 },

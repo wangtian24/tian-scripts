@@ -618,6 +618,9 @@ async def check_all_killswitches_status() -> tuple[bool, list[PaymentInstrumentF
         - bool: True if global killswitch is enabled
         - list: List of facilitators that are disabled
     """
+    if settings.ENVIRONMENT != "production":
+        return False, []
+
     redis_client = await get_upstash_redis_client()
 
     global_check = redis_client.get(CASHOUT_KILLSWITCH_KEY)
