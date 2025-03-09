@@ -73,7 +73,7 @@ def get_supported_facilitators(country_code: str) -> list[PaymentInstrumentFacil
         PaymentInstrumentFacilitatorEnum.STRIPE,
     ]
     # Only for testing
-    if settings.ENVIRONMENT != "production":
+    if settings.ENVIRONMENT != "production" or country_code == "*":
         return all_supported_facilitators
 
     if country_code == "IN":

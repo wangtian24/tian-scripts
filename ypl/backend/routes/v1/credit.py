@@ -30,9 +30,8 @@ from ypl.backend.payment.base_types import BaseFacilitator, PaymentResponse
 from ypl.backend.payment.cashout_rate_limits import (
     CashoutKillswitchError,
     CashoutLimitError,
+    check_all_killswitches_status,
     check_cashout_killswitch,
-    check_facilitator_cashout_killswitch,
-    check_global_cashout_killswitch,
     check_request_rate_limit,
     log_cashout_limit_error,
     validate_and_return_cashout_user_limits,
@@ -336,10 +335,9 @@ class CashoutNotAvailableResponse:
 
 @router.post("/credits/cashout/options")
 async def fetch_cashout_options(request: CashoutOptionsRequest) -> CashoutOptionsResponse | CashoutNotAvailableResponse:
-    try:
-        await check_global_cashout_killswitch(request.user_id)
-    except CashoutKillswitchError as e:
-        return CashoutNotAvailableResponse(unavailable_reason=str(e))
+    global_disabled, disabled_facilitators = await check_all_killswitches_status()
+    if global_disabled:
+        return CashoutNotAvailableResponse(unavailable_reason="Cashout is not available")
 
     [user, instruments, last_transaction_and_instrument] = await asyncio.gather(
         get_user(request.user_id),
@@ -351,20 +349,7 @@ async def fetch_cashout_options(request: CashoutOptionsRequest) -> CashoutOption
     country_code = user_country_code if user_country_code else request.guessed_country_code
 
     facilitators = get_supported_facilitators(country_code)
-
-    facilitator_killswitch_errors = await asyncio.gather(
-        *[
-            check_facilitator_cashout_killswitch(facilitator, request.user_id)  # noqa: F821
-            for facilitator in facilitators
-        ],
-        return_exceptions=True,
-    )
-
-    filtered_facilitators = [
-        facilitator
-        for facilitator, error in zip(facilitators, facilitator_killswitch_errors, strict=True)
-        if error is None
-    ]
+    filtered_facilitators = [facilitator for facilitator in facilitators if facilitator not in disabled_facilitators]
 
     currencies = get_supported_currencies(country_code)
 
@@ -379,7 +364,7 @@ async def fetch_cashout_options(request: CashoutOptionsRequest) -> CashoutOption
             "guessed_country_code": request.guessed_country_code,
             "currencies": [currency.value for currency in currencies],
             "facilitators": [facilitator.value for facilitator in facilitators],
-            "facilitator_killswitch_errors": [str(error) for error in facilitator_killswitch_errors],
+            "disabled_facilitators": [facilitator.value for facilitator in disabled_facilitators],
         }
         # Log this as an error because this is unexpected.
         logging.warning(json_dumps(log_dict))

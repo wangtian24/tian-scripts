@@ -608,3 +608,41 @@ async def check_facilitator_cashout_killswitch(facilitator: PaymentInstrumentFac
             f":x: Failure - Cashout is currently disabled for {facilitator.name}", user_id, facilitator
         )
         raise CashoutKillswitchError("Cash out is currently disabled for this payment method")
+
+
+async def check_all_killswitches_status() -> tuple[bool, list[PaymentInstrumentFacilitatorEnum]]:
+    """Check global and all facilitator-specific killswitches in parallel.
+
+    Returns:
+        A tuple containing:
+        - bool: True if global killswitch is enabled
+        - list: List of facilitators that are disabled
+    """
+    redis_client = await get_upstash_redis_client()
+
+    global_check = redis_client.get(CASHOUT_KILLSWITCH_KEY)
+    facilitator_checks = {
+        facilitator: redis_client.get(CASHOUT_FACILITATOR_KILLSWITCH_KEY.format(facilitator=facilitator.value))
+        for facilitator in PaymentInstrumentFacilitatorEnum
+    }
+
+    try:
+        results = await asyncio.gather(global_check, *facilitator_checks.values())
+
+        global_disabled = bool(results[0])
+
+        disabled_facilitators = [
+            facilitator
+            for facilitator, result in zip(facilitator_checks.keys(), results[1:], strict=True)
+            if bool(result)
+        ]
+
+        return global_disabled, disabled_facilitators
+    except Exception as e:
+        log_dict = {
+            "message": "Error checking killswitches. Assuming all facilitators are disabled.",
+            "error": str(e),
+        }
+        logging.error(json_dumps(log_dict))
+        asyncio.create_task(post_to_slack_with_user_name("SYSTEM", json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+        return True, list(PaymentInstrumentFacilitatorEnum)
