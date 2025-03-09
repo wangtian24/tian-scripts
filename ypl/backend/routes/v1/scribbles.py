@@ -184,7 +184,7 @@ async def create_scribble(
         if "unique constraint" in str(e).lower() and "label" in str(e).lower():
             log_dict = {
                 "message": "Duplicate label error",
-                "scribble_data": scribble.model_dump(),
+                "scribble_data": scribble.model_dump(mode="json"),
                 "error": str(e),
             }
             logging.warning(json_dumps(log_dict))
@@ -194,7 +194,7 @@ async def create_scribble(
         else:
             log_dict = {
                 "message": "Database integrity error",
-                "scribble_data": scribble.model_dump(),
+                "scribble_data": scribble.model_dump(mode="json"),
                 "error": str(e),
             }
             logging.exception(json_dumps(log_dict))
@@ -202,7 +202,7 @@ async def create_scribble(
     except Exception as e:
         log_dict = {
             "message": "Failed to create scribble",
-            "scribble_data": scribble.model_dump(),
+            "scribble_data": scribble.model_dump(mode="json"),
             "error": str(e),
         }
         logging.exception(json_dumps(log_dict))
@@ -260,7 +260,7 @@ async def update_scribble(
         log_dict = {
             "message": "Failed to update scribble",
             "scribble_id": str(id),
-            "scribble_data": scribble.model_dump(),
+            "scribble_data": scribble.model_dump(mode="json"),
             "error": str(e),
         }
         logging.exception(json_dumps(log_dict))
