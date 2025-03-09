@@ -69,6 +69,17 @@ async def get_ip_details(ip_address: str) -> IPDetails | None:
             )
             response.raise_for_status()
             data = response.json()
+            if not data or "location" not in data or "ip" not in data or "security" not in data:
+                logging.error(
+                    json_dumps(
+                        {
+                            "message": "Invalid response from VPNAPI",
+                            "ip_address": ip_address,
+                            "response": data,
+                        }
+                    )
+                )
+                return None
 
             # Convert the response to our typed structure
             ip_details: IPDetails = {
