@@ -19,7 +19,7 @@ from ypl.backend.llm.constants import ChatProvider
 from ypl.backend.llm.model_data_type import ModelInfo
 from ypl.backend.llm.provider.google_grounded_gemini import GoogleGroundedGemini
 from ypl.backend.llm.provider.google_grounded_vertex_ai import GroundedVertexAI
-from ypl.backend.llm.provider.image_gen_models import DallEChatModel
+from ypl.backend.llm.provider.image_gen_models import DallEChatModel, FalAIImageGenModel
 from ypl.backend.llm.provider.perplexity import CustomChatPerplexity
 from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter, OpenAILangChainAdapter
 from ypl.backend.utils.utils import merge_base_url_with_port
@@ -149,6 +149,10 @@ async def get_provider_client(
                 )
             else:
                 return ChatVertexAI(model_name=internal_name, **combined_kwargs)
+
+        case "FalAI":
+            return FalAIImageGenModel(model_name=model.internal_name, fal_model_name=model.name, **combined_kwargs)
+
         case "GroundedVertexAI":
             if "exp" in internal_name or "preview" in internal_name:
                 return GroundedVertexAI(

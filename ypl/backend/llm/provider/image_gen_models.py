@@ -1,8 +1,10 @@
 import logging
+import os
 from abc import abstractmethod
 from collections.abc import AsyncIterator
 from typing import Any
 
+import fal_client
 from langchain.chat_models.base import BaseChatModel
 from langchain.schema import BaseMessage, ChatGeneration, ChatResult
 from langchain_core.callbacks.manager import AsyncCallbackManagerForLLMRun, CallbackManagerForLLMRun
@@ -151,3 +153,132 @@ class DallEChatModel(ImageGenChatModel):
             return image_url
         else:
             raise Exception("No image url returned from Dall-e-3")
+
+
+class FalAIImageGenModel(ImageGenChatModel):
+    """
+    Base class for Fal AI Image Generation models.
+
+    Guide for adding a new model to the language model table:
+      - Use fal-ai model name for `name` field (e.g. "fal-ai/flux/schnell")
+      - Set `internal_name` to shorter name used in logging etc. (e.g. "flux-schnell")
+      - Set `label` to the model name, close to how it is known (e.g. "FLUX.1 [schnell]")
+      - Set `external_model_url` to the model page on fal.ai (e.g. https://fal.ai/models/fal-ai/flux/schnell)
+      - Set `parameters` to pass additional parameters. These are passed to 'arguments' option in `subscribe` method.
+         - To help the readers, include "comment" to explain the parameters.
+      - See example insert statements below for language_models table.
+      - After this, add a new row for the model in `routing_rules` table. See example insert statements below.
+
+    Sample insert statement into language_models table:
+    -----------------------
+        INSERT INTO language_models (
+            language_model_id,
+            name,
+            internal_name,
+            label,
+            license,
+            created_at,
+            status,
+            creator_user_id,
+            provider_id,
+            external_model_info_url,
+            parameters,
+            is_image_generation
+        )
+        VALUES (
+            gen_random_uuid(),
+            'fal-ai/flux-pro/new',
+            'flux-pro',
+            'FLUX.1 [pro]',
+            'unknown',
+            now(),
+            'ACTIVE',
+            'c7144895-6e3b-4d71-b1ad-24c83d50d73a',
+            (SELECT provider_id from providers WHERE name = 'FalAI'),
+            'https://fal.ai/models/fal-ai/flux-pro/new',
+            $${
+            "kwargs": {
+                "num_inference_steps": 40
+            },
+            "comment": "num_inference_steps is set to 40 here. The default is 28 and max is 50."
+            }$$,
+            true
+        );
+    -----------------------
+
+    Sample insert statement into routing_rules table:
+    -----------------------
+        INSERT INTO routing_rules (
+            created_at,
+            routing_rule_id,
+            is_active,
+            z_index,
+            source_category,
+            destination,
+            target,
+            probability
+        )
+        VALUES(
+            now(),
+            gen_random_uuid(),
+            true,
+            2000000,
+            'Image Generation',
+            'FalAI/flux-schnell',
+            'ACCEPT',
+            1.0
+        );
+    -----------------------
+    """
+
+    _async_client: fal_client.AsyncClient = PrivateAttr()
+    _fal_model_name: str = PrivateAttr()
+    _extra_options: dict[str, Any] = PrivateAttr()
+
+    def __init__(self, model_name: str, fal_model_name: str, api_key: str = "", **kwargs: Any):
+        """
+        Args:
+            model_name: This is the Yupp model to use in logging etc. E.g. "flux-pro"
+            fal_model_name: The full name of Fal AI model. E.g. "fal-ai/flux-pro/v1.1-ultra"
+            api_key: The API key to use.
+            kwargs: Additional arguments are merged into the `arguments` option for the `subscribe` method.
+        """
+        super().__init__(model_name=fal_model_name, **kwargs)
+        key = api_key or os.environ["FAL_AI_API_KEY"]
+        self._fal_model_name = fal_model_name
+        self._async_client = fal_client.AsyncClient(key=key)
+        self._extra_options = kwargs
+
+    async def _agenerate_image(self, prompt: str, **kwargs: Any) -> str:
+        """
+        Generate an image from the given prompt.
+        """
+
+        # More documentation: https://docs.fal.ai/clients/python
+        arguments = (
+            {
+                "prompt": prompt,
+                "num_images": 1,
+                "enable_safety_checker": True,  # Same as default. Setting it just for clarity.
+            }
+            | self._extra_options  # Options from the language model table for this model.
+            | kwargs  # callers can add or override options
+        )
+
+        response: dict[str, Any] = await self._async_client.subscribe(
+            application=self._fal_model_name,
+            arguments=arguments,
+            on_queue_update=None,  # FYI. We can log progress updates if we want, but not all images got them.
+        )
+
+        logging.info(
+            {
+                "message": f"{self._model_name} generated an image",
+                "response": response,  # Includes revised prompt from the model.
+                "fal_model_name": self._fal_model_name,
+            }
+        )
+        if not response.get("images"):
+            raise Exception(f"No image url returned from {self._model_name} (Fal model {self._fal_model_name})")
+
+        return str(response["images"][0]["url"])
