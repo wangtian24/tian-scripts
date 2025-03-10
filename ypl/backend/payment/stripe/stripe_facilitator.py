@@ -252,6 +252,17 @@ class StripeFacilitator(BaseFacilitator):
     ) -> PaymentResponse:
         start_time = time.time()
 
+        if usd_amount < 1:
+            log_dict = {
+                "message": "Minimum amount of 1 USD is required",
+                "user_id": user_id,
+                "amount_requested": str(usd_amount),
+                "credits_to_cashout": str(credits_to_cashout),
+            }
+            logging.warning(json_dumps(log_dict))
+            # UI may not show this error message, as there's going to be a UI validation too before this.
+            raise ValueError("You need to cash out at least 1 USD worth of credits")
+
         try:
             try:
                 credits_to_cashout += CASHOUT_TXN_COST
