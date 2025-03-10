@@ -22,6 +22,8 @@ class MemorySource(enum.Enum):
     # The assistant's turn in the conversation. Whether this is an
     # LLM or a Yapp is not specified here.
     ASSISTANT_MESSAGE = "assistant_message"
+    # A memory created by consolidating other memories.
+    CONSOLIDATED_MEMORY = "consolidated_memory"
 
 
 class ChatMessageMemoryAssociation(BaseModel, table=True):
@@ -60,12 +62,14 @@ class Memory(BaseModel, table=True):
     # Adjust the type to match your primary key field type for language_models.
     agent_language_model_id: uuid.UUID | None = Field(foreign_key="language_models.language_model_id", default=None)
 
-    # The yapp that created this memory (if any).
-    # Uncomment when we have a `yapps` table.
-    # agent_yapp_id: uuid.UUID | None = Field(
-    #     foreign_key="yapps.yapp_id",
-    #     default=None
-    # )
+    memory_source: MemorySource = Field(
+        sa_column=Column(
+            sa.Enum(MemorySource),
+            nullable=False,
+            default=MemorySource.USER_MESSAGE,
+            server_default=MemorySource.USER_MESSAGE.name,
+        ),
+    )
 
     # -------------------------------------------------------------------------
     # Relationships
@@ -77,5 +81,3 @@ class Memory(BaseModel, table=True):
     content_embedding: "MemoryEmbedding" = Relationship(
         back_populates="memory", sa_relationship_kwargs={"uselist": False}
     )
-    # TODO(amin): implement the relationship below
-    # agent_language_model: "LanguageModel" = Relationship()

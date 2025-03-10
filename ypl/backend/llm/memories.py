@@ -333,7 +333,7 @@ async def consolidate_memories(user_id: str) -> None:
                             memory_id=new_memory_id,
                             user_id=user_id,
                             memory_content=consolidated_memory,
-                            memory_source=MemorySource.USER_MESSAGE,
+                            memory_source=MemorySource.CONSOLIDATED_MEMORY,
                         )
                     )
                     new_memory_associations.extend(
