@@ -134,3 +134,49 @@ Input (User text):
 PROMPT_MEMORY_EXTRACTION_PROMPT = ChatPromptTemplate.from_messages(
     [("human", PROMPT_MEMORY_EXTRACTION_PROMPT_TEMPLATE)]
 )
+
+MEMORY_COMPACTION_PROMPT_TEMPLATE = """
+You will be given a list of statements about a user, all relating roughly to the
+same topic, extracted from past conversations of the user with LLMs.
+Your task is to simplify and consolidate these statements by:
+
+Removing redundant or irrelevant ones.
+
+Combining related or overlapping statements into a single, concise statement that captures the essential information.
+
+Each resulting statement should clearly reflect the combined meaning and relevance
+of the original entries it represents, without losing important details.
+
+Format your response as a list, with each consolidated statement on its own line, separated by newlines.
+
+Keep only statements that are relevant to the user's future interactions with LLMs.
+
+It is fine to return a single statement that captures the most important information,
+or no statements at all if none are relevant.
+
+---
+
+Example:
+
+Original statements:
+
+I live in a major urban area and often talk about city life.
+I frequently ask about productivity techniques and tools.
+I'm interested in advice on balancing work responsibilities with personal time.
+I have mentioned my enjoyment of cooking and exploring new recipes.
+I often discuss strategies for managing stress and maintaining mental health.
+I've shared that I like reading nonfiction books related to personal growth and self-improvement.
+
+Consolidated statements:
+
+I'm interested in productivity, work-life balance, and effective stress management techniques.
+I enjoy cooking, trying new recipes, and reading nonfiction focused on personal growth.
+
+---
+
+The statements you should consolidate are:
+
+{memories}
+"""
+
+MEMORY_COMPACTION_PROMPT = ChatPromptTemplate.from_messages([("human", MEMORY_COMPACTION_PROMPT_TEMPLATE)])

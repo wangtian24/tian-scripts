@@ -1,21 +1,36 @@
 import logging
 import uuid
+from collections import defaultdict
 from collections.abc import Sequence
+from dataclasses import dataclass
 
+import numpy as np
+from hdbscan import HDBSCAN
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel
 from sqlalchemy import text
-from sqlmodel import select
+from sqlmodel import delete, select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ypl.backend.db import get_async_session
 from ypl.backend.llm.context import get_curated_chat_context
 from ypl.backend.llm.embedding import DEFAULT_EMBEDDING_DIMENSION, DEFAULT_EMBEDDING_MODEL, embed
-from ypl.backend.llm.judge import YuppMemoryExtractor
+from ypl.backend.llm.judge import MemoryCompactor, YuppMemoryExtractor
 from ypl.backend.llm.provider.provider_clients import get_internal_provider_client
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import ChatMessage, Turn
 from ypl.db.embeddings import MemoryEmbedding
 from ypl.db.memories import ChatMessageMemoryAssociation, Memory, MemorySource
+
+# If a user has fewer than this number of memories, just let the compactor consolidate them all joinly.
+# Otherwise, cluster them first, and apply the compactor to each cluster.
+MIN_MEMORIES_TO_APPLY_CLUSTERING = 15
+
+# The minimum number of memories to cluster together.
+MIN_CLUSTER_SIZE = 2
+
+# The maximum number of tokens to use for consolidating a single cluster of memories.
+MAX_TOKENS = 1024
 
 # Memories that are similar to existing memories at this threshold or higher are skipped.
 MIN_MEMORY_SIMILARITY_TO_SKIP = 0.95
@@ -208,3 +223,158 @@ async def get_most_similar_memory(user_id: str, embeddings: list[list[float]]) -
             mem_sim.similarity = similar_memory[2]
 
         return mem_sim
+
+
+@dataclass  # pydantic doesn't work well with numpy arrays
+class MemoryWithEmbeddingAndMessageId:
+    memory_id: uuid.UUID
+    memory_content: str
+    embedding: np.ndarray
+    message_id: uuid.UUID
+
+
+def cluster_memories(
+    memories: list[MemoryWithEmbeddingAndMessageId],
+) -> list[list[MemoryWithEmbeddingAndMessageId]]:
+    """Cluster memories based on embedding similarity; each cluster is a list of related memories."""
+    if len(memories) < MIN_MEMORIES_TO_APPLY_CLUSTERING:
+        # Just put everything in one cluster.
+        return [memories]
+
+    embeddings = np.vstack([memory.embedding for memory in memories])
+    clusterer = HDBSCAN(metric="l2", min_cluster_size=MIN_CLUSTER_SIZE)
+    cluster_labels = clusterer.fit_predict(embeddings)
+
+    clusters = defaultdict(list)
+    last_label = len(cluster_labels)
+    for memory, label in zip(memories, cluster_labels, strict=True):
+        if label == -1:
+            # This means the memory did not cluster with any other memories, assign a new cluster.
+            clusters[last_label] = [memory]
+            last_label += 1
+        else:
+            clusters[label].append(memory)
+
+    return list(clusters.values())
+
+
+async def get_memories_with_embeddings(session: AsyncSession, user_id: str) -> list[MemoryWithEmbeddingAndMessageId]:
+    query = (
+        select(
+            Memory.memory_id,
+            Memory.memory_content,
+            MemoryEmbedding.embedding,
+            ChatMessageMemoryAssociation.message_id,
+        )
+        .join(ChatMessageMemoryAssociation)
+        .join(MemoryEmbedding)
+        .where(Memory.user_id == user_id, Memory.deleted_at.is_(None))  # type: ignore
+    )
+    results = await session.exec(query)
+    return [
+        MemoryWithEmbeddingAndMessageId(memory_id=row[0], memory_content=row[1], embedding=row[2], message_id=row[3])  # type: ignore
+        for row in results.all()
+    ]
+
+
+async def consolidate_memories(user_id: str) -> None:
+    """Consolidate the memories for a user by merging similar one."""
+    try:
+        async with get_async_session() as session:
+            memories = await get_memories_with_embeddings(session, user_id)
+            compactor = MemoryCompactor(
+                llm=await get_internal_provider_client("gemini-2.0-flash-001", max_tokens=MAX_TOKENS),
+                timeout_secs=15,
+            )
+
+            # The new rows that should be added to the memories table.
+            new_memory_objs = []
+            # The new rows that should be added to the chat_message_memory_associations table.
+            new_memory_associations = []
+            # The new rows that should be added to the memory_embeddings table.
+            new_memory_embeddings_objs = []
+
+            consolidated_memories = []
+            memory_ids_to_delete = []
+            clusters = cluster_memories(memories)
+            # TODO(gilad): this information may be too detailed; after debug period, ok to remove.
+            log_dict = {
+                "message": "Consolidating memories",
+                "user_id": user_id,
+                "num_memories_to_consolidate": len(memories),
+                "num_consolidated_memories": 0,
+                "memory_clusters": [],
+            }
+            # TODO(gilad): consider processing in parallel; need to make sure it doesn't trigger rate limits.
+            for cluster in clusters:
+                memories_to_consolidate = [memory.memory_content for memory in cluster]
+                message_ids = [memory.message_id for memory in cluster]
+                # Used to track information we want to log.
+                cluster_info = {"memories": memories_to_consolidate, "message_ids": message_ids}
+                if len(cluster) == 1:
+                    # Nothing to consolidate; keep the single memory.
+                    cluster_info["consolidated"] = False
+                    log_dict["memory_clusters"].append(cluster_info)  # type: ignore
+                    continue
+
+                # From here on, we have a cluster of more than one memory to consolidate.
+                cluster_info["consolidated"] = True
+                # Track the memories to delete later.
+                memory_ids_to_delete.extend([memory.memory_id for memory in cluster])
+
+                consolidated_memories = await compactor.alabel(memories_to_consolidate)
+                cluster_info["consolidated_memories"] = consolidated_memories
+                log_dict["memory_clusters"].append(cluster_info)  # type: ignore
+                for consolidated_memory in consolidated_memories:
+                    # Create the memory, its associations to messages, and embeddings.
+                    new_memory_id = uuid.uuid4()
+                    new_memory_objs.append(
+                        Memory(
+                            memory_id=new_memory_id,
+                            user_id=user_id,
+                            memory_content=consolidated_memory,
+                            memory_source=MemorySource.USER_MESSAGE,
+                        )
+                    )
+                    new_memory_associations.extend(
+                        [ChatMessageMemoryAssociation(memory_id=new_memory_id, message_id=m_id) for m_id in message_ids]
+                    )
+                    new_embeddings = (await embed([consolidated_memory], pad_to_length=DEFAULT_EMBEDDING_DIMENSION))[0]
+                    for embedding in new_embeddings:
+                        new_memory_embeddings_objs.append(
+                            MemoryEmbedding(
+                                memory_id=new_memory_id,
+                                embedding=embedding,
+                                embedding_model_name=DEFAULT_EMBEDDING_MODEL,
+                            )
+                        )
+
+            log_dict["num_consolidated_memories"] = len(new_memory_objs)
+
+            # Clean up the memories that were consolidated, and their associations and embeddings.
+            delete_associations_query = delete(ChatMessageMemoryAssociation).where(
+                ChatMessageMemoryAssociation.memory_id.in_(memory_ids_to_delete),  # type: ignore
+            )
+            await session.exec(delete_associations_query)  # type: ignore
+            await session.flush()
+
+            delete_embeddings_query = delete(MemoryEmbedding).where(MemoryEmbedding.memory_id.in_(memory_ids_to_delete))  # type: ignore
+            await session.exec(delete_embeddings_query)  # type: ignore
+            await session.flush()
+
+            delete_memories_query = delete(Memory).where(Memory.memory_id.in_(memory_ids_to_delete))  # type: ignore
+            await session.exec(delete_memories_query)  # type: ignore
+            await session.flush()
+
+            # Finally, add the new memories, associations, and embeddings.
+            session.add_all(new_memory_objs)
+            await session.flush()  # need to be added first for the next two adds to work.
+
+            session.add_all(new_memory_associations)
+            session.add_all(new_memory_embeddings_objs)
+            await session.commit()
+
+            logging.info(json_dumps(log_dict))
+
+    except Exception as e:
+        logging.error(f"Error consolidating memories: {e}")

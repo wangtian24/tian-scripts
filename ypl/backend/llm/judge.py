@@ -22,7 +22,10 @@ from ypl.backend.llm.prompt_classifiers import CategorizerResponse, PromptCatego
 from ypl.backend.prompts.feedback_quality import (
     FEEDBACK_QUALITY_PROMPT_TEMPLATE,
 )
-from ypl.backend.prompts.memory_extraction import PROMPT_MEMORY_EXTRACTION_PROMPT_TEMPLATE
+from ypl.backend.prompts.memory_extraction import (
+    MEMORY_COMPACTION_PROMPT,
+    PROMPT_MEMORY_EXTRACTION_PROMPT_TEMPLATE,
+)
 from ypl.backend.prompts.prompt_classification import (
     JUDGE_YUPP_ONLINE_PROMPT,
     PROMPT_MULTILABEL_CLASSIFICATION_PROMPT_TEMPLATE,
@@ -578,3 +581,21 @@ class ChatTitleLabeler(LLMLabeler[list[BaseMessage], str]):
     @property
     def error_value(self) -> str:
         return ""
+
+
+class MemoryCompactor(LLMLabeler[list[str], list[str]]):
+    def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
+        return MEMORY_COMPACTION_PROMPT | llm  # type: ignore
+
+    def _prepare_input(self, input: list[str]) -> dict[str, str]:
+        return dict(memories="\n".join(input))
+
+    def _parse_output(self, output: BaseMessage) -> list[str]:
+        if not output.content:
+            return []
+        lines = [line.strip() for line in str(output.content).split("\n")]
+        return [line for line in lines if line]
+
+    @property
+    def error_value(self) -> list[str]:
+        return []
