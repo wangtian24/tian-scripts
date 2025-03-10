@@ -108,6 +108,8 @@ class SelectModelsV2Response(BaseModel):
 def _get_modifier(
     modifier_id: str, modifier_selector: CategorizedPromptModifierSelector, request: SelectModelsV2Request
 ) -> PromptModifier | None:
+    if not modifier_id:
+        return None
     if modifier_id in modifier_selector.modifiers_by_id:
         return modifier_selector.modifiers_by_id[modifier_id]
     else:
