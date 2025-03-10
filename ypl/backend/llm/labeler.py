@@ -62,6 +62,7 @@ class LLMLabeler(Generic[InputType, OutputType]):
         info = self._get_log_info(input, start_time) | {
             "message": "Error labeling input",
             "error": str(e),
+            "error_type": type(e).__name__,
         }
         for k, v in prepared_input.items():
             info[f"prepared_input_{k}"] = self._maybe_truncate(v)
