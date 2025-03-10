@@ -200,6 +200,7 @@ jobs:
           echo "WALLET_ENCRYPTION_KEY=${{ secrets.WALLET_ENCRYPTION_KEY_PRODUCTION }}" >> .env
           echo "ATTACHMENT_BUCKET_GEN_IMAGES=\"gs://yupp-generated-images/production\"" >> .env
           echo "SEARCHAPI_API_KEY=${{ secrets.SEARCHAPI_API_KEY_PRODUCTION }}" >> .env
+          echo "FAL_AI_API_KEY=${{ secrets.FAL_AI_API_KEY_PRODUCTION }}" >> .env
 
         elif [[ "${{ env.ENVIRONMENT }}" == "staging" ]]; then
           echo "OPENAI_API_KEY_ROUTING=${{ secrets.OPENAI_API_KEY_ROUTING }}" >> .env
@@ -254,6 +255,7 @@ jobs:
           echo "ROUTING_ERROR_FILTER_HARD_THRESHOLD=0.6" >> .env
           echo "ATTACHMENT_BUCKET_GEN_IMAGES=\"gs://yupp-generated-images/staging\"" >> .env
           echo "SEARCHAPI_API_KEY=${{ secrets.SEARCHAPI_API_KEY_STAGING }}" >> .env
+          echo "FAL_AI_API_KEY=${{ secrets.FAL_AI_API_KEY_STAGING }}" >> .env
         fi
 
     - name: Generate gcloud deploy secrets string
