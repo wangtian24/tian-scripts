@@ -8,6 +8,7 @@ from ypl.backend.llm.db_helpers import (
     adeduce_original_provider,
     deduce_original_providers,
     get_all_fast_models,
+    get_all_image_gen_models,
     get_all_live_models,
     get_all_pro_and_strong_models,
     get_all_pro_models,
@@ -130,6 +131,15 @@ class LiveModelProposer(ProvidedModelProposer):
 class ReasoningModelProposer(ProvidedModelProposer):
     def __init__(self) -> None:
         super().__init__(list(get_all_reasoning_models()), SelectionCriteria.REASONING_MODELS)
+
+
+class ImageGenModelsProposer(ProvidedModelProposer):
+    """
+    Proposes all the image generation models.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(list(get_all_image_gen_models()), SelectionCriteria.IMAGE_GEN_MODELS)
 
 
 class RandomModelProposer(RNGMixin, ModelProposer):

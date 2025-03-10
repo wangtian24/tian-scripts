@@ -277,6 +277,18 @@ def get_all_reasoning_models() -> Sequence[str]:
 
 
 @ttl_cache(ttl=600)  # 10-min cache
+def get_all_image_gen_models() -> Sequence[str]:
+    query = select(LanguageModel.internal_name).where(
+        LanguageModel.is_image_generation.is_(True),  # type: ignore
+        LanguageModel.deleted_at.is_(None),  # type: ignore
+        LanguageModel.status == LanguageModelStatusEnum.ACTIVE,
+    )
+
+    with Session(get_engine()) as session:
+        return session.exec(query).all()
+
+
+@ttl_cache(ttl=600)  # 10-min cache
 def get_model_creation_dates(model_names: tuple[str, ...]) -> dict[str, datetime]:
     statement = (
         select(LanguageModel.internal_name, LanguageModel.created_at)

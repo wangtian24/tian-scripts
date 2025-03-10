@@ -3,7 +3,7 @@ from google.cloud import run_v2
 from langchain_core.language_models.chat_models import BaseChatModel
 
 from ypl.backend.config import settings
-from ypl.backend.llm.constants import IMAGE_CATEGORY, ONLINE_CATEGORY, PDF_CATEGORY
+from ypl.backend.llm.constants import IMAGE_CATEGORY, IMAGE_GEN_CATEGORY, ONLINE_CATEGORY, PDF_CATEGORY
 from ypl.backend.llm.db_helpers import deduce_original_providers, get_all_active_models, is_user_internal
 from ypl.backend.llm.promotions import PromotionModelProposer
 from ypl.backend.llm.provider.provider_clients import get_internal_provider_client
@@ -31,6 +31,7 @@ from ypl.backend.llm.routing.modules.proposers import (
     CostModelProposer,
     EloProposer,
     FastModelProposer,
+    ImageGenModelsProposer,
     LiveModelProposer,
     MaxSpeedProposer,
     ModelProposer,
@@ -210,6 +211,7 @@ async def get_simple_pro_router(
             | (
                 # propose through routing table rules
                 (rule_proposer.with_flags(always_include=True) | RandomJitter(jitter_range=1))
+                & (ImageGenModelsProposer() if IMAGE_GEN_CATEGORY in categories else Passthrough())
                 # always try to have something pro and strong in the first turn
                 & (ProAndStrongModelProposer() | error_filter | TopK(1, name="pro_and_strong")).with_flags(
                     always_include=True, offset=1_000_000

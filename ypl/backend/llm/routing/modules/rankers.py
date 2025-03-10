@@ -114,7 +114,7 @@ class SpeedReranker(Reranker):
 
 class ProAndStrongReranker(Reranker):
     """
-    Just pull one pro-and-strong model to the front.
+    Pull one pro-and-strong model to the front, if the first model is not image model and is not except (selected).
     """
 
     def __init__(self, exempt_models: list[str] | None = None) -> None:
@@ -123,7 +123,11 @@ class ProAndStrongReranker(Reranker):
 
     def rerank(self, model_names: list[str], state: RouterState) -> list[str]:
         # If the first position is an exempt model, don't do anything
-        if model_names and model_names[0] in self.exempt_models:
+        if (
+            model_names
+            and model_names[0] in self.exempt_models
+            or SelectionCriteria.IMAGE_GEN_MODELS in state.selected_models[model_names[0]]
+        ):
             return model_names
 
         # Find a pro-and-strong model in the list

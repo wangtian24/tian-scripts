@@ -84,6 +84,8 @@ class SelectionCriteria(Enum):
     # Select the models routed by the routing rules
     ROUTING_RULES = "routing_rules"
 
+    IMAGE_GEN_MODELS = "image_gen_models"
+
     # Select the models injected by the user or some process
     INJECT = "inject"
 
