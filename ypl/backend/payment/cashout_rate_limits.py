@@ -468,22 +468,28 @@ async def validate_and_return_cashout_user_limits(user_id: str, credits_to_casho
 
     async with get_async_session() as session:
         credits_balance, is_yuppster = await _get_credits_balance(session, user_id)
-        if credits_to_cashout != 0 and credits_to_cashout < MINIMUM_CREDITS_PER_CASHOUT:
+
+        if settings.ENVIRONMENT != "production":
+            minimum_credits_per_cashout = 0
+        else:
+            minimum_credits_per_cashout = MINIMUM_CREDITS_PER_CASHOUT
+
+        if credits_to_cashout != 0 and credits_to_cashout < minimum_credits_per_cashout:
             # User is trying to cashout less than the minimum amount.
             raise CashoutLimitError(
                 period="request",
                 limit_type=CashoutLimitType.MINIMUM_CREDITS_PER_CASHOUT,
                 current_value=credits_to_cashout,
-                min_value=MINIMUM_CREDITS_PER_CASHOUT,
+                min_value=minimum_credits_per_cashout,
                 max_value=0,
                 user_id=user_id,
             )
         total_credits_available_for_cashout = (
             credits_balance - CREDITS_TO_KEEP_AFTER_CASHOUT
-            if credits_balance > CREDITS_TO_KEEP_AFTER_CASHOUT + MINIMUM_CREDITS_PER_CASHOUT
+            if credits_balance > CREDITS_TO_KEEP_AFTER_CASHOUT + minimum_credits_per_cashout
             else 0
         )
-        if total_credits_available_for_cashout < MINIMUM_CREDITS_PER_CASHOUT:
+        if total_credits_available_for_cashout < minimum_credits_per_cashout:
             raise CashoutLimitError(
                 period="request",
                 limit_type=CashoutLimitType.INSUFFICIENT_CREDIT_BALANCE,
@@ -495,7 +501,7 @@ async def validate_and_return_cashout_user_limits(user_id: str, credits_to_casho
             credits_balance=credits_balance,
             # This value will be updated later in the method, based on the limits.
             credits_available_for_cashout=total_credits_available_for_cashout,
-            minimum_credits_per_cashout=MINIMUM_CREDITS_PER_CASHOUT,
+            minimum_credits_per_cashout=minimum_credits_per_cashout,
         )
         if settings.ENVIRONMENT != "production":
             return cashout_user_info
