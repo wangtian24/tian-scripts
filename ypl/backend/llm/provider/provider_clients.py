@@ -151,7 +151,7 @@ async def get_provider_client(
                 return ChatVertexAI(model_name=internal_name, **combined_kwargs)
 
         case "FalAI":
-            return FalAIImageGenModel(model_name=model.internal_name, fal_model_name=model.name, **combined_kwargs)
+            return FalAIImageGenModel(model_name=model.internal_name, **combined_kwargs)
 
         case "GroundedVertexAI":
             if "exp" in internal_name or "preview" in internal_name:

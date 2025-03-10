@@ -25,6 +25,7 @@ Examples for classification as "Image Generation":
   - Dharamshala has a beautiful cricket stadium with snow clad mountains in the background. Draw a picture of it.
   - Generate an image of lightning striking a tree
   - Show me a picture of busy Tokyo street with cherry blossoms
+  - Generate a realistic image of a small Tibetan village
 
 Examples for not being classified as "Image Generation":
   - How does a dolphin leaping out of water look like?

@@ -66,8 +66,8 @@ class RoutingDecisionLogger(RouterModule):
                 "chosen_model_names": log_chosen_model_names,
                 "selection_criteria": log_selection_criteria,
                 "applicable_prompt_modifiers": log_applicable_prompt_modifiers,
-                "routing_debug_info": routing_debug_info,
                 "additional_metadata": self.metadata,
+                "routing_debug_info": routing_debug_info,  # Keep at the end. It is very long and gets truncated.
             }
             logging.info(json_dumps(log_dict))
         return state

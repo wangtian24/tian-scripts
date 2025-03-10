@@ -161,8 +161,8 @@ class FalAIImageGenModel(ImageGenChatModel):
     Base class for Fal AI Image Generation models.
 
     Guide for adding a new model to the language model table:
-      - Use fal-ai model name for `name` field (e.g. "fal-ai/flux/schnell")
-      - Set `internal_name` to shorter name used in logging etc. (e.g. "flux-schnell")
+      - Do not set `name`. It is set to `provider_name/internal_name` by cronjobs
+      - Set `internal_name` to full fal-ai model nbame. (e.g. "fal-ai/flux/schnell")
       - Set `label` to the model name, close to how it is known (e.g. "FLUX.1 [schnell]")
       - Set `external_model_url` to the model page on fal.ai (e.g. https://fal.ai/models/fal-ai/flux/schnell)
       - Set `parameters` to pass additional parameters. These are passed to 'arguments' option in `subscribe` method.
@@ -174,7 +174,6 @@ class FalAIImageGenModel(ImageGenChatModel):
     -----------------------
         INSERT INTO language_models (
             language_model_id,
-            name,
             internal_name,
             label,
             license,
@@ -189,7 +188,6 @@ class FalAIImageGenModel(ImageGenChatModel):
         VALUES (
             gen_random_uuid(),
             'fal-ai/flux-pro/new',
-            'flux-pro',
             'FLUX.1 [pro]',
             'unknown',
             now(),
@@ -225,7 +223,7 @@ class FalAIImageGenModel(ImageGenChatModel):
             true,
             2000000,
             'Image Generation',
-            'FalAI/flux-schnell',
+            'FalAI/fal-ai/flux/schnell',
             'ACCEPT',
             1.0
         );
@@ -233,20 +231,17 @@ class FalAIImageGenModel(ImageGenChatModel):
     """
 
     _async_client: fal_client.AsyncClient = PrivateAttr()
-    _fal_model_name: str = PrivateAttr()
     _extra_options: dict[str, Any] = PrivateAttr()
 
-    def __init__(self, model_name: str, fal_model_name: str, api_key: str = "", **kwargs: Any):
+    def __init__(self, model_name: str, api_key: str = "", **kwargs: Any):
         """
         Args:
-            model_name: This is the Yupp model to use in logging etc. E.g. "flux-pro"
-            fal_model_name: The full name of Fal AI model. E.g. "fal-ai/flux-pro/v1.1-ultra"
+            model_name: The full name of Fal AI model. E.g. "fal-ai/flux-pro/v1.1-ultra"
             api_key: The API key to use.
             kwargs: Additional arguments are merged into the `arguments` option for the `subscribe` method.
         """
-        super().__init__(model_name=fal_model_name, **kwargs)
+        super().__init__(model_name=model_name, **kwargs)
         key = api_key or os.environ["FAL_AI_API_KEY"]
-        self._fal_model_name = fal_model_name
         self._async_client = fal_client.AsyncClient(key=key)
         self._extra_options = kwargs
 
@@ -267,19 +262,19 @@ class FalAIImageGenModel(ImageGenChatModel):
         )
 
         response: dict[str, Any] = await self._async_client.subscribe(
-            application=self._fal_model_name,
+            application=self._model_name,
             arguments=arguments,
             on_queue_update=None,  # FYI. We can log progress updates if we want, but not all images got them.
         )
 
         logging.info(
             {
-                "message": f"{self._model_name} generated an image",
+                "message": f"Fal AI model {self._model_name} generated an image",
                 "response": response,  # Includes revised prompt from the model.
-                "fal_model_name": self._fal_model_name,
+                "model_name": self._model_name,
             }
         )
         if not response.get("images"):
-            raise Exception(f"No image url returned from {self._model_name} (Fal model {self._fal_model_name})")
+            raise Exception(f"No image url returned from {self._model_name}")
 
         return str(response["images"][0]["url"])
