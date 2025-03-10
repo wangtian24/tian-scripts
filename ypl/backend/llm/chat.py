@@ -330,7 +330,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
             request.num_models,
             preference,
             required_models=required_models_for_routing,
-            show_me_more_models=preference.same_turn_shown_models or [],
+            same_turn_shown_models=preference.same_turn_shown_models or [],
             provided_categories=all_categories,
             chat_id=request.chat_id,
             is_new_turn=(request.intent == SelectIntent.NEW_TURN),

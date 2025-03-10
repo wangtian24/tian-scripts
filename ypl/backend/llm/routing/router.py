@@ -96,7 +96,7 @@ async def get_simple_pro_router(
     preference: RoutingPreference,
     reputable_providers: set[str] | None = None,
     required_models: list[str] | None = None,
-    show_me_more_models: list[str] | None = None,
+    same_turn_shown_models: list[str] | None = None,
     provided_categories: list[str] | None = None,
     chat_id: str | None = None,
     turn_id: str | None = None,
@@ -109,8 +109,8 @@ async def get_simple_pro_router(
     num_models_to_return = num_models * 2 if with_fallback else num_models
 
     categories = provided_categories or []
-    show_me_more_providers = (
-        set(deduce_original_providers(tuple(show_me_more_models)).values()) if show_me_more_models else set()
+    same_turn_shown_providers = (
+        set(deduce_original_providers(tuple(same_turn_shown_models)).values()) if same_turn_shown_models else set()
     )
 
     reputable_proposer = RandomModelProposer(
@@ -153,7 +153,7 @@ async def get_simple_pro_router(
         semantic_group_filter = OnePerSemanticGroupFilter(priority_models=required_models)
         return (
             # -- filter stage --
-            Exclude(name="-exclBad", providers=show_me_more_providers, exclude_models=exclude_models)
+            Exclude(name="-exclBad", providers=same_turn_shown_providers, exclude_models=exclude_models)
             # Inject required models, even if they don't have attachment capabilities.
             | Inject(required_models or [], score=50_000_000)
             # exclude inactive models after injection, this is necessary in case we are injecting models inferred
