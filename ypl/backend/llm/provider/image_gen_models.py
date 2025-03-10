@@ -9,6 +9,7 @@ from langchain.chat_models.base import BaseChatModel
 from langchain.schema import BaseMessage, ChatGeneration, ChatResult
 from langchain_core.callbacks.manager import AsyncCallbackManagerForLLMRun, CallbackManagerForLLMRun
 from langchain_core.messages.base import BaseMessageChunk
+from langchain_core.messages.human import HumanMessage
 from langchain_core.outputs.chat_generation import ChatGenerationChunk
 from openai import AsyncOpenAI
 from pydantic import PrivateAttr
@@ -50,8 +51,8 @@ class ImageGenChatModel(BaseChatModel):
             return IMAGE_GEN_ERROR_MESSAGE
         return f'\n\n<yapp class="image-gen">\n{{\n   "url": "{url}",\n   "caption": "Generated image"\n}}\n</yapp>'
 
-    def _concat_messages(self, messages: list[BaseMessage]) -> str:
-        return "\n\n".join([str(msg.content) for msg in messages])
+    def _concat_user_messages(self, messages: list[BaseMessage]) -> str:
+        return "\n\n".join([str(msg.content) for msg in messages if isinstance(msg, HumanMessage)])
 
     def _chat_generation_chunk(self, text: str) -> ChatGenerationChunk:
         return ChatGenerationChunk(message=BaseMessageChunk(type="text", content=text))
@@ -72,7 +73,7 @@ class ImageGenChatModel(BaseChatModel):
         run_manager: AsyncCallbackManagerForLLMRun | None = None,
         **kwargs: Any,
     ) -> ChatResult:
-        image_prompt = self._concat_messages(messages)
+        image_prompt = self._concat_user_messages(messages)
         url = await self._agenerate_image(image_prompt, **kwargs)
         if url and run_manager:
             await run_manager.on_llm_new_token(url)
@@ -95,7 +96,7 @@ class ImageGenChatModel(BaseChatModel):
         try:
             # Use all the user prompts together as the image generation prompt.
             # This might not work well for some corner cases, need to improve if models support better context.
-            image_prompt = self._concat_messages(messages)
+            image_prompt = self._concat_user_messages(messages)
             image_url = await self._agenerate_image(image_prompt, **kwargs)
 
             yield self._chat_generation_chunk("</think>")
