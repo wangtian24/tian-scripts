@@ -3,15 +3,28 @@ import uuid
 from collections.abc import Sequence
 
 from langchain_core.messages import HumanMessage
+from pydantic import BaseModel
+from sqlalchemy import text
 from sqlmodel import select
 
 from ypl.backend.db import get_async_session
 from ypl.backend.llm.context import get_curated_chat_context
+from ypl.backend.llm.embedding import DEFAULT_EMBEDDING_DIMENSION, DEFAULT_EMBEDDING_MODEL, embed
 from ypl.backend.llm.judge import YuppMemoryExtractor
 from ypl.backend.llm.provider.provider_clients import get_internal_provider_client
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import ChatMessage, Turn
+from ypl.db.embeddings import MemoryEmbedding
 from ypl.db.memories import ChatMessageMemoryAssociation, Memory, MemorySource
+
+# Memories that are similar to existing memories at this threshold or higher are skipped.
+MIN_MEMORY_SIMILARITY_TO_SKIP = 0.95
+
+
+class MemorySimilarity(BaseModel):
+    memory_id: uuid.UUID | None = None
+    memory_content: str | None = None
+    similarity: float | None = None
 
 
 async def maybe_extract_memories(chat_id: uuid.UUID, turn_id: uuid.UUID, user_id: str) -> None:
@@ -67,18 +80,52 @@ async def maybe_extract_memories(chat_id: uuid.UUID, turn_id: uuid.UUID, user_id
         memory_source = MemorySource.USER_MESSAGE
 
         async with get_async_session() as session:
-            for mem_content in extracted_memories:
+            for memory_content in extracted_memories:
+                embeddings = (await embed([memory_content], pad_to_length=DEFAULT_EMBEDDING_DIMENSION))[0]
+                similar_memory = await get_most_similar_memory(user_id, embeddings)
+                if similar_memory.similarity is not None and similar_memory.similarity > MIN_MEMORY_SIMILARITY_TO_SKIP:
+                    logging.info(
+                        json_dumps(
+                            {
+                                "message": "Skipping similar memory",
+                                "memory_content": memory_content,
+                                "similar_memory_content": similar_memory.memory_content,
+                                "similarity": similar_memory.similarity,
+                                "similar_memory_id": similar_memory.memory_id,
+                            }
+                        )
+                    )
+                    continue
+
                 memory_obj = Memory(
                     user_id=user_id,
-                    memory_content=mem_content,
+                    memory_content=memory_content,
                     memory_source=memory_source,
                 )
                 session.add(memory_obj)
                 await session.flush()
                 # connect to the source message.
                 session.add(ChatMessageMemoryAssociation(memory_id=memory_obj.memory_id, message_id=source_uuid))
+                await session.commit()
+                logging.info(
+                    json_dumps(
+                        {
+                            "message": "Memory stored",
+                            "memory_content": memory_content,
+                            "memory_id": memory_obj.memory_id,
+                            "source_message_id": source_uuid,
+                        }
+                    )
+                )
 
-            await session.commit()
+                for embedding in embeddings:
+                    cme = MemoryEmbedding(
+                        memory_id=memory_obj.memory_id,
+                        embedding=embedding,
+                        embedding_model_name=DEFAULT_EMBEDDING_MODEL,
+                    )
+                    session.add(cme)
+                await session.commit()
 
     except Exception as e:
         logging.error(f"Error extracting memories: {e}")
@@ -123,3 +170,41 @@ async def get_memories(
                 memory_to_messages[memory_id].append(message_id)
 
         return [(memory, memory_to_messages[memory.memory_id]) for memory in memories], has_more_rows
+
+
+async def get_most_similar_memory(user_id: str, embeddings: list[list[float]]) -> MemorySimilarity:
+    """Returns the most similar memory to one represented in the given embeddings list."""
+
+    mem_sim = MemorySimilarity()
+    if not embeddings:
+        return mem_sim
+
+    # Using just the first embedding in the list currently.
+    embedding = embeddings[0]
+
+    # (X <=> Y) is raw pgvector's cosine distance.
+    # We normalize it to a similarity score between 0 and 1.
+    async with get_async_session() as session:
+        query = text(
+            f"""
+            SELECT
+              memory_embeddings.memory_id,
+              memories.memory_content,
+              1 - (embedding <=> '{embedding}'::vector)/2 as similarity
+            FROM memory_embeddings
+            JOIN memories ON memory_embeddings.memory_id = memories.memory_id
+            WHERE memories.user_id = '{user_id}'
+            ORDER BY similarity DESC
+            LIMIT 1
+            """
+        )
+
+        result = await session.execute(query)
+        similar_memory = result.one_or_none()
+
+        if similar_memory:
+            mem_sim.memory_id = similar_memory[0]
+            mem_sim.memory_content = similar_memory[1]
+            mem_sim.similarity = similar_memory[2]
+
+        return mem_sim

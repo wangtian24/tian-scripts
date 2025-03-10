@@ -104,6 +104,7 @@ from ypl.db.message_annotations import (
     update_message_annotations_in_chunks,
 )
 from ypl.db.oneoffs.backfill_chat_message_embeddings import backfill_chat_message_embeddings
+from ypl.db.oneoffs.backfill_memory_embeddings import backfill_message_memory_embeddings
 from ypl.db.oneoffs.reset_points import reset_points
 from ypl.db.payments import CurrencyEnum
 from ypl.db.rewards import RewardActionEnum, RewardAmountRule, RewardProbabilityRule, RewardRule
@@ -1658,6 +1659,13 @@ def get_paypal_transaction_status(batch_id: str) -> None:
 def backfill_message_embeddings(max_messages: int | None = None) -> None:
     """Backfill chat message embeddings."""
     asyncio.run(backfill_chat_message_embeddings(get_engine(), max_messages))  # type: ignore
+
+
+@cli.command()
+@click.option("--max-memories", type=int, help="The maximum number of memories to backfill")
+def backfill_memory_embeddings(max_memories: int | None = None) -> None:
+    """Backfill memory embeddings."""
+    asyncio.run(backfill_message_memory_embeddings(get_engine(), max_memories))  # type: ignore
 
 
 @cli.command()
