@@ -6,7 +6,7 @@ from fastapi import HTTPException, status
 from sqlmodel import desc, select
 from ypl.backend.db import get_async_session
 from ypl.backend.utils.json import json_dumps
-from ypl.db.chats import Chat, ChatMessage, MessageType, Turn
+from ypl.db.chats import ChatMessage, MessageType, Turn
 
 
 @dataclass
@@ -38,16 +38,15 @@ async def get_user_messages(
     try:
         async with get_async_session() as session:
             query = (
-                select(ChatMessage, Turn, Chat)
+                select(ChatMessage, Turn)
                 .select_from(ChatMessage)
                 .join(Turn)
-                .join(Chat)
                 .where(ChatMessage.message_type == MessageType.USER_MESSAGE)
                 .order_by(desc(ChatMessage.created_at))
             )
 
             if user_id is not None:
-                query = query.where(Chat.creator_user_id == user_id)
+                query = query.where(Turn.creator_user_id == user_id)
 
             query = query.offset(offset).limit(limit + 1)
 
@@ -75,10 +74,10 @@ async def get_user_messages(
                         content=message.content,
                         created_at=message.created_at,
                         turn_id=str(turn.turn_id),
-                        chat_id=str(chat.chat_id),
-                        user_id=chat.creator_user_id,
+                        chat_id=str(turn.chat_id),
+                        user_id=turn.creator_user_id,
                     )
-                    for message, turn, chat in rows
+                    for message, turn in rows
                 ],
                 has_more_rows=has_more_rows,
             )
