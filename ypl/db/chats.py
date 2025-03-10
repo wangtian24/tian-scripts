@@ -208,6 +208,13 @@ class ModifierCategory(enum.Enum):
     other = "other"
 
 
+class ModifierModality(str, enum.Enum):
+    """Represents the modality that a prompt modifier is designed to work with."""
+
+    TEXT = "TEXT"
+    IMAGE = "IMAGE"
+
+
 class PromptModifier(BaseModel, table=True):
     __tablename__ = "prompt_modifiers"
 
@@ -215,6 +222,10 @@ class PromptModifier(BaseModel, table=True):
     name: str = Field(index=True)
     category: ModifierCategory = Field(
         sa_column=Column(SQLAlchemyEnum(ModifierCategory), server_default=ModifierCategory.other.name)
+    )
+    modality: ModifierModality = Field(
+        default=ModifierModality.TEXT,
+        sa_column=Column(SQLAlchemyEnum(ModifierModality), server_default=ModifierModality.TEXT.name),
     )
     # The text used in the system prompt to modify the LLM response.
     text: str = Field(nullable=False)
