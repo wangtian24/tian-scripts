@@ -819,7 +819,9 @@ def test_context_length_filter(mock_context_lengths: Mock) -> None:
 @patch("ypl.backend.llm.chat.get_user_message", return_value="hi")
 @patch("ypl.backend.llm.chat.get_modifiers_by_model_and_position", return_value=({}, (None, None)))
 @patch("ypl.backend.llm.chat.collect_model_features")
+@patch("ypl.backend.llm.routing.reasons._get_routing_reason_descriptions")
 async def test_select_models_plus(
+    mock_get_routing_reason_descriptions: Mock,
     mock_collect_model_features: Mock,
     mock_get_modifiers_by_model_and_position: AsyncMock,
     mock_get_user_message: Mock,

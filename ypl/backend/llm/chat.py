@@ -391,7 +391,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         prompt_categories=all_categories,
     )
     model_features = await collect_model_features()
-    reasons_by_model = summarize_reasons(request_context, model_features, models_rs)
+    reasons_by_model = await summarize_reasons(request_context, model_features, models_rs)
 
     # Prepare the response
     response = SelectModelsV2Response(
