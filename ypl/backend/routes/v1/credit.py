@@ -112,7 +112,7 @@ async def convert_credits_to_currency(credits: int, currency: CurrencyEnum) -> C
     }
     logging.info(json_dumps(log_dict))
 
-    usd_amount = credits_decimal * CREDITS_TO_USD_RATE
+    usd_amount = (credits_decimal * CREDITS_TO_USD_RATE).quantize(Decimal("0.01"))
 
     if currency == CurrencyEnum.INR:
         inr_amount = credits_decimal * CREDITS_TO_INR_RATE
