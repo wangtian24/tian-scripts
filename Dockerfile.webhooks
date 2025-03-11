@@ -5,10 +5,26 @@ WORKDIR /app/
 
 ENV PYTHONPATH=/app
 
-# Copy application code and data
+ARG STRIPE_GITHUB_TOKEN
+RUN if [ -n "$STRIPE_GITHUB_TOKEN" ]; then \
+    poetry config http-basic.github $STRIPE_GITHUB_TOKEN x-oauth-basic && \
+    git config --global url."https://${STRIPE_GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/" && \
+    echo "GitHub authentication configured successfully"; \
+    fi
+
 COPY ./ypl/ /app/ypl/
 COPY ./data/ /app/data/
 COPY ./.env /app/.env
+COPY pyproject.toml poetry.lock ./
+
+RUN if [ -n "$STRIPE_GITHUB_TOKEN" ]; then \
+    STRIPE_GITHUB_TOKEN=$STRIPE_GITHUB_TOKEN poetry install --no-root || (echo "Poetry install failed. Check the logs above for details." && exit 1); \
+    fi
+
+RUN if [ -n "$STRIPE_GITHUB_TOKEN" ]; then \
+    git config --global --unset url."https://${STRIPE_GITHUB_TOKEN}@github.com/".insteadOf && \
+    echo "GitHub authentication configuration removed"; \
+    fi
 
 RUN chmod +x /app/ypl/webhooks/entrypoint.sh
 
