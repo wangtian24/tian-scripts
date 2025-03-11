@@ -149,7 +149,7 @@ SYSTEM_PROMPT_FOR_MISSING_VIDEO_TRANSCRIPT = PromptTemplate.from_template(
     """
         The user prompt likely refers Youtube with video id '{video_id}',
         e.g. https://www.youtube.com/watch?v={video_id}.
-        Inform the user that you could not incorporate it because
+        Clearly inform the user that you could not access its transcript because
         {failure_explanation}.
     """
 )
@@ -223,8 +223,7 @@ async def maybe_youtube_transcript_messages(chat_id: str, chat_history: list[Bas
 
         logging.info(
             {
-                "message": f"Youtube labeler response for {chat_id}",
-                "response": label_resp.model_dump(mode="json"),
+                "message": f"Youtube videos returned by labeler for {chat_id}: {label_resp.video_ids}",
                 "model": YOUTUBE_VIDEO_LABELLING_MODEL,
             }
         )
@@ -254,7 +253,7 @@ async def maybe_youtube_transcript_messages(chat_id: str, chat_history: list[Bas
             return messages
 
     except Exception as e:
-        logging.error(f"Error while processing youtube video for {chat_id}: {e}", exc_info=True)
+        logging.error({"message": f"Error while processing youtube video for {chat_id}: {e}"}, exc_info=True)
 
     return []
 
@@ -321,8 +320,15 @@ async def _process_transcript_for_video_id(chat_id: str, video_id: str) -> Youtu
         await redis_client.set(
             transcript_status.redis_key(), transcript_status.model_dump_json(), ex=YOUTUBE_ENTRIES_REDIS_TTL_SECS
         )
-        # Note: If the process is killed while writing to redis, the status will be stuck in IN_PROGRESS until expiry.
-        logging.info({"message": f"Fetched transcript for {video_id} in chat {chat_id} and saved in redis."})
+        # Note: If the process is killed before writing to redis, the status will be stuck in IN_PROGRESS until expiry.
+        logging.info(
+            {
+                "message": (
+                    f"Fetched transcript for {video_id} for chat {chat_id} "
+                    f"with status {transcript_status.status.name} and saved in redis."
+                )
+            }
+        )
         return transcript_status
 
     else:
@@ -349,8 +355,10 @@ async def _process_transcript_for_video_id(chat_id: str, video_id: str) -> Youtu
         else:
             logging.info(
                 {
-                    "message": f"Found video {video_id} for chat {chat_id} in redis",
+                    "message": f"Found video {video_id} for {chat_id} in redis with status {stored_status.status.name}",
                     "video_status": stored_status.status.name,
+                    "transcript_size": len(stored_status.transcript),
+                    "failure_explanation": stored_status.failure_explanation,
                 }
             )
             return stored_status
@@ -408,7 +416,7 @@ async def _fetch_transcript_from_searchapi(video_id: str, lang: str | None = Non
 
     logging.info(
         {
-            "message": "Fetched transcript for video",
+            "message": f"Successfully fetched transcript for video {video_id}",
             "video_id": video_id,
             "lang": resp["search_parameters"]["lang"],
             "searchapi_json_url": resp["search_metadata"]["json_url"],
@@ -448,7 +456,7 @@ async def _fetch_youtube_transcript(video_id: str) -> TranscriptFetcherResponse:
         stop_watch.end("fetch_transcript")
         logging.info(
             {
-                "message": f"Fetched video {video_id} in {stop_watch.get_total_time()}ms. ",
+                "message": f"Fetched transcript for video {video_id} in {stop_watch.get_total_time()}ms. ",
                 "size": len(timestamped_transcript),
                 "video_duration": max_time_secs,
                 "num_segments": num_segments,
@@ -456,9 +464,10 @@ async def _fetch_youtube_transcript(video_id: str) -> TranscriptFetcherResponse:
         )
 
     except YoutubeTranscriptNotFound:
+        logging.warning({"message": f"No transcripts are available for video {video_id}"})
         failure_explanation = "transcript is not available for the video"
     except Exception as e:
-        logging.error(f"Failed to fetch transcript due to {type(e)}: {e}", exc_info=True)
+        logging.error({"message": f"Failed to fetch transcript for {video_id} with exception {e}"}, exc_info=True)
         failure_explanation = "fetch failed with an error"
 
     return TranscriptFetcherResponse(
