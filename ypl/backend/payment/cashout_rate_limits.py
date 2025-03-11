@@ -470,7 +470,8 @@ async def validate_and_return_cashout_user_limits(user_id: str, credits_to_casho
         credits_balance, is_yuppster = await _get_credits_balance(session, user_id)
 
         if settings.ENVIRONMENT != "production":
-            minimum_credits_per_cashout = 0
+            # Set it to at least 100 so that UI doesn't break.
+            minimum_credits_per_cashout = 100
         else:
             minimum_credits_per_cashout = MINIMUM_CREDITS_PER_CASHOUT
 

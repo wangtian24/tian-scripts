@@ -54,7 +54,7 @@ from ypl.db.point_transactions import PointsActionEnum, PointTransaction
 from ypl.db.users import User
 
 VALIDATE_DESTINATION_IDENTIFIER_TOKEN_TTL_SECONDS = 5 * 60
-MIN_BALANCE_FOR_ALERT = Decimal("10_000")  # 10,000 INR
+MIN_BALANCE_FOR_ALERT = Decimal("20_000")  # 20,000 INR
 
 
 def _mask_name(name: str) -> str:
