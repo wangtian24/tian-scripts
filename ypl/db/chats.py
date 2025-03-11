@@ -3,7 +3,7 @@ import uuid
 from typing import TYPE_CHECKING, Any, TypeVar
 
 import yaml
-from sqlalchemy import ARRAY, JSON, UUID, Boolean, Column, Index, Text, UniqueConstraint, text
+from sqlalchemy import ARRAY, JSON, Boolean, Column, Index, Text, UniqueConstraint, text
 from sqlalchemy import Enum as SQLAlchemyEnum
 from sqlalchemy.dialects.postgresql import ENUM as PostgresEnum
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from ypl.db.chats import Category
     from ypl.db.embeddings import ChatMessageEmbedding
     from ypl.db.rewards import Reward, RewardActionLog
+    from ypl.db.routing_info import RoutingInfo
 
 
 # A chat can contain multiple conversations.
@@ -85,13 +86,13 @@ class Turn(BaseModel, table=True):
     # List of model names that the user has explicitly selected for this turn
     required_models: list[str] | None = Field(sa_column=Column(ARRAY(Text), nullable=True))
 
-    # List of model taxonomies ids that the user has explicitly selected for this turn
-    required_models_types: list[uuid.UUID] | None = Field(sa_column=Column(ARRAY(UUID), nullable=True))
-
     # Router selected models, including both primary and fallback for the NEW_TURN.
     # This is for performance optimization so we don't need to regenerating unused fallback models in new turns.
     # This shouldn't be updated for SHOW_ME_MORE rounds though.
     router_selected_models: list[str] | None = Field(sa_column=Column(ARRAY(Text), nullable=True))
+
+    # Relationship to routing info
+    routing_infos: list["RoutingInfo"] = Relationship(back_populates="turn")
 
     __table_args__ = (UniqueConstraint("chat_id", "sequence_id", name="uq_chat_sequence"),)
 
@@ -323,6 +324,11 @@ class ChatMessage(BaseModel, table=True):
     modifier_status: MessageModifierStatus = Field(
         sa_column=Column(SQLAlchemyEnum(MessageModifierStatus), nullable=True, default=MessageModifierStatus.SELECTED)
     )
+
+    routing_info_id: uuid.UUID | None = Field(foreign_key="routing_info.routing_info_id", nullable=True)
+
+    # relationship to routing info
+    routing_info: "RoutingInfo" = Relationship(back_populates="messages")
 
 
 class EvalType(enum.Enum):

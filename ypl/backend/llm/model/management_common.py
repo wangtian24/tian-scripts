@@ -148,6 +148,9 @@ ERROR_KEYWORDS_MAP = {
         "input length",
         "max tokens",
         "sequence length",
+        "message size",
+        "too long",
+        "max new tokens",
     ],
     ModelErrorType.RATE_LIMIT: ["rate limit"],
     ModelErrorType.BILLING: [
