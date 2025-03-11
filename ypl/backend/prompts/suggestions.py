@@ -56,8 +56,8 @@ controversial or interesting topic, in an area that the user is interested in, b
 Give more weight to later conversations, but try to generate a diverse set of conversation starters.
 Return the list of follow-up questions as a JSON array, where each item contains:
 - the suggestion,
-- a short 2-5 word label for it in title case,
-- an explanation of why if was selected, referring to the conversation history elements used.
+- a short 2-5 word label for it in title case - make sure to correctly capitalize any proper nouns and abbreviations such as "AI" or "US",
+- an explanation of why it was selected, referring to the conversation history elements used.
 
 Output format:
 [{{"suggestion": "...", "label": "...", "explanation": "..."}}, {{"suggestion": "...", "label": "...", "explanation": "..."}}]
