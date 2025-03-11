@@ -366,13 +366,19 @@ class PromptModifierInfo(BaseModel):
     prompt_modifier_id: str
     name: str
     description: str | None = None
+    modality: str | None = None
 
 
 @router.get("/chats/prompt_modifiers", response_model=list[PromptModifierInfo])
 async def get_prompt_modifiers() -> list[PromptModifierInfo]:
     try:
         return [
-            PromptModifierInfo(prompt_modifier_id=str(m.prompt_modifier_id), name=m.name, description=m.description)
+            PromptModifierInfo(
+                prompt_modifier_id=str(m.prompt_modifier_id),
+                name=m.name,
+                description=m.description,
+                modality=m.modality,
+            )
             for m in await get_active_prompt_modifiers()
         ]
     except Exception as e:
