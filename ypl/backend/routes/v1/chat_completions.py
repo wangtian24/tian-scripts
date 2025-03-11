@@ -118,6 +118,8 @@ class ChatRequest(BaseModel):
     user_message_id: uuid.UUID | None = Field(None, description="Message ID of the user message")
     intent: SelectIntent | None = Field(None, description="Intent of the message")
     retry_message_id: uuid.UUID | None = Field(None, description="ID of failed message, for which we are retrying")
+    routing_info_id: uuid.UUID | None = Field(None, description="ID of the routing info")
+    routing_payload: dict[str, Any] | None = Field(None, description="An opaque payload with routing data")
 
 
 STREAMING_ERROR_TEXT: str = "\n\\<streaming stopped unexpectedly\\>"
@@ -293,6 +295,7 @@ async def upsert_chat_message(
     message_metadata: dict[str, str] | None = None,
     completion_status: CompletionStatus | None = None,
     modifier_status: MessageModifierStatus | None = None,
+    routing_info_id: uuid.UUID | None = None,
 ) -> UUID:
     """
     We have split the columns into two parts.
@@ -326,6 +329,7 @@ async def upsert_chat_message(
                 "message_metadata": message_metadata,
                 "completion_status": completion_status,
                 "modifier_status": modifier_status,
+                "routing_info_id": routing_info_id,
             }
 
             # Perform upsert using ON CONFLICT for ChatMessage
@@ -744,6 +748,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
                 message_metadata=message_metadata,
                 completion_status=stream_completion_status,
                 modifier_status=MessageModifierStatus.SELECTED,
+                routing_info_id=chat_request.routing_info_id,
             )
             if chat_request.attachment_ids and chat_request.user_message_id:
                 # TODO(Arun)

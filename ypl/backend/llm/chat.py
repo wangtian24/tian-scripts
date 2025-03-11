@@ -2,15 +2,15 @@ import asyncio
 import logging
 import uuid
 from enum import Enum
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel
 from sqlmodel import select
-from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ypl.backend.abuse.activity import SHORT_TIME_WINDOWS, check_activity_volume_abuse
 from ypl.backend.config import settings
-from ypl.backend.db import get_async_engine
+from ypl.backend.db import get_async_session
 from ypl.backend.llm.category_labeler import get_prompt_categories
 from ypl.backend.llm.db_helpers import (
     deduce_original_providers,
@@ -39,6 +39,7 @@ from ypl.backend.utils.utils import StopWatch
 from ypl.db.chats import (
     PromptModifier,
 )
+from ypl.db.routing_info import RoutingInfo
 
 MAX_LOGGED_MESSAGE_LENGTH = 200
 
@@ -92,6 +93,10 @@ class SelectedModelInfo(BaseModel):
     reason_desc: str  # the description of the reason
 
 
+class RoutingPayload(BaseModel):
+    prompt_categories: list[str]
+
+
 class SelectModelsV2Response(BaseModel):
     # legacy model information
     models: list[tuple[str, list[tuple[str, str]]]]  # list of (model, list[(prompt modifier ID, prompt modifier)])
@@ -103,6 +108,10 @@ class SelectModelsV2Response(BaseModel):
 
     routing_debug_info: RoutingDebugInfo | None = None
     num_models_remaining: int | None = None
+    routing_info_id: uuid.UUID | None = None
+
+    # An opaque payload with routing data, the client shall take this and pass back as is at the chat_completion time.
+    routing_payload: dict[str, Any] | None = None
 
 
 def _get_modifier(
@@ -229,6 +238,46 @@ def kick_off_label_turn_quality(prompt: str, chat_id: str, turn_id: str) -> str:
     assert prompt is not None, "prompt is required for NEW_CHAT or NEW_TURN intent"
     asyncio.create_task(label_turn_quality(UUID(turn_id), UUID(chat_id), prompt))
     return prompt
+
+
+def create_selector_from_request(request: SelectModelsV2Request) -> list[ModelAndStyleSelector]:
+    """
+    Create a list of selector from the old fields in the request (required_models and prompt_modifier_id),
+    this is just for the backward compatibility so we always store the routing info in the DB in the new format.
+    """
+    if request.required_models is None and request.prompt_modifier_id is None:
+        return []
+
+    return (
+        [ModelAndStyleSelector(model=m) for m in request.required_models]
+        if request.required_models
+        else [ModelAndStyleSelector(modifier_id=request.prompt_modifier_id)]
+    )
+
+
+async def store_routing_info(
+    routing_info_id: uuid.UUID,
+    turn_id: str,
+    selectors: list[ModelAndStyleSelector],
+    all_categories: list[str],
+    selected_model_infos: list[SelectedModelInfo],
+) -> None:
+    """
+    Write routing info to the database
+    """
+    try:
+        routing_info = RoutingInfo(
+            routing_info_id=routing_info_id,  # we generate this ID manually
+            turn_id=UUID(turn_id),
+            selector=[s.model_dump(exclude_unset=True, mode="json") for s in selectors],
+            categories=all_categories or [],
+            routing_outcome=[m.model_dump(exclude_unset=True, mode="json") for m in selected_model_infos],
+        )
+        async with get_async_session() as session:
+            session.add(routing_info)
+            await session.commit()
+    except Exception as e:
+        logging.error(f"Error storing routing info: {e}")
 
 
 async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Response:
@@ -394,23 +443,31 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
     reasons_by_model = await summarize_reasons(request_context, model_features, models_rs)
 
     # Prepare the response
+    selected_model_infos = [
+        SelectedModelInfo(
+            model=model,
+            provider=providers_by_model[model],
+            type=SelectedModelType.PRIMARY if model in primary_models else SelectedModelType.FALLBACK,
+            prompt_style_modifier_id=_get_modifier_id(model),
+            reasons=reasons_by_model[model].reasons or [],
+            reason_desc=reasons_by_model[model].description or "",
+        )
+        for model in primary_models + fallback_models
+    ]
+
+    # We generate this ID first so as to return from routing earlier so we don't block on it.
+    # The client will take this ID and send it to the chat_completion endpoint later.
+    routing_info_id: UUID = uuid.uuid4()
+
     response = SelectModelsV2Response(
         models=[(model, prompt_modifiers_by_model.get(model, [])) for model in primary_models],
         fallback_models=[(model, prompt_modifiers_by_model.get(model, [])) for model in fallback_models],
         provider_map=providers_by_model,
-        selected_models=[
-            SelectedModelInfo(
-                model=model,
-                provider=providers_by_model[model],
-                type=SelectedModelType.PRIMARY if model in primary_models else SelectedModelType.FALLBACK,
-                prompt_style_modifier_id=_get_modifier_id(model),
-                reasons=reasons_by_model[model].reasons or [],
-                reason_desc=reasons_by_model[model].description or "",
-            )
-            for model in primary_models + fallback_models
-        ],
+        selected_models=selected_model_infos,
         routing_debug_info=routing_debug_info if request.debug_level > 0 else None,
         num_models_remaining=num_models_remaining,
+        routing_info_id=routing_info_id,
+        routing_payload=RoutingPayload(prompt_categories=all_categories).model_dump(exclude_unset=True, mode="json"),
     )
     response_log = {
         "message": f"Model routing final response for [{request.intent}]: prompt = [{prompt[:100]}]",
@@ -432,11 +489,19 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
     for model in primary_models:
         metric_inc(f"routing/count_chosen_{model}")
 
+    # Kick off the storage of the routing info
+    # TODO(Tian): here we convert all required models to the selector format for backward compatibility,
+    # this can be removed once we fully migrated to the new format in the new prompt box.
+    selectors = request.selectors or create_selector_from_request(request)
+    asyncio.create_task(
+        store_routing_info(routing_info_id, request.turn_id, selectors, all_categories, selected_model_infos)
+    )
+
     return response
 
 
 # TODO(bhanu) - add retry logic -
 async def get_active_prompt_modifiers() -> list[PromptModifier]:
-    async with AsyncSession(get_async_engine()) as session:
-        result = await session.execute(select(PromptModifier).where(PromptModifier.deleted_at.is_(None)))  # type: ignore
+    async with get_async_session() as session:
+        result = await session.exec(select(PromptModifier).where(PromptModifier.deleted_at.is_(None)))  # type: ignore
         return result.scalars().all()  # type: ignore

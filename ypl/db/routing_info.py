@@ -28,7 +28,7 @@ class RoutingInfo(BaseModel, table=True):
 
     # -- the input to the routing
     # he model and style selector used for this turn
-    selector: dict[str, Any] = Field(default_factory=dict, sa_type=JSONB, nullable=False)
+    selector: list[Any] | dict[str, Any] = Field(default_factory=dict, sa_type=JSONB, nullable=False)
 
     # -- the intermediate information generated during the routing
     # the categories we have detected from the prompt
@@ -36,7 +36,7 @@ class RoutingInfo(BaseModel, table=True):
 
     # -- the outcome of the routing
     # the details of the routing, the selected models and their reasons.
-    routing_outcome: dict[str, Any] = Field(default_factory=dict, sa_type=JSONB, nullable=False)
+    routing_outcome: list[Any] | dict[str, Any] = Field(default_factory=dict, sa_type=JSONB, nullable=False)
 
     # -- Relationships
 
