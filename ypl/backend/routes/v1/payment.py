@@ -13,13 +13,20 @@ from ypl.backend.payment.base_types import (
 )
 from ypl.backend.payment.exchange_rates import get_exchange_rate
 from ypl.backend.payment.payment import (
+    GetVendorPaymentLinkRequest,
+    GetVendorPaymentLinkResponse,
     PaymentInstrumentsResponse,
     UpdatePaymentInstrumentRequest,
     get_payment_instruments,
+    get_vendor_payment_link,
     update_payment_instrument,
 )
 from ypl.backend.utils.json import json_dumps
-from ypl.db.payments import CurrencyEnum, PaymentInstrumentFacilitatorEnum, PaymentInstrumentIdentifierTypeEnum
+from ypl.db.payments import (
+    CurrencyEnum,
+    PaymentInstrumentFacilitatorEnum,
+    PaymentInstrumentIdentifierTypeEnum,
+)
 
 router = APIRouter()
 
@@ -156,3 +163,26 @@ async def update_payment_instrument_endpoint(
         }
         logging.error(json_dumps(log_dict))
         raise HTTPException(status_code=500, detail="Failed to update payment instrument") from e
+
+
+@router.post("/payments/get_vendor_payment_link")
+async def get_vendor_payment_link_route(request: GetVendorPaymentLinkRequest) -> GetVendorPaymentLinkResponse:
+    """Get a payment link for a vendor.
+
+    Args:
+        request: The request containing user_id, vendor_name and optional additional details
+
+    Returns:
+        The payment link for the vendor
+    """
+    try:
+        return await get_vendor_payment_link(request)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except Exception as e:
+        log_dict = {
+            "message": "Error getting the payment link for the vendor",
+            "error": str(e),
+        }
+        logging.error(json_dumps(log_dict))
+        raise HTTPException(status_code=500, detail=str(e)) from e

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import uuid
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -13,6 +14,9 @@ from sqlmodel import func, select
 from tenacity import after_log, retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 from ypl.backend.db import get_async_session
 from ypl.backend.llm.utils import post_to_slack
+from ypl.backend.user.vendor_details import AdditionalDetails
+from ypl.backend.user.vendor_registration import get_vendor_registration
+from ypl.backend.user.vendor_types import VendorRegistrationError
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import (
     CurrencyEnum,
@@ -24,7 +28,7 @@ from ypl.db.payments import (
     PaymentTransactionStatusEnum,
 )
 from ypl.db.point_transactions import PointsActionEnum, PointTransaction
-from ypl.db.users import User
+from ypl.db.users import User, UserVendorProfile, VendorNameEnum
 
 
 @dataclass
@@ -109,6 +113,18 @@ class PaymentInstrumentsResponse:
 class UpdatePaymentInstrumentRequest:
     instrument_metadata: dict | None = None
     deleted_at: datetime | None = None
+
+
+@dataclass
+class GetVendorPaymentLinkRequest:
+    user_id: str
+    vendor_name: str
+    additional_details: dict[str, Any] | None = None
+
+
+@dataclass
+class GetVendorPaymentLinkResponse:
+    vendor_url_link: str | None = None
 
 
 @retry(
@@ -901,3 +917,121 @@ async def adjust_points(
         await session.commit()
 
         return adjustment.transaction_id
+
+
+async def get_vendor_payment_link(request: GetVendorPaymentLinkRequest) -> GetVendorPaymentLinkResponse:
+    """Get a payment link for a vendor."""
+
+    log_dict: dict[str, Any] = {
+        "message": "Getting vendor payment link",
+        "user_id": request.user_id,
+        "vendor_name": request.vendor_name,
+        "additional_details": request.additional_details,
+    }
+    logging.info(json_dumps(log_dict))
+
+    # For new users, we have to register and then get the payment link
+    # For existing registered users, we just need to get the payment link
+
+    try:
+        async with get_async_session() as session:
+            user_stmt = select(User).where(
+                User.user_id == request.user_id,
+                User.deleted_at.is_(None),  # type: ignore
+            )
+            user = (await session.execute(user_stmt)).scalar_one_or_none()
+
+            if not user:
+                log_dict = {
+                    "message": "Error: User not found",
+                    "user_id": request.user_id,
+                }
+                logging.warning(json_dumps(log_dict))
+                raise ValueError("Internal error: Invalid user")
+
+            existing_profile_stmt = select(UserVendorProfile).where(
+                UserVendorProfile.user_id == request.user_id,
+                UserVendorProfile.vendor_name == request.vendor_name,
+                UserVendorProfile.deleted_at.is_(None),  # type: ignore
+            )
+            existing_profile = (await session.execute(existing_profile_stmt)).scalar_one_or_none()
+
+            if existing_profile:
+                log_dict = {
+                    "message": "User is already registered with the vendor",
+                    "user_id": request.user_id,
+                    "vendor_name": request.vendor_name,
+                    "profile_id": str(existing_profile.user_vendor_profile_id),
+                }
+                logging.info(json_dumps(log_dict))
+
+                # If the user is already registered, then call update to get the new vendor URL
+                if not request.additional_details:
+                    raise VendorRegistrationError("Additional details are required for vendor update")
+
+                vendor_registration = get_vendor_registration(request.vendor_name)
+                vendor_response = await vendor_registration.update_user(
+                    user_id=request.user_id,
+                    user_vendor_id=existing_profile.user_vendor_id,
+                    additional_details=AdditionalDetails(**request.additional_details),
+                )
+
+                return GetVendorPaymentLinkResponse(vendor_url_link=vendor_response.vendor_url_link)
+
+            additional_details = AdditionalDetails(**request.additional_details) if request.additional_details else None
+            if not additional_details:
+                log_dict = {
+                    "message": "Error: Additional details are required",
+                    "user_id": request.user_id,
+                    "vendor_name": request.vendor_name,
+                }
+                logging.warning(json_dumps(log_dict))
+                raise ValueError("Additional details are required")
+
+            vendor_registration = get_vendor_registration(request.vendor_name)
+            vendor_response = await vendor_registration.register_user(
+                user_id=request.user_id,
+                additional_details=additional_details,
+            )
+
+            profile = UserVendorProfile(
+                user_vendor_profile_id=uuid.uuid4(),
+                user_id=request.user_id,
+                vendor_name=VendorNameEnum(request.vendor_name.lower()),
+                user_vendor_id=vendor_response.vendor_id,
+                additional_details=vendor_response.additional_details,
+            )
+
+            session.add(profile)
+            await session.commit()
+
+            log_dict = {
+                "message": "Successfully registered user with vendor",
+                "user_id": request.user_id,
+                "vendor_name": request.vendor_name,
+                "profile_id": str(profile.user_vendor_profile_id),
+                "vendor_id": vendor_response.vendor_id,
+            }
+            logging.info(json_dumps(log_dict))
+
+            return GetVendorPaymentLinkResponse(vendor_url_link=vendor_response.vendor_url_link)
+
+    except VendorRegistrationError as e:
+        log_dict = {
+            "message": "Vendor registration error: Error registering user with vendor",
+            "error": str(e),
+            "user_id": request.user_id,
+            "vendor_name": request.vendor_name,
+        }
+        logging.error(json_dumps(log_dict))
+        raise VendorRegistrationError(str(e)) from e
+
+    except Exception as e:
+        log_dict = {
+            "message": "General error registering user with vendor",
+            "error": str(e),
+            "user_id": request.user_id,
+            "vendor_name": request.vendor_name,
+        }
+        logging.error(json_dumps(log_dict))
+        raise VendorRegistrationError(str(e)) from e

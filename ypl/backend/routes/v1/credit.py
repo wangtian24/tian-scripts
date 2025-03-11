@@ -39,7 +39,10 @@ from ypl.backend.payment.cashout_rate_limits import (
 from ypl.backend.payment.currency import get_supported_currencies
 from ypl.backend.payment.exchange_rates import get_exchange_rate
 from ypl.backend.payment.facilitator import get_supported_facilitators
-from ypl.backend.payment.payment import get_last_successful_transaction_and_instrument, get_user_payment_instruments
+from ypl.backend.payment.payment import (
+    get_last_successful_transaction_and_instrument,
+    get_user_payment_instruments,
+)
 from ypl.backend.payment.validation import validate_destination_identifier_for_currency
 from ypl.backend.user.user import get_user
 from ypl.backend.utils.json import json_dumps
