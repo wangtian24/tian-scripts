@@ -26,8 +26,9 @@ RUN bash -c "poetry build"
 RUN bash -c "pip install ."
 
 RUN if [ -n "$STRIPE_GITHUB_TOKEN" ]; then \
-  git config --global --unset url."https://${STRIPE_GITHUB_TOKEN}@github.com/".insteadOf && \
-    echo "GitHub authentication configuration removed"
+    git config --global --unset url."https://${STRIPE_GITHUB_TOKEN}@github.com/".insteadOf && \
+    echo "GitHub authentication configuration removed"; \
+fi
 
 # Clean up
 RUN apt-get clean && rm -rf /var/lib/apt/lists/*
