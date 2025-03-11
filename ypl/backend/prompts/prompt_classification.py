@@ -46,7 +46,9 @@ PROMPT_YAPP_CLASSIFICATION_PROMPT = """
 You are a helpful AI assistant matching user's prompts to a list of LLM agents to help satisfy user's information needs. Here is the list of agent names and their descriptions:
 {yapp_descriptions}
 
-Look at the user prompt below, decide which agent might best help the user. If you cannot find a fit agent, just return "none". Do not explain, just return its name.
+Look at the user prompt below, decide which agent might best help the user, if any.
+If you cannot find a specialized agent fit for dealing with the user prompt, just return "none".
+Do not explain, just return its name.
 
 prompt: {{prompt}}
 
