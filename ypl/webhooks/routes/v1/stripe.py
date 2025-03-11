@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime
+from enum import Enum
 from typing import Any, cast
 
 from fastapi import APIRouter, Header, Request
@@ -12,6 +13,9 @@ from stripe import Event, SignatureVerificationError, Webhook
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
 from ypl.backend.llm.utils import post_to_slack
+from ypl.backend.payment.payout_utils import handle_failed_transaction
+from ypl.db.payments import PaymentTransaction, PaymentTransactionStatusEnum
+from ypl.db.point_transactions import PointTransaction
 from ypl.db.webhooks import (
     WebhookDirectionEnum,
     WebhookEvent,
@@ -20,13 +24,24 @@ from ypl.db.webhooks import (
     WebhookProcessingStatusEnum,
 )
 
+
+class StripeOutboundPaymentEventEnum(str, Enum):
+    """Enum for Stripe outbound payment event types."""
+
+    CANCELED = "outbound_payment.canceled"
+    CREATED = "outbound_payment.created"
+    FAILED = "outbound_payment.failed"
+    POSTED = "outbound_payment.posted"
+    RETURNED = "outbound_payment.returned"
+
+
 router = APIRouter(tags=["stripe"])
 
 SLACK_WEBHOOK_CASHOUT = settings.SLACK_WEBHOOK_CASHOUT
 
 
 async def validate_stripe_signature(
-    payload: bytes,
+    payload: str,
     signature: str,
     webhook_token: str,
 ) -> Event | None:
@@ -50,7 +65,7 @@ async def validate_stripe_signature(
             event = cast(
                 Event,
                 Webhook.construct_event(
-                    payload=payload.decode("utf-8"),
+                    payload=payload,
                     sig_header=signature,
                     secret=webhook_secret,
                 ),
@@ -84,18 +99,14 @@ async def handle_stripe_webhook(
     """
     # Return success immediately to prevent retries
     # Create background task to handle all processing
-    log_dict = {
-        "message": "Stripe webhook received",
-        "webhook_token": webhook_token,
-        "stripe_signature": stripe_signature,
-    }
-    logging.info(json.dumps(log_dict))
     try:
-        payload = await request.body()
+        payload = (await request.body()).decode("utf-8")
         log_dict = {
             "message": "Stripe webhook payload received",
             "webhook_token": webhook_token,
             "stripe_signature": stripe_signature,
+            "payload": json.dumps(payload),
+            "for_id": json.loads(payload)["related_object"]["id"],
         }
         logging.info(json.dumps(log_dict))
         asyncio.create_task(process_stripe_webhook(webhook_token, payload, stripe_signature))
@@ -110,7 +121,7 @@ async def handle_stripe_webhook(
     return {"status": "success"}
 
 
-async def process_stripe_webhook(webhook_token: str, payload: bytes, stripe_signature: str | None) -> None:
+async def process_stripe_webhook(webhook_token: str, payload: str, stripe_signature: str | None) -> None:
     """Process the Stripe webhook asynchronously.
 
     Args:
@@ -127,7 +138,6 @@ async def process_stripe_webhook(webhook_token: str, payload: bytes, stripe_sign
         return
 
     try:
-        # Get the webhook partner
         async with get_async_session() as session:
             partner = (
                 await session.execute(
@@ -147,7 +157,7 @@ async def process_stripe_webhook(webhook_token: str, payload: bytes, stripe_sign
                 logging.error(json.dumps(log_dict))
                 return
 
-            # Validate signature and get event data
+            # Validate signature and ensure valid event data
             event = await validate_stripe_signature(payload, stripe_signature, webhook_token)
             if not event:
                 log_dict = {
@@ -158,17 +168,17 @@ async def process_stripe_webhook(webhook_token: str, payload: bytes, stripe_sign
                 logging.error(json.dumps(log_dict))
                 return
 
-            event_type = event.type
-            event_id = event.id
-            event_data = event.data.object
+            payload_data = json.loads(payload)
+            event_type = payload_data["type"]
+            related_object_id = payload_data["related_object"]["id"]
 
             # Create webhook event record
             webhook_event = WebhookEvent(
                 webhook_partner_id=partner.webhook_partner_id,
                 direction=WebhookDirectionEnum.INCOMING,
-                raw_payload=event_data,
+                raw_payload=payload_data,
                 processing_status=WebhookProcessingStatusEnum.PENDING,
-                partner_webhook_reference_id=event_id,
+                partner_webhook_reference_id=event.id,
             )
             session.add(webhook_event)
             await session.commit()
@@ -177,14 +187,19 @@ async def process_stripe_webhook(webhook_token: str, payload: bytes, stripe_sign
             log_dict = {
                 "message": "Stripe webhook event created",
                 "webhook_event_id": str(webhook_event.webhook_event_id),
-                "event_id": event_id,
+                "event_id": event.id,
                 "event_type": event_type,
-                "event_data": json.dumps(event_data),
+                "event_data": json.dumps(payload_data),
+                "for_id": related_object_id,
             }
             logging.info(json.dumps(log_dict))
+
+            #  call a method to update the payment information based on the event type
+            await update_payment_information(event_type, related_object_id)
+
             # Update event status
             webhook_event.processing_status = WebhookProcessingStatusEnum.PROCESSED
-            webhook_event.processed_at = datetime.utcnow()
+            webhook_event.modified_at = datetime.now()
             await session.commit()
 
             # TODO: Post notification to Slack for important events
@@ -196,4 +211,121 @@ async def process_stripe_webhook(webhook_token: str, payload: bytes, stripe_sign
             "webhook_token": webhook_token,
         }
         logging.warning(json.dumps(log_dict))
+        asyncio.create_task(post_to_slack(json.dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+
+
+async def update_payment_information(event_type: StripeOutboundPaymentEventEnum, related_object_id: str) -> None:
+    """Update payment information based on the event type.
+
+    Args:
+        event_type: Stripe event type
+        related_object_id: ID of the related object
+    """
+
+    #  retrieve the payment transaction id for this related object id
+    async with get_async_session() as session:
+        query_result = await session.execute(
+            select(PaymentTransaction).where(PaymentTransaction.partner_reference_id == related_object_id)
+        )
+        payment_transaction = query_result.scalar_one_or_none()
+
+        if not payment_transaction:
+            log_dict = {
+                "message": "Stripe webhook: Payment transaction not found",
+                "related_object_id": related_object_id,
+            }
+            logging.error(json.dumps(log_dict))
+            asyncio.create_task(post_to_slack(json.dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+            return
+
+    if event_type == StripeOutboundPaymentEventEnum.POSTED:
+        if payment_transaction.status == PaymentTransactionStatusEnum.SUCCESS:
+            log_dict = {
+                "message": "Stripe webhook: Payment transaction already marked success",
+                "related_object_id": related_object_id,
+            }
+            logging.info(json.dumps(log_dict))
+            return
+
+        if payment_transaction.status == PaymentTransactionStatusEnum.PENDING:
+            log_dict = {
+                "message": "Stripe webhook: Payment transaction status is pending and setting to success",
+                "related_object_id": related_object_id,
+            }
+            logging.info(json.dumps(log_dict))
+            payment_transaction.status = PaymentTransactionStatusEnum.SUCCESS
+            payment_transaction.modified_at = datetime.now()
+            await session.commit()
+        else:
+            log_dict = {
+                "message": "Stripe webhook: Payment transaction status is posted but not pending or success",
+                "related_object_id": related_object_id,
+            }
+            logging.error(json.dumps(log_dict))
+            asyncio.create_task(post_to_slack(json.dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+    elif event_type in [
+        StripeOutboundPaymentEventEnum.CANCELED,
+        StripeOutboundPaymentEventEnum.FAILED,
+        StripeOutboundPaymentEventEnum.RETURNED,
+    ]:
+        log_dict = {
+            "message": "Stripe webhook: Payment transaction failed",
+            "payment status": event_type,
+            "related_object_id": related_object_id,
+        }
+        logging.info(json.dumps(log_dict))
+        asyncio.create_task(post_to_slack(json.dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+
+        if payment_transaction.status == PaymentTransactionStatusEnum.REVERSED:
+            log_dict = {
+                "message": "Stripe webhook: Payment transaction already reversed",
+                "related_object_id": related_object_id,
+            }
+            logging.info(json.dumps(log_dict))
+            return
+
+        # retrieve the other data required to handle failed transaction
+        async with get_async_session() as session:
+            query_result = await session.execute(
+                select(PointTransaction).where(
+                    PointTransaction.cashout_payment_transaction_id == payment_transaction.payment_transaction_id
+                )
+            )
+            point_transaction = query_result.scalar_one_or_none()
+
+            if not point_transaction:
+                log_dict = {
+                    "message": "Stripe webhook: Point transaction not found",
+                    "related_object_id": related_object_id,
+                }
+                logging.error(json.dumps(log_dict))
+                asyncio.create_task(post_to_slack(json.dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+                return
+
+        await handle_failed_transaction(
+            payment_transaction_id=payment_transaction.payment_transaction_id,
+            points_transaction_id=point_transaction.transaction_id,
+            user_id=point_transaction.user_id,
+            credits_to_cashout=point_transaction.point_delta,
+            amount=payment_transaction.amount,
+            usd_amount=payment_transaction.usd_amount,
+            source_instrument_id=payment_transaction.source_instrument_id,
+            destination_instrument_id=payment_transaction.destination_instrument_id,
+            destination_identifier=payment_transaction.destination_identifier,
+            destination_identifier_type=payment_transaction.destination_identifier_type,
+            update_points=True,
+            currency=payment_transaction.currency,
+        )
+    elif event_type == StripeOutboundPaymentEventEnum.CREATED:
+        log_dict = {
+            "message": "Stripe webhook: Payment transaction created",
+            "related_object_id": related_object_id,
+        }
+        logging.info(json.dumps(log_dict))
+    else:
+        log_dict = {
+            "message": "Stripe webhook: Unknown event type",
+            "event_type": event_type,
+        }
+        logging.error(json.dumps(log_dict))
         asyncio.create_task(post_to_slack(json.dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
