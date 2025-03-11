@@ -42,6 +42,7 @@ from ypl.backend.llm.judge import (
     YuppOnlinePromptLabeler,
     YuppPromptDifficultyLabeler,
 )
+from ypl.backend.llm.memories import consolidate_memories
 from ypl.backend.llm.model.maintenance import do_model_metadata_maintenance
 from ypl.backend.llm.model.model_management import do_validate_active_models
 from ypl.backend.llm.model.model_onboarding import do_verify_submitted_models
@@ -97,6 +98,7 @@ from ypl.db.chats import (
     TurnQuality,
     User,
 )
+from ypl.db.memories import Memory
 from ypl.db.message_annotations import (
     IS_REFUSAL_ANNOTATION_NAME,
     QUICK_RESPONSE_QUALITY_ANNOTATION_NAME,
@@ -1826,6 +1828,24 @@ def get_stripe_transaction_status_util(transaction_id: str) -> None:
 def get_stripe_payment_methods_for_account(account_id: str) -> None:
     """Get the available payment methods for an account."""
     asyncio.run(get_payment_methods(account_id))
+
+
+@cli.command()
+@click.option("--hours-ago", type=int, default=25, help="Update users with memories newer than this many hours")
+def consolidate_user_memories(hours_ago: int = 25) -> None:
+    cutoff_time = datetime.now(UTC) - timedelta(hours=hours_ago)
+    user_ids: Sequence[str] = []
+    with Session(get_engine()) as session:
+        query = select(Memory.user_id).where(Memory.created_at >= cutoff_time).distinct()  # type: ignore
+        user_ids = session.exec(query).all()
+
+    logging.info(f"Found {len(user_ids)} users with memories created in the last {hours_ago} hours")
+
+    for user_id in user_ids:
+        try:
+            asyncio.run(consolidate_memories(user_id))
+        except Exception as e:
+            logging.error(f"Error consolidating memories for user {user_id}: {e}")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,21 @@
+name: Consolidate memories
+
+on:
+  schedule:
+    - cron: '15 23 * * *'  # Daily at 11:15 PM UTC (4:15 PM PST)
+  workflow_dispatch:
+
+jobs:
+  refresh_conversation_starters_staging:
+    uses: ./.github/workflows/cronjob.yml
+    with:
+      command: consolidate-user-memories
+      environment: staging
+    secrets: inherit
+
+  refresh_conversation_starters_production:
+    uses: ./.github/workflows/cronjob.yml
+    with:
+      command: consolidate-user-memories
+      environment: production
+    secrets: inherit
