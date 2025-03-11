@@ -81,6 +81,22 @@ async def get_ip_details(ip_address: str) -> IPDetails | None:
                 )
                 return None
 
+            if "network" not in data:
+                logging.warning(
+                    json_dumps(
+                        {
+                            "message": "Missing network information from VPNAPI. Using empty values.",
+                            "ip_address": ip_address,
+                            "response": data,
+                        }
+                    )
+                )
+                data["network"] = {
+                    "network": "",
+                    "autonomous_system_number": "",
+                    "autonomous_system_organization": "",
+                }
+
             # Convert the response to our typed structure
             ip_details: IPDetails = {
                 "ip": data["ip"],
