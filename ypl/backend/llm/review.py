@@ -21,16 +21,19 @@ from ypl.backend.llm.nuggetizer import YuppNuggetizer
 from ypl.backend.llm.provider.provider_clients import (
     get_internal_provider_client,
 )
+from ypl.backend.llm.review_router import get_review_type
 from ypl.backend.llm.review_types import (
     BinaryResult,
     CritiqueResult,
-    CrossCheckResult,
+    CrossCheckBinaryResult,
+    CrossCheckCritiqueResult,
     NuggetizedResult,
     ReviewConfig,
     ReviewRequest,
     ReviewResponse,
     ReviewResult,
     ReviewResultType,
+    ReviewRoute,
     ReviewStatus,
     ReviewType,
     SegmentedResult,
@@ -41,8 +44,10 @@ from ypl.backend.prompts.reviews import (
     BINARY_REVIEW_USER_PROMPT,
     CRITIQUE_REVIEW_PROMPT,
     CRITIQUE_REVIEW_USER_PROMPT,
-    CROSS_CHECK_PROMPT,
-    CROSS_CHECK_USER_PROMPT,
+    CROSS_CHECK_BINARY_PROMPT,
+    CROSS_CHECK_BINARY_USER_PROMPT,
+    CROSS_CHECK_CRITIQUE_PROMPT,
+    CROSS_CHECK_CRITIQUE_USER_PROMPT,
     SEGMENTED_REVIEW_PROMPT,
     SEGMENTED_REVIEW_USER_PROMPT,
 )
@@ -72,10 +77,15 @@ REVIEW_CONFIGS: dict[ReviewType, ReviewConfig] = {
         max_tokens=4096,  # Larger token limit for nuggetized reviews
         prompt_template="",  # No prompt template needed as we use YuppNuggetizer
     ),
-    ReviewType.CROSS_CHECK: ReviewConfig(
-        max_tokens=1024,
-        prompt_template=CROSS_CHECK_PROMPT,
-        user_prompt_template=CROSS_CHECK_USER_PROMPT,
+    ReviewType.CROSS_CHECK_CRITIQUE: ReviewConfig(
+        max_tokens=2048,
+        prompt_template=CROSS_CHECK_CRITIQUE_PROMPT,
+        user_prompt_template=CROSS_CHECK_CRITIQUE_USER_PROMPT,
+    ),
+    ReviewType.CROSS_CHECK_BINARY: ReviewConfig(
+        max_tokens=2048,
+        prompt_template=CROSS_CHECK_BINARY_PROMPT,
+        user_prompt_template=CROSS_CHECK_BINARY_USER_PROMPT,
     ),
 }
 
@@ -83,9 +93,9 @@ REVIEW_MODEL_WITH_PDF_SUPPORT = ["gemini-2.0-flash-001"]
 
 # Whitelist of models supported for reviews
 REVIEW_MODEL_ALLOWLIST_PREFERENCES = [
-    "gpt-4o",
-    "gemini-2.0-flash-001",
     "claude-3-7-sonnet-20250219",
+    "gpt-4.5-preview-2025-02-27",
+    "gemini-2.0-flash-001",
     "qwen-max-2025-01-25",  # TODO(ronak): Verify for segmented reviews when the time comes
     "deepseek/deepseek-chat",  # TODO(ronak): Verify for segmented reviews when the time comes
     "meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo",
@@ -93,9 +103,9 @@ REVIEW_MODEL_ALLOWLIST_PREFERENCES = [
 ]
 
 REVIEW_MODEL_WITH_IMAGE_ALLOWLIST_PREFERENCES = [
-    "gpt-4o",
-    "gemini-2.0-flash-001",
     "claude-3-7-sonnet-20250219",
+    "gpt-4.5-preview-2025-02-27",
+    "gemini-2.0-flash-001",
     "meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo",
     "qwen2.5-vl-72b-instruct",
 ]
@@ -329,14 +339,10 @@ class NuggetizedReviewLabeler(LLMLabeler[tuple[list[BaseMessage], list[tuple[str
         """Labels the input asynchronously using nuggetizer.
 
         Args:
-            input: A tuple containing:
-                - question: The conversation history until the last user message
-                - model_responses: List of tuples (model_name, response_text)
+            input: A tuple containing chat history and a list of (model_name, response) tuples
 
         Returns:
-            A tuple containing:
-                - model_specific_results: Dict mapping model names to their NuggetizedResult
-                - empty string (no raw output to clean)
+            A tuple containing a dict of model-specific NuggetizedResult and a raw JSON string
         """
         try:
             start_time = time.time()
@@ -426,11 +432,12 @@ class NuggetizedReviewLabeler(LLMLabeler[tuple[list[BaseMessage], list[tuple[str
         return {}
 
 
-class CrossCheckReviewLabeler(LLMLabeler[tuple[list[BaseMessage], str, str], str]):
-    """Labeler that provides a cross-check review comparing a model's response with other models' responses."""
+class BaseCrossCheckReviewLabeler(LLMLabeler[tuple[list[BaseMessage], str, str], Any]):
+    """Base class for cross-check review labelers that compare responses between models."""
 
     def __init__(
         self,
+        review_type: ReviewType,
         model: str,
         llm: BaseChatModel,
         timeout_secs: float = settings.DEFAULT_REVIEW_TIMEOUT_SECS,
@@ -438,7 +445,7 @@ class CrossCheckReviewLabeler(LLMLabeler[tuple[list[BaseMessage], str, str], str
         other_model_names: str | None = None,
     ) -> None:
         self.model = model
-        self.review_type = ReviewType.CROSS_CHECK
+        self.review_type = review_type
         self.base_llm = llm
         self.chat_history = chat_history or []
         self.other_model_names = other_model_names
@@ -453,19 +460,24 @@ class CrossCheckReviewLabeler(LLMLabeler[tuple[list[BaseMessage], str, str], str
         user_prompt = config.user_prompt_template
 
         # Extract conversation until last user message
-        conversation_history: list[BaseMessage] = (
+        conversation_history = (
             _extract_conversation_until_last_user_message(self.chat_history) if self.chat_history else []
         )
 
         # Create prompt messages
-        messages: list[tuple[str, str] | BaseMessage] = [("system", prompt)]
+        messages: list[tuple[str, str] | BaseMessage] = []
+        messages.append(("human", prompt) if self.model.startswith(("o1", "o3")) else ("system", prompt))
 
-        # Add conversation history
+        # Add conversation history and final prompts
         messages += conversation_history
-        # Add other assistant's response to evaluate
-        final_human_message = "Other Assistants' Responses to Evaluate: {other_response}\n\n"
-        final_human_message += "Your previous response to the user's prompt was: {your_response}\n\n"
-        final_human_message += user_prompt
+        final_human_message = (
+            "Other Assistants' Responses to Evaluate: {other_response}\n\n"
+            "Your previous response to the user's prompt was: {your_response}\n\n"
+            f"{user_prompt}"
+        )
+
+        if "sonar" in self.model:  # Sonar is a special case that does not like two consecutive messages of same type
+            messages.append(("assistant", ""))
         messages.append(("human", final_human_message))
 
         template = ChatPromptTemplate.from_messages(messages)
@@ -478,10 +490,23 @@ class CrossCheckReviewLabeler(LLMLabeler[tuple[list[BaseMessage], str, str], str
             input: Tuple of (chat_history, your_response, other_response)
         """
         chat_history, your_response, other_response = input
-
         if not self.chat_history:
             self.chat_history = chat_history
         return dict(your_response=your_response, other_response=other_response)
+
+
+class CrossCheckCritiqueReviewLabeler(BaseCrossCheckReviewLabeler):
+    """Labeler that provides a critique-style cross-check review comparing a model's response with another's."""
+
+    def __init__(
+        self,
+        model: str,
+        llm: BaseChatModel,
+        timeout_secs: float = settings.DEFAULT_REVIEW_TIMEOUT_SECS,
+        chat_history: list[BaseMessage] | None = None,
+        other_model_names: str | None = None,
+    ) -> None:
+        super().__init__(ReviewType.CROSS_CHECK_CRITIQUE, model, llm, timeout_secs, chat_history, other_model_names)
 
     def _parse_output(self, output: BaseMessage) -> str:
         """Parse the output from the LLM."""
@@ -492,11 +517,35 @@ class CrossCheckReviewLabeler(LLMLabeler[tuple[list[BaseMessage], str, str], str
         return ""
 
 
+class CrossCheckBinaryReviewLabeler(BaseCrossCheckReviewLabeler):
+    """Labeler that provides a binary cross-check review comparing a model's response with other models' responses."""
+
+    def __init__(
+        self,
+        model: str,
+        llm: BaseChatModel,
+        timeout_secs: float = settings.DEFAULT_REVIEW_TIMEOUT_SECS,
+        chat_history: list[BaseMessage] | None = None,
+        other_model_names: str | None = None,
+    ) -> None:
+        super().__init__(ReviewType.CROSS_CHECK_BINARY, model, llm, timeout_secs, chat_history, other_model_names)
+
+    def _parse_output(self, output: BaseMessage) -> bool:
+        """Parse the output from the LLM: true for true, false for false."""
+        content = str(output.content).strip().lower()
+        return content == "true"
+
+    @property
+    def error_value(self) -> bool:
+        return False
+
+
 BINARY_REVIEWER: dict[str, BinaryReviewLabeler] = {}
 CRITIQUE_REVIEWER: dict[str, CritiqueReviewLabeler] = {}
 SEGMENTED_REVIEWER: dict[str, SegmentedReviewLabeler] = {}
 NUGGETIZED_REVIEWER: dict[str, NuggetizedReviewLabeler] = {}
-CROSS_CHECK_REVIEWER: dict[str, CrossCheckReviewLabeler] = {}
+CROSS_CHECK_CRITIQUE_REVIEWER: dict[str, CrossCheckCritiqueReviewLabeler] = {}
+CROSS_CHECK_BINARY_REVIEWER: dict[str, CrossCheckBinaryReviewLabeler] = {}
 
 
 async def get_reviewer(
@@ -508,17 +557,17 @@ async def get_reviewer(
     """Get a reviewer instance for the specified review type and model.
 
     Args:
-        review_type: The type of review to perform
-        model: The model to use for the review (defaults to REVIEW_MODEL_FALLBACK)
-        chat_history: Optional chat history to provide to the reviewer
-        other_model_names: Names of other models for cross-check review (only used with CROSS_CHECK)
+        review_type: The type of review to perform.
+        model: The model to use for the review.
+        chat_history: The chat history to use for the review.
+        other_model_names: The names of other models to use for the cross-check review.
 
     Returns:
         A reviewer instance of the appropriate type
     """
     # Validate model and use fallback if needed
     if (
-        review_type not in [ReviewType.NUGGETIZED, ReviewType.CROSS_CHECK]
+        review_type not in [ReviewType.NUGGETIZED, ReviewType.CROSS_CHECK_CRITIQUE, ReviewType.CROSS_CHECK_BINARY]
         and model not in REVIEW_MODEL_ALLOWLIST_PREFERENCES
     ):
         logging.warning(f"{review_type} reviewer: Unsupported model {model}, using {REVIEW_MODEL_FALLBACK} instead")
@@ -527,30 +576,35 @@ async def get_reviewer(
         logging.warning(f"NuggetizedReviewLabeler: Unsupported model {model}, using {REVIEW_MODEL_FALLBACK} instead")
         model = REVIEW_MODEL_FALLBACK
 
-    # Get LLM client (already cached by get_internal_provider_client)
-    max_tokens = REVIEW_CONFIGS[review_type].max_tokens
-    llm = await get_internal_provider_client(model, max_tokens=max_tokens)
-
-    # Create appropriate reviewer instance
-    if review_type == ReviewType.NUGGETIZED:
-        return cast(
-            BaseReviewLabeler[ReviewResultType],
-            NuggetizedReviewLabeler(model=model, llm=llm),
-        )
-    elif review_type == ReviewType.CROSS_CHECK:
-        return cast(
-            BaseReviewLabeler[ReviewResultType],
-            CrossCheckReviewLabeler(
-                model=model, llm=llm, chat_history=chat_history, other_model_names=other_model_names
-            ),
-        )
-
+    # Get LLM for the selected model
+    llm = await get_internal_provider_client(
+        model,
+        max_tokens=REVIEW_CONFIGS[review_type].max_tokens if review_type in REVIEW_CONFIGS else 512,
+        temperature=1.0 if model.startswith("o1") or model.startswith("o3") else 0.0,
+    )
     reviewer_class = {
         ReviewType.BINARY: BinaryReviewLabeler,
         ReviewType.CRITIQUE: CritiqueReviewLabeler,
         ReviewType.SEGMENTED: SegmentedReviewLabeler,
+        ReviewType.NUGGETIZED: NuggetizedReviewLabeler,
+        ReviewType.CROSS_CHECK_CRITIQUE: CrossCheckCritiqueReviewLabeler,
+        ReviewType.CROSS_CHECK_BINARY: CrossCheckBinaryReviewLabeler,
     }[review_type]
-    return cast(BaseReviewLabeler[ReviewResultType], reviewer_class(model=model, llm=llm, chat_history=chat_history))
+    # Create appropriate reviewer instance
+    if review_type == ReviewType.NUGGETIZED:
+        return cast(
+            BaseReviewLabeler[ReviewResultType],
+            reviewer_class(model=model, llm=llm),
+        )
+    elif review_type in [ReviewType.CROSS_CHECK_CRITIQUE, ReviewType.CROSS_CHECK_BINARY]:
+        return cast(
+            BaseReviewLabeler[ReviewResultType],
+            reviewer_class(model=model, llm=llm, chat_history=chat_history, other_model_names=other_model_names),
+        )
+    else:
+        return cast(
+            BaseReviewLabeler[ReviewResultType], reviewer_class(model=model, llm=llm, chat_history=chat_history)
+        )
 
 
 def _extract_conversation_until_last_user_message(
@@ -605,20 +659,43 @@ def _select_reviewer_model(
     return default_model
 
 
+async def route_review(
+    conversation_history: list[BaseMessage],
+) -> ReviewRoute:
+    """Route review to the appropriate reviewer based on the review type and model."""
+    router_prompt = None
+    for message in reversed(conversation_history):
+        if isinstance(message, HumanMessage):
+            last_user_message = message
+            if isinstance(last_user_message.content, str):
+                router_prompt = last_user_message.content
+            elif (
+                isinstance(last_user_message.content, list)
+                and last_user_message.content
+                and isinstance(last_user_message.content[-1], dict)
+            ):
+                router_prompt = last_user_message.content[-1].get("text", "")
+            else:
+                logging.warning("Review cfn: last_user_message is not a string or non-empty list of dicts")
+            break
+    # Determine review type using the dedicated function
+    # Only call when we actually need it (for cross-check review)
+    review_route = ReviewRoute.PRO  # Default to PRO review
+    if router_prompt:
+        review_route = await get_review_type(router_prompt)
+    return review_route
+
+
 async def generate_reviews(
     request: ReviewRequest,
 ) -> ReviewResponse:
-    """Review responses using binary review.
+    """Generate reviews for the last turn in a conversation.
 
     Args:
-        request: The review request containing turn_id, review_types, etc.
+        request: The review request.
 
     Returns:
-        ReviewResponse: Object containing results for binary review
-            - binary: dict[str, BinaryResult] if binary review was requested
-            - critique: dict[str, CritiqueResult] if critique review was requested
-            - segmented: dict[str, SegmentedResult] if segmented review was requested
-            - nuggetized: dict[str, NuggetizedResult] if nuggetized review was requested
+        A response containing the results of all requested review types.
     """
     async with get_async_session() as session:
         stmt = select(Turn.chat_id).where(Turn.turn_id == request.turn_id)  # type: ignore
@@ -666,6 +743,28 @@ async def generate_reviews(
     )
     # Extract conversation history until last user message from chat history
     last_assistant_responses = responses
+    if request.review_route is None:
+        review_route = await route_review(chat_history.messages)
+        if request.review_types and review_route == ReviewRoute.CROSS_CHECK:
+            # Replace binary with cross-check binary and critique with cross-check critique
+            replacements = {
+                ReviewType.BINARY: ReviewType.CROSS_CHECK_BINARY,
+                ReviewType.CRITIQUE: ReviewType.CROSS_CHECK_CRITIQUE,
+            }
+            request.review_types = list(
+                set([replacements[rt] if rt in replacements else rt for rt in request.review_types])
+            )
+        elif request.review_types:
+            replacements = {
+                ReviewType.CROSS_CHECK_BINARY: ReviewType.BINARY,
+                ReviewType.CROSS_CHECK_CRITIQUE: ReviewType.CRITIQUE,
+            }
+            request.review_types = list(
+                set([replacements[rt] if rt in replacements else rt for rt in request.review_types])
+            )
+    else:
+        review_route = request.review_route
+
     last_assistant_response_models = chat_history.current_turn_models
     # Default to all review types if none specified
     review_types = request.review_types or list(ReviewType)
@@ -700,9 +799,9 @@ async def generate_reviews(
         for model in last_assistant_responses.keys():
             model_family = response_model_family_map.get(model)
             reviewer_model_preference = request.reviewer_model_preference or [
-                "gpt-4o",
-                "gemini-2.0-flash-001",
                 "claude-3-7-sonnet-20250219",
+                "gpt-4.5-preview-2025-02-27",
+                "gemini-2.0-flash-001",
                 "qwen-max-2025-01-25",
                 "deepseek/deepseek-chat",
             ]
@@ -756,42 +855,56 @@ async def generate_reviews(
             ), f"Reviewer {reviewer} is not a valid review labeler type"
         try:
             # Run review for each response concurrently
-            review_tasks = []
-            if last_assistant_responses:
-                for model, response in last_assistant_responses.items():
-                    reviewer = reviewers[model]
-                    task = reviewer.alabel((chat_history.messages, response.content))
-                    review_tasks.append((model, task))
-            else:
+            if not last_assistant_responses:
                 logging.warning(f"run_{review_type}: No responses to review, last_assistant_responses is empty")
+                return review_type, {}
 
+            # Create review tasks
+            review_tasks = [
+                (model, reviewer.alabel((chat_history.messages, response.content)))
+                for model, response in last_assistant_responses.items()
+                if model in reviewers
+            ]
+
+            if not review_tasks:
+                logging.warning(f"run_{review_type}: No valid reviewers found for responses")
+                return review_type, {}
+
+            # Run all tasks in parallel
             results = await asyncio.gather(*(task for _, task in review_tasks), return_exceptions=True)
 
+            # Process results
             pointwise_results: dict[str, BinaryResult | CritiqueResult | SegmentedResult] = {}
 
             for (model, _), result in zip(review_tasks, results, strict=True):
-                if isinstance(result, bool) or isinstance(result, str):  # Handle both bool and str results
-                    if review_type == ReviewType.BINARY and isinstance(result, bool):
-                        pointwise_results[model] = cast(
-                            BinaryResult, {"response": result, "reviewer_model": reviewers[model].model}
-                        )
-                    elif review_type == ReviewType.CRITIQUE and isinstance(result, str):
-                        pointwise_results[model] = cast(
-                            CritiqueResult, {"response": result, "reviewer_model": reviewers[model].model}
-                        )
-                    else:
-                        logging.warning(f"run_{review_type}: {model} returned {result} of type {type(result)}")
-                elif isinstance(result, list):  # Check for list type first
-                    if review_type == ReviewType.SEGMENTED and all(isinstance(x, dict) for x in result):
-                        pointwise_results[model] = cast(
-                            SegmentedResult, {"segments": result, "reviewer_model": reviewers[model].model}
-                        )
-                    else:
-                        logging.warning(f"run_{review_type}: {model} returned invalid list result {result}")
+                if isinstance(result, Exception):
+                    logging.exception(f"Error in {review_type} review for {model}: {result}")
+                    continue
+
+                # Create appropriate result based on review type and result type
+                reviewer_model = reviewers[model].model
+
+                if review_type == ReviewType.BINARY and isinstance(result, bool):
+                    pointwise_results[model] = cast(
+                        BinaryResult, {"response": result, "reviewer_model": reviewer_model}
+                    )
+                elif review_type == ReviewType.CRITIQUE and isinstance(result, str):
+                    pointwise_results[model] = cast(
+                        CritiqueResult, {"response": result, "reviewer_model": reviewer_model}
+                    )
+                elif (
+                    review_type == ReviewType.SEGMENTED
+                    and isinstance(result, list)
+                    and all(isinstance(x, dict) for x in result)
+                ):
+                    pointwise_results[model] = cast(
+                        SegmentedResult, {"segments": result, "reviewer_model": reviewer_model}
+                    )
                 else:
-                    logging.warning(f"run_{review_type}: {model} returned {result} of type {type(result)}")
+                    logging.warning(f"run_{review_type}: {model} returned unexpected result type: {type(result)}")
 
             return review_type, pointwise_results
+
         except Exception as e:
             log_dict = {
                 "message": f"_run_{review_type}: Error in {review_type} review for turn_id {request.turn_id}: {str(e)}",
@@ -800,6 +913,204 @@ async def generate_reviews(
             }
             logging.exception(json_dumps(log_dict))
             return review_type, {}
+
+    async def run_listwise_review(
+        review_type: ReviewType,
+        reviewers: dict[str, CrossCheckCritiqueReviewLabeler | CrossCheckBinaryReviewLabeler],
+    ) -> tuple[ReviewType, dict[str, Any]]:
+        """Generic function to run listwise reviews.
+
+        Args:
+            review_type: Type of review being performed
+            reviewers: Dict mapping response model to its reviewer
+
+        Returns:
+            Tuple of review type and results dictionary
+        """
+        try:
+            if last_assistant_responses is None or len(last_assistant_responses.keys()) < 2:
+                logging.warning(f"Need at least 2 responses to compare with {review_type}")
+                return review_type, {}
+
+            # Get conversation history until last user message
+            conversation_history = _extract_conversation_until_last_user_message(chat_history.messages)
+
+            # Get ordered list of models to establish "previous" model relationships
+            model_names = list(last_assistant_responses.keys())
+
+            # Prepare all cross-check tasks
+            review_tasks = []
+            for i, (model_name, response) in enumerate(last_assistant_responses.items()):
+                # Determine the previous model that will review this one
+                prev_i = (i - 1) if i > 0 else (len(model_names) - 1)  # Wrap around to last model for first model
+                reviewer_model_name = model_names[prev_i]
+
+                # Skip if reviewer model doesn't exist
+                if reviewer_model_name not in reviewers:
+                    continue
+
+                other_model_responses = {model_name: response}
+
+                # Skip if no other models to compare with or no model info
+                if not other_model_responses or not last_assistant_response_models:
+                    continue
+
+                # Build combined response of other models
+                other_models_text = "\n---\n".join(
+                    [
+                        f"Response from {last_assistant_response_models.get(other_model, other_model)}:\n{r.content}"
+                        for other_model, r in other_model_responses.items()
+                    ]
+                )
+
+                other_model_names = ", ".join(
+                    [
+                        last_assistant_response_models.get(other_model, other_model)
+                        for other_model in other_model_responses.keys()
+                    ]
+                )
+
+                # Get the reviewer (use previous model as reviewer)
+                reviewer = reviewers[reviewer_model_name]
+                review_model_external_name = last_assistant_response_models.get(
+                    reviewer_model_name, reviewer_model_name
+                )
+
+                review_model_response = last_assistant_responses.get(reviewer_model_name)
+                if review_model_response is None:
+                    logging.warning(f"run_listwise_review: No response found for {reviewer_model_name}")
+                    continue
+
+                # Add task to the list
+                task = reviewer.alabel((conversation_history, review_model_response.content, other_models_text))
+                review_tasks.append(
+                    (
+                        model_name,
+                        review_model_external_name,
+                        other_model_names,
+                        task,
+                    )
+                )
+
+            # Run all tasks in parallel
+            results = await asyncio.gather(*[task[3] for task in review_tasks], return_exceptions=True)
+
+            # Process results based on review type
+            results_dict: dict[str, CrossCheckCritiqueResult | CrossCheckBinaryResult] = {}
+
+            for (model_name, reviewer_model, other_model_names, _), result in zip(review_tasks, results, strict=True):
+                if isinstance(result, Exception):
+                    logging.exception(f"Error in {review_type} review for {model_name}: {result}")
+
+                    # Create appropriate error result based on review type
+                    if review_type == ReviewType.CROSS_CHECK_CRITIQUE:
+                        results_dict[model_name] = {
+                            "response": f"Error in cross check review: {str(result)}",
+                            "reviewer_model": reviewer_model,
+                            "other_model_names": other_model_names,
+                        }
+                    else:  # CROSS_CHECK_BINARY
+                        results_dict[model_name] = {
+                            "response": False,
+                            "reviewer_model": reviewer_model,
+                            "other_model_names": other_model_names,
+                        }
+                else:
+                    # Process successful result based on review type
+                    if review_type == ReviewType.CROSS_CHECK_CRITIQUE:
+                        response_text = str(result) if result is not None else ""
+                        results_dict[model_name] = {
+                            "response": response_text,
+                            "reviewer_model": reviewer_model,
+                            "other_model_names": other_model_names,
+                        }
+                    else:  # CROSS_CHECK_BINARY
+                        is_better = bool(result) if result is not None else False
+                        results_dict[model_name] = {
+                            "response": is_better,
+                            "reviewer_model": reviewer_model,
+                            "other_model_names": other_model_names,
+                        }
+
+            return review_type, results_dict
+
+        except Exception as e:
+            log_dict = {
+                "message": f"Error in {review_type} review: {str(e)}",
+                "question": _extract_conversation_until_last_user_message(chat_history.messages),
+                "last_assistant_responses": last_assistant_responses,
+            }
+            logging.exception(json_dumps(log_dict))
+            return review_type, {}
+
+    async def _setup_cross_check_reviewers(
+        review_type: ReviewType,
+    ) -> dict[str, CrossCheckCritiqueReviewLabeler | CrossCheckBinaryReviewLabeler]:
+        """Set up cross-check reviewers for the given review type.
+
+        Args:
+            review_type: Either CROSS_CHECK_CRITIQUE or CROSS_CHECK_BINARY
+
+        Returns:
+            Dictionary mapping model names to their respective reviewers
+        """
+        # Guard against None values
+        if not last_assistant_responses or not last_assistant_response_models:
+            logging.warning(f"Cannot run {review_type} review: no responses or models available")
+            return {}
+
+        reviewers: dict[str, CrossCheckCritiqueReviewLabeler | CrossCheckBinaryReviewLabeler] = {}
+
+        for model_name, _ in last_assistant_responses.items():
+            # Default to same model for self-reviewing
+            reviewer_model = model_name
+
+            # Get names of other models for cross-check
+            other_model_names = ", ".join(
+                [
+                    last_assistant_response_models.get(other_model, other_model)
+                    for other_model, _ in last_assistant_responses.items()
+                    if other_model != model_name
+                ]
+            )
+
+            # Create appropriate reviewer
+            reviewer = cast(
+                CrossCheckCritiqueReviewLabeler | CrossCheckBinaryReviewLabeler,
+                await get_reviewer(
+                    review_type,
+                    reviewer_model,
+                    _extract_conversation_until_last_user_message(chat_history.messages),
+                    other_model_names,
+                ),
+            )
+            reviewers[model_name] = reviewer
+
+        return reviewers
+
+    async def run_cross_check_critique_review() -> tuple[ReviewType, dict[str, CrossCheckCritiqueResult]]:
+        """Run critique-style cross check review."""
+        reviewers = await _setup_cross_check_reviewers(ReviewType.CROSS_CHECK_CRITIQUE)
+        if not reviewers:
+            return ReviewType.CROSS_CHECK_CRITIQUE, {}
+
+        result = await run_listwise_review(
+            ReviewType.CROSS_CHECK_CRITIQUE,
+            reviewers,
+        )
+        return cast(tuple[ReviewType, dict[str, CrossCheckCritiqueResult]], result)
+
+    async def run_cross_check_binary_review() -> tuple[ReviewType, dict[str, CrossCheckBinaryResult]]:
+        """Run binary cross check review."""
+        reviewers = await _setup_cross_check_reviewers(ReviewType.CROSS_CHECK_BINARY)
+        if not reviewers:
+            return ReviewType.CROSS_CHECK_BINARY, {}
+
+        result = await run_listwise_review(
+            ReviewType.CROSS_CHECK_BINARY,
+            reviewers,
+        )
+        return cast(tuple[ReviewType, dict[str, CrossCheckBinaryResult]], result)
 
     async def run_binary_review() -> tuple[ReviewType, dict[str, BinaryResult]]:
         """Run binary review."""
@@ -839,7 +1150,6 @@ async def generate_reviews(
 
             # Get conversation history until last user message
             conversation_history = _extract_conversation_until_last_user_message(chat_history.messages)
-
             # Use all responses for nuggetized review
             reviewer_model = REVIEW_MODEL_FALLBACK  # Default to REVIEW_MODEL_FALLBACK (gpt-4o) for nuggetized review
             nuggetized_reviewer = cast(
@@ -859,88 +1169,13 @@ async def generate_reviews(
             logging.exception(json_dumps(log_dict))
             return ReviewType.NUGGETIZED, {}
 
-    async def run_cross_check_review() -> tuple[ReviewType, dict[str, CrossCheckResult]]:
-        """Run cross check review."""
-        try:
-            cross_check_results: dict[str, CrossCheckResult] = {}
-
-            if last_assistant_responses is None or len(last_assistant_responses.keys()) < 2:
-                logging.warning(" Need at least 2 responses to compare with cross-check")
-                return ReviewType.CROSS_CHECK, {}
-
-            # Get conversation history until last user message
-            conversation_history = _extract_conversation_until_last_user_message(chat_history.messages)
-
-            # Prepare all cross-check tasks
-            review_tasks = []
-            for model_name, response in last_assistant_responses.items():
-                other_model_responses = {
-                    other_model: other_response
-                    for other_model, other_response in last_assistant_responses.items()
-                    if other_model != model_name
-                }
-                # Skip if no other models to compare with
-                if not other_model_responses:
-                    continue
-                if not last_assistant_response_models:
-                    continue
-                # Build combined response of other models
-                other_models_text = "\n---\n".join(
-                    [
-                        f"Response from {last_assistant_response_models.get(other_model, other_model)}:\n{r.content}"
-                        for other_model, r in other_model_responses.items()
-                    ]
-                )
-                other_model_names = ", ".join(
-                    [
-                        last_assistant_response_models.get(other_model, other_model)
-                        for other_model in other_model_responses.keys()
-                    ]
-                )
-                # Default to model_name for cross check review
-                reviewer_model = model_name
-
-                # Create reviewer and run task
-                cross_check_reviewer = cast(
-                    CrossCheckReviewLabeler,
-                    await get_reviewer(ReviewType.CROSS_CHECK, reviewer_model, conversation_history, other_model_names),
-                )
-
-                # Add task to the list
-                task = cross_check_reviewer.alabel((conversation_history, response.content, other_models_text))
-                review_tasks.append((model_name, reviewer_model, other_model_names, task))
-
-            # Run all tasks in parallel
-            results = await asyncio.gather(*(task for _, _, _, task in review_tasks), return_exceptions=True)
-
-            # Process results
-            for (model_name, reviewer_model, other_model_names, _), result in zip(review_tasks, results, strict=True):
-                if isinstance(result, Exception):
-                    logging.warning(f"Error in cross check review: {str(result)}")
-                    continue
-                cross_check_results[model_name] = {
-                    "response": result if isinstance(result, str) else str(result),
-                    "reviewer_model": reviewer_model,
-                    "other_model_names": other_model_names,
-                }
-
-            return ReviewType.CROSS_CHECK, cross_check_results
-
-        except Exception as e:
-            log_dict = {
-                "message": f"Error in cross check review: {str(e)}",
-                "question": _extract_conversation_until_last_user_message(chat_history.messages),
-                "last_assistant_responses": last_assistant_responses,
-            }
-            logging.exception(json_dumps(log_dict))
-            return ReviewType.CROSS_CHECK, {}
-
     review_funcs = {
         ReviewType.BINARY: run_binary_review,
         ReviewType.CRITIQUE: run_critique_review,
         ReviewType.SEGMENTED: run_segmented_review,
         ReviewType.NUGGETIZED: run_nuggetized_review,
-        ReviewType.CROSS_CHECK: run_cross_check_review,
+        ReviewType.CROSS_CHECK_CRITIQUE: run_cross_check_critique_review,
+        ReviewType.CROSS_CHECK_BINARY: run_cross_check_binary_review,
     }
 
     # Map review types to their error values with proper type annotations
@@ -997,14 +1232,25 @@ async def generate_reviews(
                 all_reviewers[ReviewType.NUGGETIZED] = nuggetized_reviewer_dict
 
             # Add cross check reviewers if they were used
-            if ReviewType.CROSS_CHECK in review_types and ReviewType.CROSS_CHECK in processed_results:
+            if ReviewType.CROSS_CHECK_CRITIQUE in review_types and ReviewType.CROSS_CHECK_CRITIQUE in processed_results:
                 cross_check_reviewer_dict: dict[str, BaseReviewLabeler[Any]] = {}
                 # For each comparison key with a cross check result, store the reviewer that was used
-                for model_name in processed_results[ReviewType.CROSS_CHECK].keys():
+                for model_name in processed_results[ReviewType.CROSS_CHECK_CRITIQUE].keys():
                     # In the cross check case, we use a fixed reviewer model
-                    cross_check_reviewer = await get_reviewer(ReviewType.CROSS_CHECK, model_name, None, None)
+                    cross_check_reviewer = await get_reviewer(ReviewType.CROSS_CHECK_CRITIQUE, model_name, None, None)
                     cross_check_reviewer_dict[model_name] = cast(BaseReviewLabeler[Any], cross_check_reviewer)
-                all_reviewers[ReviewType.CROSS_CHECK] = cross_check_reviewer_dict
+                all_reviewers[ReviewType.CROSS_CHECK_CRITIQUE] = cross_check_reviewer_dict
+
+            if ReviewType.CROSS_CHECK_BINARY in review_types and ReviewType.CROSS_CHECK_BINARY in processed_results:
+                cross_check_binary_reviewer_dict: dict[str, BaseReviewLabeler[Any]] = {}
+                for model_name in processed_results[ReviewType.CROSS_CHECK_BINARY].keys():
+                    cross_check_binary_reviewer = await get_reviewer(
+                        ReviewType.CROSS_CHECK_BINARY, model_name, None, None
+                    )
+                    cross_check_binary_reviewer_dict[model_name] = cast(
+                        BaseReviewLabeler[Any], cross_check_binary_reviewer
+                    )
+                all_reviewers[ReviewType.CROSS_CHECK_BINARY] = cross_check_binary_reviewer_dict
 
             await store_reviews(
                 processed_results=processed_results,
@@ -1018,15 +1264,22 @@ async def generate_reviews(
     else:
         logging.warning("Cannot persist reviews: turn_id is None")
 
-    # Convert dict[ReviewType, ReviewResult] to ReviewResponse
-    return ReviewResponse(
+    # Construct response object with results from all review types
+    response = ReviewResponse(
         binary=cast(dict[str, BinaryResult], processed_results.get(ReviewType.BINARY)),
         critique=cast(dict[str, CritiqueResult], processed_results.get(ReviewType.CRITIQUE)),
         segmented=cast(dict[str, SegmentedResult], processed_results.get(ReviewType.SEGMENTED)),
         nuggetized=cast(dict[str, NuggetizedResult], processed_results.get(ReviewType.NUGGETIZED)),
-        cross_check=cast(dict[str, CrossCheckResult], processed_results.get(ReviewType.CROSS_CHECK)),
+        cross_check_critique=cast(
+            dict[str, CrossCheckCritiqueResult], processed_results.get(ReviewType.CROSS_CHECK_CRITIQUE)
+        ),
+        cross_check_binary=cast(
+            dict[str, CrossCheckBinaryResult], processed_results.get(ReviewType.CROSS_CHECK_BINARY)
+        ),
         status=ReviewStatus.ERROR if has_error else ReviewStatus.SUCCESS,
     )
+
+    return response
 
 
 async def store_reviews(
@@ -1049,85 +1302,67 @@ async def store_reviews(
         model_info: Map of model name to tuple of (family, model_id)
         chat_id: Chat ID
     """
+
+    def create_review_obj(
+        message_id: UUID, review_type: ReviewType, result: Any, reviewer_model_id: UUID
+    ) -> MessageReview:
+        """Create a MessageReview object with common parameters."""
+        return MessageReview(
+            message_id=message_id,
+            review_type=review_type,
+            result=result,
+            reviewer_model_id=reviewer_model_id,
+            status=ReviewStatus.ERROR if has_error else ReviewStatus.SUCCESS,
+        )
+
     try:
         async with get_async_session() as session:
-            # Process each message and review type
             for model_name, message in last_assistant_responses.items():
+                message_context = f"message_id={message.message_id}, turn_id={message.turn_id}, chat_id={chat_id}"
+
                 for review_type in review_types:
                     if review_type not in processed_results:
-                        logging.warning(
-                            f"Review type {review_type} not found in processed results "
-                            f"(message_id={message.message_id}, turn_id={message.turn_id}, chat_id={chat_id})"
-                        )
+                        logging.warning(f"Review type {review_type} not found in processed results ({message_context})")
                         continue
 
-                    # Special handling for nuggetized reviews
-                    if review_type == ReviewType.NUGGETIZED:
-                        # Get the nuggetized result for this model
-                        review_result = processed_results[review_type].get(model_name)
-                        if not review_result:
-                            logging.warning(f"Nuggetized review result for {model_name} not found in processed results")
-                            continue
-
-                        # For nuggetized reviews, we use a fixed reviewer model (gpt-4o)
-                        reviewer_model = REVIEW_MODEL_FALLBACK
-                        if reviewer_model not in model_info:
-                            logging.warning(f"Reviewer model {reviewer_model} not found in model_info")
-                            continue
-
-                        _, reviewer_model_id = model_info[reviewer_model]
-
-                        review = MessageReview(
-                            message_id=message.message_id,
-                            review_type=review_type,
-                            result=review_result,
-                            reviewer_model_id=reviewer_model_id,
-                            status=ReviewStatus.ERROR if has_error else ReviewStatus.SUCCESS,
-                        )
-                        session.add(review)
-                        continue
-
-                    # Standard handling for other review types
+                    # Get review result for this model
                     review_result = processed_results[review_type].get(model_name)
                     if not review_result:
                         logging.warning(
-                            f"Review result for {model_name} and {review_type} not found in processed results "
-                            f"(message_id={message.message_id}, turn_id={message.turn_id}, chat_id={chat_id})"
+                            f"Review result for {model_name} and {review_type} not found ({message_context})"
                         )
                         continue
 
-                    if review_type not in reviewers or model_name not in reviewers[review_type]:
-                        logging.warning(
-                            f"Reviewer for {model_name} and {review_type} not found in reviewers "
-                            f"(message_id={message.message_id}, turn_id={message.turn_id}, chat_id={chat_id})"
-                        )
-                        continue
+                    # Determine reviewer model and ID
+                    if review_type == ReviewType.NUGGETIZED:
+                        # For nuggetized reviews, we use a fixed reviewer model
+                        reviewer_model = REVIEW_MODEL_FALLBACK
+                    else:
+                        # For other review types, get reviewer from the reviewers dict
+                        if review_type not in reviewers or model_name not in reviewers[review_type]:
+                            logging.warning(
+                                f"Reviewer for {model_name} and {review_type} not found ({message_context})"
+                            )
+                            continue
+                        reviewer_model = reviewers[review_type][model_name].model
 
-                    reviewer = reviewers[review_type][model_name]
-                    reviewer_model = reviewer.model
+                    # Get reviewer model ID from model_info
                     if reviewer_model not in model_info:
-                        logging.warning(
-                            f"Reviewer model {reviewer_model} not found in model_info "
-                            f"(message_id={message.message_id}, turn_id={message.turn_id}, chat_id={chat_id})"
-                        )
+                        logging.warning(f"Reviewer model {reviewer_model} not found in model_info ({message_context})")
                         continue
 
                     _, reviewer_model_id = model_info[reviewer_model]
 
-                    review = MessageReview(
+                    # Create and add review to session
+                    review = create_review_obj(
                         message_id=message.message_id,
                         review_type=review_type,
                         result=review_result,
                         reviewer_model_id=reviewer_model_id,
-                        status=ReviewStatus.ERROR if has_error else ReviewStatus.SUCCESS,
                     )
                     session.add(review)
 
             await session.commit()
-
     except Exception as e:
-        logging.error(
-            f"Error storing reviews to DB: {e}. "
-            f"Failed messages: {[m.message_id for m in last_assistant_responses.values()]} "
-            f"chat_id: {chat_id}"
-        )
+        failed_messages = [m.message_id for m in last_assistant_responses.values()]
+        logging.error(f"Error storing reviews to DB: {e}. Failed messages: {failed_messages}, chat_id: {chat_id}")

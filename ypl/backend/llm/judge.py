@@ -47,6 +47,9 @@ from ypl.backend.prompts.response_quality import (
     RESPONSE_DIFFICULTY_PROMPT_TEMPLATE,
     RESPONSE_QUALITY_PROMPT_TEMPLATE,
 )
+from ypl.backend.prompts.review_classification import (
+    REVIEW_ROUTE_CLASSIFIER_PROMPT_TEMPLATE,
+)
 from ypl.backend.prompts.suggestions import (
     JUDGE_CHAT_TITLE_PROMPT_TEMPLATE,
     JUDGE_CONVERSATION_STARTERS_PROMPT_TEMPLATE,
@@ -599,3 +602,36 @@ class MemoryCompactor(LLMLabeler[list[str], list[str]]):
     @property
     def error_value(self) -> list[str]:
         return []
+
+
+class ReviewRouteClassifier(LLMLabeler[str, str]):
+    """
+    Classifier that determines whether to route a query to Pro Review or Cross-Check.
+
+    - PRO: Factual, math, puzzle, factoid problems that ideally have clear right/wrong answers
+    - CROSS: More elaborate queries requiring comparison of style, tone, and subjective factors
+    """
+
+    cached = True
+
+    def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
+        return cast(BaseChatModel, REVIEW_ROUTE_CLASSIFIER_PROMPT_TEMPLATE | llm)
+
+    def _prepare_input(self, input: str) -> dict[str, Any]:
+        return {"query": input}
+
+    def _parse_output(self, output: BaseMessage) -> str:
+        content = str(output.content).strip().upper()
+        if "PRO" in content:
+            return "PRO"
+        elif "CROSS" in content:
+            return "CROSS"
+        else:
+            # Default to PRO for uncertain cases
+            logging.warning(f"Unclear classification result: {content}. Defaulting to PRO.")
+            return "PRO"
+
+    @property
+    def error_value(self) -> str:
+        # Default to PRO if there's an error
+        return "PRO"

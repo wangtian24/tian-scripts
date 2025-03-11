@@ -213,7 +213,7 @@ Return the list of labels in a Pythonic list format (type: List[str]). The list 
 Only return the list of labels (List[str]). Do not explain. Do not use identifiers like <Labels>.
 Labels:"""
 
-CROSS_CHECK_PROMPT = """You are a helpful assistant.
+CROSS_CHECK_CRITIQUE_PROMPT = """You are a helpful assistant.
 A user has previously asked both you and other assistant, {other_model_names}, to respond to a prompt, and you both responded.
 You can now see the other assistants' responses to the user's prompt.
 Your job is to react to the other assistant response, reflecting on your own response if needed.
@@ -227,15 +227,40 @@ You may also point out flaws in your own response in light of the other assistan
 When referring to the other assistant's response, you may use their name, {other_model_names}.
 Refer to the response provided by your model in the first person -- "my response", "my answer", or "me", and so on
 Be brief and concise, ideally respond in one or two sentences. You may use bullet points if you think it makes your response clearer.
-You may use formatting (bold text, bullets, and so on) to highlight aspects of your reaction to the other assistant's response."""
+You may use formatting (bold text, bullets, and so on) to highlight aspects of your reaction to the other assistant's response.
+Respond with two passages, each with two sentences.
+The first paragraph is a critique of the other assistant's response, and the second paragraph is a critique of your response in light of the other assistant's response."""
 
-CROSS_CHECK_USER_PROMPT = """Assess the other assistant's response critically, comparing it to your previous response.
+
+CROSS_CHECK_CRITIQUE_USER_PROMPT = """Assess the other assistant's response critically, comparing it to your response.
 
 - Identify any inaccuracies or omissions.
 - Highlight differences and provide constructive feedback.
 - Reflect on your own response, if applicable.
 
+Respond with two passages, each with two sentences, as per the instructions.
 Be concise, using bullets or formatting for clarity.
+"""
+
+CROSS_CHECK_BINARY_PROMPT = """You are an expert at evaluating if AI responses accurately address user queries in a conversation context.
+
+A user has previously asked both you and other assistant, {other_model_names}, to respond to a prompt, and you both responded.
+You can now see the other assistants' responses to the user's prompt.
+
+Your task is to determine if the other assistant's response is correct based on:
+1. Relevance: Does the other response properly address the user's query, in light of both responses?
+2. Accuracy: Does the other response contain accurate information?
+3. Clarity: Is the other response clear and helpful to the user?
+
+Respond with 'true' (without quotes) if you believe the other assistant's response matches the criteria above. Do not be too strict.
+Respond with 'false' (without quotes) if you believe it does not.
+
+Do not provide any explanation or additional text - just a single true or false."""
+
+CROSS_CHECK_BINARY_USER_PROMPT = """Compare the other assistant's response to your response.
+
+Is the other assistant's response matching the criteria provided in the instructions?
+Answer with only true or false.
 """
 
 TALK_TO_OTHER_MODELS_SYSTEM_PROMPT_TEMPLATE = """You are a helpful assistant.

@@ -20,7 +20,8 @@ class ReviewType(str, enum.Enum):
     CRITIQUE = "critique"
     SEGMENTED = "segmented"
     NUGGETIZED = "nuggetized"
-    CROSS_CHECK = "cross_check"
+    CROSS_CHECK_CRITIQUE = "cross_check_critique"  # Revised: critique-style cross-check
+    CROSS_CHECK_BINARY = "cross_check_binary"  # New: binary-style cross-check
 
 
 class ReviewStatus(str, enum.Enum):
@@ -31,6 +32,13 @@ class ReviewStatus(str, enum.Enum):
     ERROR = "error"
 
 
+class ReviewRoute(str, enum.Enum):
+    """Route for review operations."""
+
+    PRO = "pro"
+    CROSS_CHECK = "cross_check"
+
+
 class ReviewRequest(BaseModel):
     """Request model for review operations."""
 
@@ -39,6 +47,7 @@ class ReviewRequest(BaseModel):
     fallback_reviewer_model_name: str | None = None
     reviewer_model_preference: list[str] | None = None
     timeout_secs: float = settings.DEFAULT_REVIEW_TIMEOUT_SECS
+    review_route: ReviewRoute | None = None
 
 
 class BinaryResult(TypedDict):
@@ -69,10 +78,18 @@ class NuggetizedResult(TypedDict):
     reviewer_model: str
 
 
-class CrossCheckResult(TypedDict):
-    """Result from cross check review."""
+class CrossCheckCritiqueResult(TypedDict):
+    """Result from cross check critique review."""
 
     response: str
+    reviewer_model: str
+    other_model_names: str
+
+
+class CrossCheckBinaryResult(TypedDict):
+    """Result from cross check binary review."""
+
+    response: bool
     reviewer_model: str
     other_model_names: str
 
@@ -84,7 +101,8 @@ class ReviewResponse(BaseModel):
     critique: dict[str, CritiqueResult] | None = None
     segmented: dict[str, SegmentedResult] | None = None
     nuggetized: dict[str, NuggetizedResult] | None = None
-    cross_check: dict[str, CrossCheckResult] | None = None
+    cross_check_critique: dict[str, CrossCheckCritiqueResult] | None = None
+    cross_check_binary: dict[str, CrossCheckBinaryResult] | None = None
     status: ReviewStatus
 
 
@@ -96,5 +114,12 @@ class ReviewConfig(BaseModel):
     user_prompt_template: str = ""
 
 
-AllReviewResults = BinaryResult | CritiqueResult | SegmentedResult | NuggetizedResult | CrossCheckResult
+AllReviewResults = (
+    BinaryResult
+    | CritiqueResult
+    | SegmentedResult
+    | NuggetizedResult
+    | CrossCheckCritiqueResult
+    | CrossCheckBinaryResult
+)
 ReviewResult = dict[str, AllReviewResults]
