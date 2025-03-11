@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import uuid
+from collections.abc import Sequence
 from enum import Enum
 from typing import Any
 from uuid import UUID
@@ -501,7 +502,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
 
 
 # TODO(bhanu) - add retry logic -
-async def get_active_prompt_modifiers() -> list[PromptModifier]:
+async def get_active_prompt_modifiers() -> Sequence[PromptModifier]:
     async with get_async_session() as session:
         result = await session.exec(select(PromptModifier).where(PromptModifier.deleted_at.is_(None)))  # type: ignore
-        return result.scalars().all()  # type: ignore
+        return result.all()
