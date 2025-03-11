@@ -10,8 +10,24 @@ RUN pip install poetry==1.8.2 && \
 
 COPY pyproject.toml poetry.lock ./
 
-RUN poetry install --no-root --no-dev --no-cache && \
-  rm -rfv /root/.cache/
+ARG STRIPE_GITHUB_TOKEN
+RUN if [ -n "$STRIPE_GITHUB_TOKEN" ]; then \
+    poetry config http-basic.github $STRIPE_GITHUB_TOKEN x-oauth-basic && \
+    git config --global url."https://${STRIPE_GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/" && \
+    echo "GitHub authentication configured successfully"; \
+    else \
+    echo "Error: STRIPE_GITHUB_TOKEN is required but was not provided" && \
+    exit 1; \
+    fi
+
+RUN echo "Installing dependencies..." && \
+    STRIPE_GITHUB_TOKEN=$STRIPE_GITHUB_TOKEN poetry install --no-root || (echo "Poetry install failed. Check the logs above for details." && exit 1)
+RUN bash -c "poetry build"
+RUN bash -c "pip install ."
+
+RUN if [ -n "$STRIPE_GITHUB_TOKEN" ]; then \
+  git config --global --unset url."https://${STRIPE_GITHUB_TOKEN}@github.com/".insteadOf && \
+    echo "GitHub authentication configuration removed"
 
 # Clean up
 RUN apt-get clean && rm -rf /var/lib/apt/lists/*
