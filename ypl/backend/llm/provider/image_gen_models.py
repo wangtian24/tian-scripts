@@ -90,16 +90,14 @@ class ImageGenChatModel(BaseChatModel):
         run_manager: AsyncCallbackManagerForLLMRun | None = None,
         **kwargs: Any,
     ) -> AsyncIterator[ChatGenerationChunk]:
-        # First yield a thinking message
-        yield self._chat_generation_chunk("<think> Generating image...")
+        # Send an empty token to avoid first token timeout in chat_completions.py
+        yield self._chat_generation_chunk("")
 
         try:
             # Use all the user prompts together as the image generation prompt.
             # This might not work well for some corner cases, need to improve if models support better context.
             image_prompt = self._concat_user_messages(messages)
             image_url = await self._agenerate_image(image_prompt, **kwargs)
-
-            yield self._chat_generation_chunk("</think>")
 
             # Yield the final result
             if image_url and run_manager:

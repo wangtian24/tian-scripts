@@ -151,8 +151,6 @@ async def do_backfill_gen_image_urls() -> None:
         Replacing all urls
         The chat message content looks like:
 
-            <think>Generating your image...</think>
-
             <yapp class="image">
                 {
                     "url": "https://.....",
