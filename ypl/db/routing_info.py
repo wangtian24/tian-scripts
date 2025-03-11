@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship
 
 from ypl.db.base import BaseModel
-from ypl.db.chats import ChatMessage, Turn
+from ypl.db.chats import ChatMessage
 
 
 class RoutingInfo(BaseModel, table=True):
@@ -24,7 +24,7 @@ class RoutingInfo(BaseModel, table=True):
     routing_info_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
 
     # the turn where this routing happened
-    turn_id: uuid.UUID = Field(foreign_key="turns.turn_id", nullable=False, index=True)
+    turn_id: uuid.UUID = Field(nullable=False, index=True)
 
     # -- the input to the routing
     # he model and style selector used for this turn
@@ -39,10 +39,5 @@ class RoutingInfo(BaseModel, table=True):
     routing_outcome: list[Any] | dict[str, Any] = Field(default_factory=dict, sa_type=JSONB, nullable=False)
 
     # -- Relationships
-
-    # one RoutingInfo belongs to only one Turn, but multiple RoutingInfo rows might correspond to the same turn
-    # due to "Show More AIs"
-    turn: Turn = Relationship(back_populates="routing_infos")
-
     # one RoutingInfo can be linked to multiple ChatMessages as the outcome of the routing.
     messages: list[ChatMessage] = Relationship(back_populates="routing_info")

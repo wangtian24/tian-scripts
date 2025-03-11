@@ -91,9 +91,6 @@ class Turn(BaseModel, table=True):
     # This shouldn't be updated for SHOW_ME_MORE rounds though.
     router_selected_models: list[str] | None = Field(sa_column=Column(ARRAY(Text), nullable=True))
 
-    # Relationship to routing info
-    routing_infos: list["RoutingInfo"] = Relationship(back_populates="turn")
-
     __table_args__ = (UniqueConstraint("chat_id", "sequence_id", name="uq_chat_sequence"),)
 
 
