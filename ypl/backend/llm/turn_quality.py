@@ -18,7 +18,7 @@ from sqlmodel import Session, select
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from ypl.backend.config import settings
-from ypl.backend.db import get_async_engine, get_async_session, get_engine
+from ypl.backend.db import get_async_session, get_engine
 from ypl.backend.llm.constants import ChatProvider
 from ypl.backend.llm.judge import DEFAULT_PROMPT_DIFFICULTY, YuppPromptDifficultyWithCommentLabeler
 from ypl.backend.llm.model_data_type import ModelInfo
@@ -83,13 +83,13 @@ def get_llm() -> BaseChatModel:
     return LLM
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=30), reraise=True)
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=2, max=30), reraise=True)
 async def label_turn_quality_with_retry(turn_id: UUID, chat_id: UUID, prompt: str | None = None) -> TurnQuality:
     cache = TurnQualityCache.get_instance()
     tq = await cache.aread(turn_id, deep=True)
 
     if not tq:
-        async with AsyncSession(get_async_engine()) as session:
+        async with get_async_session() as session:
             tq = TurnQuality(turn_id=turn_id, chat_id=chat_id)
             session.add(tq)
             await session.commit()
@@ -176,8 +176,12 @@ async def label_turn_quality_with_retry(turn_id: UUID, chat_id: UUID, prompt: st
     return tq
 
 
-async def label_turn_quality(turn_id: UUID, chat_id: UUID, prompt: str | None = None) -> TurnQuality:
+async def label_turn_quality(
+    turn_id: UUID, chat_id: UUID, prompt: str | None = None, sleep_seconds: float = 0.0
+) -> TurnQuality:
     try:
+        if sleep_seconds:
+            await asyncio.sleep(sleep_seconds)
         return await label_turn_quality_with_retry(turn_id, chat_id, prompt)
     except Exception as e:
         logging.error(f"Failed to label turn quality after retries: {str(e)}")

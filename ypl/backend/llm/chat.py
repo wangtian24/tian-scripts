@@ -237,7 +237,7 @@ async def _set_prompt_modifiers(
 
 def kick_off_label_turn_quality(prompt: str, chat_id: str, turn_id: str) -> str:
     assert prompt is not None, "prompt is required for NEW_CHAT or NEW_TURN intent"
-    asyncio.create_task(label_turn_quality(UUID(turn_id), UUID(chat_id), prompt))
+    asyncio.create_task(label_turn_quality(UUID(turn_id), UUID(chat_id), prompt, sleep_seconds=0.5))
     return prompt
 
 
