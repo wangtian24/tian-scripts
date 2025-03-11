@@ -231,7 +231,7 @@ async def update_payment_information(event_type: StripeOutboundPaymentEventEnum,
 
         if not payment_transaction:
             log_dict = {
-                "message": "Stripe webhook: Payment transaction not found",
+                "message": "Stripe webhook: Payment transaction not found in our db for an incoming event",
                 "related_object_id": related_object_id,
             }
             logging.error(json.dumps(log_dict))
@@ -258,8 +258,14 @@ async def update_payment_information(event_type: StripeOutboundPaymentEventEnum,
             await session.commit()
         else:
             log_dict = {
-                "message": "Stripe webhook: Payment transaction status is posted but not pending or success",
+                "message": (
+                    "Stripe webhook: Payment transaction status is posted but not pending or success. "
+                    "Check the status if it was reversed or failed before and is now getting marked as success"
+                ),
                 "related_object_id": related_object_id,
+                "payment_transaction_status": payment_transaction.status,
+                "payment_transaction_id": payment_transaction.payment_transaction_id,
+                "webhook_status": event_type,
             }
             logging.error(json.dumps(log_dict))
             asyncio.create_task(post_to_slack(json.dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
@@ -272,9 +278,11 @@ async def update_payment_information(event_type: StripeOutboundPaymentEventEnum,
             "message": "Stripe webhook: Payment transaction failed",
             "payment status": event_type,
             "related_object_id": related_object_id,
+            "payment_transaction_status": payment_transaction.status,
+            "payment_transaction_id": payment_transaction.payment_transaction_id,
+            "webhook_status": event_type,
         }
         logging.info(json.dumps(log_dict))
-        asyncio.create_task(post_to_slack(json.dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
 
         if payment_transaction.status == PaymentTransactionStatusEnum.REVERSED:
             log_dict = {
@@ -284,6 +292,7 @@ async def update_payment_information(event_type: StripeOutboundPaymentEventEnum,
             logging.info(json.dumps(log_dict))
             return
 
+        asyncio.create_task(post_to_slack(json.dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
         # retrieve the other data required to handle failed transaction
         async with get_async_session() as session:
             query_result = await session.execute(
