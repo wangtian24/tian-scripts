@@ -69,10 +69,8 @@ def _get_assistant_messages(
 
     If use_all_models_in_chat_history is True, includes assistant messages from all models, indicating which ones
     are from the current model and which one was preferred by the user (if any).
-    If use_all_models_in_chat_history is False, includes only the preferred messages, or the first message if none
-    were selected.
-
-    This is used in test only right now.
+    If use_all_models_in_chat_history is False, includes only the preferred messages, or the first message that
+    completed successfully if none were selected; if none completed successfully, include the first message.
     """
     messages: list[BaseMessage] = []
     assistant_msgs = [
@@ -114,6 +112,12 @@ def _get_assistant_messages(
             None,
         )
         if not selected_msg:
+            # Prefer non-aborted responses.
+            selected_msg = next(
+                (msg for msg in assistant_msgs if msg.completion_status == CompletionStatus.SUCCESS),
+                None,
+            )
+        if not selected_msg:
             selected_msg = next(
                 (msg for msg in assistant_msgs if msg.assistant_language_model.internal_name == model),
                 assistant_msgs[0],  # Fallback to first message if none selected
@@ -123,7 +127,7 @@ def _get_assistant_messages(
         else:
             content = None
             log_info = {
-                "message": "No selected message in turn",
+                "message": "No selected message, or successful message, fallback message in turn",
                 "model_for_selected_message_lookup": model,
                 "turn_id": assistant_msgs[0].turn_id,
             }
@@ -187,8 +191,9 @@ async def get_curated_chat_context(
             ChatMessage.deleted_at.is_(None),  # type: ignore[union-attr]
             Turn.deleted_at.is_(None),  # type: ignore[union-attr]
             or_(
-                # Do not include errored responses.
+                # Do not include errored responses, but aborted partial responses are ok.
                 ChatMessage.completion_status == CompletionStatus.SUCCESS,
+                ChatMessage.completion_status == CompletionStatus.USER_ABORTED,
                 ChatMessage.completion_status.is_(None),  # type: ignore[attr-defined]
             ),
             Chat.deleted_at.is_(None),  # type: ignore[union-attr]
