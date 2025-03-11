@@ -8,6 +8,7 @@ from enum import Enum
 from typing import Any, cast
 
 from fastapi import APIRouter, Header, Request
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 from stripe import Event, SignatureVerificationError, Webhook
 from ypl.backend.config import settings
@@ -204,6 +205,9 @@ async def process_stripe_webhook(webhook_token: str, payload: str, stripe_signat
 
             # TODO: Post notification to Slack for important events
 
+    except IntegrityError:
+        # If we hit a unique violation, another process created the record
+        pass
     except Exception as e:
         log_dict = {
             "message": "Error processing Stripe webhook",
