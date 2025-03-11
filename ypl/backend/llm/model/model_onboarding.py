@@ -106,21 +106,24 @@ async def verify_onboard_specific_model(model_id: UUID) -> None:
 
             if row:
                 model, _ = row
-                await _verify_one_submitted_model(model)
+                success = await _verify_one_submitted_model(model)
 
-                await revalidate_yupp_head_model_info()
+                if success:
+                    await revalidate_yupp_head_model_info()
             else:
                 log_dict = {"message": f"No submitted model found with id {model_id}", "model_id": model_id}
                 logging.warning(json_dumps(log_dict))
 
 
-async def _verify_one_submitted_model(model: LanguageModel) -> None:
+async def _verify_one_submitted_model(model: LanguageModel) -> bool:
     """
     Verify and update the status of a single model.
 
     Args:
         model (LanguageModel): The model to verify and update.
-        provider_name (str): The name of the provider, this is mostly for display
+
+    Returns:
+        bool: True if the model was successfully verified and activated, False otherwise.
     """
     async for attempt in await _async_retry_decorator():
         with attempt:
@@ -146,6 +149,7 @@ async def _verify_one_submitted_model(model: LanguageModel) -> None:
                         session.add(model)
                         await session.commit()
                         await log_and_post(ModelManagementStatus.VALIDATED, model_name, level=ModelAlertLevel.ALERT)
+                        return True
                     else:
                         # reject if the model was submitted more than 3 days ago
                         print(f"Model {model.name}: submission verification done: Failed")
@@ -165,8 +169,9 @@ async def _verify_one_submitted_model(model: LanguageModel) -> None:
                             await log_and_post(
                                 ModelManagementStatus.PENDING,
                                 model_name,
-                                level=ModelAlertLevel.NOTIFY,
+                                level=ModelAlertLevel.ALERT,
                             )
+                        return False
 
                 except Exception as e:
                     print(f"Model {model.name}: error while verifying submission: {e}")
@@ -174,6 +179,8 @@ async def _verify_one_submitted_model(model: LanguageModel) -> None:
                         ModelManagementStatus.VALIDATION_ERROR, model_name, str(e), level=ModelAlertLevel.ALERT
                     )
                     raise  # trigger retry
+
+    return False
 
 
 @retry(

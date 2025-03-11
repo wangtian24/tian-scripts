@@ -57,6 +57,10 @@ def clean_provider_name(provider_name: str) -> str:
     return provider_name.lower().strip().replace(" ", "_")
 
 
+def create_model_canonical_name(provider_name: str, internal_name: str) -> str:
+    return f"{clean_provider_name(provider_name)}/{internal_name}"
+
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_fixed(0.1),
@@ -76,7 +80,7 @@ async def create_model(model: LanguageModel) -> UUID:
             provider_name = (await session.exec(provider_query)).one_or_none()
             await session.commit()
             if provider_name:
-                model.name = f"{clean_provider_name(provider_name)}/{model.internal_name}"
+                model.name = create_model_canonical_name(provider_name, model.internal_name)
             else:
                 raise ValueError(f"Provider {model.provider_id} not found")
 

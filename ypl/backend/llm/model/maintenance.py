@@ -6,6 +6,7 @@ from sqlalchemy import func, text
 from sqlalchemy.orm import selectinload
 from sqlmodel import select
 from ypl.backend.db import get_async_session
+from ypl.backend.llm.model.model import create_model_canonical_name
 from ypl.backend.llm.utils import YuppSlackApps, post_to_slack_channel
 from ypl.backend.utils.json import json_dumps
 from ypl.db.language_models import (
@@ -44,7 +45,7 @@ async def _check_model_provider_and_names() -> None:
             if model.provider is None:
                 models_without_providers.append(model.name)
                 continue
-            canonical_name = f"{model.provider.name.lower().replace(' ', '_')}/{model.internal_name}"
+            canonical_name = create_model_canonical_name(model.provider.name, model.internal_name)
             if model.name != canonical_name:
                 models_with_name_changes.append((model.name, canonical_name))
                 model.name = canonical_name

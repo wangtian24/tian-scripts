@@ -48,8 +48,9 @@ MAX_SHORT_TERM_ERROR_RATE = 0.4
 MAX_LONG_TERM_ERROR_RATE = 0.2
 
 # How many consecutive failures or successes before we exit probation.
-PROBATION_EXIT_SUCCESS_REQS = 3
-PROBATION_EXIT_FAILURE_REQS = 18
+CRON_JOB_INTERVAL = 10  # in minutes
+PROBATION_EXIT_SUCCESS_REQS = 30 / CRON_JOB_INTERVAL
+PROBATION_EXIT_FAILURE_REQS = 36 * 60 / CRON_JOB_INTERVAL  # 36 hours of trying to revive it!
 
 
 @retry(

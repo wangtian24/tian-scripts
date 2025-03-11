@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 import traceback
 import uuid
 from collections.abc import AsyncIterator
@@ -34,18 +35,18 @@ from ypl.backend.llm.chat_instrumentation_service import (
 from ypl.backend.llm.chat_title import maybe_set_chat_title
 from ypl.backend.llm.context import get_curated_chat_context
 from ypl.backend.llm.crawl import enhance_citations
-from ypl.backend.llm.db_helpers import is_image_generation_model
+from ypl.backend.llm.db_helpers import adeduce_original_provider, is_image_generation_model
 from ypl.backend.llm.embedding import embed_and_store_chat_message_embeddings
 from ypl.backend.llm.memories import maybe_extract_memories
 from ypl.backend.llm.model.management_common import ModelErrorType, contains_error_keywords
-from ypl.backend.llm.model.model import ModelResponseTelemetry
+from ypl.backend.llm.model.model import ModelResponseTelemetry, create_model_canonical_name
 from ypl.backend.llm.model_heuristics import ModelHeuristics
 from ypl.backend.llm.prompt_suggestions import maybe_add_suggested_followups
 from ypl.backend.llm.provider.provider_clients import get_language_model, get_model_provider_tuple, get_provider_client
 from ypl.backend.llm.routing.common import SelectIntent
 from ypl.backend.llm.sanitize_messages import DEFAULT_MAX_TOKENS, sanitize_messages
 from ypl.backend.llm.transform_messages import TransformOptions, transform_user_messages
-from ypl.backend.llm.utils import post_to_slack
+from ypl.backend.llm.utils import post_to_slack_channel
 from ypl.backend.prompts.prompt_modifiers import get_system_prompt_with_modifiers
 from ypl.backend.prompts.reviews import talk_to_other_models_system_prompt
 from ypl.backend.utils.json import json_dumps
@@ -274,6 +275,26 @@ async def update_failed_message_status(message_id: UUID) -> None:
                 "error_details": str(e),
             }
             logging.error(json_dumps(info))
+
+
+def post_error(error_type: ModelErrorType, excerpt: str | None, chat_request: ChatRequest) -> None:
+    env = os.environ.get("ENVIRONMENT") or "unknown"
+
+    async def _post_error() -> None:
+        provider = (await adeduce_original_provider(chat_request.model)) or "unknown"
+        name = create_model_canonical_name(provider, chat_request.model)
+        await post_to_slack_channel(
+            (
+                f":exploding_head: [{env}] Detected *{error_type.value} error* "
+                f"on {name}: ``` {excerpt} ``` \n"
+                f"Chat ID: {chat_request.chat_id}\n"
+                f"Turn ID: {chat_request.turn_id}\n"
+                f"Message ID: {chat_request.message_id}\n"
+            ),
+            "#alert-backend" if env.lower() == "production" else "#alert-backend-staging",
+        )
+
+    asyncio.create_task(_post_error())
 
 
 class Intent(Enum):
@@ -661,14 +682,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
             error_message = str(e)
             error_type, excerpt = contains_error_keywords(error_message)
             if error_type and not recently_posted_error(chat_request.model, error_type=error_type):
-                clean_excerpt = excerpt.replace("`", "\\`").replace("'", "\\'") if excerpt else ""
-                asyncio.create_task(
-                    post_to_slack(
-                        f"*Potential {error_type.value} error*: {chat_request.model}: `... {clean_excerpt} ...`\n"
-                        f"Chat ID: {chat_request.chat_id}\n"
-                        f"Client: {str(client)}\n"
-                    )
-                )
+                post_error(error_type, excerpt, chat_request)
         stopwatch.record_split("stream_message_chunks")
 
         # if full_response is empty, send an error message to enable retry
