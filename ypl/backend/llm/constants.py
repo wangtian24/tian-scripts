@@ -630,6 +630,7 @@ PROVIDER_MODEL_PATTERNS = {
     re.compile(r"^(x-ai).*$", re.IGNORECASE): "x-ai",
     re.compile(r"^(gryphe).*$", re.IGNORECASE): "gryphe",
     re.compile(r"^(sambanova).*$", re.IGNORECASE): "sambanova",
+    re.compile(r"^(falai).*$", re.IGNORECASE): "falai",
 }
 
 

@@ -122,6 +122,7 @@ async def get_simple_pro_router(
     has_pdf = PDF_CATEGORY in categories
     has_attachment = has_image or has_pdf
     needs_online_access = ONLINE_CATEGORY in categories
+    needs_image_gen = IMAGE_GEN_CATEGORY in categories
 
     rule_proposer = RoutingRuleProposer(*categories)
     rule_filter = RoutingRuleFilter(*categories)
@@ -153,7 +154,15 @@ async def get_simple_pro_router(
         semantic_group_filter = OnePerSemanticGroupFilter(priority_models=required_models)
         return (
             # -- filter stage --
-            Exclude(name="-exclBad", providers=same_turn_shown_providers, exclude_models=exclude_models)
+            (  # Exclude already shown providers, except for image gen, where only the shown models are excluded.
+                Exclude(name="-exclBad", providers=same_turn_shown_providers, exclude_models=exclude_models)
+                if not needs_image_gen
+                else Exclude(
+                    name="-exclBad",
+                    providers=set(),
+                    exclude_models=(exclude_models or set()) | set(same_turn_shown_models or []),
+                )
+            )
             # Inject required models, even if they don't have attachment capabilities.
             | Inject(required_models or [], score=50_000_000)
             # exclude inactive models after injection, this is necessary in case we are injecting models inferred
@@ -165,7 +174,7 @@ async def get_simple_pro_router(
             | (semantic_group_filter if not has_attachment else Passthrough())
             | (
                 ProviderFilter(one_per_provider=True, priority_models=required_models)
-                if not has_attachment
+                if not has_attachment and not needs_image_gen
                 else Passthrough()
             )  # dedupe by provider, relax for image/pdf needs
             # -- ranking stage --
@@ -211,7 +220,8 @@ async def get_simple_pro_router(
             | (
                 # propose through routing table rules
                 (rule_proposer.with_flags(always_include=True) | RandomJitter(jitter_range=1))
-                & (ImageGenModelsProposer() if IMAGE_GEN_CATEGORY in categories else Passthrough())
+                # Propose image gen models explicitly so that IMAGE_GEN_CATEGORY is their selection criteria.
+                & (ImageGenModelsProposer() if needs_image_gen else Passthrough())
                 # always try to have something pro and strong in the first turn
                 & (ProAndStrongModelProposer() | error_filter | TopK(1, name="pro_and_strong")).with_flags(
                     always_include=True, offset=1_000_000
@@ -259,6 +269,8 @@ async def get_simple_pro_router(
                 ).with_probs(1 - no_proposal_prob, no_proposal_prob)
                 # propose through routing table rules
                 & (rule_proposer.with_flags(always_include=True) | error_filter | RandomJitter(jitter_range=1))
+                # Propose image gen models explicitly so that IMAGE_GEN_CATEGORY is their selection criteria.
+                & (ImageGenModelsProposer() if needs_image_gen else Passthrough())
                 # propose pro OR reputable OR random models, choosing them random using the probabilities in with_probs
                 & (
                     (
