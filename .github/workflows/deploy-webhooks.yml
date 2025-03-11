@@ -119,6 +119,7 @@ jobs:
         file: Dockerfile.webhooks
         build-args: |
           BUILDKIT_INLINE_CACHE=1
+          STRIPE_GITHUB_TOKEN=${{ secrets.STRIPE_GITHUB_TOKEN }}
 
     - name: Deploy to Cloud Run
       run: |
