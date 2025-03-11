@@ -1,6 +1,7 @@
 import logging
 import os
 import re
+import traceback
 from datetime import datetime
 from typing import Any
 
@@ -110,15 +111,26 @@ class ConsolidatedMixin:
 
     def _format_message(self, record: logging.LogRecord) -> str | dict:
         """Format the log message with module information."""
+        msg_dict = None
+        traceback_dict = (
+            {
+                "traceback": traceback.format_exc(),
+                "exc_type": record.exc_info[0].__name__,  # type: ignore
+            }
+            if record.exc_info
+            else {}
+        )
+
         if isinstance(record.msg, dict):
-            return {"module": record.module, **record.msg}
+            msg_dict = record.msg
 
         if isinstance(record.msg, str) and record.msg.strip().startswith("{"):
-            parsed_msg = self._is_json_string(record.msg)
-            if parsed_msg is not None:
-                return {"module": record.module, **parsed_msg}
+            msg_dict = self._is_json_string(record.msg) or None
 
-        return record.msg
+        if msg_dict:
+            return {"module": record.module} | msg_dict | traceback_dict
+        else:
+            return str(record.msg) + (f"\n{traceback_dict['traceback']}" if traceback_dict else "")
 
 
 class ConsolidatedHandler(RedactingMixin, TruncatingMixin, CloudLoggingHandler, ConsolidatedMixin):
