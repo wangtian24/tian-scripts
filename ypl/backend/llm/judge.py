@@ -4,14 +4,11 @@ import re
 from typing import Any, Literal, cast
 
 import orjson
-import vertexai
-import vertexai.preview
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel as BaseModelV1
 from sqlmodel import Session, select
-from vertexai.preview.generative_models import GenerativeModel
 
 from ypl.backend.db import get_engine
 from ypl.backend.llm.constants import MODEL_HEURISTICS
@@ -240,31 +237,6 @@ class YuppOnlinePromptLabeler(PromptCategorizer, TruncatedPromptLabeler[bool]):
     @property
     def error_value(self) -> bool:
         return False
-
-
-class FastVertexAIOnlinePromptLabeler(PromptCategorizer):
-    def __init__(self, project_id: str, region: str, model: str = "gemini-1.5-flash-002") -> None:
-        self.project_id = project_id
-        self.region = region
-        self._init = False
-
-        try:
-            vertexai.init(project=self.project_id, location=self.region)
-            self.model = GenerativeModel(model)
-            self._init = True
-        except Exception as e:
-            logging.error(f"Error initializing Vertex AI: {e}")
-
-    def _infer_category(self, user_prompt: str) -> str:
-        assert self.model is not None
-        response = self.model.generate_content([user_prompt], temperature=0.0, max_tokens=16)
-        return "online" if response.text else "offline"
-
-    def categorize(self, user_prompt: str) -> CategorizerResponse:
-        if not self._init:
-            return CategorizerResponse(category="offline")
-
-        return CategorizerResponse(category=self._infer_category(user_prompt))
 
 
 class YuppMultilabelClassifier(LLMLabeler[str, list[str]]):

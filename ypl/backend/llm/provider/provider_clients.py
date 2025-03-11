@@ -21,7 +21,7 @@ from ypl.backend.llm.provider.google_grounded_gemini import GoogleGroundedGemini
 from ypl.backend.llm.provider.google_grounded_vertex_ai import GroundedVertexAI
 from ypl.backend.llm.provider.image_gen_models import DallEChatModel, FalAIImageGenModel
 from ypl.backend.llm.provider.perplexity import CustomChatPerplexity
-from ypl.backend.llm.vendor_langchain_adapter import GeminiLangChainAdapter, OpenAILangChainAdapter
+from ypl.backend.llm.vendor_langchain_adapter import OpenAILangChainAdapter
 from ypl.backend.utils.utils import merge_base_url_with_port
 from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
 
@@ -262,38 +262,17 @@ class InternalLLMParams(BaseModel):
 COMMON_INTERNAL_LLMS: dict[tuple[str, InternalLLMParams], BaseChatModel] = {}
 
 
-def get_gemini_2_flash_llm(max_tokens: int) -> GeminiLangChainAdapter:
-    return GeminiLangChainAdapter(
-        model_info=ModelInfo(
-            provider=ChatProvider.GOOGLE,
-            model="gemini-2.0-flash-exp",
-            api_key=settings.GOOGLE_API_KEY,
-        ),
-        model_config_=dict(
-            project_id=settings.GCP_PROJECT_ID,
-            region=settings.GCP_REGION_GEMINI_2,
-            temperature=0.0,
-            max_output_tokens=max_tokens,
-            top_k=1,
-        ),
+def get_gemini_2_flash_llm(max_tokens: int) -> BaseChatModel:
+    return ChatVertexAI(
+        model_name="gemini-2.0-flash-exp",
+        project=settings.GCP_PROJECT_ID,
+        location=settings.GCP_REGION_GEMINI_2,
+        max_tokens=max_tokens,
     )
 
 
-def get_gemini_15_flash_llm(max_tokens: int) -> GeminiLangChainAdapter:
-    return GeminiLangChainAdapter(
-        model_info=ModelInfo(
-            provider=ChatProvider.GOOGLE,
-            model="gemini-1.5-flash-002",
-            api_key=settings.GOOGLE_API_KEY,
-        ),
-        model_config_=dict(
-            project_id=settings.GCP_PROJECT_ID,
-            region=settings.GCP_REGION,
-            temperature=0.0,
-            max_output_tokens=max_tokens,
-            top_k=1,
-        ),
-    )
+def get_gemini_15_flash_llm(max_tokens: int) -> BaseChatModel:
+    return ChatVertexAI(internal_name="gemini-1.5-flash-002", max_tokens=max_tokens)
 
 
 def _get_gpt_llm(model: str, max_tokens: int) -> OpenAILangChainAdapter:
