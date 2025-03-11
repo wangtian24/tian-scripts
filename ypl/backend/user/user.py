@@ -163,6 +163,18 @@ async def register_user_with_vendor(request: RegisterVendorRequest) -> VendorPro
                     "profile_id": str(existing_profile.user_vendor_profile_id),
                 }
                 logging.info(json_dumps(log_dict))
+
+                # If the user is already registered, then call update to get the new vendor URL
+                if not request.additional_details:
+                    raise VendorRegistrationError("Additional details are required for vendor update")
+
+                vendor_registration = get_vendor_registration(request.vendor_name)
+                vendor_response = await vendor_registration.update_user(
+                    user_id=request.user_id,
+                    user_vendor_id=existing_profile.user_vendor_id,
+                    additional_details=AdditionalDetails(**request.additional_details),
+                )
+
                 return VendorProfileResponse(
                     user_vendor_profile_id=existing_profile.user_vendor_profile_id,
                     user_id=existing_profile.user_id,
@@ -172,6 +184,7 @@ async def register_user_with_vendor(request: RegisterVendorRequest) -> VendorPro
                     created_at=existing_profile.created_at,
                     modified_at=existing_profile.modified_at,
                     deleted_at=existing_profile.deleted_at,
+                    vendor_url_link=vendor_response.vendor_url_link,
                 )
 
             additional_details = AdditionalDetails(**request.additional_details) if request.additional_details else None
