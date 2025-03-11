@@ -7,7 +7,7 @@ import uuid
 from collections.abc import AsyncIterator
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from cachetools import TTLCache
@@ -15,7 +15,7 @@ from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
 from langchain_core.callbacks import AsyncCallbackManagerForLLMRun
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import BaseMessage, BaseMessageChunk, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 from sqlalchemy import func, update
 from sqlalchemy.dialects.postgresql import Insert as pg_insert
@@ -540,95 +540,105 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
         ttft_recorded = False
         claude_thinking_started = False  # Used to insert <think> tag around Claude thinking text.
         try:
-            if not language_model.is_streaming_supported:
-                model_response = await client.agenerate([messages])
-                full_response += model_response.generations[0][0].text
-                yield StreamResponse({"content": full_response, "model": chat_request.model}).encode()
-            else:
 
-                async def stream_with_timeout_on_first(async_stream: AsyncIterator, model: LanguageModel):  # type: ignore[no-untyped-def]
-                    first_token_timeout = await get_TTFT_timeout_for_model(model)
-                    # apply timeout to the first token
-                    yield await asyncio.wait_for(async_stream.__anext__(), first_token_timeout)
-                    async for chunk in async_stream:
-                        yield chunk
+            async def stream_with_timeout_on_first(async_stream: AsyncIterator, model: LanguageModel):  # type: ignore[no-untyped-def]
+                first_token_timeout = await get_TTFT_timeout_for_model(model)
+                # apply timeout to the first token
+                yield await asyncio.wait_for(async_stream.__anext__(), first_token_timeout)
+                async for chunk in async_stream:
+                    yield chunk
 
-                model_response_stream = client.astream(messages, run_manager=run_manager)
+            async def stream_full_response(full_response: BaseMessage):  # type: ignore[no-untyped-def]
+                # Simulate a single element stream response from a non-streaming models. No timeout on first token.
+                yield cast(BaseMessageChunk, full_response)
 
-                async for chunk in stream_with_timeout_on_first(model_response_stream, language_model):
-                    # TODO(bhanu) - assess if we should customize chunking for optimal network performance
-                    if hasattr(chunk, "content") and chunk.content:
-                        if first_token_timestamp == 0:
-                            first_token_timestamp = datetime.now().timestamp()
-                        chunks_count += 1
-                        if isinstance(chunk.content, list) and chat_request.model.startswith("claude"):
-                            # Convert Claude thinking chunks to flat text with <think> and </think> tags to
-                            # match format of DeepSeek-R1 thinking reponse.
-                            thinking_content, text_content = _process_claude_thinking_content(chunk.content)
-                            content = ""
-                            if thinking_content:
-                                if not claude_thinking_started:
-                                    claude_thinking_started = True
-                                    content += THINKING_TAG_START
-                                content += thinking_content
-                            if text_content:
-                                if claude_thinking_started:
-                                    # Assume thinking ends with first text chunk.
-                                    content += THINKING_TAG_END
-                                    claude_thinking_started = False
-                                content += text_content
-                        else:
-                            content = str(chunk.content)  # Type is str | list.
-                        # Only log in local environment
-                        if settings.ENVIRONMENT == "local":
-                            logging.info(f"Streamed chunk from {chat_request.model}: {chunk.content}")
-                        full_response += str(content)
-                        if not ttft_recorded:
-                            stopwatch.end_lap("total_time_to_first_token")
-                            ttft_recorded = True
-                        yield StreamResponse({"content": content, "model": chat_request.model}).encode()
-                    if hasattr(chunk, "response_metadata") and chunk.response_metadata is not None:
-                        if chunk.response_metadata:
-                            if "citations" in chunk.response_metadata and chunk.response_metadata["citations"]:
-                                default_citations = [
-                                    {"title": url, "description": "", "url": url}
-                                    for url in chunk.response_metadata["citations"]
-                                ]
-                                metadata_future = asyncio.create_task(
-                                    enhance_citations(chunk.response_metadata["citations"])
-                                )
-                    # While streaming, yield (only once) if message was eager persisted.
-                    if eager_persist_task.done() and not eager_persist_task_yielded:
-                        eager_persist_task_yielded = True
+            # Set up model_response_stream:
+            model_response_stream = (
+                stream_with_timeout_on_first(
+                    client.astream(messages, run_manager=run_manager),
+                    language_model,
+                )
+                if language_model.is_streaming_supported
+                else stream_full_response(
+                    # We can't pass in run_manager here. How should we handle it? We can pass in a `Callback`.
+                    await client.ainvoke(messages),
+                )
+            )
+
+            async for chunk in model_response_stream:
+                # TODO(bhanu) - assess if we should customize chunking for optimal network performance
+                if hasattr(chunk, "content") and chunk.content:
+                    if first_token_timestamp == 0:
+                        first_token_timestamp = datetime.now().timestamp()
+                    chunks_count += 1
+                    if isinstance(chunk.content, list) and chat_request.model.startswith("claude"):
+                        # Convert Claude thinking chunks to flat text with <think> and </think> tags to
+                        # match format of DeepSeek-R1 thinking reponse.
+                        thinking_content, text_content = _process_claude_thinking_content(chunk.content)
+                        content = ""
+                        if thinking_content:
+                            if not claude_thinking_started:
+                                claude_thinking_started = True
+                                content += THINKING_TAG_START
+                            content += thinking_content
+                        if text_content:
+                            if claude_thinking_started:
+                                # Assume thinking ends with first text chunk.
+                                content += THINKING_TAG_END
+                                claude_thinking_started = False
+                            content += text_content
+                    else:
+                        content = str(chunk.content)  # Type is str | list.
+                    # Only log in local environment
+                    if settings.ENVIRONMENT == "local":
+                        logging.info(f"Streamed chunk from {chat_request.model}: {chunk.content}")
+                    full_response += str(content)
+                    if not ttft_recorded:
+                        stopwatch.end_lap("total_time_to_first_token")
+                        ttft_recorded = True
+                    yield StreamResponse({"content": content, "model": chat_request.model}).encode()
+                if hasattr(chunk, "response_metadata") and chunk.response_metadata is not None:
+                    if chunk.response_metadata:
+                        if "citations" in chunk.response_metadata and chunk.response_metadata["citations"]:
+                            default_citations = [
+                                {"title": url, "description": "", "url": url}
+                                for url in chunk.response_metadata["citations"]
+                            ]
+                            metadata_future = asyncio.create_task(
+                                enhance_citations(chunk.response_metadata["citations"])
+                            )
+                # While streaming, yield (only once) if message was eager persisted.
+                if eager_persist_task.done() and not eager_persist_task_yielded:
+                    eager_persist_task_yielded = True
+                    yield StreamResponse(
+                        {
+                            "status": "message_eager_persisted",
+                            "timestamp": datetime.now().isoformat(),
+                            "model": chat_request.model,
+                        },
+                        "status",
+                    ).encode()
+                if stop_stream_task.done():
+                    logging.info("Stop task done")
+                    # Get result from stop_stream_task
+                    stop_requested = await stop_stream_task
+                    if stop_requested:
+                        full_response += STOPPED_STREAMING
+                        logging.info(
+                            "Stop request received for chat "
+                            f"{chat_request.chat_id}, turn {chat_request.turn_id}, model {chat_request.model}"
+                        )
                         yield StreamResponse(
                             {
-                                "status": "message_eager_persisted",
+                                "status": "stop_stream_requested",
                                 "timestamp": datetime.now().isoformat(),
                                 "model": chat_request.model,
                             },
                             "status",
                         ).encode()
-                    if stop_stream_task.done():
-                        logging.info("Stop task done")
-                        # Get result from stop_stream_task
-                        stop_requested = await stop_stream_task
-                        if stop_requested:
-                            full_response += STOPPED_STREAMING
-                            logging.info(
-                                "Stop request received for chat "
-                                f"{chat_request.chat_id}, turn {chat_request.turn_id}, model {chat_request.model}"
-                            )
-                            yield StreamResponse(
-                                {
-                                    "status": "stop_stream_requested",
-                                    "timestamp": datetime.now().isoformat(),
-                                    "model": chat_request.model,
-                                },
-                                "status",
-                            ).encode()
-                            stream_completion_status = CompletionStatus.USER_ABORTED
-                            # respect the stop signal and break the stream processing
-                            break
+                        stream_completion_status = CompletionStatus.USER_ABORTED
+                        # respect the stop signal and break the stream processing
+                        break
         except asyncio.CancelledError:
             logging.warning("Cancelled Error (while streaming) because of client disconnect")
             stream_completion_status = CompletionStatus.SYSTEM_ERROR
