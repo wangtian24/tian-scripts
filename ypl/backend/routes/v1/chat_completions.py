@@ -49,6 +49,7 @@ from ypl.backend.llm.transform_messages import TransformOptions, transform_user_
 from ypl.backend.llm.utils import post_to_slack_channel
 from ypl.backend.prompts.prompt_modifiers import get_system_prompt_with_modifiers
 from ypl.backend.prompts.reviews import talk_to_other_models_system_prompt
+from ypl.backend.utils.async_utils import create_background_task
 from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.monitoring import metric_inc
 from ypl.backend.utils.utils import StopWatch
@@ -133,16 +134,16 @@ model_heuristics = ModelHeuristics(tokenizer_type="tiktoken")
 
 async def _message_completed(chat_request: ChatRequest, message_id: uuid.UUID, full_response: str) -> None:
     """Called when a message is completed successfully."""
-    asyncio.create_task(maybe_add_suggested_followups(chat_request.chat_id, chat_request.turn_id))
+    create_background_task(maybe_add_suggested_followups(chat_request.chat_id, chat_request.turn_id))
     if settings.EXTRACT_MEMORIES_FROM_MESSAGES:
-        asyncio.create_task(
+        create_background_task(
             maybe_extract_memories(chat_request.chat_id, chat_request.turn_id, chat_request.creator_user_id)
         )
     # Wait a bit before the title update to allow cache hits on the chat history.
-    asyncio.create_task(maybe_set_chat_title(chat_request.chat_id, chat_request.turn_id, sleep_secs=1.5))
-    asyncio.create_task(astore_language_code(str(chat_request.message_id), full_response, sleep_secs=1.0))
+    create_background_task(maybe_set_chat_title(chat_request.chat_id, chat_request.turn_id, sleep_secs=1.5))
+    create_background_task(astore_language_code(str(chat_request.message_id), full_response, sleep_secs=1.0))
     if settings.EMBED_MESSAGES_UPON_COMPLETION:
-        asyncio.create_task(embed_and_store_chat_message_embeddings(message_id, full_response))
+        create_background_task(embed_and_store_chat_message_embeddings(message_id, full_response))
 
 
 @router.post("/chat/completions")
@@ -209,7 +210,7 @@ async def _handle_existing_message(
 ) -> AsyncIterator[str]:
     metric_inc("stream/chat_completions/existing_message_found")
     chat_request.message_id = existing_message.message_id
-    asyncio.create_task(update_modifier_status(chat_request))
+    create_background_task(update_modifier_status(chat_request))
     log_dict = {
         "message": "chat_completions: Existing message found",
         "chat_id": str(chat_request.chat_id),
@@ -299,7 +300,7 @@ def post_error(error_type: ModelErrorType, excerpt: str | None, chat_request: Ch
             channel,
         )
 
-    asyncio.create_task(_post_error())
+    create_background_task(_post_error())
 
 
 class Intent(Enum):
@@ -450,7 +451,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
         )
         # Mark other messages from the same model in the same turn as HIDDEN.
         if chat_request.intent != SelectIntent.TALK_TO_OTHER_MODELS:
-            asyncio.create_task(update_modifier_status(chat_request))
+            create_background_task(update_modifier_status(chat_request))
 
         # Send initial status
         yield StreamResponse(intial_status, "status").encode()
@@ -716,7 +717,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
 
         # once streaming is done, update the status of the failed message
         if chat_request.intent == SelectIntent.RETRY and chat_request.retry_message_id:
-            asyncio.create_task(update_failed_message_status(chat_request.retry_message_id))
+            create_background_task(update_failed_message_status(chat_request.retry_message_id))
 
         # Send completion status
         end_time = datetime.now()
@@ -741,7 +742,7 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
         stopwatch.end_lap("total_time_to_last_token")
         stopwatch.record_split("postprocessing")
 
-        asyncio.create_task(
+        create_background_task(
             create_or_update_instrumentation(
                 ChatInstrumentationRequest(
                     message_id=chat_request.message_id,

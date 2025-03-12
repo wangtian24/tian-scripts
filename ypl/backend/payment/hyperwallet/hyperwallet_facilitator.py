@@ -11,7 +11,7 @@ from sqlalchemy import select
 from tenacity import retry, stop_after_attempt, wait_exponential
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
-from ypl.backend.llm.utils import post_to_slack_with_user_name
+from ypl.backend.llm.utils import post_to_slack_with_user_name_bg
 from ypl.backend.payment.facilitator import (
     BaseFacilitator,
     PaymentInstrumentError,
@@ -45,6 +45,7 @@ from ypl.backend.payment.payout_utils import (
     get_source_instrument_id as get_generic_source_instrument_id,
 )
 from ypl.backend.user.user import RegisterVendorRequest, register_user_with_vendor
+from ypl.backend.utils.async_utils import create_background_task
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import (
     CurrencyEnum,
@@ -456,7 +457,7 @@ class HyperwalletFacilitator(BaseFacilitator):
 
                 if transaction_status not in (TransactionStatus.COMPLETED.value, TransactionStatus.FAILED.value):
                     # Start monitoring in background task
-                    asyncio.create_task(
+                    create_background_task(
                         self._monitor_transaction_completion(
                             transaction_token=transaction_token,
                             payment_transaction_id=payment_transaction_id,
@@ -489,7 +490,7 @@ class HyperwalletFacilitator(BaseFacilitator):
                     "points_transaction_id": str(point_transaction_id),
                 }
                 logging.info(json_dumps(log_dict))
-                asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+                post_to_slack_with_user_name_bg(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
                 return PaymentResponse(
                     payment_transaction_id=payment_transaction_id,
                     transaction_status=PaymentTransactionStatusEnum.PENDING,
@@ -737,7 +738,7 @@ class HyperwalletFacilitator(BaseFacilitator):
             }
             logging.error(json_dumps(log_dict))
 
-            asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+            post_to_slack_with_user_name_bg(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
 
         except Exception as e:
             log_dict = {

@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from datetime import UTC, datetime
 
@@ -8,7 +7,7 @@ from sqlmodel import func, select
 
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
-from ypl.backend.llm.utils import post_to_slack_with_user_name
+from ypl.backend.llm.utils import post_to_slack_with_user_name_bg
 from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.soul_utils import SoulPermission, validate_permissions
 from ypl.backend.utils.utils import CapabilityType
@@ -99,9 +98,7 @@ async def create_cashout_override(request: CashoutOverrideRequest) -> str:
                     "creator_user_email": request.creator_user_email,
                 }
                 logging.error(json_dumps(log_dict))
-                asyncio.create_task(
-                    post_to_slack_with_user_name(user.user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
-                )
+                post_to_slack_with_user_name_bg(user.user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
                 raise HTTPException(status_code=400, detail="Internal Error")
 
             capability_stmt = select(Capability).where(

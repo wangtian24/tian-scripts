@@ -9,7 +9,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from tenacity import retry, stop_after_attempt, wait_exponential
 from ypl.backend.db import get_async_session
-from ypl.backend.llm.utils import post_to_slack_with_user_name
+from ypl.backend.llm.utils import post_to_slack_with_user_name_bg
 from ypl.backend.payment.coinbase.coinbase_payout import (
     CoinbaseRetailPayout,
     CoinbaseRetailPayoutError,
@@ -47,6 +47,7 @@ from ypl.backend.payment.payout_utils import (
 from ypl.backend.payment.payout_utils import (
     get_source_instrument_id as get_generic_source_instrument_id,
 )
+from ypl.backend.utils.async_utils import create_background_task
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import (
     CurrencyEnum,
@@ -272,7 +273,7 @@ class CoinbaseFacilitator(BaseFacilitator):
 
                 if transaction_status != TransactionStatus.COMPLETED.value:
                     # Start monitoring in background task
-                    asyncio.create_task(
+                    create_background_task(
                         self._monitor_transaction_completion(
                             account_id=account_id,
                             transaction_id=transaction_id,
@@ -308,7 +309,7 @@ class CoinbaseFacilitator(BaseFacilitator):
                     "points_transaction_id": str(point_transaction_id),
                 }
                 logging.info(json_dumps(log_dict))
-                asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+                post_to_slack_with_user_name_bg(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
                 return PaymentResponse(
                     payment_transaction_id=payment_transaction_id,
                     transaction_status=PaymentTransactionStatusEnum.PENDING,
@@ -556,7 +557,7 @@ class CoinbaseFacilitator(BaseFacilitator):
             logging.error(json_dumps(log_dict))
 
             # TODO: Send alert to Slack
-            asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+            post_to_slack_with_user_name_bg(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
 
         except Exception as e:
             log_dict = {

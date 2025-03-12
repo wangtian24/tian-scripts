@@ -1,4 +1,3 @@
-import asyncio
 from typing import Annotated
 
 from fastapi import APIRouter, Query, status
@@ -10,6 +9,7 @@ from ypl.backend.event.event import (
     create_new_event,
     get_user_events,
 )
+from ypl.backend.utils.async_utils import create_background_task
 
 router = APIRouter(prefix="/admin")
 
@@ -46,7 +46,7 @@ async def create_event(
         JSONResponse with acknowledgment that event creation has been initiated
     """
     # Start event creation in background
-    asyncio.create_task(create_new_event(request))
+    create_background_task(create_new_event(request))
 
     return JSONResponse(
         status_code=status.HTTP_202_ACCEPTED,

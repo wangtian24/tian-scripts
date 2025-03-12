@@ -1,9 +1,7 @@
-import asyncio  # noqa: I001
 import logging
 from contextlib import asynccontextmanager
 from typing import Any
 
-from ypl.backend.utils.schema_json import *  # noqa: F403
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
@@ -16,6 +14,7 @@ from ypl.backend.jobs.app import init_celery, is_not_worker, start_celery_worker
 from ypl.backend.payment.crypto.crypto_payout import cleanup_crypto_processor, get_processor
 from ypl.backend.routes.main import api_router
 from ypl.backend.utils.monitoring import start_metrics_manager
+from ypl.backend.utils.schema_json import *  # noqa: F403
 
 
 @asynccontextmanager
@@ -35,7 +34,7 @@ async def lifespan(app: FastAPI):  # type: ignore
         logging.error(f"Error initializing crypto processor: {e}")
 
     # Run preload_gcp_secrets in the background
-    asyncio.create_task(preload_gcp_secrets())
+    preload_gcp_secrets()
 
     yield  # Hand over to FastAPI.
 

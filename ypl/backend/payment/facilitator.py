@@ -12,7 +12,7 @@ from sqlmodel import select
 from tenacity import retry, stop_after_attempt, wait_exponential
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
-from ypl.backend.llm.utils import post_to_slack_with_user_name
+from ypl.backend.llm.utils import post_to_slack_with_user_name_bg
 from ypl.backend.payment.base_types import (
     BaseFacilitator,
     PaymentInstrumentError,
@@ -44,6 +44,7 @@ from ypl.backend.payment.payout_utils import (
 from ypl.backend.payment.payout_utils import (
     get_source_instrument_id as get_generic_source_instrument_id,
 )
+from ypl.backend.utils.async_utils import create_background_task
 from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.utils import fetch_user_name
 from ypl.db.payments import (
@@ -269,7 +270,7 @@ class OnChainFacilitator(BaseFacilitator):
 
                 if str(transfer.status).lower() != Transaction.Status.COMPLETE.value.lower():
                     # Start monitoring in background task only if not complete
-                    asyncio.create_task(
+                    create_background_task(
                         self._monitor_transfer_completion(
                             transfer=transfer,
                             payment_transaction_id=payment_transaction_id,
@@ -304,7 +305,7 @@ class OnChainFacilitator(BaseFacilitator):
                     "points_transaction_id": str(point_transaction_id),
                 }
                 logging.info(json_dumps(log_dict))
-                asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+                post_to_slack_with_user_name_bg(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
                 return PaymentResponse(
                     payment_transaction_id=payment_transaction_id,
                     transaction_status=PaymentTransactionStatusEnum.PENDING,
@@ -543,7 +544,7 @@ class OnChainFacilitator(BaseFacilitator):
                     "transfer_id": transfer.transfer_id,
                     "elapsed_time": time.time() - start_time,
                 }
-                asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+                post_to_slack_with_user_name_bg(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
 
         except Exception as e:
             log_dict = {

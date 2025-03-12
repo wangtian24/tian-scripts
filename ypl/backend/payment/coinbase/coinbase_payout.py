@@ -1,4 +1,3 @@
-import asyncio
 import json
 import logging
 import os
@@ -14,7 +13,7 @@ import httpx
 import jwt
 from cryptography.hazmat.primitives import serialization
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential
-from ypl.backend.llm.utils import post_to_slack
+from ypl.backend.llm.utils import post_to_slack_bg
 from ypl.backend.payment.payout_utils import MIN_BALANCES
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import CurrencyEnum
@@ -283,7 +282,7 @@ async def process_coinbase_retail_payout(payout: CoinbaseRetailPayout) -> tuple[
             f"Current Transaction Required: {payout.amount}\n"
             f"Minimum Required: {min_balance}"
         )
-        asyncio.create_task(post_to_slack(message))
+        post_to_slack_bg(message)
 
     if available_balance < payout.amount:
         balance_details: dict[str, Any] = {
@@ -475,7 +474,7 @@ async def create_transaction(
             "error": str(e),
         }
         logging.warning(json_dumps(log_dict))
-        asyncio.create_task(post_to_slack(json_dumps(log_dict)))
+        post_to_slack_bg(json_dumps(log_dict))
         return {"id": "", "status": TransactionStatus.PENDING.value}
 
 

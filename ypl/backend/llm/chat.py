@@ -34,6 +34,7 @@ from ypl.backend.llm.routing.route_data_type import RoutingPreference
 from ypl.backend.llm.routing.router import needs_special_ability
 from ypl.backend.llm.routing.router_state import RouterState
 from ypl.backend.llm.turn_quality import label_turn_quality
+from ypl.backend.utils.async_utils import create_background_task
 from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.monitoring import metric_inc, metric_inc_by
 from ypl.backend.utils.utils import StopWatch
@@ -230,14 +231,14 @@ async def _set_prompt_modifiers(
             logging.error(f"Error selecting modifiers: {e}")
 
     if request.turn_id and prompt_modifiers:
-        asyncio.create_task(store_modifiers(request.turn_id, prompt_modifiers))
+        create_background_task(store_modifiers(request.turn_id, prompt_modifiers))
 
     return prompt_modifiers
 
 
 def kick_off_label_turn_quality(prompt: str, chat_id: str, turn_id: str) -> str:
     assert prompt is not None, "prompt is required for NEW_CHAT or NEW_TURN intent"
-    asyncio.create_task(label_turn_quality(UUID(turn_id), UUID(chat_id), prompt, sleep_seconds=0.5))
+    create_background_task(label_turn_quality(UUID(turn_id), UUID(chat_id), prompt, sleep_seconds=0.5))
     return prompt
 
 
@@ -292,7 +293,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
     metric_inc(f"routing/intent_{request.intent}")
     stopwatch = StopWatch(f"routing/latency/{request.intent}/", auto_export=True)
     if request.user_id is not None and settings.ENVIRONMENT != "local":
-        asyncio.create_task(check_activity_volume_abuse(request.user_id, time_windows=SHORT_TIME_WINDOWS))
+        create_background_task(check_activity_volume_abuse(request.user_id, time_windows=SHORT_TIME_WINDOWS))
 
     # Prepare the prompt and past turn information
     prompt = None
@@ -494,7 +495,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
     # TODO(Tian): here we convert all required models to the selector format for backward compatibility,
     # this can be removed once we fully migrated to the new format in the new prompt box.
     selectors = request.selectors or create_selector_from_request(request)
-    asyncio.create_task(
+    create_background_task(
         store_routing_info(routing_info_id, request.turn_id, selectors, all_categories, selected_model_infos)
     )
 

@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import uuid
 from collections.abc import Sequence
@@ -13,7 +12,7 @@ from sqlalchemy.exc import DatabaseError, OperationalError
 from sqlmodel import func, select
 from tenacity import after_log, retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 from ypl.backend.db import get_async_session
-from ypl.backend.llm.utils import post_to_slack
+from ypl.backend.llm.utils import post_to_slack, post_to_slack_bg
 from ypl.backend.user.vendor_details import AdditionalDetails
 from ypl.backend.user.vendor_registration import get_vendor_registration
 from ypl.backend.user.vendor_types import VendorRegistrationError
@@ -637,7 +636,7 @@ async def store_self_custodial_wallet_balances(wallet_data: dict) -> None:
             "error": str(e),
         }
         logging.error(json_dumps(log_dict))
-        asyncio.create_task(post_to_slack(json_dumps(log_dict)))
+        post_to_slack_bg(json_dumps(log_dict))
         return None
 
 
@@ -758,7 +757,7 @@ async def store_coinbase_retail_wallet_balances(accounts: dict[str, dict[str, st
             "error": str(e),
         }
         logging.error(json_dumps(log_dict))
-        asyncio.create_task(post_to_slack(json_dumps(log_dict)))
+        post_to_slack_bg(json_dumps(log_dict))
         return None
 
 
@@ -852,7 +851,7 @@ async def store_axis_upi_balance(balance: Decimal) -> None:
             "error": str(e),
         }
         logging.error(json_dumps(log_dict))
-        asyncio.create_task(post_to_slack(json_dumps(log_dict)))
+        post_to_slack_bg(json_dumps(log_dict))
         return None
 
 

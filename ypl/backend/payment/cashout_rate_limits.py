@@ -13,7 +13,7 @@ from sqlmodel import select
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
 from ypl.backend.llm.credit import CashoutUserLimits
-from ypl.backend.llm.utils import post_to_slack_with_user_name
+from ypl.backend.llm.utils import post_to_slack_with_user_name_bg
 from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.utils import CapabilityType, UserCapabilityStatus, get_capability_override_details
 from ypl.db.payments import PaymentInstrumentFacilitatorEnum
@@ -131,7 +131,7 @@ def log_cashout_limit_error(
     logging.warning(json_dumps(log_dict))
     # Don't post to slack if the exception was raised during a pre-cashout validation.
     if not is_precheck:
-        asyncio.create_task(post_to_slack_with_user_name(error.user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+        post_to_slack_with_user_name_bg(error.user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
 
 
 def build_time_window_stats(
@@ -586,7 +586,7 @@ def _log_killswitch_error(
     if facilitator:
         log_dict["facilitator"] = facilitator.name
     logging.warning(json_dumps(log_dict))
-    asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+    post_to_slack_with_user_name_bg(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
 
 
 async def check_cashout_killswitch(facilitator: PaymentInstrumentFacilitatorEnum, user_id: str) -> None:
@@ -654,5 +654,5 @@ async def check_all_killswitches_status() -> tuple[bool, list[PaymentInstrumentF
             "error": str(e),
         }
         logging.error(json_dumps(log_dict))
-        asyncio.create_task(post_to_slack_with_user_name("SYSTEM", json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+        post_to_slack_with_user_name_bg("SYSTEM", json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
         return True, list(PaymentInstrumentFacilitatorEnum)

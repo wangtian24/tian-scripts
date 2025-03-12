@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import re
 from datetime import datetime, timedelta
@@ -12,6 +11,7 @@ from tenacity import after_log, retry, retry_if_exception_type, stop_after_attem
 from ypl.backend.attachments.upload import upload_original
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
+from ypl.backend.utils.async_utils import create_background_task
 from ypl.backend.utils.json import json_dumps
 from ypl.db.attachments import Attachment
 from ypl.db.chats import ChatMessage, MessageType
@@ -126,7 +126,7 @@ class ImageGenCallback(AsyncCallbackHandler):
         self.message_id = message_id
 
     async def on_llm_new_token(self, token: str, **kwargs: Any) -> None:
-        asyncio.create_task(persist_generated_image(token, self.message_id))
+        create_background_task(persist_generated_image(token, self.message_id))
 
 
 async def do_backfill_gen_image_urls() -> None:

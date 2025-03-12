@@ -1,6 +1,5 @@
 """Stripe webhook handler module."""
 
-import asyncio
 import json
 import logging
 from datetime import datetime
@@ -13,8 +12,9 @@ from sqlmodel import select
 from stripe import Event, SignatureVerificationError, Webhook
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
-from ypl.backend.llm.utils import post_to_slack
+from ypl.backend.llm.utils import post_to_slack_bg
 from ypl.backend.payment.payout_utils import handle_failed_transaction
+from ypl.backend.utils.async_utils import create_background_task
 from ypl.db.payments import PaymentTransaction, PaymentTransactionStatusEnum
 from ypl.db.point_transactions import PointTransaction
 from ypl.db.webhooks import (
@@ -110,7 +110,7 @@ async def handle_stripe_webhook(
             "for_id": json.loads(payload)["related_object"]["id"],
         }
         logging.info(json.dumps(log_dict))
-        asyncio.create_task(process_stripe_webhook(webhook_token, payload, stripe_signature))
+        create_background_task(process_stripe_webhook(webhook_token, payload, stripe_signature))
     except Exception as err:
         # Log error but still return success to prevent retries
         log_dict = {
@@ -215,7 +215,7 @@ async def process_stripe_webhook(webhook_token: str, payload: str, stripe_signat
             "webhook_token": webhook_token,
         }
         logging.warning(json.dumps(log_dict))
-        asyncio.create_task(post_to_slack(json.dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+        post_to_slack_bg(json.dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
 
 
 async def update_payment_information(event_type: StripeOutboundPaymentEventEnum, related_object_id: str) -> None:
@@ -239,7 +239,7 @@ async def update_payment_information(event_type: StripeOutboundPaymentEventEnum,
                 "related_object_id": related_object_id,
             }
             logging.error(json.dumps(log_dict))
-            asyncio.create_task(post_to_slack(json.dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+            post_to_slack_bg(json.dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
             return
 
     if event_type == StripeOutboundPaymentEventEnum.POSTED:
@@ -272,7 +272,7 @@ async def update_payment_information(event_type: StripeOutboundPaymentEventEnum,
                 "webhook_status": event_type,
             }
             logging.error(json.dumps(log_dict))
-            asyncio.create_task(post_to_slack(json.dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+            post_to_slack_bg(json.dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
     elif event_type in [
         StripeOutboundPaymentEventEnum.CANCELED,
         StripeOutboundPaymentEventEnum.FAILED,
@@ -296,7 +296,7 @@ async def update_payment_information(event_type: StripeOutboundPaymentEventEnum,
             logging.info(json.dumps(log_dict))
             return
 
-        asyncio.create_task(post_to_slack(json.dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+        post_to_slack_bg(json.dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
         # retrieve the other data required to handle failed transaction
         async with get_async_session() as session:
             query_result = await session.execute(
@@ -312,7 +312,7 @@ async def update_payment_information(event_type: StripeOutboundPaymentEventEnum,
                     "related_object_id": related_object_id,
                 }
                 logging.error(json.dumps(log_dict))
-                asyncio.create_task(post_to_slack(json.dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+                post_to_slack_bg(json.dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
                 return
 
         await handle_failed_transaction(
@@ -341,4 +341,4 @@ async def update_payment_information(event_type: StripeOutboundPaymentEventEnum,
             "event_type": event_type,
         }
         logging.error(json.dumps(log_dict))
-        asyncio.create_task(post_to_slack(json.dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+        post_to_slack_bg(json.dumps(log_dict), SLACK_WEBHOOK_CASHOUT)

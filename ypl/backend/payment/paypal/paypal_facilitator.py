@@ -7,7 +7,7 @@ from decimal import Decimal
 
 from sqlmodel import select
 from ypl.backend.db import get_async_session
-from ypl.backend.llm.utils import post_to_slack_with_user_name
+from ypl.backend.llm.utils import post_to_slack_with_user_name_bg
 from ypl.backend.payment.facilitator import (
     BaseFacilitator,
     PaymentInstrumentError,
@@ -39,6 +39,7 @@ from ypl.backend.payment.paypal.paypal_payout import (
     get_transaction_status,
     process_paypal_payout,
 )
+from ypl.backend.utils.async_utils import create_background_task
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import (
     CurrencyEnum,
@@ -232,7 +233,7 @@ class PayPalFacilitator(BaseFacilitator):
 
                 if transaction_status not in (TransactionStatus.SUCCESS):
                     # Start monitoring in background task
-                    asyncio.create_task(
+                    create_background_task(
                         self._monitor_transaction_completion(
                             batch_id=batch_id,
                             payment_transaction_id=payment_transaction_id,
@@ -265,7 +266,7 @@ class PayPalFacilitator(BaseFacilitator):
                     "points_transaction_id": str(point_transaction_id),
                 }
                 logging.info(json_dumps(log_dict))
-                asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+                post_to_slack_with_user_name_bg(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
                 return PaymentResponse(
                     payment_transaction_id=payment_transaction_id,
                     transaction_status=PaymentTransactionStatusEnum.PENDING,
@@ -498,7 +499,7 @@ class PayPalFacilitator(BaseFacilitator):
             }
             logging.error(json_dumps(log_dict))
 
-            asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+            post_to_slack_with_user_name_bg(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
 
         except Exception as e:
             log_dict = {

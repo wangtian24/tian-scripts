@@ -17,6 +17,7 @@ from pydantic import (
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from ypl.backend.utils.async_utils import background_task
 from ypl.backend.utils.json import json_dumps
 
 DEFAULT_UNSAFE_PASSWORD = "changethis"
@@ -366,6 +367,7 @@ class Settings(BaseSettings):
 settings = Settings()
 
 
+@background_task()
 async def preload_gcp_secrets() -> None:
     """Preload secrets to avoid slow fetch times during a request"""
     import logging

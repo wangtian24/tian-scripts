@@ -23,6 +23,7 @@ from ypl.backend.attachments.upload import (
 )
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
+from ypl.backend.utils.async_utils import create_background_task
 from ypl.backend.utils.json import json_dumps
 from ypl.db.attachments import Attachment
 
@@ -81,7 +82,7 @@ async def upload_file_route(file: UploadFile = File(...)) -> AttachmentResponse:
         # Execute uploads in parallel
         gather_start = datetime.now()
         results = await asyncio.gather(
-            asyncio.create_task(
+            create_background_task(
                 upload_original(
                     gcs_file_uuid,
                     attachment_bucket,
@@ -91,7 +92,7 @@ async def upload_file_route(file: UploadFile = File(...)) -> AttachmentResponse:
                     file.filename,
                 )
             ),
-            asyncio.create_task(
+            create_background_task(
                 upload_thumbnail(
                     gcs_thumbnail_uuid,
                     thumbnail_bucket,

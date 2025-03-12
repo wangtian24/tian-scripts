@@ -1,4 +1,3 @@
-import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
@@ -9,6 +8,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from ypl.backend.email.send_email import EmailConfig, batch_send_emails_async
+from ypl.backend.utils.async_utils import create_background_task
 from ypl.backend.utils.utils import CapabilityType
 from ypl.db.app_feedback import AppFeedback
 from ypl.db.chats import Eval
@@ -331,7 +331,7 @@ async def create_invite_code_for_user(
     await session.commit()
 
     if existing_codes_count == 0:
-        asyncio.create_task(send_sic_availability_email(session, [user_id]))
+        create_background_task(send_sic_availability_email(session, [user_id]))
 
     return invite_code.special_invite_code_id
 

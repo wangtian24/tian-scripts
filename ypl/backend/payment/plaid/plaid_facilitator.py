@@ -9,7 +9,7 @@ from plaid.model.transfer_authorization_decision import TransferAuthorizationDec
 from sqlmodel import select
 from tenacity import retry, stop_after_attempt, wait_exponential
 from ypl.backend.db import get_async_session
-from ypl.backend.llm.utils import post_to_slack
+from ypl.backend.llm.utils import post_to_slack_bg
 from ypl.backend.payment.base_types import PaymentInstrumentNotFoundError
 from ypl.backend.payment.facilitator import (
     BaseFacilitator,
@@ -34,6 +34,7 @@ from ypl.backend.payment.plaid.plaid_payout import (
     get_plaid_transfer_status,
     process_plaid_payout,
 )
+from ypl.backend.utils.async_utils import create_background_task
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import (
     CurrencyEnum,
@@ -297,7 +298,7 @@ class PlaidFacilitator(BaseFacilitator):
                 )
 
                 # Start monitoring in background task
-                asyncio.create_task(
+                create_background_task(
                     self._monitor_transfer_completion(
                         transfer_id=transfer_id,
                         payment_transaction_id=payment_transaction_id,
@@ -329,7 +330,7 @@ class PlaidFacilitator(BaseFacilitator):
                     "transfer_id": transfer_id,
                 }
                 logging.info(json_dumps(log_dict))
-                asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_PLAID_CASHOUT))
+                post_to_slack_bg(json_dumps(log_dict), SLACK_WEBHOOK_PLAID_CASHOUT)
                 return PaymentResponse(
                     payment_transaction_id=payment_transaction_id,
                     transaction_status=PaymentTransactionStatusEnum.PENDING,
@@ -401,7 +402,7 @@ class PlaidFacilitator(BaseFacilitator):
                 "destination_identifier_type": destination_identifier_type,
             }
             logging.info(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_PLAID_CASHOUT))
+            post_to_slack_bg(json_dumps(log_dict), SLACK_WEBHOOK_PLAID_CASHOUT)
 
             await update_payment_transaction(payment_transaction_id, status=PaymentTransactionStatusEnum.FAILED)
             if update_points:
@@ -444,7 +445,7 @@ class PlaidFacilitator(BaseFacilitator):
                 "destination_identifier_type": destination_identifier_type,
             }
             logging.info(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_PLAID_CASHOUT))
+            post_to_slack_bg(json_dumps(log_dict), SLACK_WEBHOOK_PLAID_CASHOUT)
         except Exception as e:
             error_message = str(e)
             log_dict = {
@@ -461,7 +462,7 @@ class PlaidFacilitator(BaseFacilitator):
                 "error": error_message,
             }
             logging.exception(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_PLAID_CASHOUT))
+            post_to_slack_bg(json_dumps(log_dict), SLACK_WEBHOOK_PLAID_CASHOUT)
 
     async def get_payment_status(self, payment_transaction_id: uuid.UUID) -> PaymentResponse:
         # TODO: Implement this

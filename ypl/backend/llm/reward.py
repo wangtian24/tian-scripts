@@ -32,6 +32,7 @@ from ypl.backend.feedback.app_feedback import (
 )
 from ypl.backend.jobs.tasks import post_to_slack_task
 from ypl.backend.llm.turn_quality import LOW_EVAL_QUALITY_SCORE, update_user_eval_quality_scores
+from ypl.backend.utils.async_utils import create_background_task
 from ypl.backend.utils.json import json_dumps
 from ypl.db.chats import Chat, ChatMessage, Eval, EvalType, Turn, TurnQuality
 from ypl.db.invite_codes import SpecialInviteCode, SpecialInviteCodeClaimLog
@@ -452,8 +453,8 @@ async def turn_based_reward(
             - RewardProbabilityRule | None: The reward probability rule used.
     """
 
-    asyncio.create_task(_update_user_eval_quality_scores(user_id))
-    asyncio.create_task(check_model_feedback_abuse(user_id))
+    create_background_task(_update_user_eval_quality_scores(user_id))
+    create_background_task(check_model_feedback_abuse(user_id))
     return _handle_turn_based_reward(UserTurnReward(user_id, turn_id))
 
 

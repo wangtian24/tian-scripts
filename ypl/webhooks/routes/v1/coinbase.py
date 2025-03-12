@@ -1,6 +1,5 @@
 """Coinbase webhook handler module."""
 
-import asyncio
 import decimal
 import hmac
 import json
@@ -22,7 +21,8 @@ from sqlalchemy.orm import selectinload
 from sqlmodel import select
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
-from ypl.backend.llm.utils import post_to_slack
+from ypl.backend.llm.utils import post_to_slack_bg
+from ypl.backend.utils.async_utils import create_background_task
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import (
     PaymentInstrument,
@@ -67,7 +67,7 @@ async def handle_coinbase_webhook(
     logging.info(json_dumps(log_dict))
     try:
         payload = await request.body()
-        asyncio.create_task(process_coinbase_webhook(token, payload, x_coinbase_signature))
+        create_background_task(process_coinbase_webhook(token, payload, x_coinbase_signature))
     except Exception as err:
         # Log error but still return success to prevent retries
         log_dict = {
@@ -235,7 +235,7 @@ async def process_coinbase_webhook(token: str, payload: bytes, x_coinbase_signat
             "event_data": event_data,
         }
         logging.warning(json_dumps(log_dict))
-        asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+        post_to_slack_bg(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
         return
 
     webhook_result = await upsert_webhook(x_coinbase_signature, event_data)
@@ -246,7 +246,7 @@ async def process_coinbase_webhook(token: str, payload: bytes, x_coinbase_signat
             "event_data": event_data,
         }
         logging.error(json_dumps(log_dict))
-        asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+        post_to_slack_bg(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
         return
 
     if webhook_result.status == WebhookProcessingStatusEnum.PROCESSED:
@@ -424,7 +424,7 @@ async def update_webhook_event_status(webhook_event_id: UUID, status: WebhookPro
             "webhook_event_id": str(webhook_event_id),
         }
         logging.error(json_dumps(log_dict))
-        asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+        post_to_slack_bg(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
 
 
 async def potential_matching_pending_transactions(event_data: dict[str, Any]) -> None:
@@ -510,7 +510,7 @@ async def potential_matching_pending_transactions(event_data: dict[str, Any]) ->
                 "payment_value": value,
             }
             logging.info(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+            post_to_slack_bg(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
             return
 
         # First, look for exact transaction hash match in last 24 hours
@@ -539,7 +539,7 @@ async def potential_matching_pending_transactions(event_data: dict[str, Any]) ->
                 exact_match.status == PaymentTransactionStatusEnum.PENDING
                 or exact_match.status == PaymentTransactionStatusEnum.NOT_STARTED
             ):
-                asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+                post_to_slack_bg(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
             return
 
         # If no exact match, look for potential matches based on status, address, and value
@@ -615,7 +615,7 @@ async def potential_matching_pending_transactions(event_data: dict[str, Any]) ->
                     "transaction_status": str(txn.status),
                 }
                 logging.info(json_dumps(log_dict))
-                asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+                post_to_slack_bg(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
 
         # If no potential matches found, log warning and send critical alert
         if not potential_matches_found:
@@ -628,4 +628,4 @@ async def potential_matching_pending_transactions(event_data: dict[str, Any]) ->
                 "search_window": "24 hours",
             }
             logging.warning(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+            post_to_slack_bg(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)

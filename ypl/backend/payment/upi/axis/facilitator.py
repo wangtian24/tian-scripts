@@ -20,7 +20,11 @@ from tenacity import (
 )
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
-from ypl.backend.llm.utils import post_to_slack, post_to_slack_with_user_name
+from ypl.backend.llm.utils import (
+    post_to_slack_bg,
+    post_to_slack_with_user_name,
+    post_to_slack_with_user_name_bg,
+)
 from ypl.backend.payment.base_types import (
     PaymentInstrumentError,
     PaymentProcessingError,
@@ -42,6 +46,7 @@ from ypl.backend.payment.upi.axis.request_utils import (
     make_payment,
     verify_vpa,
 )
+from ypl.backend.utils.async_utils import create_background_task
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import (
     CurrencyEnum,
@@ -114,7 +119,7 @@ class AxisUpiFacilitator(BaseFacilitator):
                 f"Current balance: INR {balance}\n"
                 f"Minimum required: INR {MIN_BALANCE_FOR_ALERT}"
             )
-            asyncio.create_task(post_to_slack(message))
+            post_to_slack_bg(message)
         return balance
 
     async def get_source_instrument_id(self) -> uuid.UUID:
@@ -207,10 +212,8 @@ class AxisUpiFacilitator(BaseFacilitator):
                         "facilitator": self.facilitator,
                     }
                     logging.info(json_dumps(log_dict))
-                    asyncio.create_task(
-                        post_to_slack_with_user_name(
-                            str(point_transaction.user_id), json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT
-                        )
+                    post_to_slack_with_user_name_bg(
+                        str(point_transaction.user_id), json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT
                     )
 
                     # 2. Update the user's points.
@@ -268,11 +271,7 @@ class AxisUpiFacilitator(BaseFacilitator):
                 "facilitator": self.facilitator,
             }
             logging.info(json_dumps(log_dict))
-            asyncio.create_task(
-                post_to_slack_with_user_name(
-                    str(point_transaction.user_id), json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT
-                )
-            )
+            post_to_slack_with_user_name_bg(str(point_transaction.user_id), json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
         except Exception as e:
             log_dict = {
                 "message": ":x: Failure - Could not undo payment transaction",
@@ -282,7 +281,7 @@ class AxisUpiFacilitator(BaseFacilitator):
                 "facilitator": self.facilitator,
             }
             logging.exception(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+            post_to_slack_bg(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
 
     async def _check_payment_status_with_retry(
         self,
@@ -400,7 +399,9 @@ class AxisUpiFacilitator(BaseFacilitator):
                 "end_time": time.time(),
             }
             logging.error(json_dumps(log_dict))
-            asyncio.create_task(self._post_to_slack_with_destination_details(user_id, log_dict, payment_transaction_id))
+            create_background_task(
+                self._post_to_slack_with_destination_details(user_id, log_dict, payment_transaction_id)
+            )
             raise PaymentProcessingError("Payment failed. Finishing payment monitoring")
         elif status.transaction_status == PaymentTransactionStatusEnum.SUCCESS:
             db_update_start_time = time.time()
@@ -446,7 +447,9 @@ class AxisUpiFacilitator(BaseFacilitator):
                 "end_time": time.time(),
             }
             logging.info(json_dumps(log_dict))
-            asyncio.create_task(self._post_to_slack_with_destination_details(user_id, log_dict, payment_transaction_id))
+            create_background_task(
+                self._post_to_slack_with_destination_details(user_id, log_dict, payment_transaction_id)
+            )
             return
 
     async def _post_to_slack_with_destination_details(
@@ -462,7 +465,7 @@ class AxisUpiFacilitator(BaseFacilitator):
             ).one()
         log_dict["destination_identifier"] = payment_transaction.destination_instrument.identifier
         log_dict["destination_identifier_type"] = payment_transaction.destination_instrument.identifier_type
-        asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+        await post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
 
     # TODO: Make this generic, and resilient
     async def monitor_payment_status(
@@ -513,7 +516,7 @@ class AxisUpiFacilitator(BaseFacilitator):
                 "elapsed_time": time.time() - start_time,
             }
             logging.exception(json_dumps(log_dict))
-            asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+            post_to_slack_with_user_name_bg(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
             raise PaymentStatusFetchError("Failed to monitor payment status") from e
 
     def _get_validated_destination_details(self, validated_destination_details: str) -> dict:
@@ -598,7 +601,7 @@ class AxisUpiFacilitator(BaseFacilitator):
                     "destination_identifier_type": destination_identifier_type,
                 }
                 logging.error(json_dumps(log_dict))
-                asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+                post_to_slack_with_user_name_bg(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
                 raise ValueError("Source instrument does not have enough balance")
         except (ValueError, HTTPException):
             # Bubble up these exceptions as they are expected to be handled at the API level.
@@ -755,7 +758,7 @@ class AxisUpiFacilitator(BaseFacilitator):
                 "destination_identifier": destination_identifier,
                 "destination_identifier_type": destination_identifier_type,
             }
-            asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+            post_to_slack_with_user_name_bg(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
             logging.info(json_dumps(log_dict))
         except Exception as e:
             # TODO: Have granular exceptions for different types of errors.
@@ -780,7 +783,7 @@ class AxisUpiFacilitator(BaseFacilitator):
             }
             logging.exception(json_dumps(log_dict))
             await self.undo_payment_transaction(payment_transaction_id)
-            asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+            post_to_slack_with_user_name_bg(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
             raise PaymentProcessingError("Failed to send payment request to the partner") from e
 
         partner_reference_id = payment_response.partner_reference_id
@@ -821,7 +824,7 @@ class AxisUpiFacilitator(BaseFacilitator):
         # 5. Start monitoring the payment transaction and hand off to the async task.
         # TODO: Improve this.
         assert partner_reference_id is not None
-        asyncio.create_task(
+        create_background_task(
             self.monitor_payment_status(
                 payment_transaction_id,
                 partner_reference_id,

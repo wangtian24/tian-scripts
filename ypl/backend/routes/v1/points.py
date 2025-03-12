@@ -1,11 +1,10 @@
-import asyncio
 import logging
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 
-from ypl.backend.llm.utils import post_to_slack_with_user_name
+from ypl.backend.llm.utils import post_to_slack_with_user_name_bg
 from ypl.backend.payment.payment import (
     CashoutsHistoryResponse,
     PointTransactionsHistoryResponse,
@@ -89,7 +88,7 @@ async def adjust_points_route(
     }
     logging.info(json_dumps(log_dict))
     if point_delta > 0:
-        asyncio.create_task(post_to_slack_with_user_name(user_id, json_dumps(log_dict)))
+        post_to_slack_with_user_name_bg(user_id, json_dumps(log_dict))
 
     await validate_not_self_action(user_id=user_id, creator_user_email=x_creator_email)
     return await adjust_points(

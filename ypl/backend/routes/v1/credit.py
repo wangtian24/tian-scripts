@@ -25,7 +25,7 @@ from ypl.backend.llm.credit import (
     get_total_credits_spent,
     get_user_credit_balance,
 )
-from ypl.backend.llm.utils import post_to_slack_with_user_name
+from ypl.backend.llm.utils import post_to_slack_with_user_name_bg
 from ypl.backend.payment.base_types import BaseFacilitator, PaymentResponse
 from ypl.backend.payment.cashout_rate_limits import (
     CashoutKillswitchError,
@@ -174,9 +174,7 @@ async def validate_cashout_request(request: CashoutCreditsRequest) -> None:
                 "user_country_code": user.country_code,
             }
             logging.warning(json_dumps(log_dict))
-            asyncio.create_task(
-                post_to_slack_with_user_name(request.user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
-            )
+            post_to_slack_with_user_name_bg(request.user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
             raise HTTPException(status_code=400, detail="Cashout to crypto is not supported from a VPN")
 
     if (

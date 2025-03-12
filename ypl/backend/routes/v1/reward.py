@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from uuid import UUID
 
@@ -25,6 +24,7 @@ from ypl.backend.llm.reward import (
     update_reward_status,
 )
 from ypl.backend.llm.utils import post_to_slack
+from ypl.backend.utils.async_utils import create_background_task
 from ypl.backend.utils.json import json_dumps
 from ypl.db.rewards import RewardActionEnum, RewardActionLog, RewardStatusEnum
 
@@ -143,7 +143,7 @@ async def process_reward_creation_and_claim(
         logging.exception("Reward processing failed", extra=log_dict)
 
         # Background notification using context manager
-        asyncio.create_task(notify_slack_error(user_id, credit_delta, str(e)))
+        create_background_task(notify_slack_error(user_id, credit_delta, str(e)))
 
         return RewardCreationResponse(is_rewarded=False)
 
@@ -324,7 +324,7 @@ async def handle_referral_bonus_reward(reward_action_log: RewardActionLog) -> Re
                 reward_probability_rule=referrer_reward_probability_rule,
             )
 
-        asyncio.create_task(
+        create_background_task(
             send_referral_bonus_emails(
                 new_user=current_user_reward_action_log.user_id,
                 new_user_credit_delta=credit_delta,

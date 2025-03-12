@@ -9,7 +9,7 @@ from typing import Any, Final
 import httpx
 from cdp import Cdp, Transfer, Wallet
 from ypl.backend.config import settings
-from ypl.backend.llm.utils import post_to_slack
+from ypl.backend.llm.utils import post_to_slack_bg
 from ypl.backend.payment.crypto.crypto_wallet import load_wallet_data
 from ypl.backend.payment.payout_utils import MIN_BALANCES
 from ypl.backend.utils.json import json_dumps
@@ -139,7 +139,7 @@ class CryptoRewardProcessor:
                     f"Current Transaction Required: {total_required}\n"
                     f"Minimum Required: {min_balance}"
                 )
-                asyncio.create_task(post_to_slack(message))
+                post_to_slack_bg(message)
 
             if asset_balance >= total_required:
                 return True

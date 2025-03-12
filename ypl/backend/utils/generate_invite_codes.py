@@ -1,4 +1,3 @@
-import asyncio
 import logging
 
 from sqlalchemy.exc import SQLAlchemyError
@@ -6,7 +5,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine
 from ypl.backend.llm.invite import get_users_eligible_for_invite_codes, send_sic_availability_email
-from ypl.backend.llm.utils import post_to_slack
+from ypl.backend.llm.utils import post_to_slack, post_to_slack_bg
 from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.soul_utils import get_soul_url
 from ypl.db.invite_codes import SpecialInviteCode, SpecialInviteCodeState
@@ -116,9 +115,7 @@ async def generate_invite_code_for_user(session: AsyncSession, user_id: str) -> 
                     "soul_url": get_soul_url(user_id),
                 }
                 logging.warning(json_dumps(log_dict))
-                asyncio.create_task(
-                    post_to_slack(json_dumps(log_dict), webhook_url=settings.GUEST_MANAGEMENT_SLACK_WEBHOOK_URL)
-                )
+                post_to_slack_bg(json_dumps(log_dict), webhook_url=settings.GUEST_MANAGEMENT_SLACK_WEBHOOK_URL)
                 return None
             # The savepoint will be automatically rolled back due to the exception
             continue

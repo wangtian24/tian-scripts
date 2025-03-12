@@ -15,6 +15,7 @@ from slack_sdk.webhook import WebhookClient
 from sqlmodel import select
 
 from ypl.backend.db import Session, get_engine
+from ypl.backend.utils.async_utils import create_background_task
 from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.utils import fetch_user_name
 from ypl.db.ratings import OVERALL_CATEGORY_NAME, Category
@@ -151,6 +152,13 @@ def fetch_categories_with_descriptions_from_db() -> dict[str, str | None]:
         return {name: description for name, description in categories}
 
 
+def post_to_slack_with_user_name_bg(
+    user_id: str, message: str | None = None, webhook_url: str | None = None, blocks: list | None = None
+) -> None:
+    """Post a message to a Slack channel using a webhook URL in the background."""
+    create_background_task(post_to_slack_with_user_name(user_id, message, webhook_url, blocks))
+
+
 async def post_to_slack_with_user_name(
     user_id: str, message: str | None = None, webhook_url: str | None = None, blocks: list | None = None
 ) -> None:
@@ -223,6 +231,11 @@ async def post_to_slack_channel(
                 "message": f"Failed to post message to Slack channel {channel}: {str(e)}",
             }
             logging.exception(json_dumps(log_dict))
+
+
+def post_to_slack_bg(message: str | None = None, webhook_url: str | None = None, blocks: list | None = None) -> None:
+    """Post a message to a Slack channel using a webhook URL in the background."""
+    create_background_task(post_to_slack(message, webhook_url, blocks))
 
 
 async def post_to_slack(message: str | None = None, webhook_url: str | None = None, blocks: list | None = None) -> None:

@@ -1,6 +1,5 @@
 """PayPal webhook handler module."""
 
-import asyncio
 import json
 import logging
 from datetime import datetime
@@ -15,9 +14,10 @@ from sqlalchemy.orm import selectinload
 from sqlmodel import select
 from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
-from ypl.backend.llm.utils import post_to_slack
+from ypl.backend.llm.utils import post_to_slack_bg
 from ypl.backend.payment.paypal.paypal_facilitator import PayPalFacilitator
 from ypl.backend.payment.paypal.paypal_payout import TransactionStatus, _get_paypal_client
+from ypl.backend.utils.async_utils import create_background_task
 from ypl.backend.utils.json import json_dumps
 from ypl.db.payments import (
     PaymentTransaction,
@@ -88,7 +88,7 @@ async def handle_paypal_webhook(
         }
         logging.info(json_dumps(log_dict))
 
-        asyncio.create_task(
+        create_background_task(
             process_paypal_webhook(
                 token,
                 payload,
@@ -374,7 +374,7 @@ async def update_webhook_event_status(webhook_event_id: UUID, status: WebhookPro
             "webhook_event_id": str(webhook_event_id),
         }
         logging.error(json_dumps(log_dict))
-        asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+        post_to_slack_bg(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
 
 
 async def process_paypal_webhook(
@@ -419,7 +419,7 @@ async def process_paypal_webhook(
             "event_data": event_data,
         }
         logging.warning(json_dumps(log_dict))
-        asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+        post_to_slack_bg(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
         return
 
     webhook_event = await upsert_webhook(event_data.get("id"), event_data)
@@ -430,7 +430,7 @@ async def process_paypal_webhook(
             "event_data": event_data,
         }
         logging.error(json_dumps(log_dict))
-        asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+        post_to_slack_bg(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
         return
 
     if webhook_event.processing_status == WebhookProcessingStatusEnum.PROCESSED:
@@ -540,7 +540,7 @@ async def process_payout_event(event_data: dict[str, Any]) -> None:
 
             # Post to Slack for important status changes
             if new_status in [PaymentTransactionStatusEnum.SUCCESS, PaymentTransactionStatusEnum.FAILED]:
-                asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+                post_to_slack_bg(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
 
     except Exception as err:
         log_dict = {
@@ -551,4 +551,4 @@ async def process_payout_event(event_data: dict[str, Any]) -> None:
             "transaction_status": transaction_status,
         }
         logging.error(json_dumps(log_dict))
-        asyncio.create_task(post_to_slack(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT))
+        post_to_slack_bg(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)

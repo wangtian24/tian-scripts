@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import os
 
@@ -44,6 +43,7 @@ from ypl.backend.routes.v1 import scribbles as scribbles_route
 from ypl.backend.routes.v1 import system as system_route
 from ypl.backend.routes.v1 import user as user_route
 from ypl.backend.routes.v1 import user_capability as user_capability_route
+from ypl.backend.utils.async_utils import create_background_task
 from ypl.backend.utils.json import json_dumps
 
 
@@ -74,7 +74,7 @@ def app_init() -> None:
     # prefetches the prompt-modifiers & caches the data
     load_prompt_modifiers()
 
-    asyncio.create_task(get_ranker().add_evals_from_db())
+    create_background_task(get_ranker().add_evals_from_db())
 
 
 api_router = APIRouter(dependencies=[Depends(validate_api_key)])
