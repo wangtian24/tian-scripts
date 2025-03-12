@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import random
 import re
 import traceback
 from collections.abc import Callable
@@ -273,12 +274,12 @@ async def maybe_youtube_transcript_messages(chat_id: str, chat_history: list[Bas
 
         multi_labeler = await _get_youtube_multi_labeler()
 
-        results = await multi_labeler.alabel(user_prompts)
+        results: dict[str, Any] = await multi_labeler.alabel(user_prompts)
         successful_results = [(m, r) for m, r in results.items() if isinstance(r, YoutubeLabelerResponse)]
-        if not successful_results:  # both failed. Raise the first.
-            raise results.items()[0][1]
+        if not successful_results:  # Both failed. Raise one of them.
+            raise random.choice(list(results.values()))
 
-        model, label_resp = successful_results[0]
+        model, label_resp = random.choice(successful_results)  # Pick one at random. Usually there is only one.
 
         logging.info({"message": f"Youtube videos returned for {chat_id} by {model}: {label_resp.video_ids}"})
 
