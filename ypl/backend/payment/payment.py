@@ -13,6 +13,9 @@ from sqlmodel import func, select
 from tenacity import after_log, retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 from ypl.backend.db import get_async_session
 from ypl.backend.llm.utils import post_to_slack, post_to_slack_bg
+from ypl.backend.payment.stripe.stripe_payout import (
+    StripeBalance,
+)
 from ypl.backend.user.vendor_details import AdditionalDetails
 from ypl.backend.user.vendor_registration import get_vendor_registration
 from ypl.backend.user.vendor_types import VendorRegistrationError
@@ -1034,3 +1037,63 @@ async def get_vendor_payment_link(request: GetVendorPaymentLinkRequest) -> GetVe
         }
         logging.error(json_dumps(log_dict))
         raise VendorRegistrationError(str(e)) from e
+
+
+async def store_stripe_balances(balances: list[StripeBalance]) -> None:
+    """
+    Store Stripe balances in the daily_account_balances table.
+
+    Args:
+        balances: List of StripeBalance objects containing account_id, currency and balance_amount
+    """
+    try:
+        async with get_async_session() as session:
+            query = select(PaymentInstrument).where(
+                func.coalesce(PaymentInstrument.user_id, "") == "SYSTEM",
+                PaymentInstrument.facilitator == PaymentInstrumentFacilitatorEnum.STRIPE,
+                PaymentInstrument.identifier_type == PaymentInstrumentIdentifierTypeEnum.PARTNER_IDENTIFIER,
+                PaymentInstrument.deleted_at.is_(None),  # type: ignore
+            )
+            result = await session.execute(query)
+            payment_instrument = result.scalar_one()
+
+            stored_balances = []
+            skipped_currencies = []
+
+            # Create daily balance entries for each currency
+            for balance in balances:
+                try:
+                    currency_enum = CurrencyEnum[balance.currency]
+                    daily_balance = DailyAccountBalanceHistory(
+                        payment_instrument_id=payment_instrument.payment_instrument_id,
+                        account_id=balance.account_id,
+                        currency=currency_enum,
+                        balance=balance.balance_amount,
+                    )
+                    session.add(daily_balance)
+                    stored_balances.append({"currency": balance.currency, "balance": str(balance.balance_amount)})
+                except KeyError:
+                    skipped_currencies.append(balance.currency)
+                    continue
+
+            await session.commit()
+
+            log_dict = {
+                "message": "Successfully stored Stripe balances",
+                "balances": stored_balances,
+            }
+            if skipped_currencies:
+                log_dict["skipped_currencies"] = skipped_currencies
+                log_dict["reason"] = "Currencies not found in CurrencyEnum"
+            logging.info(json_dumps(log_dict))
+
+    except Exception as e:
+        # incase of any exception just post to slack. No need to raise an error
+        # as this is part of a daily cron job
+        log_dict = {
+            "message": "Failed to store Stripe balances",
+            "error": str(e),
+        }
+        logging.error(json_dumps(log_dict))
+        post_to_slack_bg(json_dumps(log_dict))
+        return None

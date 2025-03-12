@@ -1163,7 +1163,9 @@ def post_source_account_balances() -> None:
         store_axis_upi_balance,
         store_coinbase_retail_wallet_balances,
         store_self_custodial_wallet_balances,
+        store_stripe_balances,
     )
+    from ypl.backend.payment.stripe.stripe_payout import get_stripe_balances
     from ypl.backend.payment.upi.axis.facilitator import get_balance
 
     async def format_and_post_balances() -> None:
@@ -1238,6 +1240,22 @@ def post_source_account_balances() -> None:
         except Exception as e:
             logging.error(f"Error getting coinbase retail wallet balance for daily posting: {e}")
 
+        # Get Stripe balance
+        try:
+            stripe_balances = await get_stripe_balances()
+            if stripe_balances:
+                await store_stripe_balances(stripe_balances)
+                message += "\n*Stripe Balance*\n"
+                message += "```\n"
+                message += "| Asset | Balance |\n"
+                message += "|-------|----------|\n"
+                for balance in stripe_balances:
+                    formatted_balance = f"{balance.balance_amount:.8f}".rstrip("0").rstrip(".")
+                    message += f"| {balance.currency:<5} | {formatted_balance:>9} |\n"
+                message += "```\n\n"
+        except Exception as e:
+            logging.error(f"Error getting stripe balance for daily posting: {e}")
+
         #  Get Axis UPI balance
         try:
             last_axis_upi_balance = await retrieve_axis_upi_balance()
@@ -1256,21 +1274,6 @@ def post_source_account_balances() -> None:
             message += "```"
         except Exception as e:
             logging.error(f"Error getting axis upi balance for daily posting: {e}")
-
-        # Get PayPal balance
-        try:
-            balances = await get_paypal_balances()
-            message += "\n*PayPal Balance*\n"
-            message += "```\n"
-            message += "| Asset | Balance |\n"
-            message += "|-------|----------|\n"
-            for currency, balance_info in balances.items():
-                available_balance = balance_info.get("available", Decimal("0"))
-                formatted_balance = f"{available_balance:.8f}".rstrip("0").rstrip(".")
-                message += f"| {currency:<5} | {formatted_balance:>9} |\n"
-            message += "```"
-        except Exception as e:
-            logging.error(f"Error getting paypal balance for daily posting: {e}")
 
         await post_to_slack(message, os.environ.get("ANALYTICS_SLACK_WEBHOOK_URL"))
 
