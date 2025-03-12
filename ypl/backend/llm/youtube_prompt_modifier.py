@@ -166,8 +166,8 @@ SYSTEM_PROMPT_WITH_VIDEO_TRANSCRIPT = PromptTemplate.from_template(
         The user likely refers Youtube with video id '{video_id}',
         e.g. https://www.youtube.com/watch?v={video_id}.
         The text of the transcript has timestamps. This is useful for answering
-        questions about length of the video, timestamp when certain topic is
-        mentioned etc.
+        questions about length of the video, timestamp when certain topic is mentioned etc.
+        If the user prompt only includes the video and does not say anything else, summarize it for them.
 
         The following JSON optionally contains information about the video like title, description etc.
         {video_info_json}
