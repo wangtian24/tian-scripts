@@ -50,6 +50,15 @@ class ReviewRequest(BaseModel):
     review_route: ReviewRoute | None = None
 
 
+class ReviewModel(BaseModel):
+    """Model to hold reviewer model details."""
+
+    family: str
+    model_id: uuid.UUID
+    label: str
+    is_live: bool = False
+
+
 class BinaryResult(TypedDict):
     """Result from binary review."""
 
