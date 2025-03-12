@@ -85,7 +85,7 @@ Make sure Homebrew is installed. If not, follow instructions [here](https://brew
 If you face any issues specifically due to Stripe repo cloing (temporary problem), run the following command
 
 ```sh
-git config --global url."https://${STRIPE_GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+[ -z "${STRIPE_GITHUB_TOKEN}" ] && { echo "Error: STRIPE_GITHUB_TOKEN not set"; } || git config --global url."https://${STRIPE_GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
 poetry install --no-root
 ```
 
