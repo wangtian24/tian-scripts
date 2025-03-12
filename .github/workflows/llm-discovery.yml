@@ -1,0 +1,51 @@
+name: LLM Monitor Cronjob
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"  # Runs every 15 minutes
+  workflow_dispatch:  # Allows manual execution
+
+jobs:
+  monitor_llm:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout the monitoring branch
+        uses: actions/checkout@v4
+        with:
+          ref: "cronjob/llm-monitor-log"  # Check out the monitoring branch
+          fetch-depth: 0  # Ensure full history is available for diffing
+
+      - name: Run LLM monitor script with secrets
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY_PRODUCTION }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY_PRODUCTION }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY_PRODUCTION }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY_PRODUCTION }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY_PRODUCTION }}
+          TOGETHERAI_API_KEY: ${{ secrets.TOGETHERAI_API_KEY_PRODUCTION }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY_PRODUCTION }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY_PRODUCTION }}
+          SLACK_MODEL_MANAGEMENT_APP_BOT_TOKEN: ${{ secrets.SLACK_MODEL_MANAGEMENT_APP_BOT_TOKEN_PRODUCTION }}
+        run: |
+          chmod +x ./scripts/llm-monitor.sh
+          ./scripts/llm-monitor.sh ./llm-monitor-log
+
+      - name: Check for changes using Git
+        id: check_changes
+        run: |
+          if git status --porcelain | grep .; then
+            echo "CHANGES_DETECTED=true" >> $GITHUB_ENV
+          else
+            echo "CHANGES_DETECTED=false" >> $GITHUB_ENV
+          fi
+
+      - name: Commit and push changes if detected
+        if: env.CHANGES_DETECTED == 'true'
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add llm-monitor-log/*
+          git commit -m "Update LLM monitor logs"
+          git pull --rebase origin cronjob/llm-monitor-log  # Avoid conflicts
+          git push origin cronjob/llm-monitor-log
