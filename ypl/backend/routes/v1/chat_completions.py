@@ -283,15 +283,20 @@ def post_error(error_type: ModelErrorType, excerpt: str | None, chat_request: Ch
     async def _post_error() -> None:
         provider = (await adeduce_original_provider(chat_request.model)) or "unknown"
         name = create_model_canonical_name(provider, chat_request.model)
+        if error_type == ModelErrorType.UNKNOWN:
+            channel = "#alert-model-management"
+        else:
+            channel = "#alert-backend" if env.lower() == "production" else "#alert-backend-staging"
+
         await post_to_slack_channel(
             (
                 f":exploding_head: [{env}] Detected *{error_type.value} error* "
-                f"on {name}: ``` {excerpt} ``` \n"
+                f"on {name}: ``` {excerpt} ``` "
                 f"Chat ID: {chat_request.chat_id}\n"
                 f"Turn ID: {chat_request.turn_id}\n"
                 f"Message ID: {chat_request.message_id}\n"
             ),
-            "#alert-backend" if env.lower() == "production" else "#alert-backend-staging",
+            channel,
         )
 
     asyncio.create_task(_post_error())
