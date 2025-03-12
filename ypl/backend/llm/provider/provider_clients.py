@@ -186,6 +186,9 @@ async def get_provider_client(
             )
 
         case "OpenAI":
+            if "gpt-4o-mini-search" in internal_name or "gpt-4o-search" in internal_name:
+                # Search models don't support temperature parameter
+                combined_kwargs.pop("temperature", None)
             return ChatOpenAI(
                 model=internal_name, api_key=SecretStr(os.getenv("OPENAI_API_KEY", "")), **combined_kwargs
             )

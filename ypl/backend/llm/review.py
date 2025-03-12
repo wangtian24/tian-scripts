@@ -78,12 +78,12 @@ REVIEW_CONFIGS: dict[ReviewType, ReviewConfig] = {
         prompt_template="",  # No prompt template needed as we use YuppNuggetizer
     ),
     ReviewType.CROSS_CHECK_CRITIQUE: ReviewConfig(
-        max_tokens=2048,
+        max_tokens=4096,
         prompt_template=CROSS_CHECK_CRITIQUE_PROMPT,
         user_prompt_template=CROSS_CHECK_CRITIQUE_USER_PROMPT,
     ),
     ReviewType.CROSS_CHECK_BINARY: ReviewConfig(
-        max_tokens=2048,
+        max_tokens=4096,
         prompt_template=CROSS_CHECK_BINARY_PROMPT,
         user_prompt_template=CROSS_CHECK_BINARY_USER_PROMPT,
     ),
@@ -510,7 +510,12 @@ class CrossCheckCritiqueReviewLabeler(BaseCrossCheckReviewLabeler):
 
     def _parse_output(self, output: BaseMessage) -> str:
         """Parse the output from the LLM."""
-        return str(output.content).strip()
+        if (
+            isinstance(output.content, list) and len(output.content) > 0 and isinstance(output.content[-1], dict)
+        ):  # Claude 3.7 Sonnet Thinking returns a list of dicts
+            return str(output.content[-1]["text"]).strip()
+        else:
+            return str(output.content).strip()
 
     @property
     def error_value(self) -> str:
@@ -532,7 +537,10 @@ class CrossCheckBinaryReviewLabeler(BaseCrossCheckReviewLabeler):
 
     def _parse_output(self, output: BaseMessage) -> bool:
         """Parse the output from the LLM: true for true, false for false."""
-        content = str(output.content).strip().lower()
+        if isinstance(output.content, list) and len(output.content) > 0 and isinstance(output.content[-1], dict):
+            content = str(output.content[-1]["text"]).strip().lower()
+        else:
+            content = str(output.content).strip().lower()
         return content == "true"
 
     @property
@@ -546,6 +554,48 @@ SEGMENTED_REVIEWER: dict[str, SegmentedReviewLabeler] = {}
 NUGGETIZED_REVIEWER: dict[str, NuggetizedReviewLabeler] = {}
 CROSS_CHECK_CRITIQUE_REVIEWER: dict[str, CrossCheckCritiqueReviewLabeler] = {}
 CROSS_CHECK_BINARY_REVIEWER: dict[str, CrossCheckBinaryReviewLabeler] = {}
+
+
+def get_max_tokens_for_review(model: str, review_type: ReviewType) -> int:
+    """Get maximum tokens for a given model and review type.
+
+    Args:
+        model: The model name
+        review_type: The type of review being performed
+
+    Returns:
+        Maximum tokens to use for the model
+
+    Notes:
+        - Claude models with 'thinking' capability get 20k tokens since they require longer context than thinking budget
+        - Review-specific token limits are used for standard reviews (defined in REVIEW_CONFIGS)
+        - Default to 512 tokens for unknown review types as a safe length for a review
+    """
+    if review_type not in REVIEW_CONFIGS:
+        return 512
+    if "claude" in model.lower() and "thinking" in model.lower():
+        return 20000
+    return REVIEW_CONFIGS[review_type].max_tokens
+
+
+def get_temperature_for_review(model: str) -> float:
+    """Get temperature setting for a given model when performing reviews.
+
+    Args:
+        model: The model name
+
+    Returns:
+        Temperature value between 0.0 and 1.0
+
+    Notes:
+        - Higher temperature (1.0) is used for:
+          - o1/o3 models: Only temperature 1.0 is supported
+          - Claude models with 'thinking': Only temperature 1.0 is supported
+        - Lower temperature (0.0) for all other models to maximize consistency and precision in reviews
+    """
+    if model.startswith("o1") or model.startswith("o3") or (model.startswith("claude") and "thinking" in model.lower()):
+        return 1.0
+    return 0.0
 
 
 async def get_reviewer(
@@ -579,8 +629,8 @@ async def get_reviewer(
     # Get LLM for the selected model
     llm = await get_internal_provider_client(
         model,
-        max_tokens=REVIEW_CONFIGS[review_type].max_tokens if review_type in REVIEW_CONFIGS else 512,
-        temperature=1.0 if model.startswith("o1") or model.startswith("o3") else 0.0,
+        max_tokens=get_max_tokens_for_review(model, review_type),
+        temperature=get_temperature_for_review(model),
     )
     reviewer_class = {
         ReviewType.BINARY: BinaryReviewLabeler,
@@ -731,6 +781,7 @@ async def generate_reviews(
         attachment.content_type is not None and attachment.content_type.startswith("image/")
         for attachment in attachments
     )
+
     parse_pdf_locally = settings.PARSE_PDF_LOCALLY_FOR_REVIEW
     transform_options: TransformOptions = {
         "image_type": "thumbnail",
@@ -806,6 +857,8 @@ async def generate_reviews(
                 "deepseek/deepseek-chat",
             ]
             fallback_reviewer_model_name_default = request.fallback_reviewer_model_name or REVIEW_MODEL_FALLBACK
+
+            # Check if we need to adjust model preferences for different capabilities
             if has_pdf_attachments and not parse_pdf_locally:
                 reviewer_model_preference = request.reviewer_model_preference or REVIEW_MODEL_WITH_PDF_SUPPORT
                 fallback_reviewer_model_name_default = (
@@ -818,6 +871,7 @@ async def generate_reviews(
                 fallback_reviewer_model_name_default = (
                     reviewer_model_preference[0] if reviewer_model_preference else REVIEW_MODEL_FALLBACK
                 )
+
             reviewer_model = _select_reviewer_model(
                 model_family,
                 reviewer_model_preference,
@@ -994,7 +1048,6 @@ async def generate_reviews(
 
             # Run all tasks in parallel
             results = await asyncio.gather(*[task[3] for task in review_tasks], return_exceptions=True)
-
             # Process results based on review type
             results_dict: dict[str, CrossCheckCritiqueResult | CrossCheckBinaryResult] = {}
 
@@ -1018,6 +1071,8 @@ async def generate_reviews(
                 else:
                     # Process successful result based on review type
                     if review_type == ReviewType.CROSS_CHECK_CRITIQUE:
+                        if isinstance(result, list):  # Claude 3.7 Sonnet Thinking returns a list of dicts
+                            result = result[-1]["text"]
                         response_text = str(result) if result is not None else ""
                         results_dict[model_name] = {
                             "response": response_text,
@@ -1025,9 +1080,16 @@ async def generate_reviews(
                             "other_model_names": other_model_names,
                         }
                     else:  # CROSS_CHECK_BINARY
-                        is_better = bool(result) if result is not None else False
+                        if isinstance(result, list):  # Claude 3.7 Sonnet Thinking returns a list of dicts
+                            result = result[-1]["text"]
+                        if isinstance(result, str):
+                            result = True if result.lower() == "true" else False
+                        elif isinstance(result, bool):
+                            result = result
+                        else:
+                            result = False
                         results_dict[model_name] = {
-                            "response": is_better,
+                            "response": result,
                             "reviewer_model": reviewer_model,
                             "other_model_names": other_model_names,
                         }
