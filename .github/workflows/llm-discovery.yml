@@ -41,6 +41,8 @@ jobs:
           fi
 
       - name: Commit and push changes if detected
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         if: env.CHANGES_DETECTED == 'true'
         run: |
           git config --global user.name "github-actions[bot]"
