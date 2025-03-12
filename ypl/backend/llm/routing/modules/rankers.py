@@ -1,7 +1,12 @@
 import logging
 from collections import OrderedDict, deque
 
-from ypl.backend.llm.db_helpers import deduce_model_speed_scores, deduce_original_providers, deduce_semantic_groups
+from ypl.backend.llm.db_helpers import (
+    deduce_model_speed_scores,
+    deduce_original_providers,
+    deduce_semantic_groups,
+    get_all_reasoning_models,
+)
 from ypl.backend.llm.routing.modules.base import RouterModule
 from ypl.backend.llm.routing.policy import SelectionCriteria
 from ypl.backend.llm.routing.route_data_type import RoutingPreference
@@ -137,11 +142,12 @@ class ProAndStrongReranker(Reranker):
             if model in state.selected_models
             and SelectionCriteria.PRO_AND_STRONG_MODELS in state.selected_models[model]
         ]
+        reranked = list(model_names)
         if pro_and_strong_models:
             pro_and_strong_model = pro_and_strong_models[0]
-            model_names.remove(pro_and_strong_model)
-            model_names.insert(0, pro_and_strong_model)
-        return model_names
+            reranked.remove(pro_and_strong_model)
+            reranked.insert(0, pro_and_strong_model)
+        return reranked
 
 
 class YappReranker(Reranker):
@@ -324,3 +330,16 @@ class ProviderScatterer(AttributeScatterer):
 
     def get_attr_map(self, models: list[str]) -> dict[str, str]:
         return deduce_original_providers(tuple(models))
+
+
+class ReasoningModelScatterer(AttributeScatterer):
+    """
+    Scatter models with same reasoning so they are not next to each other.
+    """
+
+    def __init__(self, min_dist: int | None) -> None:
+        super().__init__(name="scatterReasoning", min_dist=min_dist)
+
+    def get_attr_map(self, models: list[str]) -> dict[str, str]:
+        reasoning_models = get_all_reasoning_models()
+        return {model: "reasoning" if model in reasoning_models else "not_reasoning" for model in models}

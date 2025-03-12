@@ -512,6 +512,7 @@ def test_fast_compute_all_conf_overlap_diffs() -> None:
 @patch("ypl.backend.llm.routing.modules.proposers.deduce_original_providers")
 @patch("ypl.backend.llm.routing.modules.filters.deduce_original_providers")
 @patch("ypl.backend.llm.routing.rule_router.deduce_original_providers")
+@patch("ypl.backend.llm.routing.modules.rankers.get_all_reasoning_models")
 @patch("ypl.backend.llm.routing.modules.rankers.deduce_semantic_groups")
 @patch("ypl.backend.llm.routing.modules.filters.deduce_semantic_groups")
 @patch("ypl.backend.llm.routing.rule_router.get_routing_table")
@@ -526,11 +527,12 @@ async def test_simple_pro_router(
     mock_routing_table: Mock,
     mock_semantic_group_map1: Mock,
     mock_semantic_group_map2: Mock,
+    mock_get_all_reasoning_models1: Mock,
     mock_deduce_providers1: Mock,
     mock_deduce_providers2: Mock,
     mock_deduce_providers3: Mock,
     mock_deduce_speed_scores: Mock,
-    mock_get_all_reasoning_models: Mock,
+    mock_get_all_reasoning_models2: Mock,
     mock_get_all_live_models: Mock,
     mock_get_all_fast_models: Mock,
     mock_get_all_pro_and_strong_models: Mock,
@@ -556,7 +558,8 @@ async def test_simple_pro_router(
     mock_get_all_pro_and_strong_models.return_value = pro_models | strong_models
     mock_get_all_fast_models.return_value = {}
     mock_get_all_live_models.return_value = {}
-    mock_get_all_reasoning_models.return_value = {}
+    mock_get_all_reasoning_models1.return_value = {}
+    mock_get_all_reasoning_models2.return_value = {}
     mock_semantic_group_map1.return_value = {}
     mock_semantic_group_map2.return_value = {}
     models = {"model1", "model2"}
@@ -600,7 +603,7 @@ async def test_simple_pro_router(
             num_models=2,
             reputable_providers=reputable_providers,
             preference=RoutingPreference(turns=[], user_id="123", same_turn_shown_models=[]),
-            required_models=["model1", "model2"],
+            user_selected_models=["model1", "model2"],
         )
         selected_models = router.select_models(state=state).get_sorted_selected_models()
         assert selected_models == ["model1", "model2"]
@@ -611,7 +614,7 @@ async def test_simple_pro_router(
             num_models=1,
             reputable_providers=reputable_providers,
             preference=RoutingPreference(turns=[], user_id="123", same_turn_shown_models=[]),
-            required_models=["model1"],
+            user_selected_models=["model1"],
         )
         selected_models = router.select_models(state=state).get_sorted_selected_models()
         assert "model1" in selected_models
@@ -636,7 +639,7 @@ async def test_simple_pro_router(
         num_models=1,
         reputable_providers=reputable_providers,
         preference=RoutingPreference(turns=[], user_id="123", same_turn_shown_models=[]),
-        required_models=["model2"],
+        user_selected_models=["model2"],
     )
 
     for _ in range(15):
@@ -649,7 +652,7 @@ async def test_simple_pro_router(
         num_models=2,
         reputable_providers=reputable_providers,
         preference=RoutingPreference(turns=[], user_id="123", same_turn_shown_models=[]),
-        required_models=["model2", "model1"],
+        user_selected_models=["model2", "model1"],
     )
     for _ in range(5):
         state = RouterState(all_models=models)
@@ -806,6 +809,7 @@ def test_context_length_filter(mock_context_lengths: Mock) -> None:
 @patch("ypl.backend.llm.routing.router._get_good_and_bad_models", return_value=(set(), set()))
 @patch("ypl.backend.llm.promotions.get_model_creation_dates", return_value={})
 @patch("ypl.backend.llm.promotions.get_active_model_promotions", return_value=[])
+@patch("ypl.backend.llm.routing.modules.rankers.get_all_reasoning_models", return_value={})
 @patch("ypl.backend.llm.routing.modules.rankers.deduce_model_speed_scores", return_value={})
 @patch("ypl.backend.llm.routing.modules.rankers.deduce_semantic_groups", return_value={})
 @patch("ypl.backend.llm.routing.modules.filters.deduce_semantic_groups", return_value={})
@@ -835,6 +839,7 @@ async def test_select_models_plus(
     mock_deduce_semantic_groups1: Mock,
     mock_deduce_semantic_groups2: Mock,
     mock_deduce_model_speed_scores: Mock,
+    mock_get_all_reasoning_models1: Mock,
     mock_get_active_model_promotions: Mock,
     mock_get_model_creation_dates: Mock,
     mock_get_good_and_bad_models: Mock,
@@ -842,7 +847,7 @@ async def test_select_models_plus(
     mock_get_model_context_lengths: Mock,
     mock_get_routing_table: Mock,
     mock_get_preferences: Mock,
-    mock_get_all_reasoning_models: Mock,
+    mock_get_all_reasoning_models2: Mock,
     mock_get_all_live_models: Mock,
     mock_get_all_fast_models: Mock,
     mock_get_all_pro_and_strong_models: Mock,

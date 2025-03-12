@@ -8,6 +8,7 @@ from ypl.backend.llm.db_helpers import deduce_original_providers, get_all_active
 from ypl.backend.llm.promotions import PromotionModelProposer
 from ypl.backend.llm.provider.provider_clients import get_internal_provider_client
 from ypl.backend.llm.ranking import Ranker, get_ranker
+from ypl.backend.llm.routing.common import SelectIntent
 from ypl.backend.llm.routing.modules.base import RouterModule
 from ypl.backend.llm.routing.modules.decision import RoutingDecisionLogger
 from ypl.backend.llm.routing.modules.filters import (
@@ -46,6 +47,7 @@ from ypl.backend.llm.routing.modules.rankers import (
     ProAndStrongReranker,
     PromotionModelReranker,
     ProviderScatterer,
+    ReasoningModelScatterer,
     ScoreReranker,
     SemanticGroupScatterer,
     SpeedReranker,
@@ -59,16 +61,6 @@ from ypl.backend.utils.monitoring import metric_inc_by
 # Begin pro router logic and routine
 ROUTING_LLM: BaseChatModel | None = None
 USE_GEMINI_FOR_ROUTING = False
-
-
-def needs_attachment(categories: list[str]) -> bool:
-    return IMAGE_CATEGORY in categories or PDF_CATEGORY in categories
-
-
-def needs_special_ability(categories: list[str]) -> bool:
-    # TODO(tian) - this might be a bit hacky, here we manually maintain a list we know that the routing chain is using.
-    # we will change this to a more proper model ability check in the future.
-    return needs_attachment(categories) or "coding" in categories or ONLINE_CATEGORY in categories
 
 
 def _get_good_and_bad_models(preference: RoutingPreference, has_pdf: bool) -> tuple[set[str], set[str]]:
@@ -95,18 +87,38 @@ async def get_simple_pro_router(
     num_models: int,
     preference: RoutingPreference,
     reputable_providers: set[str] | None = None,
-    required_models: list[str] | None = None,
+    user_selected_models: list[str] | None = None,
+    inherited_models: list[str] | None = None,
     same_turn_shown_models: list[str] | None = None,
     provided_categories: list[str] | None = None,
     chat_id: str | None = None,
     turn_id: str | None = None,
-    is_new_turn: bool = False,
+    intent: SelectIntent = SelectIntent.NEW_CHAT,
     with_fallback: bool = False,
 ) -> RouterModule:
     """
     The main routing function.
+    Args:
+        prompt: the prompt to route
+        num_models: the number of models needed for the UI, not including the fallback models
+        preference: the chat history information (past PREFs, NOPEs, used models, etc)
+        reputable_providers: the reputable providers to propose models from (TODO(Tian): deprecate this)
+        user_selected_models: models selected explicitly by the user in the model picker
+        inherited_models: models used and need to be reused from the past turns of the same chat
+        same_turn_shown_models: models already shown in the current turn (if this is a SMM round)
+        provided_categories: categories detected from the prompt plus those passed in in request
+        chat_id: the chat ID
+        turn_id: the turn ID
+        intent: the intent of the request
+        with_fallback: whether to include fallback models, if true, will return 2*num_models
+
+    Returns:
+        A RouterModule for the routing chain
     """
     num_models_to_return = num_models * 2 if with_fallback else num_models
+    first_turn = intent == SelectIntent.NEW_CHAT
+    follow_up_turns = intent == SelectIntent.NEW_TURN
+    show_me_more = intent == SelectIntent.SHOW_ME_MORE
 
     categories = provided_categories or []
     same_turn_shown_providers = (
@@ -118,34 +130,40 @@ async def get_simple_pro_router(
         providers=reputable_providers or set(settings.ROUTING_REPUTABLE_PROVIDERS),
     )
 
+    # Abilities needed.
     has_image = IMAGE_CATEGORY in categories
     has_pdf = PDF_CATEGORY in categories
     has_attachment = has_image or has_pdf
     needs_online_access = ONLINE_CATEGORY in categories
     needs_image_gen = IMAGE_GEN_CATEGORY in categories
+    image_filter = SupportsImageAttachmentModelFilter() if IMAGE_CATEGORY in categories else Passthrough()
+    pdf_filter = SupportsPdfAttachmentModelFilter() if PDF_CATEGORY in categories else Passthrough()
+    attachment_filter = image_filter | pdf_filter
+    live_model_filter = LiveModelFilter() if needs_online_access and not has_attachment else Passthrough()
 
     rule_proposer = RoutingRuleProposer(*categories)
     rule_filter = RoutingRuleFilter(*categories)
     error_filter = HighErrorRateFilter() if not has_pdf else HighErrorRateFilter(soft_threshold=0.2, hard_threshold=0.4)
 
-    image_filter = SupportsImageAttachmentModelFilter() if IMAGE_CATEGORY in categories else Passthrough()
-    pdf_filter = SupportsPdfAttachmentModelFilter() if PDF_CATEGORY in categories else Passthrough()
-    attachment_filter = image_filter | pdf_filter
-
-    # only apply live filter if there's no attachment requirement or we will have so few (1!) models to use.
-    # TODO(Tian): now we will still likely get one online model and one attachment model, even solving an aspect of the
-    # prompt, maybe we can help users to use cross-check to get a synthesized answer?
-    live_model_filter = LiveModelFilter() if needs_online_access and not has_attachment else Passthrough()
-
     include_internal_models = preference.user_id is not None and (await is_user_internal(preference.user_id))
+
+    required_models = (user_selected_models or []) + (inherited_models or [])
 
     def get_preprocessing_stage(prompt: str) -> RouterModule:
         """
         All necessary preprocessing steps, filtering out models we definitely cannot use.
-
-        TODO(Tian): today, only gemini-2.0-flash-001 can handle both attachments and online access.
+        As of 3/11/25, only groundedvertexai/gemini-2.0-flash-001-online can handle both attachments and online access.
         """
-        return rule_filter | ContextLengthFilter(prompt) | attachment_filter | live_model_filter | error_filter
+        return (
+            # we inject inherited models early as they are subject to capabilities filtering, if they
+            # get through this stage, their high score will help them win the ranking.
+            Inject(inherited_models or [], score=49_000_000)
+            | rule_filter
+            | ContextLengthFilter(prompt)
+            | attachment_filter
+            | live_model_filter
+            | error_filter
+        )
 
     async def get_postprocessing_stage(exclude_models: set[str] | None = None, prefix: str = "first") -> RouterModule:
         """
@@ -164,12 +182,12 @@ async def get_simple_pro_router(
                 )
             )
             # Inject required models, even if they don't have attachment capabilities.
-            | Inject(required_models or [], score=50_000_000)
+            | Inject(user_selected_models or [], score=50_000_000)
             # exclude inactive models after injection, this is necessary in case we are injecting models inferred
             # from the history of the chat but they are no longer active.
             | Exclude(name="-inactive", whitelisted_models=await get_all_active_models(include_internal_models))
-            # remove models that don't support needed attachment
-            | attachment_filter
+            # exclude Yapp models in SMM rounds.
+            | (Exclude(name="-yapp", providers={"Yapp"}) if show_me_more else Passthrough())
             # Don't apply semantic group filter for image turns, since we don't have many supporting models.
             | (semantic_group_filter if not has_attachment else Passthrough())
             | (
@@ -184,15 +202,17 @@ async def get_simple_pro_router(
                 SemanticGroupScatterer(min_dist=num_models_to_return) if has_attachment else Passthrough()
             )  # scatter models with same semantic group
             | (ProviderScatterer(min_dist=num_models_to_return) if has_attachment else Passthrough())
+            | ReasoningModelScatterer(min_dist=num_models_to_return)
             | YappReranker(num_models)  # yapp models should never be in the fallback
             | FirstK(num_models_to_return, num_primary_models=num_models, name="final")
-            | (SpeedReranker(num_models) if is_new_turn else Passthrough())  # rerank by speed only in new turns
-            | (ProAndStrongReranker(exempt_models=required_models) if not is_new_turn else Passthrough())
-            | (PositionMatchReranker(preference, num_models) if is_new_turn else Passthrough())
+            # Final tweaks of the order after trimming down to num_models_to_return
+            | (SpeedReranker(num_models) if not first_turn else Passthrough())  # rerank by speed only in new turns
+            | (ProAndStrongReranker(exempt_models=required_models) if first_turn else Passthrough())
+            | (PositionMatchReranker(preference, num_models) if follow_up_turns else Passthrough())
             # -- logging stage --
             | RoutingDecisionLogger(
                 enabled=settings.ROUTING_DO_LOGGING,
-                prefix=f"{prefix}-prompt-simple-pro-router",
+                prefix=f"{intent}",
                 preference=preference,
                 required_models=required_models,
                 metadata={
@@ -210,8 +230,8 @@ async def get_simple_pro_router(
     def propose_type(proposer: type[ModelProposer], name: str, offset: int = 50_000) -> RouterModule:
         return proposer() | error_filter | TopK(1, name=name).with_flags(always_include=True, offset=offset)
 
-    if not preference.turns:
-        # --- First Turn (NEW_TURN) ---
+    if intent == SelectIntent.NEW_CHAT:
+        # --- First Turn (NEW_CHAT) ---
         # Construct a first-turn router guaranteeing at least one pro model and one reputable model.
         router: RouterModule = (
             # -- candidate prep stage --

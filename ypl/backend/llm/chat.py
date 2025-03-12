@@ -28,10 +28,9 @@ from ypl.backend.llm.prompt_selector import (
 )
 from ypl.backend.llm.routing.common import SelectIntent
 from ypl.backend.llm.routing.debug import RoutingDebugInfo, build_routing_debug_info
-from ypl.backend.llm.routing.features import RequestContext, collect_model_features
+from ypl.backend.llm.routing.features import RequestContext, collect_model_features, model_has_abilities
 from ypl.backend.llm.routing.reasons import summarize_reasons
 from ypl.backend.llm.routing.route_data_type import RoutingPreference
-from ypl.backend.llm.routing.router import needs_special_ability
 from ypl.backend.llm.routing.router_state import RouterState
 from ypl.backend.llm.turn_quality import label_turn_quality
 from ypl.backend.utils.async_utils import create_background_task
@@ -316,39 +315,34 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
     preference.debug_level = request.debug_level
     stopwatch.record_split("prepare_prompt_and_preference")
 
-    # Figure out what models are required for routing (must appear)
-    # 1. get it from request, if none, from DB, if none, from preference (inferred from history messages in the chat)
-    # 2. add all previous turn non-downvoted models for stability (2/4/2025, see routing decision log)
-    # 3. remove all same-turn already-shown user-selected models (when it's SMM)
-    required_models: list[str] = []
+    # Kick off prompt labeling and modifier tasks.
+    # Do the prompt labeling, and merge with the passed-in categories (like 'image' and 'pdf', as only
+    # Frontend knows about them at this moment.
+    all_categories = await get_prompt_categories(prompt)
+    all_categories = list(dict.fromkeys((all_categories or []) + (request.provided_categories or [])))
+    prompt_modifiers_task = asyncio.create_task(get_prompt_modifiers(prompt))
+
+    def _remove_same_turn_shown_models(models: list[str]) -> list[str]:
+        return [m for m in models if m not in (preference.same_turn_shown_models or [])]
+
+    # Find out user selected models (from picker) and inherited models (inferred from past turns based on product logic)
+    # See detailed logic in https://docs.google.com/document/d/1C941VwVwFFrv1k2iPMLkLN9ckaEjOlJpwfzOLwB7SsY/edit
+    user_selected_models: list[str] = []
     if request.selectors:
-        required_models = [s.model for s in request.selectors if s.model is not None]
+        user_selected_models = [s.model for s in request.selectors if s.model is not None]
     elif request.required_models:
-        required_models = request.required_models
+        user_selected_models = request.required_models
     else:
         # infer from the history in DB
-        required_models = list(await get_chat_required_models(UUID(request.chat_id), UUID(request.turn_id)))
-    # construct the required model from routing, it's the combination of required models from the request and the
-    # past-turn models we must inherit and use. See model decision log:
-    # https://docs.google.com/document/d/1C941VwVwFFrv1k2iPMLkLN9ckaEjOlJpwfzOLwB7SsY/edit
-    required_models_for_routing = list(required_models) + preference.get_inherited_models(
+        user_selected_models = list(await get_chat_required_models(UUID(request.chat_id), UUID(request.turn_id)))
+    user_selected_models = _remove_same_turn_shown_models(user_selected_models)
+
+    inherited_models: list[str] = preference.get_inherited_models(
         is_show_me_more=(request.intent == SelectIntent.SHOW_ME_MORE)
     )
-    # exclude models already used in earlier rounds in the same turn (due to "Show More AIs")
-    required_models_for_routing = (
-        [m for m in required_models_for_routing if m not in (preference.same_turn_shown_models or [])]
-        if request.intent == SelectIntent.SHOW_ME_MORE
-        else required_models_for_routing
-    )
-    required_models_for_routing = list(dict.fromkeys(required_models_for_routing))  # just dedupe
+    inherited_models = list(dict.fromkeys(inherited_models))  # just dedupe
+    inherited_models = _remove_same_turn_shown_models(inherited_models)
     stopwatch.record_split("infer_required_models")
-
-    # Prompt labeling, generate categories and modifiers based on the prompt.
-    prompt_categories, prompt_modifiers = await asyncio.gather(
-        get_prompt_categories(prompt), get_prompt_modifiers(prompt)
-    )
-    # merge two sources of category labels, from latest classifier runs and from the frontend (like image and pdf)
-    all_categories = (prompt_categories or []) + (request.provided_categories or [])
 
     log_dict = {
         "message": f"Model routing: prompt classification and required models for [{prompt[:100]}]",
@@ -356,35 +350,43 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         "turn_id": request.turn_id,
         "user_id": request.user_id,
         "preference": preference,
-        "prompt_categories": ", ".join(all_categories or []),
+        "labeled_categories": ", ".join(all_categories or []),
         "provided_categories": ", ".join(request.provided_categories or []),
-        "prompt_modifiers": ", ".join(prompt_modifiers) if prompt_modifiers else "None",
-        "required_models_for_routing": ", ".join(required_models_for_routing),
+        "inherited_models": ", ".join(inherited_models),
+        "user_selected_models": ", ".join(user_selected_models),
     }
     logging.info(json_dumps(log_dict))
     stopwatch.record_split("prompt_classification")
+
+    # Check if our current model set already has enough abilities to process all categories
+    model_features = await collect_model_features()
+    required_models_for_routing = user_selected_models + inherited_models
+    has_enough_abilities = all(
+        model_has_abilities(model, all_categories, model_features) for model in required_models_for_routing
+    )
 
     # Run the routing chain if we don't have enough models to serve.
     primary_models = []
     fallback_models = []
     models_rs = None
 
-    if len(required_models_for_routing) > request.num_models * 2 and not needs_special_ability(prompt_categories):
+    if len(required_models_for_routing) > request.num_models * 2 and has_enough_abilities:
         # Allow routing to be short-circuited if we don't need any spacial abilities.
         primary_models = required_models_for_routing[: request.num_models]
         fallback_models = required_models_for_routing[request.num_models : request.num_models * 2]
         num_models_remaining = request.num_models  # since we didn't run the chain, we just always assume there's enough
     else:
-        # create a router
+        # create a router chain
         router = await get_simple_pro_router(
             prompt,
             request.num_models,
             preference,
-            required_models=required_models_for_routing,
+            user_selected_models=user_selected_models,
+            inherited_models=inherited_models,
             same_turn_shown_models=preference.same_turn_shown_models or [],
             provided_categories=all_categories,
             chat_id=request.chat_id,
-            is_new_turn=(request.intent == SelectIntent.NEW_TURN),
+            intent=request.intent,
             with_fallback=True,
         )
         stopwatch.record_split("routing_create_chain")
@@ -401,6 +403,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
     stopwatch.record_split("routing_total")
 
     # Attach prompt modifiers to the models we selected
+    prompt_modifiers = await prompt_modifiers_task
     prompt_modifiers_by_model = await _set_prompt_modifiers(request, primary_models, fallback_models, prompt_modifiers)
     stopwatch.record_split("set_prompt_modifiers")
 
@@ -441,7 +444,6 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         inherited_models=required_models_for_routing,
         prompt_categories=all_categories,
     )
-    model_features = await collect_model_features()
     reasons_by_model = await summarize_reasons(request_context, model_features, models_rs)
 
     # Prepare the response
