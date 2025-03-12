@@ -9,7 +9,7 @@ from uuid import UUID
 
 from sqlmodel import select
 from ypl.backend.db import get_async_session
-from ypl.backend.llm.utils import post_to_slack_with_user_name_bg
+from ypl.backend.llm.utils import post_to_slack_bg
 from ypl.backend.payment.facilitator import (
     BaseFacilitator,
     PaymentInstrumentError,
@@ -30,6 +30,7 @@ from ypl.backend.payment.payment import (
 )
 from ypl.backend.payment.payout_utils import (
     CASHOUT_TXN_COST,
+    MIN_BALANCES,
     handle_failed_transaction,
 )
 from ypl.backend.payment.payout_utils import (
@@ -270,7 +271,29 @@ class StripeFacilitator(BaseFacilitator):
 
                 # get balance to ensure enough funds
                 balance = await self.get_balance(self.currency)
+
+                min_balance = MIN_BALANCES.get(self.currency, Decimal("0"))
+                if balance < amount + min_balance:
+                    log_dict = {
+                        "message": "Low balance alert",
+                        "user_id": user_id,
+                        "balance": str(balance),
+                        "amount": str(amount),
+                        "min_balance": str(min_balance),
+                        "currency": str(self.currency),
+                    }
+                    logging.info(json_dumps(log_dict))
+                    post_to_slack_bg(json_dumps(log_dict))
+
                 if balance < amount:
+                    log_dict = {
+                        "message": "Insufficient balance",
+                        "user_id": user_id,
+                        "amount": str(amount),
+                        "balance": str(balance),
+                        "error": "Insufficient balance to make payment",
+                    }
+                    logging.error(json_dumps(log_dict))
                     raise PaymentInstrumentError("Insufficient balance")
 
                 # get the recipient account details on stripe
@@ -452,7 +475,7 @@ class StripeFacilitator(BaseFacilitator):
                     "receipt_url": receipt_url,
                 }
                 logging.info(json_dumps(log_dict))
-                post_to_slack_with_user_name_bg(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
+                post_to_slack_bg(json_dumps(log_dict))
                 return PaymentResponse(
                     payment_transaction_id=payment_transaction_id,
                     transaction_status=PaymentTransactionStatusEnum.PENDING,
@@ -662,7 +685,7 @@ class StripeFacilitator(BaseFacilitator):
             }
             logging.error(json_dumps(log_dict))
 
-            post_to_slack_with_user_name_bg(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
+            post_to_slack_bg(json_dumps(log_dict))
 
         except Exception as e:
             log_dict = {

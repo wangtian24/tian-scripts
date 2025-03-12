@@ -57,6 +57,7 @@ MIN_BALANCES: dict[CurrencyEnum, Decimal] = {
     CurrencyEnum.DOGE: Decimal("100"),
     CurrencyEnum.ETH: Decimal("0.25"),
     CurrencyEnum.SOL: Decimal("0.1"),
+    CurrencyEnum.USD: Decimal("5000"),
     CurrencyEnum.USDC: Decimal("200"),
     CurrencyEnum.USDT: Decimal("200"),
 }
