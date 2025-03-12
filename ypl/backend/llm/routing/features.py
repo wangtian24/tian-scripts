@@ -1,11 +1,8 @@
-import logging
-
 from pydantic import BaseModel
 from sqlmodel import select
 
 from ypl.backend.db import get_async_session
 from ypl.backend.llm.attachment import supports_image, supports_pdf
-from ypl.backend.llm.constants import IMAGE_CATEGORY, IMAGE_GEN_CATEGORY, ONLINE_CATEGORY, PDF_CATEGORY
 from ypl.backend.llm.routing.common import SelectIntent
 from ypl.db.language_models import LanguageModel, Provider
 from ypl.utils import async_timed_cache
@@ -30,13 +27,13 @@ class ModelFeatures(BaseModel):
     is_reasoning: bool
     is_image_generation: bool
     is_live: bool
-    # will need to be calculated
+    # will need to be calculate
     can_process_pdf: bool
     can_process_image: bool
 
 
 class ModelSetFeatures(BaseModel):
-    model_features: dict[str, ModelFeatures]  # map from model internal name to model features
+    model_features: dict[str, ModelFeatures]  # map from model full name to model features
 
 
 @async_timed_cache(seconds=600)
@@ -79,26 +76,3 @@ async def collect_model_features() -> ModelSetFeatures:
             for model, provider in models
         }
         return ModelSetFeatures(model_features=model_features)
-
-
-def model_has_abilities(internal_name: str, categories: list[str], features: ModelSetFeatures) -> bool:
-    """
-    Check if the model has all the abilities to process the categories detected from the prompt.
-    """
-    if len(categories) == 0:
-        return True  # we don't need any abilities
-
-    if internal_name not in features.model_features:
-        logging.warning(f"No features found for model {internal_name}")
-        return False  # there's no ability info about this model somehow
-
-    for category in categories:
-        if (
-            (category == ONLINE_CATEGORY and not features.model_features[internal_name].is_live)
-            or (category == IMAGE_CATEGORY and not features.model_features[internal_name].can_process_image)
-            or (category == PDF_CATEGORY and not features.model_features[internal_name].can_process_pdf)
-            or (category == IMAGE_GEN_CATEGORY and not features.model_features[internal_name].is_image_generation)
-        ):
-            return False
-
-    return True
