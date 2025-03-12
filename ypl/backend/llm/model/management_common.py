@@ -34,26 +34,30 @@ class ModelManagementStatus(Enum):
 
 MODEL_MANAGEMENT_STATUS_MESSAGES = {
     # -- for onboarding --
-    ModelManagementStatus.VALIDATED: (
-        "Onboarding: New model submission verification success. Set to ACTIVE after having been validated successfully"
-    ),
+    ModelManagementStatus.VALIDATED: (":smiley: Onboarding: New model submission verification success. Set to ACTIVE."),
     ModelManagementStatus.REJECTED: (
-        f"Onboarding: New model submission verification failed. "
-        f"Set to REJECTED due to not being validated after {REJECT_AFTER_DAYS} days"
+        f":cry: Onboarding: New model submission verification failed. "
+        f"Set to REJECTED due to not being validated after {REJECT_AFTER_DAYS} days."
     ),
     ModelManagementStatus.PENDING: (
-        f"Onboarding: New model submission verification failed. "
+        f":thinking_face: Onboarding: New model submission verification failed. "
         f"Additional validation tests will be conducted until day {REJECT_AFTER_DAYS}."
     ),
-    ModelManagementStatus.VALIDATION_ERROR: ("Error occurred while validating model"),
+    ModelManagementStatus.VALIDATION_ERROR: (":cold_face: Error occurred while validating model."),
     # -- for periodical validation --
-    ModelManagementStatus.PROBATION: ("Validation: Failed validation, set to PROBATION due to high error rate"),
-    ModelManagementStatus.DEACTIVATED: ("Validation: Failed probation, set to INACTIVE after consecutive failures"),
-    ModelManagementStatus.RECOVERED: ("Validation: Exited probation, set to ACTIVE again after consecutive successes"),
-    ModelManagementStatus.NOT_ENOUGH_TRAFFIC: ("Validation: Not enough traffic to decide, will continue monitoring"),
-    ModelManagementStatus.INFERENCE_ERROR: ("Validation: Inference error"),
+    ModelManagementStatus.PROBATION: (":cry: Validation: Failed validation, set to PROBATION due to high error rate."),
+    ModelManagementStatus.DEACTIVATED: (
+        ":cry: Validation: Failed probation, set to INACTIVE after consecutive failures."
+    ),
+    ModelManagementStatus.RECOVERED: (
+        ":smiley: Validation: Exited probation, set to ACTIVE again after consecutive successes."
+    ),
+    ModelManagementStatus.NOT_ENOUGH_TRAFFIC: (
+        ":thinking_face: Validation: Not enough traffic to decide, will continue monitoring."
+    ),
+    ModelManagementStatus.INFERENCE_ERROR: (":cold_face: Validation: Inference error."),
     # -- shared --
-    ModelManagementStatus.OTHER_ERROR: ("Detected error"),
+    ModelManagementStatus.OTHER_ERROR: (":cold_face: Detected error."),
 }
 
 
@@ -61,6 +65,17 @@ class ModelAlertLevel(Enum):
     LOG_ONLY = 0  # Log only
     NOTIFY = 10  # Log, send to #alert-model-management
     ALERT = 20  # Log, send to #alert-model-management and #alert-backend
+
+
+def get_slack_channels(level: ModelAlertLevel = ModelAlertLevel.NOTIFY) -> tuple[str, ...]:
+    return (
+        (
+            "#alert-model-management",
+            "#alert-backend" if os.environ.get("ENVIRONMENT") == "production" else "#alert-backend-staging",
+        )
+        if level.value >= ModelAlertLevel.ALERT.value
+        else ("#alert-model-management",)
+    )
 
 
 async def log_and_post(
@@ -81,16 +96,11 @@ async def log_and_post(
     print(f">> [log/slack] Model {model_name}: {MODEL_MANAGEMENT_STATUS_MESSAGES[status]} - {extra_msg or ''}")
 
     env = os.environ.get("ENVIRONMENT") or "unknown"
+    slack_msg = f"[{env}] Model *{model_name}*: " f"{MODEL_MANAGEMENT_STATUS_MESSAGES[status]}"
+    if extra_msg:
+        slack_msg += f" ``` {extra_msg} ```"
 
-    if level.value >= ModelAlertLevel.NOTIFY.value:
-        slack_msg = (
-            f"[{env}] Model *{model_name}*: " f"{MODEL_MANAGEMENT_STATUS_MESSAGES[status]} ``` {extra_msg or ''} ```"
-        )
-        await post_to_slack_channel(slack_msg, "#alert-model-management")
-    if level.value >= ModelAlertLevel.ALERT.value:
-        await post_to_slack_channel(
-            slack_msg, "#alert-backend" if env.lower() == "production" else "#alert-backend-staging"
-        )
+    await post_to_slack_channel(slack_msg, get_slack_channels(level))
 
 
 @retry(stop=stop_after_attempt(INFERENCE_ATTEMPTS), wait=wait_exponential(multiplier=1, min=4, max=10), reraise=True)

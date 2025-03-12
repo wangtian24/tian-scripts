@@ -189,7 +189,7 @@ SLACK_APP_TOKEN_ENV_VARS = {
 
 
 async def post_to_slack_channel(
-    message: str, channel: str, app: YuppSlackApps = YuppSlackApps.MODEL_MANAGEMENT
+    message: str, channel: str | tuple[str, ...], app: YuppSlackApps = YuppSlackApps.MODEL_MANAGEMENT
 ) -> None:
     """
     Post a message to a Slack channel using a specific app
@@ -197,29 +197,32 @@ async def post_to_slack_channel(
     if os.environ.get("ENVIRONMENT") == "local":
         # routing everything to a test channel if it's local model so we don't contaminate the main channel
         # and still get some messages.
-        channel = "#alert-test-only"
+        channels = ["#alert-test-only"]
+    else:
+        channels = [channel] if isinstance(channel, str) else list(channel)
 
-    bot_token = os.environ.get(SLACK_APP_TOKEN_ENV_VARS[app])
-    message_dict = {
-        "channel": channel,
-        "text": message,
-    }
-    headers = {
-        "Authorization": f"Bearer {bot_token}",
-        "Content-Type": "application/json",
-    }
-    try:
-        response = requests.post(
-            "https://slack.com/api/chat.postMessage",
-            headers=headers,
-            data=json.dumps(message_dict),
-        )
-        response.raise_for_status()
-    except Exception as e:
-        log_dict = {
-            "message": f"Failed to post message to Slack channel {channel}: {str(e)}",
+    for channel in channels:
+        bot_token = os.environ.get(SLACK_APP_TOKEN_ENV_VARS[app])
+        message_dict = {
+            "channel": channel,
+            "text": message,
         }
-        logging.exception(json_dumps(log_dict))
+        headers = {
+            "Authorization": f"Bearer {bot_token}",
+            "Content-Type": "application/json",
+        }
+        try:
+            response = requests.post(
+                "https://slack.com/api/chat.postMessage",
+                headers=headers,
+                data=json.dumps(message_dict),
+            )
+            response.raise_for_status()
+        except Exception as e:
+            log_dict = {
+                "message": f"Failed to post message to Slack channel {channel}: {str(e)}",
+            }
+            logging.exception(json_dumps(log_dict))
 
 
 async def post_to_slack(message: str | None = None, webhook_url: str | None = None, blocks: list | None = None) -> None:

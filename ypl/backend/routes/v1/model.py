@@ -10,6 +10,7 @@ from pydantic import UUID4, BaseModel
 from sqlalchemy import func
 
 from ypl.backend.llm.error_logger import DatabaseLanguageModelStatusLogger, DefaultLanguageModelStatusLogger
+from ypl.backend.llm.model.management_common import get_slack_channels
 from ypl.backend.llm.model.model import (
     LanguageModelStruct,
     ModelTaxonomyQuery,
@@ -25,7 +26,7 @@ from ypl.backend.llm.model.model import (
 from ypl.backend.llm.model.model_onboarding import verify_onboard_specific_model
 from ypl.backend.llm.routing.route_data_type import InstantaneousLanguageModelStatistics, LanguageModelStatistics
 from ypl.backend.llm.running_statistics import RunningStatisticsTracker
-from ypl.backend.llm.utils import post_to_slack
+from ypl.backend.llm.utils import post_to_slack_channel
 from ypl.backend.utils.json import json_dumps
 from ypl.db.language_models import (
     LanguageModel,
@@ -110,11 +111,12 @@ async def create_model_route(create_req: CreateLanguageModelRequest, background_
         )
 
         model_id = await create_model(model)
-        background_tasks.add_task(async_verify_onboard_specific_models, model_id)
         background_tasks.add_task(
-            post_to_slack,
-            f"[{os.environ.get('ENVIRONMENT')}] - Model {create_req.name} submitted for validation.",
+            post_to_slack_channel,
+            f"[{os.environ.get('ENVIRONMENT')}] Model *{model.name}*: :tada: Submitted for validation",
+            channel=get_slack_channels(),
         )
+        background_tasks.add_task(async_verify_onboard_specific_models, model_id)
         return str(model_id)
     except Exception as e:
         log_dict = {
@@ -236,10 +238,11 @@ async def create_model_taxonomy_route(model_taxonomy: LanguageModelTaxonomy, bac
         if model_taxonomy_id is None:
             raise HTTPException(status_code=409, detail="Taxonomy already exists")
         background_tasks.add_task(
-            post_to_slack,
+            post_to_slack_channel,
             f"[{os.environ.get('ENVIRONMENT')}] - Created new model taxonomy node: "
             f"{model_taxonomy.model_publisher}/{model_taxonomy.model_family}/{model_taxonomy.model_class}/"
             f"{model_taxonomy.model_version}/{model_taxonomy.model_release}",
+            channel=get_slack_channels(),
         )
         return str(model_taxonomy_id)
     except Exception as e:

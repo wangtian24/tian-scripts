@@ -163,11 +163,11 @@ async def _test_inference_for_model(model: LanguageModel) -> None:
                 ModelManagementStatus.OTHER_ERROR,
                 model.name,
                 f"{error_type}: {excerpt}",
-                level=ModelAlertLevel.ALERT,
+                level=ModelAlertLevel.NOTIFY,
             )
     except Exception as e:
         print(f"Model {model.name}: error during validation: {e}")
-        await log_and_post(ModelManagementStatus.VALIDATION_ERROR, model.name, str(e), level=ModelAlertLevel.ALERT)
+        await log_and_post(ModelManagementStatus.VALIDATION_ERROR, model.name, str(e), level=ModelAlertLevel.NOTIFY)
 
 
 @retry(

@@ -138,7 +138,7 @@ async def _verify_one_submitted_model(model: LanguageModel) -> bool:
                             ModelManagementStatus.OTHER_ERROR,
                             model_name,
                             f"{error_type}: {excerpt}",
-                            level=ModelAlertLevel.ALERT,
+                            level=ModelAlertLevel.NOTIFY,
                         )
 
                     if is_inference_running:

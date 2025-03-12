@@ -89,7 +89,7 @@ def get_model_provider_tuple(
         }
         return model_provider_map_by_internal_name.get(internal_name)
     else:
-        raise ValueError("Either internal_name or name must be provided")
+        raise ValueError("Either internal_name or name must be provided for model provider lookup")
 
 
 # TODO(bhanu) - add provider to client mapping in DB and remove switch cases (pre-work API key storage)
@@ -105,12 +105,12 @@ async def get_provider_client(
         name: Name of the model, in the form of provider_name/model_name, from the 'name' field in DB
         include_all: If True, include all models, even if they are not active
     """
-    if name is not None:
-        model_provider = get_model_provider_tuple(name=name, include_all_models=include_all_models)
-    elif internal_name is not None:
-        model_provider = get_model_provider_tuple(internal_name=internal_name, include_all_models=include_all_models)
+    model_provider = get_model_provider_tuple(
+        internal_name=internal_name, name=name, include_all_models=include_all_models
+    )
+
     if not model_provider:
-        raise ValueError("Either internal_name or name must be provided")
+        raise ValueError(f"Cannot find model and provider for internal_name={internal_name} or name={name}")
 
     model, provider = model_provider
     model_db_parameters = model.parameters
