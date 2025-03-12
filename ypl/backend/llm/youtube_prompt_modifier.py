@@ -15,7 +15,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder, Prom
 from pydantic import BaseModel
 from upstash_redis.asyncio import Redis
 
-from ypl.backend.llm.labeler import LLMLabeler
+from ypl.backend.llm.labeler import LLMLabeler, MultiLLMLabeler
 from ypl.backend.llm.provider.provider_clients import get_internal_provider_client
 from ypl.backend.utils.utils import StopWatch
 from ypl.db.redis import get_upstash_redis_client
@@ -25,8 +25,31 @@ YOUTUBE_VIDEOS_FOR_CHAT_KEY_FORMAT = "youtube_videos_for_chat:{chat_id}"
 YOUTUBE_TRANSCRIPT_FOR_VIDEO_ID_KEY_FORMAT = "youtube_transcript_for_video_id:{video_id}"
 
 YOUTUBE_VIDEO_LABELING_TIMEOUT_SECS = 1.5
-YOUTUBE_VIDEO_LABELING_MODEL = "llama-3.3-70b-versatile"  # This groq model is one of the fastest (200ms p50).
+YOUTUBE_VIDEO_LABELING_MODEL_1 = "llama-3.3-70b-versatile"  # This groq model is one of the fastest (200ms p50).
+YOUTUBE_VIDEO_LABELING_MODEL_2 = "gpt-4o-mini"  # A more reliable model, likely slower. The first response is used.
 YOUTUBE_ENTRIES_REDIS_TTL_SECS = 7 * 24 * 60 * 60  # 7 days.
+
+_YOUTUBE_MULTI_LABELER = None
+
+
+async def _get_youtube_multi_labeler() -> MultiLLMLabeler:
+    global _YOUTUBE_MULTI_LABELER
+
+    if _YOUTUBE_MULTI_LABELER is None:
+        _YOUTUBE_MULTI_LABELER = MultiLLMLabeler(
+            labelers={
+                YOUTUBE_VIDEO_LABELING_MODEL_1: YoutubeVideoLabeler(
+                    await get_internal_provider_client(YOUTUBE_VIDEO_LABELING_MODEL_1, max_tokens=128)
+                ),
+                YOUTUBE_VIDEO_LABELING_MODEL_2: YoutubeVideoLabeler(
+                    await get_internal_provider_client(YOUTUBE_VIDEO_LABELING_MODEL_2, max_tokens=128)
+                ),
+            },
+            timeout_secs=YOUTUBE_VIDEO_LABELING_TIMEOUT_SECS,
+            early_terminate_on=[YOUTUBE_VIDEO_LABELING_MODEL_1, YOUTUBE_VIDEO_LABELING_MODEL_2],
+        )
+
+    return _YOUTUBE_MULTI_LABELER
 
 
 class YoutubeProcessingStatus(Enum):
@@ -248,16 +271,16 @@ async def maybe_youtube_transcript_messages(chat_id: str, chat_history: list[Bas
             }
         )
 
-        llm = await get_internal_provider_client(YOUTUBE_VIDEO_LABELING_MODEL, max_tokens=128)
-        labeler = YoutubeVideoLabeler(llm)
-        label_resp = await labeler.alabel(user_prompts)
+        multi_labeler = await _get_youtube_multi_labeler()
 
-        logging.info(
-            {
-                "message": f"Youtube videos returned by labeler for {chat_id}: {label_resp.video_ids}",
-                "model": YOUTUBE_VIDEO_LABELING_MODEL,
-            }
-        )
+        results = await multi_labeler.alabel(user_prompts)
+        successful_results = [(m, r) for m, r in results.items() if isinstance(r, YoutubeLabelerResponse)]
+        if not successful_results:  # both failed. Raise the first.
+            raise results.items()[0][1]
+
+        model, label_resp = successful_results[0]
+
+        logging.info({"message": f"Youtube videos returned for {chat_id} by {model}: {label_resp.video_ids}"})
 
         # Note: We are invoking labeler for each chat_completion. We only need to call to once per turn for all the
         # selected models. We could use redis to avoid extra labeler invocations to void it. Since very small fraction
