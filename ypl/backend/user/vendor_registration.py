@@ -383,9 +383,7 @@ class StripeRegistration(VendorRegistration):
         return VendorRegistrationResponse(
             vendor_id=user_vendor_id,
             additional_details={
-                "stripe_details": additional_details.stripe_details.__dict__
-                if additional_details.stripe_details
-                else {}
+                "stripe_details": additional_details.stripe_details if additional_details.stripe_details else {}
             },
             vendor_url_link=vendor_url_link,
         )
