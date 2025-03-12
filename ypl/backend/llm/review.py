@@ -114,11 +114,11 @@ REVIEW_MODEL_FALLBACK = "gpt-4o"
 
 
 @alru_cache(maxsize=None, ttl=86400)  # 24-hour cache, now async-compatible
-async def get_model_family_and_id(model_name: str) -> tuple[str, UUID]:
-    """Get model family and ID from database with 24-hour caching."""
+async def get_model_family_id_and_label(model_name: str) -> tuple[str, UUID, str]:
+    """Get model family, ID, and label from database with 24-hour caching."""
     async with get_async_session() as session:
         try:
-            stmt = select(LanguageModel.family, LanguageModel.language_model_id).where(  # type: ignore
+            stmt = select(LanguageModel.family, LanguageModel.language_model_id, LanguageModel.label).where(  # type: ignore
                 LanguageModel.internal_name == model_name
             )
             result = await session.execute(stmt)
@@ -126,19 +126,19 @@ async def get_model_family_and_id(model_name: str) -> tuple[str, UUID]:
             if not row:
                 logging.warning(f"Model {model_name} not found")
                 raise ValueError(f"Model {model_name} not found")
-            family, model_id = row
+            family, model_id, label = row
             if not family or not model_id:
                 logging.warning(f"Model {model_name} not found")
                 raise ValueError(f"Model {model_name} not found")
-            return str(family), model_id
+            return str(family), model_id, label or model_name
         except Exception as e:
             logging.exception(f"Error getting model info for {model_name}: {e}")
             raise e
 
 
-async def get_model_families_and_ids(model_names: list[str]) -> dict[str, tuple[str, UUID]]:
-    """Get model families and IDs from database by looking up each model individually."""
-    return {model_name: await get_model_family_and_id(model_name) for model_name in model_names}
+async def get_model_families_ids_and_labels(model_names: list[str]) -> dict[str, tuple[str, UUID, str]]:
+    """Get model families, IDs, and labels from database by looking up each model individually."""
+    return {model_name: await get_model_family_id_and_label(model_name) for model_name in model_names}
 
 
 REVIEW_LLMS: dict[ReviewType, dict[str, BaseChatModel]] = {}
@@ -827,7 +827,7 @@ async def generate_reviews(
         all_models.update(REVIEW_MODEL_ALLOWLIST_PREFERENCES)  # Add whitelist models for family lookup
 
     if all_models:
-        all_model_families = await get_model_families_and_ids(list(all_models))
+        all_model_families = await get_model_families_ids_and_labels(list(all_models))
         # Extract just the family part for the existing logic
         response_model_family_map = (
             {k: v[0] for k, v in all_model_families.items() if k in responses} if responses else {}
@@ -893,12 +893,14 @@ async def generate_reviews(
     async def _run_pointwise_review(
         review_type: ReviewType,
         reviewers: dict[str, BaseReviewLabeler[ReviewResultType]],
+        model_info: dict[str, tuple[str, UUID, str]],
     ) -> tuple[ReviewType, dict[str, BinaryResult | CritiqueResult | SegmentedResult]]:
         """Generic function to run pointwise reviews.
 
         Args:
             review_type: Type of review being performed
             reviewers: Dict mapping response model to its reviewer
+            model_info: Map of model name to tuple of (family, model_id, label)
 
         Returns:
             Tuple of review type and results dictionary
@@ -937,14 +939,15 @@ async def generate_reviews(
 
                 # Create appropriate result based on review type and result type
                 reviewer_model = reviewers[model].model
+                reviewer_model_label = model_info.get(reviewer_model, (None, None, reviewer_model))[2]
 
                 if review_type == ReviewType.BINARY and isinstance(result, bool):
                     pointwise_results[model] = cast(
-                        BinaryResult, {"response": result, "reviewer_model": reviewer_model}
+                        BinaryResult, {"response": result, "reviewer_model": reviewer_model_label}
                     )
                 elif review_type == ReviewType.CRITIQUE and isinstance(result, str):
                     pointwise_results[model] = cast(
-                        CritiqueResult, {"response": result, "reviewer_model": reviewer_model}
+                        CritiqueResult, {"response": result, "reviewer_model": reviewer_model_label}
                     )
                 elif (
                     review_type == ReviewType.SEGMENTED
@@ -952,7 +955,7 @@ async def generate_reviews(
                     and all(isinstance(x, dict) for x in result)
                 ):
                     pointwise_results[model] = cast(
-                        SegmentedResult, {"segments": result, "reviewer_model": reviewer_model}
+                        SegmentedResult, {"segments": result, "reviewer_model": reviewer_model_label}
                     )
                 else:
                     logging.warning(f"run_{review_type}: {model} returned unexpected result type: {type(result)}")
@@ -1179,6 +1182,7 @@ async def generate_reviews(
         result = await _run_pointwise_review(
             ReviewType.BINARY,
             binary_reviewers,
+            all_model_families,
         )
         return cast(tuple[ReviewType, dict[str, BinaryResult]], result)
 
@@ -1187,6 +1191,7 @@ async def generate_reviews(
         result = await _run_pointwise_review(
             ReviewType.CRITIQUE,
             critique_reviewers,
+            all_model_families,
         )
         return cast(tuple[ReviewType, dict[str, CritiqueResult]], result)
 
@@ -1195,6 +1200,7 @@ async def generate_reviews(
         result = await _run_pointwise_review(
             ReviewType.SEGMENTED,
             segmented_reviewers,
+            all_model_families,
         )
         return cast(tuple[ReviewType, dict[str, SegmentedResult]], result)
 
@@ -1350,7 +1356,7 @@ async def store_reviews(
     review_types: list[ReviewType],
     reviewers: dict[ReviewType, dict[str, BaseReviewLabeler[Any]]],
     has_error: bool,
-    model_info: dict[str, tuple[str, UUID]],
+    model_info: dict[str, tuple[str, UUID, str]],
     chat_id: str,
 ) -> None:
     """Persist generated reviews to the database.
@@ -1361,7 +1367,7 @@ async def store_reviews(
         review_types: List of review types that were generated
         reviewers: Map of review type to model->reviewer mapping
         has_error: Whether there was an error during review generation
-        model_info: Map of model name to tuple of (family, model_id)
+        model_info: Map of model name to tuple of (family, model_id, label)
         chat_id: Chat ID
     """
 
@@ -1413,7 +1419,7 @@ async def store_reviews(
                         logging.warning(f"Reviewer model {reviewer_model} not found in model_info ({message_context})")
                         continue
 
-                    _, reviewer_model_id = model_info[reviewer_model]
+                    _, reviewer_model_id, _ = model_info[reviewer_model]
 
                     # Create and add review to session
                     review = create_review_obj(
