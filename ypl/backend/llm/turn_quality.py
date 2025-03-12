@@ -4,6 +4,7 @@ import logging
 import time
 import uuid
 from collections import defaultdict
+from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
@@ -11,6 +12,7 @@ import numpy as np
 from cachetools.func import ttl_cache
 from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import BaseModel
+from rapidfuzz.distance import JaroWinkler
 from sqlalchemy import Select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
@@ -26,7 +28,18 @@ from ypl.backend.llm.moderation import DEFAULT_MODERATION_RESULT, amoderate
 from ypl.backend.llm.vendor_langchain_adapter import OpenAILangChainAdapter
 from ypl.backend.rw_cache import TurnQualityCache
 from ypl.backend.utils.json import json_dumps
-from ypl.db.chats import ChatMessage, CompletionStatus, Eval, EvalType, MessageEval, MessageType, Turn, TurnQuality
+from ypl.db.chats import (
+    ChatMessage,
+    CompletionStatus,
+    Eval,
+    EvalType,
+    MessageEval,
+    MessageType,
+    SuggestedTurnPrompt,
+    SuggestedUserPrompt,
+    Turn,
+    TurnQuality,
+)
 from ypl.db.language_models import LanguageModel
 
 LLM: BaseChatModel | None = None
@@ -46,6 +59,9 @@ MIN_RESPONSE_TIME_SECS = 2.5
 
 # The score assigned to a "selected" model in a battle.
 SELECTED_MODEL_SCORE = 100
+
+# Minimum similarity score for a prompt to be considered similar to a suggested followup or conversation starter.
+MIN_PROMPT_SIMILARITY_SCORE = 0.9
 
 
 STATIC_TURN_NOTES = {
@@ -81,6 +97,93 @@ def get_llm() -> BaseChatModel:
             ),
         )
     return LLM
+
+
+def _maybe_get_similar_prompt(prompt: str, suggestions: Sequence[str]) -> str | None:
+    # Return the first suggestion that is similar to the prompt, or None if none are similar.
+    for sf in suggestions:
+        if JaroWinkler.normalized_similarity(prompt, sf) > MIN_PROMPT_SIMILARITY_SCORE:
+            return sf
+    return None
+
+
+async def get_previous_turn_suggested_followups(turn_id: UUID) -> Sequence[str]:
+    """Returns the suggested followups for turn just before `turn`, if any."""
+    async with get_async_session() as session:
+        current_turn_info = (
+            await session.exec(select(Turn.chat_id, Turn.sequence_id).where(Turn.turn_id == turn_id))
+        ).first()
+
+        if not current_turn_info:
+            return []
+
+        previous_turn_id = (
+            await session.exec(
+                select(Turn.turn_id)
+                .where(Turn.chat_id == current_turn_info.chat_id, Turn.sequence_id == current_turn_info.sequence_id - 1)  # type: ignore
+                .order_by(Turn.sequence_id.desc())  # type: ignore
+                .limit(1)
+            )
+        ).first()
+        if not previous_turn_id:
+            return []
+
+        suggested_followups = (
+            await session.exec(
+                select(SuggestedTurnPrompt.prompt).where(SuggestedTurnPrompt.turn_id == previous_turn_id)
+            )
+        ).all()
+
+        return suggested_followups
+
+
+async def is_suggested_followup(turn_id: UUID, prompt: str) -> bool:
+    """Returns True if the prompt is very similar to a suggested followup for the turn just before `turn_id`."""
+    suggested_followups = await get_previous_turn_suggested_followups(turn_id)
+    if not suggested_followups:
+        return False
+
+    similar_prompt = _maybe_get_similar_prompt(prompt, suggested_followups)
+    if similar_prompt:
+        logging.info(
+            json_dumps(
+                {
+                    "message": "Detected likely suggested followup prompt",
+                    "turn_id": str(turn_id),
+                    "prompt": prompt,
+                    "suggested_followup": similar_prompt,
+                }
+            )
+        )
+    return similar_prompt is not None
+
+
+async def is_conversation_starter(turn_id: UUID, prompt: str) -> bool:
+    """Returns True if the prompt is very similar to a conversation starter for the user creating `turn_id`."""
+    async with get_async_session() as session:
+        conversation_starters = (
+            await session.exec(
+                select(SuggestedUserPrompt.prompt)
+                .join(Turn, Turn.creator_user_id == SuggestedUserPrompt.user_id)  # type: ignore
+                .where(Turn.turn_id == turn_id)
+            )
+        ).all()
+        if not conversation_starters:
+            return False
+
+        similar_prompt = _maybe_get_similar_prompt(prompt, conversation_starters)
+        if similar_prompt:
+            logging.info(
+                json_dumps(
+                    {
+                        "message": "Detected likely conversation starter prompt",
+                        "turn_id": str(turn_id),
+                        "prompt": prompt,
+                        "conversation_starter": similar_prompt,
+                    }
+                )
+            )
+        return similar_prompt is not None
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=2, max=30), reraise=True)
@@ -122,6 +225,10 @@ async def label_turn_quality_with_retry(turn_id: UUID, chat_id: UUID, prompt: st
     if tq.prompt_is_safe is None:
         tasks.append(("moderate", amoderate(prompt)))
 
+    if tq.is_suggested_followup is None or tq.is_conversation_starter is None:
+        tasks.append(("is_suggested_followup", is_suggested_followup(turn_id, prompt)))
+        tasks.append(("is_conversation_starter", is_conversation_starter(turn_id, prompt)))
+
     if tasks:
         results = await asyncio.gather(*(task[1] for task in tasks), return_exceptions=True)
 
@@ -137,8 +244,6 @@ async def label_turn_quality_with_retry(turn_id: UUID, chat_id: UUID, prompt: st
                     prompt_difficulty = DEFAULT_PROMPT_DIFFICULTY
                 elif task_type == "moderate":
                     moderation_result = DEFAULT_MODERATION_RESULT
-                else:
-                    raise ValueError(f"Unknown task type: {task_type}")
             else:
                 if task_type == "difficulty":
                     prompt_difficulty, prompt_difficulty_details = result  # type: ignore
@@ -150,6 +255,10 @@ async def label_turn_quality_with_retry(turn_id: UUID, chat_id: UUID, prompt: st
                     tq.prompt_moderation_model_name = moderation_result.model_name
                     if not moderation_result.safe:
                         tq.prompt_unsafe_reasons = moderation_result.reasons
+                elif task_type == "is_suggested_followup":
+                    tq.is_suggested_followup = result  # type: ignore
+                elif task_type == "is_conversation_starter":
+                    tq.is_conversation_starter = result  # type: ignore
                 else:
                     raise ValueError(f"Unknown task type: {task_type}")
 
@@ -169,6 +278,8 @@ async def label_turn_quality_with_retry(turn_id: UUID, chat_id: UUID, prompt: st
         "turn_id": str(turn_id),
         "prompt_difficulty": tq.prompt_difficulty,
         "prompt_is_safe": tq.prompt_is_safe,
+        "is_suggested_followup": tq.is_suggested_followup,
+        "is_conversation_starter": tq.is_conversation_starter,
         "time_msec": (time.time() - start_time) * 1000,
     }
     logging.info(json_dumps(info))

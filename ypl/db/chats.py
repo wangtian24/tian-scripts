@@ -436,6 +436,11 @@ class TurnQuality(BaseModel, table=True):
     # The overall quality of the turn.
     quality: float | None = Field(nullable=True)
 
+    # Whether the prompt in the turn is likely to be a suggested followup.
+    is_suggested_followup: bool | None = Field(nullable=True)
+    # Whether the prompt in the turn is likely to be a conversation starter.
+    is_conversation_starter: bool | None = Field(nullable=True)
+
     def get_overall_quality(self) -> float | None:
         if self.prompt_is_safe is False:
             return 0

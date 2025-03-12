@@ -287,6 +287,8 @@ class TurnQualityCache(SingletonMixin, ThreadedReadWriteThroughCache[uuid.UUID, 
                 turn_quality.prompt_is_safe = value.prompt_is_safe
                 turn_quality.prompt_unsafe_reasons = value.prompt_unsafe_reasons
                 turn_quality.prompt_moderation_model_name = value.prompt_moderation_model_name
+                turn_quality.is_suggested_followup = value.is_suggested_followup
+                turn_quality.is_conversation_starter = value.is_conversation_starter
 
             session.add(turn_quality)
             session.commit()
