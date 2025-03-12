@@ -355,3 +355,14 @@ def extract_json_dict_from_text(text: str) -> str:
         return text
     else:
         return text[first : last + 1]
+
+
+_TRUNCATE_WITH = "... (truncated)"
+
+
+def maybe_truncate(input: str, max_length: int) -> str:
+    """Truncates the string with "... (truncated)' if it is longer than `max_length`."""
+    if input and len(input) > max_length:
+        assert max_length >= len(_TRUNCATE_WITH)
+        return input[: (max_length - len(_TRUNCATE_WITH))] + _TRUNCATE_WITH
+    return input

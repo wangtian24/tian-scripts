@@ -2,10 +2,11 @@ import asyncio
 import logging
 import os
 import re
+import traceback
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 import aiohttp
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -18,13 +19,13 @@ from ypl.backend.llm.labeler import LLMLabeler
 from ypl.backend.llm.provider.provider_clients import get_internal_provider_client
 from ypl.backend.utils.utils import StopWatch
 from ypl.db.redis import get_upstash_redis_client
-from ypl.utils import extract_json_dict_from_text
+from ypl.utils import extract_json_dict_from_text, maybe_truncate
 
 YOUTUBE_VIDEOS_FOR_CHAT_KEY_FORMAT = "youtube_videos_for_chat:{chat_id}"
 YOUTUBE_TRANSCRIPT_FOR_VIDEO_ID_KEY_FORMAT = "youtube_transcript_for_video_id:{video_id}"
 
-YOUTUBE_VIDEO_LABELLING_TIMEOUT_SECS = 1.5
-YOUTUBE_VIDEO_LABELLING_MODEL = "llama-3.3-70b-versatile"  # This groq model is one of the fastest (200ms p50).
+YOUTUBE_VIDEO_LABELING_TIMEOUT_SECS = 1.5
+YOUTUBE_VIDEO_LABELING_MODEL = "llama-3.3-70b-versatile"  # This groq model is one of the fastest (200ms p50).
 YOUTUBE_ENTRIES_REDIS_TTL_SECS = 7 * 24 * 60 * 60  # 7 days.
 
 
@@ -35,11 +36,20 @@ class YoutubeProcessingStatus(Enum):
     FAILED = "failed"
 
 
+class YoutubeVideoInfo(BaseModel):
+    title: str | None = None
+    length_seconds: int | None = None
+    author: str | None = None
+    published_time: str | None = None
+    description: str | None = None
+
+
 class YoutubeTranscript(BaseModel):
     video_id: str
     status: YoutubeProcessingStatus = YoutubeProcessingStatus.NONE
     transcript: str = ""
     failure_explanation: str = ""
+    video_info: YoutubeVideoInfo | None = None
 
     def redis_key(self) -> str:
         return YOUTUBE_TRANSCRIPT_FOR_VIDEO_ID_KEY_FORMAT.format(video_id=self.video_id)
@@ -55,6 +65,7 @@ class TranscriptFetcherResponse:
     is_successful: bool
     failure_explanation: str
     timestamped_transcript: str
+    video_info: YoutubeVideoInfo | None = None
 
 
 YOUTUBE_VIDEO_ID_LABELER_SYSTEM_PROMPT = """
@@ -134,6 +145,9 @@ SYSTEM_PROMPT_WITH_VIDEO_TRANSCRIPT = PromptTemplate.from_template(
         questions about length of the video, timestamp when certain topic is
         mentioned etc.
 
+        The following JSON optionally contains information about the video like title, description etc.
+        {video_info_json}
+
         The transcript of this video is included below as sequence of segments. Each
         segment is timestamped and has the following format:
 
@@ -141,7 +155,10 @@ SYSTEM_PROMPT_WITH_VIDEO_TRANSCRIPT = PromptTemplate.from_template(
         Text of the transcript in one or more lines.
 
         Transcript for the video {video_id}:
+
+        -- Start of transcript --
         {transcript}
+        -- End of transcript --
     """
 )
 
@@ -149,6 +166,10 @@ SYSTEM_PROMPT_FOR_MISSING_VIDEO_TRANSCRIPT = PromptTemplate.from_template(
     """
         The user prompt likely refers Youtube with video id '{video_id}',
         e.g. https://www.youtube.com/watch?v={video_id}.
+
+        The following JSON optionally contains information about the video like title, description etc.
+        {video_info_json}
+
         Clearly inform the user that you could not access its transcript because
         {failure_explanation}.
     """
@@ -164,7 +185,7 @@ class YoutubeVideoLabeler(LLMLabeler[list[HumanMessage], YoutubeLabelerResponse]
     def __init__(
         self,
         llm: BaseChatModel,
-        timeout_secs: float = YOUTUBE_VIDEO_LABELLING_TIMEOUT_SECS,
+        timeout_secs: float = YOUTUBE_VIDEO_LABELING_TIMEOUT_SECS,
     ):
         super().__init__(llm, timeout_secs=timeout_secs, on_error="raise")
 
@@ -212,19 +233,19 @@ async def maybe_youtube_transcript_messages(chat_id: str, chat_history: list[Bas
     try:
         logging.info(
             {
-                "message": f"Labelling Youtube videos in user messages for {chat_id}",
-                "user_prompts": [m.content for m in user_prompts],
+                "message": f"Labeling Youtube videos in user messages for {chat_id}",
+                "user_prompts": [maybe_truncate(str(m.content), 500) for m in user_prompts],
             }
         )
 
-        llm = await get_internal_provider_client(YOUTUBE_VIDEO_LABELLING_MODEL, max_tokens=128)
+        llm = await get_internal_provider_client(YOUTUBE_VIDEO_LABELING_MODEL, max_tokens=128)
         labeler = YoutubeVideoLabeler(llm)
         label_resp = await labeler.alabel(user_prompts)
 
         logging.info(
             {
                 "message": f"Youtube videos returned by labeler for {chat_id}: {label_resp.video_ids}",
-                "model": YOUTUBE_VIDEO_LABELLING_MODEL,
+                "model": YOUTUBE_VIDEO_LABELING_MODEL,
             }
         )
 
@@ -266,12 +287,23 @@ def _system_prompt_with_video_transcript(transcript_status: YoutubeTranscript) -
     Prompt to be appended for each video id. This is used stored in redis.
     """
     video_id = transcript_status.video_id
+    video_info_json = (
+        transcript_status.video_info.model_dump_json(exclude_none=True)
+        if transcript_status.video_info
+        else """{"message": "No video info available"}"""
+    )
 
     if transcript_status.status == YoutubeProcessingStatus.SUCCEEDED:
-        return SYSTEM_PROMPT_WITH_VIDEO_TRANSCRIPT.format(video_id=video_id, transcript=transcript_status.transcript)
+        return SYSTEM_PROMPT_WITH_VIDEO_TRANSCRIPT.format(
+            video_id=video_id,
+            transcript=transcript_status.transcript,
+            video_info_json=video_info_json,
+        )
     else:
         return SYSTEM_PROMPT_FOR_MISSING_VIDEO_TRANSCRIPT.format(
-            video_id=video_id, failure_explanation=transcript_status.failure_explanation
+            video_id=video_id,
+            failure_explanation=transcript_status.failure_explanation,
+            video_info_json=video_info_json,
         )
 
 
@@ -310,6 +342,8 @@ async def _process_transcript_for_video_id(chat_id: str, video_id: str) -> Youtu
         # Fetch the transcript here.
         logging.info({"message": f"Fetching transcript for video {video_id} in chat {chat_id}"})
         fetcher_response = await _fetch_youtube_transcript(video_id)
+        transcript_status.video_info = fetcher_response.video_info
+
         if fetcher_response.is_successful:
             transcript_status.status = YoutubeProcessingStatus.SUCCEEDED
             transcript_status.transcript = fetcher_response.timestamped_transcript
@@ -326,7 +360,8 @@ async def _process_transcript_for_video_id(chat_id: str, video_id: str) -> Youtu
                 "message": (
                     f"Fetched transcript for {video_id} for chat {chat_id} "
                     f"with status {transcript_status.status.name} and saved in redis."
-                )
+                ),
+                "video_title": transcript_status.video_info.title if transcript_status.video_info else None,
             }
         )
         return transcript_status
@@ -357,6 +392,7 @@ async def _process_transcript_for_video_id(chat_id: str, video_id: str) -> Youtu
                 {
                     "message": f"Found video {video_id} for {chat_id} in redis with status {stored_status.status.name}",
                     "video_status": stored_status.status.name,
+                    "video_title": stored_status.video_info.title if stored_status.video_info else None,
                     "transcript_size": len(stored_status.transcript),
                     "failure_explanation": stored_status.failure_explanation,
                 }
@@ -366,6 +402,15 @@ async def _process_transcript_for_video_id(chat_id: str, video_id: str) -> Youtu
 
 _LANGUAGE_NOT_TRANSCRIBED_ERROR_STRING = "Selected language hasn't been transcribed. Check `available_languages`"
 _NO_TRANSLATIONS_AVAILABLE_ERROR_STRING = "there are no translations available"
+_SEARCHAPI_API_URL = "https://www.searchapi.io/api/v1/search"
+
+
+async def _fetch_search_api_response(params: dict) -> dict:
+    api_params = {"api_key": os.getenv("SEARCHAPI_API_KEY")} | params
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(_SEARCHAPI_API_URL, params=api_params) as response:
+            return cast(dict, await response.json())
 
 
 async def _fetch_transcript_from_searchapi(video_id: str, lang: str | None = None) -> dict:
@@ -376,22 +421,19 @@ async def _fetch_transcript_from_searchapi(video_id: str, lang: str | None = Non
     the first entry from the list of available languages for the second attempt.
     E.g. some videos have English subtitles but the language code is "en-US", rather than just "en".
 
+    See https://www.searchapi.io/docs/youtube-transcripts for more API details and sample responses.
+
     Returns:
         A list of transcripts as timestamped segments.
     """
     params = {
         "engine": "youtube_transcripts",
         "video_id": video_id,
-        "api_key": os.getenv("SEARCHAPI_API_KEY"),
         "lang": lang or "en",  # Try common "en" first.
         "transcript_type": "manual",  # Prefer manual
     }
 
-    url = "https://www.searchapi.io/api/v1/search"
-
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url, params=params) as response:  # type: ignore
-            resp = await response.json()
+    resp = await _fetch_search_api_response(params)
 
     if "error" in resp:
         if _LANGUAGE_NOT_TRANSCRIBED_ERROR_STRING in resp["error"] and lang is None:
@@ -426,6 +468,43 @@ async def _fetch_transcript_from_searchapi(video_id: str, lang: str | None = Non
     return resp["transcripts"]  # type: ignore
 
 
+async def _fetch_youtube_video_info_from_searchapi(video_id: str) -> YoutubeVideoInfo | None:
+    """
+    Fetches video info from searchapi.com. If there is an error reported by searchapi, returns None.
+    See https://www.searchapi.io/docs/youtube-video for more API details and sample responses.
+    """
+    params = {
+        "engine": "youtube_video",
+        "video_id": video_id,
+    }
+
+    resp = await _fetch_search_api_response(params)
+
+    logging.info(
+        {
+            "message": f"Fetched Youtube video info for {video_id}",
+            "title": resp.get("video", {}).get("title"),
+            "searchapi_json_url": resp["search_metadata"]["json_url"],
+            "error": resp.get("error", "No error"),
+        }
+    )
+
+    if "error" in resp:
+        logging.warning({"message": f"Error while fetching video info for {video_id}: {resp['error']}"})
+        return None
+    elif "video" in resp:
+        video = resp["video"]
+        return YoutubeVideoInfo(
+            title=video.get("title"),
+            length_seconds=video.get("length_seconds"),
+            author=video.get("author"),
+            published_time=video.get("published_time"),
+            description=maybe_truncate(video.get("description"), 1000),
+        )
+    else:
+        raise RuntimeError(f"Unexpected response from searchapi.com for video {video_id}: {resp}")
+
+
 async def _fetch_youtube_transcript(video_id: str) -> TranscriptFetcherResponse:
     """
     Fetches transcript for the video id using searchapi.com.
@@ -437,10 +516,18 @@ async def _fetch_youtube_transcript(video_id: str) -> TranscriptFetcherResponse:
     failure_explanation = ""
     timestamped_transcript = ""
 
-    try:
-        stop_watch = StopWatch()
+    stop_watch = StopWatch()
 
-        transcript = await _fetch_transcript_from_searchapi(video_id)
+    transcript, video_info = await asyncio.gather(
+        _fetch_transcript_from_searchapi(video_id),
+        _fetch_youtube_video_info_from_searchapi(video_id),
+        return_exceptions=True,
+    )
+
+    try:
+        # Process transcript first
+        if isinstance(transcript, Exception):
+            raise transcript
 
         num_segments = len(transcript)
         max_time_secs = (
@@ -448,15 +535,15 @@ async def _fetch_youtube_transcript(video_id: str) -> TranscriptFetcherResponse:
         )
 
         # Combine the all segments into single string in the format
-        #   start_time_secs
+        #   start_time_in_seconds
         #   text
-        timestamped_transcript = "\n".join([f"{s['start']}\n{s['text']}" for s in transcript])
+        timestamped_transcript = "\n" + "\n\n".join([f"{round(s['start'])}\n{s['text']}" for s in transcript])
         is_successful = True
 
         stop_watch.end("fetch_transcript")
         logging.info(
             {
-                "message": f"Fetched transcript for video {video_id} in {stop_watch.get_total_time()}ms. ",
+                "message": f"Fetched video transcript for {video_id} in {stop_watch.get_total_time()}ms. ",
                 "size": len(timestamped_transcript),
                 "video_duration": max_time_secs,
                 "num_segments": num_segments,
@@ -470,10 +557,20 @@ async def _fetch_youtube_transcript(video_id: str) -> TranscriptFetcherResponse:
         logging.error({"message": f"Failed to fetch transcript for {video_id} with exception {e}"}, exc_info=True)
         failure_explanation = "fetch failed with an error"
 
+    if isinstance(video_info, Exception):
+        logging.warning(
+            {
+                "message": f"exception while fetching video info for {video_id}",
+                "exception": "".join(traceback.format_exception(video_info)),
+            }
+        )
+        video_info = None
+
     return TranscriptFetcherResponse(
         is_successful=is_successful,
         failure_explanation=failure_explanation,
         timestamped_transcript=timestamped_transcript,
+        video_info=video_info,
     )
 
 
