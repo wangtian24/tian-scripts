@@ -24,6 +24,7 @@ class AbuseEventData:
     user_email: str
     user_name: str | None
     user_created_at: datetime | None
+    user_status: str
     state: str
     reviewed_at: datetime | None
     reviewed_by: str | None
@@ -40,6 +41,7 @@ class AbuseEventData:
             user_email=event.user.email,
             user_name=event.user.name,
             user_created_at=event.user.created_at,
+            user_status=event.user.status.value,
             state=event.state.value,
             reviewed_at=event.reviewed_at,
             reviewed_by=event.reviewed_by,
