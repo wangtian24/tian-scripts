@@ -205,7 +205,17 @@ class YoutubeVideoLabeler(LLMLabeler[list[HumanMessage], YoutubeLabelerResponse]
     def _parse_output(self, output: BaseMessage) -> YoutubeLabelerResponse:
         reply_json_text = extract_json_dict_from_text(str(output.content))
 
-        return YoutubeLabelerResponse.model_validate_json(reply_json_text)
+        try:
+            return YoutubeLabelerResponse.model_validate_json(reply_json_text)
+        except Exception:
+            logging.warning(
+                {
+                    "message": "Failed to parse response from Youtube labeler. Returning empty response.",
+                    "labeler_response": maybe_truncate(reply_json_text, 500),
+                },
+                exc_info=True,
+            )
+            return YoutubeLabelerResponse(requires_transcript=False, video_ids=[])
 
 
 class YoutubeTranscriptNotFound(Exception):
