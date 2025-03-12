@@ -3,6 +3,10 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from cachetools.func import ttl_cache
+
+from ypl.backend.llm.model_heuristics import ModelHeuristics
+
 CLAUDE_MATH_SNIPPET = """ If the user query is about math or other formulas, you should follow these rules for writing formulas:
 
 - Always use \\(and\\) for inline formulas and \\[and\\] for blocks, for example \\(x^4 = x - 3 \\)
@@ -420,3 +424,11 @@ def get_system_prompt(model_name: str) -> str:
     # Return the specific prompt if found, otherwise return fallback
     prompt = MODEL_SPECIFIC_PROMPTS[matching_model] if matching_model else FALLBACK_SYSTEM_PROMPT
     return fill_cur_datetime(prompt)
+
+
+@ttl_cache(ttl=60 * 24)  # 1 day
+def get_system_prompt_token_counts(model_names: tuple[str, ...]) -> dict[str, int]:
+    return {
+        model_name: len(ModelHeuristics(tokenizer_type="tiktoken").encode_tokens(get_system_prompt(model_name)))
+        for model_name in model_names
+    }

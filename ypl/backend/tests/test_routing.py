@@ -750,7 +750,7 @@ def test_supports_image_attachment_filter(mock_active_models: Mock, mock_image_a
 
 @patch("ypl.backend.llm.routing.modules.filters.get_model_context_lengths")
 def test_context_length_filter(mock_context_lengths: Mock) -> None:
-    context_lengths = {"m1": 3000, "m2": 2000, "m3": 1000}
+    context_lengths = {"m1": 30_000, "m2": 20_000, "m3": 10_000}
     all_models = set(context_lengths.keys())
     mock_context_lengths.return_value = context_lengths
     c = {SelectionCriteria.RANDOM: 1.0}
@@ -762,16 +762,16 @@ def test_context_length_filter(mock_context_lengths: Mock) -> None:
 
         def should_exclude(self, expected_excluded_models: set[str]) -> None:
             state = RouterState(all_models=all_models, selected_models={m: c for m in all_models})
-            filter = ContextLengthFilter(prompt=self.prompt, max_length_fraction=0.5)
+            filter = ContextLengthFilter(user_prompt=self.prompt, max_length_fraction=0.5)
             state, rejected_models = filter._filter(state)
             assert state.excluded_models == rejected_models
             assert expected_excluded_models == rejected_models
             assert state.selected_models == {m: c for m in all_models - expected_excluded_models}
 
-    prompt_with_tokens(1600).should_exclude({"m1", "m2", "m3"})
-    prompt_with_tokens(1200).should_exclude({"m2", "m3"})
-    prompt_with_tokens(800).should_exclude({"m3"})
-    prompt_with_tokens(300).should_exclude(set())
+    prompt_with_tokens(16_000).should_exclude({"m1", "m2", "m3"})
+    prompt_with_tokens(11_000).should_exclude({"m2", "m3"})
+    prompt_with_tokens(6_000).should_exclude({"m3"})
+    prompt_with_tokens(1_000).should_exclude(set())
 
 
 @pytest.mark.asyncio

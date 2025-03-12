@@ -21,7 +21,7 @@ from ypl.backend.llm.model_heuristics import ModelHeuristics
 from ypl.backend.llm.routing.modules.base import RouterModule
 from ypl.backend.llm.routing.policy import SelectionCriteria
 from ypl.backend.llm.routing.router_state import RouterState
-from ypl.backend.prompts.system_prompts import FALLBACK_SYSTEM_PROMPT
+from ypl.backend.prompts.system_prompts import get_system_prompt_token_counts
 from ypl.db.language_models import LanguageModel, LanguageModelResponseStatus, LanguageModelResponseStatusEnum
 from ypl.utils import RNGMixin
 
@@ -287,22 +287,37 @@ class LiveModelFilter(Exclude):
 class ContextLengthFilter(Exclude):
     """Filter models based on their context length."""
 
-    def __init__(self, prompt: str, max_length_fraction: float = 0.8) -> None:
+    OUTPUT_TOKENS_RESERVE = 2048
+    DEFAULT_SYSTEM_PROMPT_TOKEN_COUNT = 100
+
+    def __init__(self, user_prompt: str, max_length_fraction: float = 0.9) -> None:
         """
         Filters models whose context length is insufficient for the prompt.
         Args:
             prompt: The prompt to filter models by.
             max_length_fraction: The maximum fraction of the context length to allow.
         """
-        # We don't know the specific system prompt because routing hasn't happened yet, so we use a default one.
-        prompt = FALLBACK_SYSTEM_PROMPT + " " + prompt
-        num_tokens = len(ModelHeuristics(tokenizer_type="tiktoken").encode_tokens(prompt))
         context_lengths = get_model_context_lengths()
-        excluded_models = {
-            model
-            for model, context_length in context_lengths.items()
-            if context_length * max_length_fraction < num_tokens
-        }
+
+        user_prompt = user_prompt
+        user_prompt_tokens = len(ModelHeuristics(tokenizer_type="tiktoken").encode_tokens(user_prompt))
+
+        system_prompt_token_counts = get_system_prompt_token_counts(tuple(context_lengths.keys()))
+
+        def _get_system_prompt_tokens(model_name: str) -> int:
+            if model_name in system_prompt_token_counts:
+                return system_prompt_token_counts[model_name]
+            else:
+                return self.DEFAULT_SYSTEM_PROMPT_TOKEN_COUNT
+
+        excluded_models = set()
+        for model, context_length in context_lengths.items():
+            if (
+                user_prompt_tokens + _get_system_prompt_tokens(model) + self.OUTPUT_TOKENS_RESERVE
+                > context_length * max_length_fraction
+            ):
+                excluded_models.add(model)
+
         super().__init__(name="-ctxLen", exclude_models=excluded_models)
 
 
