@@ -31,6 +31,7 @@ from ypl.backend.payment.payment import (
     update_payment_transaction,
     update_user_points,
 )
+from ypl.backend.user.user import CashoutOverrideRequest, create_cashout_override, get_user
 from ypl.backend.utils.json import json_dumps
 from ypl.backend.utils.utils import fetch_user_names
 from ypl.db.payments import (
@@ -42,8 +43,8 @@ from ypl.db.payments import (
     PaymentTransactionStatusEnum,
 )
 from ypl.db.point_transactions import PointTransaction
+from ypl.db.users import SYSTEM_USER_ID, UserCapabilityStatus
 
-SYSTEM_USER_ID = "SYSTEM"
 RETRY_ATTEMPTS = 3
 RETRY_WAIT_MULTIPLIER = 1
 RETRY_WAIT_MIN = 4
@@ -731,7 +732,7 @@ async def get_destination_instrument(
                 existing_user_ids = [i.user_id for i in existing_instruments]
                 existing_user_names = await fetch_user_names(existing_user_ids)
                 log_dict = {
-                    "message": ":warning: - Payment instrument reuse attempt",
+                    "message": "Payment instrument reuse attempt",
                     "new_user_id": user_id,
                     "existing_user_ids": existing_user_ids,
                     "existing_user_names": list(existing_user_names.values()),
@@ -740,49 +741,23 @@ async def get_destination_instrument(
                     "facilitator": facilitator,
                     "count_of_users_already_using_instrument": len(existing_instruments),
                 }
-                logging.warning(json_dumps(log_dict))
-                post_to_slack_with_user_name_bg(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
+                logging.info(json_dumps(log_dict))
 
-                # Allow reuse if only one user is currently using the instrument
-                if len(existing_instruments) < 2:
-                    log_dict = {
-                        "message": "Creating new payment instrument for user (instrument exists for one other user)",
-                        "identifier_type": destination_identifier_type,
-                        "facilitator": facilitator,
-                        "user_id": user_id,
-                        "existing_user_id": existing_user_ids[0],
-                        "existing_user_name": existing_user_names[existing_user_ids[0]],
-                        "identifier": destination_identifier,
-                        "instrument_metadata": instrument_metadata,
-                    }
-                    logging.info(json_dumps(log_dict))
-                    instrument = PaymentInstrument(
-                        facilitator=facilitator,
-                        identifier_type=destination_identifier_type,
-                        identifier=destination_identifier,
+                # disable cashout capability for the user trying to reuse the instrument
+                if settings.ENVIRONMENT == "production":
+                    system_user = await get_user(SYSTEM_USER_ID)
+                    cashout_override_request = CashoutOverrideRequest(
                         user_id=user_id,
-                        instrument_metadata=instrument_metadata,
+                        creator_user_email=system_user.email,
+                        status=UserCapabilityStatus.DISABLED,
+                        reason="Payment instrument reuse attempt",
                     )
-                    session.add(instrument)
-                else:
-                    # If 2 or more users are already using this instrument, raise exception
-                    log_dict = {
-                        "message": ":x: Payment instrument reuse attempt for more than allowed users",
-                        "new_user_id": user_id,
-                        "existing_user_ids": existing_user_ids,
-                        "existing_user_names": list(existing_user_names.values()),
-                        "identifier": destination_identifier,
-                        "identifier_type": destination_identifier_type,
-                        "facilitator": facilitator,
-                    }
-                    logging.info(json_dumps(log_dict))
+                    await create_cashout_override(cashout_override_request)
                     post_to_slack_with_user_name_bg(user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
+
                     raise HTTPException(
                         status_code=400,
-                        detail=(
-                            "This payment info is already linked to two other users. "
-                            "We don't support sharing payment destinations across more than two users"
-                        ),
+                        detail=("This payment was not processed as this is not in line with our policies."),
                     )
             else:
                 instrument = user_instrument

@@ -2,7 +2,7 @@ import logging
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from typing import cast as type_cast
 from uuid import UUID
@@ -16,8 +16,9 @@ from sqlalchemy.sql import Select
 from sqlalchemy.sql.elements import BinaryExpression
 from sqlmodel import col
 from tenacity import after_log, retry, retry_if_exception_type, stop_after_attempt, wait_fixed
+from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
-from ypl.backend.llm.utils import post_to_slack_with_user_name
+from ypl.backend.llm.utils import post_to_slack_with_user_name, post_to_slack_with_user_name_bg
 from ypl.backend.user.vendor_details import AdditionalDetails
 from ypl.backend.user.vendor_registration import get_vendor_registration
 from ypl.backend.user.vendor_types import VendorRegistrationError
@@ -37,6 +38,8 @@ from ypl.db.users import (
     UserVendorProfile,
     VendorNameEnum,
 )
+
+SLACK_WEBHOOK_CASHOUT = settings.SLACK_WEBHOOK_CASHOUT
 
 
 @dataclass
@@ -86,6 +89,26 @@ class VendorProfileResponse:
     modified_at: datetime | None
     deleted_at: datetime | None
     vendor_url_link: str | None = None
+
+
+@dataclass
+class CashoutOverrideConfig:
+    first_time_limit: int | None = None
+    daily_count: int | None = None
+    weekly_count: int | None = None
+    monthly_count: int | None = None
+    daily_credits: int | None = None
+    weekly_credits: int | None = None
+    monthly_credits: int | None = None
+
+
+@dataclass
+class CashoutOverrideRequest:
+    user_id: str
+    creator_user_email: str
+    status: UserCapabilityStatus
+    reason: str
+    override_config: CashoutOverrideConfig | None = None
 
 
 @retry(
@@ -826,3 +849,130 @@ async def validate_not_self_action(user_id: str, creator_user_email: str) -> Non
             logging.error(json_dumps(log_dict))
             await post_to_slack_with_user_name(user_id, json_dumps(log_dict))
             raise HTTPException(status_code=400, detail="Users cannot perform this action on themselves")
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_fixed(0.1),
+    after=after_log(logging.getLogger(), logging.WARNING),
+    retry=retry_if_exception_type((OperationalError, DatabaseError)),
+)
+async def create_cashout_override(request: CashoutOverrideRequest) -> str:
+    """Create a cashout capability override for a user.
+
+    Args:
+        request: The cashout override request containing:
+            - user_id: The ID of the user to create the override for
+            - creator_user_email: The email of the user creating the override
+            - status: The status of the override (ENABLED/DISABLED)
+            - reason: The reason for creating this override
+            - override_config: Optional configuration parameters for cashout limits
+
+    Returns:
+        The ID of the created capability override
+    """
+    log_dict = {
+        "message": "Creating cashout override",
+        "user_id": request.user_id,
+        "creator_user_email": request.creator_user_email,
+        "status": str(request.status),
+        "reason": request.reason,
+        "override_config": str(request.override_config or ""),
+    }
+    logging.info(json_dumps(log_dict))
+
+    try:
+        async with get_async_session() as session:
+            user_stmt = select(User).where(
+                func.lower(User.email) == func.lower(request.creator_user_email),
+                User.deleted_at.is_(None),  # type: ignore
+            )
+            user = (await session.execute(user_stmt)).scalar_one_or_none()
+            if not user:
+                log_dict = {
+                    "message": "Error: User not found",
+                    "creator_user_email": request.creator_user_email,
+                }
+                logging.warning(json_dumps(log_dict))
+                raise HTTPException(status_code=404, detail="User not found")
+
+            if user.user_id == request.user_id:
+                log_dict = {
+                    "message": "Error: User ID and creator user ID are the same for cashout override",
+                    "user_id": request.user_id,
+                    "creator_user_email": request.creator_user_email,
+                }
+                logging.error(json_dumps(log_dict))
+                post_to_slack_with_user_name_bg(user.user_id, json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
+                raise HTTPException(status_code=400, detail="Internal Error")
+
+            capability_stmt = select(Capability).where(
+                and_(
+                    func.lower(Capability.capability_name) == CapabilityType.CASHOUT.value.lower(),
+                    Capability.deleted_at.is_(None),  # type: ignore
+                    Capability.status == CapabilityStatus.ACTIVE,  # type: ignore
+                )
+            )
+            capability = (await session.execute(capability_stmt)).scalar_one_or_none()
+
+            if not capability:
+                log_dict = {
+                    "message": "Error: Cashout capability not found",
+                    "user_id": request.user_id,
+                }
+                logging.warning(json_dumps(log_dict))
+                raise HTTPException(status_code=404, detail="Cashout capability not found")
+
+            existing_overrides_stmt = select(UserCapabilityOverride).where(
+                and_(
+                    UserCapabilityOverride.user_id == request.user_id,  # type: ignore
+                    UserCapabilityOverride.capability_id == capability.capability_id,
+                    UserCapabilityOverride.deleted_at.is_(None),  # type: ignore
+                )
+            )
+            existing_overrides = (await session.execute(existing_overrides_stmt)).scalars().all()
+            for existing_override in existing_overrides:
+                existing_override.deleted_at = datetime.now(UTC)
+
+            override_config = None
+            if request.override_config:
+                override_config = {k: v for k, v in request.override_config.__dict__.items() if v is not None}
+                if not override_config:
+                    override_config = None
+
+            override = UserCapabilityOverride(
+                user_id=request.user_id,
+                capability_id=capability.capability_id,
+                creator_user_id=user.user_id,
+                status=request.status,
+                reason=request.reason,
+                effective_start_date=datetime.now(UTC),
+                override_config=override_config,
+            )
+
+            session.add(override)
+            await session.commit()
+            await session.refresh(override)
+
+            log_dict = {
+                "message": "Successfully created cashout override",
+                "user_id": request.user_id,
+                "creator_user_email": request.creator_user_email,
+                "status": str(request.status),
+                "reason": request.reason,
+                "override_config": str(override_config or ""),
+            }
+            logging.info(json_dumps(log_dict))
+
+            return str(override.user_capability_override_id)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_dict = {
+            "message": "Error creating cashout override",
+            "user_id": request.user_id,
+            "error": str(e),
+        }
+        logging.error(json_dumps(log_dict))
+        raise HTTPException(status_code=500, detail=str(e)) from e
