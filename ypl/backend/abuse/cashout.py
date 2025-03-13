@@ -4,8 +4,15 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy.orm import joinedload
 from sqlmodel import select
 
-from ypl.backend.abuse.utils import create_abuse_event, get_referred_users, get_referring_user, ip_details_str
+from ypl.backend.abuse.utils import (
+    create_abuse_event,
+    get_referred_users,
+    get_referring_user,
+    ip_details_str,
+    is_impossible_travel,
+)
 from ypl.backend.db import get_async_session
+from ypl.backend.utils.async_utils import create_background_task
 from ypl.backend.utils.json import json_dumps
 from ypl.db.abuse import AbuseActionType, AbuseEventType
 from ypl.db.payments import PaymentInstrument, PaymentInstrumentIdentifierTypeEnum
@@ -141,11 +148,23 @@ async def check_cashout_referral_abuse(user_id: str, cashout_time: datetime | No
             )
 
 
+async def check_cashout_travel_abuse(user_id: str, ip_address: str | None = None, is_crypto: bool = False) -> None:
+    """Check for travel abuse by the cashing-out user."""
+    if not is_crypto:
+        return
+
+    if ip_address:
+        await is_impossible_travel(user_id, ip_address)
+
+
 async def check_cashout_abuse(
     user_id: str,
     identifier_type: PaymentInstrumentIdentifierTypeEnum,
     identifier: str,
+    is_crypto: bool,
     cashout_time: datetime | None = None,
+    ip_address: str | None = None,
 ) -> None:
-    await check_cashout_instrument_abuse(user_id, identifier_type, identifier)
-    await check_cashout_referral_abuse(user_id, cashout_time=cashout_time)
+    create_background_task(check_cashout_instrument_abuse(user_id, identifier_type, identifier))
+    create_background_task(check_cashout_referral_abuse(user_id, cashout_time=cashout_time))
+    create_background_task(check_cashout_travel_abuse(user_id, ip_address=ip_address, is_crypto=is_crypto))

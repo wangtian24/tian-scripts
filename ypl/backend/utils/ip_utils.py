@@ -39,27 +39,63 @@ class UserIPDetailsResponse:
 
 
 async def get_ip_details(ip_address: str) -> IPInfo | None:
-    """Get detailed information about an IP address."""
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"https://ipinfo.io/{ip_address}",
-                params={"token": settings.IPINFO_API_KEY},
-            )
-            response.raise_for_status()
-            api_response = response.json()
+    """Get detailed information about an IP address.
+    First checks if we have the IP in our database and created within last 60 days.
+    If not found or too old, fetches from ipinfo.io.
 
-            return {
-                "ip": api_response["ip"],
-                "hostname": api_response.get("hostname"),
-                "city": api_response.get("city"),
-                "region": api_response.get("region"),
-                "country": api_response.get("country"),
-                "loc": api_response.get("loc"),
-                "org": api_response.get("org"),
-                "postal": api_response.get("postal"),
-                "timezone": api_response.get("timezone"),
-            }
+    Args:
+        ip_address: The IP address to check
+
+    Returns:
+        IPInfo object containing location and network information,
+        or None if the API call fails and IP is not in database
+    """
+    try:
+        async with get_async_session() as session:
+            cutoff_time = datetime.now(UTC) - timedelta(days=60)
+            ip_details = (
+                await session.execute(
+                    select(IPs).where(
+                        (IPs.ip == ip_address)
+                        & (IPs.deleted_at.is_(None))  # type: ignore
+                        & (IPs.created_at.isnot(None))  # type: ignore
+                        & (IPs.created_at > cutoff_time)  # type: ignore
+                    )
+                )
+            ).scalar_one_or_none()
+
+            if ip_details:
+                return {
+                    "ip": ip_details.ip,
+                    "hostname": ip_details.hostname,
+                    "city": ip_details.city,
+                    "region": ip_details.region,
+                    "country": ip_details.country,
+                    "loc": ip_details.loc,
+                    "org": ip_details.org,
+                    "postal": ip_details.postal,
+                    "timezone": ip_details.timezone,
+                }
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"https://ipinfo.io/{ip_address}",
+                    params={"token": settings.IPINFO_API_KEY},
+                )
+                response.raise_for_status()
+                api_response = response.json()
+
+                return {
+                    "ip": api_response["ip"],
+                    "hostname": api_response.get("hostname"),
+                    "city": api_response.get("city"),
+                    "region": api_response.get("region"),
+                    "country": api_response.get("country"),
+                    "loc": api_response.get("loc"),
+                    "org": api_response.get("org"),
+                    "postal": api_response.get("postal"),
+                    "timezone": api_response.get("timezone"),
+                }
     except Exception as e:
         log_dict = {
             "message": "Failed to get IP details",

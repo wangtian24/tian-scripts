@@ -221,7 +221,13 @@ async def validate_cashout_request(request: CashoutCreditsRequest) -> None:
     if request.validated_destination_details is None and request.facilitator == PaymentInstrumentFacilitatorEnum.UPI:
         raise HTTPException(status_code=400, detail="Please re-enter your UPI details!")
 
-    await check_cashout_abuse(user.user_id, request.destination_identifier_type, request.destination_identifier)
+    await check_cashout_abuse(
+        user.user_id,
+        request.destination_identifier_type,
+        request.destination_identifier,
+        request.cashout_currency.is_crypto(),
+        ip_address=request.ip_address,
+    )
 
 
 @router.post("/credits/cashout")
