@@ -182,12 +182,15 @@ ERROR_KEYWORDS_MAP = {
 }
 
 
-def contains_error_keywords(error_message: str) -> tuple[ModelErrorType | None, str | None]:
+def contains_error_keywords(
+    error_message: str,
+) -> tuple[ModelErrorType | None, str | None]:
     for error_type, keywords in ERROR_KEYWORDS_MAP.items():
         for keyword in keywords:
-            if keyword.lower() in error_message.lower():
+            converted_error_message = error_message.lower().replace("_", " ")
+            if keyword.lower() in converted_error_message:
                 # Find index of first match
-                match_idx = error_message.lower().replace("_", " ").find(keyword.lower())
+                match_idx = converted_error_message.find(keyword.lower())
                 # Extract excerpts
                 start = max(0, match_idx - 200)
                 end = min(len(error_message), match_idx + len(keyword) + 200)

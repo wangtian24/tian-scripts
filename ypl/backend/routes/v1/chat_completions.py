@@ -286,19 +286,22 @@ def post_error(error_type: ModelErrorType, excerpt: str | None, chat_request: Ch
         provider = (await adeduce_original_provider(chat_request.model)) or "unknown"
         name = create_model_canonical_name(provider, chat_request.model)
         if error_type == ModelErrorType.UNKNOWN:
-            channel = "#alert-model-management"
+            channels = ("#alert-model-errors",)
         else:
-            channel = "#alert-backend" if env.lower() == "production" else "#alert-backend-staging"
+            channels = (
+                "#alert-model-errors",
+                "#alert-backend" if env.lower() == "production" else "#alert-backend-staging",
+            )  # type: ignore
 
         await post_to_slack_channel(
             (
                 f":exploding_head: [{env}] Detected *{error_type.value} error* "
-                f"on {name}: ``` {excerpt} ``` "
+                f"on {name}: ``` {excerpt} ```"
                 f"Chat ID: {chat_request.chat_id}\n"
                 f"Turn ID: {chat_request.turn_id}\n"
                 f"Message ID: {chat_request.message_id}\n"
             ),
-            channel,
+            channels,
         )
 
     create_background_task(_post_error())
@@ -685,31 +688,33 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
             full_response += STREAMING_ERROR_TEXT
             chunk_str = str(chunk) if chunk is not None else "No chunk available"
 
+            error_type, excerpt = contains_error_keywords(str(e))
+            error_type = error_type or ModelErrorType.UNKNOWN
+            excerpt = excerpt or str(e)[:100]
             logging.error(
                 json_dumps(
                     {
-                        "message": f"Streaming Error from model [{chat_request.model}]: {str(e)[:100]}",
+                        "message": (
+                            f"Streaming Error [{error_type.value}] " f"from model [{chat_request.model}]: {excerpt}"
+                        ),
                         "model": chat_request.model,
-                        "message_id": str(chat_request.message_id),
                         "error_message": str(e),
                         "turn_id": str(chat_request.turn_id),
                         "chat_id": str(chat_request.chat_id),
+                        "message_id": str(chat_request.message_id),
                         "last_chunk": chunk_str,
                         "traceback": traceback.format_exc(),
                     }
                 )
             )
+            if error_type and not recently_posted_error(chat_request.model, error_type=error_type):
+                post_error(error_type, excerpt, chat_request)
 
             yield StreamResponse({"content": STREAMING_ERROR_TEXT, "model": chat_request.model}).encode()
             yield StreamResponse(
                 {"error": f"Streaming error: {str(e)}", "code": "stream_error", "model": chat_request.model}, "error"
             ).encode()
             log_attachments_in_conversation(messages, chat_request.message_id, chat_request.chat_id)
-            # check if it's a potential billing error & async post to Slack
-            error_message = str(e)
-            error_type, excerpt = contains_error_keywords(error_message)
-            if error_type and not recently_posted_error(chat_request.model, error_type=error_type):
-                post_error(error_type, excerpt, chat_request)
         stopwatch.record_split("stream_message_chunks")
 
         # if full_response is empty, send an error message to enable retry
