@@ -14,7 +14,7 @@ def handle_task_exception(task: asyncio.Task) -> None:
     except asyncio.CancelledError:
         pass  # Task was cancelled, this is normal
     except Exception as e:
-        logging.error({"message": f"Background task failed: {e}", "error": e}, exc_info=True)
+        logging.error({"message": f"Background task failed: <{e}>"}, exc_info=True)
 
 
 def create_background_task(
