@@ -10,11 +10,21 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout the monitoring branch
+      - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          ref: "cronjob/llm-monitor-log"  # Check out the monitoring branch
-          fetch-depth: 0  # Ensure full history is available for diffing
+
+      - name: Download previous llm-monitor-log artifact
+        run: |
+          echo "Attempting to download artifact from the previous run..."
+          # List runs for this workflow (using its name) and pick the second one (i.e. the last completed run)
+          PREV_RUN_ID=$(gh run list --workflow="LLM Monitor Cronjob" --limit 2 --json id,status,conclusion | jq -r '.[1].id // empty')
+          if [ -n "$PREV_RUN_ID" ]; then
+            echo "Downloading artifact from run ID: $PREV_RUN_ID"
+            gh run download "$PREV_RUN_ID" --name llm-monitor-log
+          else
+            echo "No previous artifact found; creating an empty log directory."
+            mkdir -p llm-monitor-log
+          fi
 
       - name: Run LLM monitor script with secrets
         env:
@@ -31,23 +41,9 @@ jobs:
           chmod +x ./scripts/llm-monitor.sh
           ./scripts/llm-monitor.sh ./llm-monitor-log
 
-      - name: Check for changes using Git
-        id: check_changes
-        run: |
-          if git status --porcelain | grep .; then
-            echo "CHANGES_DETECTED=true" >> $GITHUB_ENV
-          else
-            echo "CHANGES_DETECTED=false" >> $GITHUB_ENV
-          fi
-
-      - name: Commit and push changes if detected
-        env:
-          ACTIONS_PAT: ${{ secrets.CRONJOB_LLM_MONITOR_PAT_TOKEN }}
-        if: env.CHANGES_DETECTED == 'true'
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add llm-monitor-log/*
-          git commit -m "Update LLM monitor logs"
-          git pull --rebase origin cronjob/llm-monitor-log  # Avoid conflicts
-          git push "https://x-access-token:${ACTIONS_PAT}@github.com/${{ github.repository }}.git" cronjob/llm-monitor-log
+      - name: Upload LLM Monitor Log Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: llm-monitor-log
+          path: llm-monitor-log/
+          retention-days: 1
