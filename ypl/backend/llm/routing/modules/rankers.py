@@ -1,7 +1,12 @@
 import logging
 from collections import OrderedDict, deque
 
-from ypl.backend.llm.db_helpers import deduce_model_speed_scores, deduce_original_providers, deduce_semantic_groups
+from ypl.backend.llm.db_helpers import (
+    deduce_model_speed_scores,
+    deduce_original_providers,
+    deduce_semantic_groups,
+    get_all_reasoning_models,
+)
 from ypl.backend.llm.routing.modules.base import RouterModule
 from ypl.backend.llm.routing.policy import SelectionCriteria
 from ypl.backend.llm.routing.route_data_type import RoutingPreference
@@ -137,11 +142,12 @@ class ProAndStrongReranker(Reranker):
             if model in state.selected_models
             and SelectionCriteria.PRO_AND_STRONG_MODELS in state.selected_models[model]
         ]
+        reranked = list(model_names)
         if pro_and_strong_models:
             pro_and_strong_model = pro_and_strong_models[0]
-            model_names.remove(pro_and_strong_model)
-            model_names.insert(0, pro_and_strong_model)
-        return model_names
+            reranked.remove(pro_and_strong_model)
+            reranked.insert(0, pro_and_strong_model)
+        return reranked
 
 
 class YappReranker(Reranker):
@@ -169,6 +175,52 @@ class YappReranker(Reranker):
             rest_part.extend(yapp_models)
             model_names = first_part + rest_part
         return model_names
+
+
+class ReasoningModelReranker(Reranker):
+    """
+    Make sure there is no more than one non-exempt reasoning model in the first n models.
+    """
+
+    def __init__(self, only_first_n: int, exempt_models: list[str] | None = None) -> None:
+        super().__init__(name="reasoningRanker")
+        self.only_first_n = only_first_n
+        self.exempt_models = exempt_models or []
+
+    def rerank(self, model_names: list[str], state: RouterState) -> list[str]:
+        # no need to rerank if all first n models are exempt models
+        if self.exempt_models and len(self.exempt_models) >= self.only_first_n:
+            return model_names
+
+        reasoning_models = get_all_reasoning_models()
+
+        # Split into first n models and rest
+        first_part = model_names[: self.only_first_n]
+        rest_part = model_names[self.only_first_n :]
+
+        # Create new lists for the reordered models
+        new_first_part = []
+        moved_reasoning_models = []
+
+        # Keep track of the first reasoning model we've seen
+        first_reasoning_model_found = False
+
+        # Go through all models in the first part
+        for model in first_part:
+            # If it's an exempt model or not a reasoning model, keep it in place
+            if model in self.exempt_models or model not in reasoning_models:
+                new_first_part.append(model)
+            # If it's a reasoning model
+            else:
+                # If this is the first reasoning model we've encountered, keep it in place
+                if not first_reasoning_model_found:
+                    new_first_part.append(model)
+                    first_reasoning_model_found = True
+                # Move any additional reasoning models to the end
+                else:
+                    moved_reasoning_models.append(model)
+
+        return new_first_part + rest_part + moved_reasoning_models
 
 
 class PositionMatchReranker(Reranker):

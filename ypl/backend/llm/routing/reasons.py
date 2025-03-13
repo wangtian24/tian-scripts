@@ -15,6 +15,7 @@ from ypl.utils import async_timed_cache
 
 class RoutingReasonType(Enum):
     UNKNOWN = "unknown"
+    DEFAULT = "default"
     USER_SELECTED = "user_selected"
     ONLINE_ACCESS = "online_access"
     PROCESS_IMAGE = "process_image"
@@ -62,18 +63,27 @@ async def summarize_reasons(
     request_context: RequestContext,
     model_set_features: ModelSetFeatures,
     router_state: RouterState | None = None,
+    models: list[str] | None = None,
 ) -> dict[str, ReasonSummary]:
     """
     Summarize the reasons for routing the models in the RouterState.
     Returns a dictionary of model internal_names to their reason summaries.
     """
-    if not router_state:
+    model_criteria_score_map = None
+    if router_state:
+        model_criteria_score_map = router_state.get_selected_models_with_criteria()
+    elif models:
+        # there is no router_state as the router chain might be short-circuited, we just construct a dummy map from
+        # all selected models.
+        model_criteria_score_map = {model: {SelectionCriteria.INJECT: 1.0} for model in models}
+    else:
         return {}
 
     result = {}
+    reason_descriptions = await _get_routing_reason_descriptions()
 
     # Go through all selected models and find out their reasons.
-    for model_internal_name, criteria_map in router_state.get_selected_models_with_criteria().items():
+    for model_internal_name, criteria_map in model_criteria_score_map.items():
         reasons: list[RoutingReasonType] = []
         features = model_set_features.model_features[model_internal_name]
 
@@ -117,11 +127,17 @@ async def summarize_reasons(
                         added_reasons += 1
 
         description = None
-        reason_descriptions = await _get_routing_reason_descriptions()
+
+        if request_context.intent == SelectIntent.NEW_CHAT:
+            # always add a default reason in the new chat so we don't go empty.
+            reasons.append(RoutingReasonType.DEFAULT)
 
         # generate final summary, just generate the description for the first reason.
-        if len(reasons) > 0 and reasons[0].value in reason_descriptions:
-            description = reason_descriptions[reasons[0].value]
+        # Go through all reasons and set description to first non-null
+        for reason in reasons:
+            if reason.value in reason_descriptions:
+                description = reason_descriptions[reason.value]
+                break
 
         result[model_internal_name] = ReasonSummary(
             reasons=[r.value.lower() for r in reasons],
