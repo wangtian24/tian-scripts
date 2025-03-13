@@ -42,7 +42,7 @@ jobs:
 
       - name: Commit and push changes if detected
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTIONS_PAT: ${{ secrets.CRONJOB_LLM_MONITOR_PAT_TOKEN }}
         if: env.CHANGES_DETECTED == 'true'
         run: |
           git config --global user.name "github-actions[bot]"
@@ -50,4 +50,4 @@ jobs:
           git add llm-monitor-log/*
           git commit -m "Update LLM monitor logs"
           git pull --rebase origin cronjob/llm-monitor-log  # Avoid conflicts
-          git push origin cronjob/llm-monitor-log
+          git push "https://x-access-token:${ACTIONS_PAT}@github.com/${{ github.repository }}.git" cronjob/llm-monitor-log
