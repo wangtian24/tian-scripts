@@ -240,23 +240,43 @@ class Settings(BaseSettings):
     @computed_field  # type: ignore[misc]
     @cached_property
     def AXIS_UPI_CONFIG(self) -> dict:
+        env_var = os.getenv("AXIS_UPI_CONFIG")
+        if env_var:
+            return json.loads(env_var)  # type: ignore[no-any-return]
+
+        # This should only happen in local development
         secret = self._get_gcp_secret(f"axis-upi-config-{self.ENVIRONMENT}")
         return json.loads(secret)  # type: ignore[no-any-return]
 
     @computed_field  # type: ignore[misc]
     @cached_property
     def PAYPAL_CONFIG(self) -> dict:
+        env_var = os.getenv("PAYPAL_CONFIG")
+        if env_var:
+            return json.loads(env_var)  # type: ignore[no-any-return]
+
+        # This should only happen in local development
         secret = self._get_gcp_secret(f"paypal-config-{self.ENVIRONMENT}")
         return json.loads(secret)  # type: ignore[no-any-return]
 
     @computed_field  # type: ignore[misc]
     @cached_property
     def CHECKOUT_COM_SECRET(self) -> str:
+        env_var = os.getenv("CHECKOUT_COM_SECRET")
+        if env_var:
+            return env_var
+
+        # This should only happen in local development
         return self._get_gcp_secret(f"checkout-com-secret-{self.ENVIRONMENT}")
 
     @computed_field  # type: ignore[misc]
     @cached_property
     def STRIPE_CONFIG(self) -> dict:
+        env_var = os.getenv("STRIPE_CONFIG")
+        if env_var:
+            return json.loads(env_var)  # type: ignore[no-any-return]
+
+        # This should only happen in local development
         secret = self._get_gcp_secret(f"stripe-config-{self.ENVIRONMENT}")
         return json.loads(secret)  # type: ignore[no-any-return]
 

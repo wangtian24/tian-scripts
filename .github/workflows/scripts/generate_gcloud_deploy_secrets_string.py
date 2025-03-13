@@ -21,9 +21,11 @@ def generate_deploy_secrets_string(environment: Environment, service_name: Servi
     Refer https://cloud.google.com/run/docs/configuring/services/secrets?hl=en for more details.
     """
     backend_secrets = [
+        f"AXIS_UPI_CONFIG=axis-upi-config-{environment}:latest",
         f"CHECKOUT_COM_API_URL=checkout-com-api-url-{environment}:latest",
         f"CHECKOUT_COM_ENTITY_ID=checkout-com-entity-id-{environment}:latest",
         f"CHECKOUT_COM_PROCESSING_CHANNEL=checkout-com-processing-channel-{environment}:latest",
+        f"CHECKOUT_COM_SECRET=checkout-com-secret-{environment}:latest",
         "EMBED_X_API_KEY=embedding_service_api_key:latest",
         f"GUEST_MANAGEMENT_SLACK_WEBHOOK_URL=guest-mgmt-slack-webhook-url-{environment}:latest",
         f"HYPERWALLET_API_URL=hyperwallet-api-url-{environment}:latest",
@@ -32,7 +34,9 @@ def generate_deploy_secrets_string(environment: Environment, service_name: Servi
         f"HYPERWALLET_USERNAME=hyperwallet-username-{environment}:latest",
         "IPINFO_API_KEY=ipinfo-api-key:latest",
         f"PARTNER_PAYMENTS_API_URL=partner-payments-api-url-{environment}:latest",
+        f"PAYPAL_CONFIG=paypal-config-{environment}:latest",
         f"PAYPAL_WEBHOOK_ID=paypal-webhook-id-{environment}:latest",
+        f"STRIPE_CONFIG=stripe-config-{environment}:latest",
         f"VALIDATE_DESTINATION_IDENTIFIER_SECRET_KEY=validate-destination-identifier-secret-key-{environment}:latest",
         "VPNAPI_API_KEY=vpnapi-api-key:latest",
     ]
