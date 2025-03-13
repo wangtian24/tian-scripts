@@ -1,15 +1,13 @@
 import asyncio
 import logging
-import os
 import random
 import re
 import traceback
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, TypeVar, cast
+from typing import Any, TypeVar
 
-import aiohttp
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder, PromptTemplate
@@ -18,6 +16,7 @@ from upstash_redis.asyncio import Redis
 
 from ypl.backend.llm.labeler import LLMLabeler, MultiLLMLabeler
 from ypl.backend.llm.provider.provider_clients import get_internal_provider_client
+from ypl.backend.llm.searchapi import fetch_search_api_response
 from ypl.backend.utils.utils import StopWatch
 from ypl.db.redis import get_upstash_redis_client
 from ypl.utils import extract_json_dict_from_text, maybe_truncate
@@ -436,15 +435,6 @@ async def _process_transcript_for_video_id(chat_id: str, video_id: str) -> Youtu
 
 _LANGUAGE_NOT_TRANSCRIBED_ERROR_STRING = "Selected language hasn't been transcribed. Check `available_languages`"
 _NO_TRANSLATIONS_AVAILABLE_ERROR_STRING = "there are no translations available"
-_SEARCHAPI_API_URL = "https://www.searchapi.io/api/v1/search"
-
-
-async def _fetch_search_api_response(params: dict) -> dict:
-    api_params = {"api_key": os.getenv("SEARCHAPI_API_KEY")} | params
-
-    async with aiohttp.ClientSession() as session:
-        async with session.get(_SEARCHAPI_API_URL, params=api_params) as response:
-            return cast(dict, await response.json())
 
 
 async def _fetch_transcript_from_searchapi(video_id: str, lang: str | None = None) -> dict:
@@ -467,7 +457,7 @@ async def _fetch_transcript_from_searchapi(video_id: str, lang: str | None = Non
         "transcript_type": "manual",  # Prefer manual
     }
 
-    resp = await _fetch_search_api_response(params)
+    resp = await fetch_search_api_response(params)
 
     if "error" in resp:
         if _LANGUAGE_NOT_TRANSCRIBED_ERROR_STRING in resp["error"] and lang is None:
@@ -512,7 +502,7 @@ async def _fetch_youtube_video_info_from_searchapi(video_id: str) -> YoutubeVide
         "video_id": video_id,
     }
 
-    resp = await _fetch_search_api_response(params)
+    resp = await fetch_search_api_response(params)
 
     logging.info(
         {
