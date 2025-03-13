@@ -203,7 +203,7 @@ async def verify_inference_running(model: LanguageModel) -> tuple[bool, ModelErr
         tuple[bool, bool]: (is_inference_running, error_type, excerpt)
     """
     try:
-        chat_model_client = await get_provider_client(internal_name=model.internal_name, include_all_models=True)
+        chat_model_client = await get_provider_client(name=model.name, include_all_models=True)
         if not chat_model_client:
             raise Exception(f"Model {model.name} not found from any active provider")
 
@@ -213,20 +213,20 @@ async def verify_inference_running(model: LanguageModel) -> tuple[bool, ModelErr
         return is_inference_running, None, None  # No billing error
 
     except Exception as e:
-        print(f"Error in _verify_inference_running: {e}")
+        print(f"Error in verify_inference_running: {e}")
         log_dict = {
-            "message": "Model Management: All inference attempts failed for model",
+            "message": f"Model Management: Inference attempts failed for model {model.name}",
             "model_name": model.name,
             "error": str(e),
         }
-        logging.exception(json_dumps(log_dict))
+        logging.warning(json_dumps(log_dict))
 
         error_type, excerpt = contains_error_keywords(str(e))
-        if error_type:
+        if error_type and error_type != ModelErrorType.UNKNOWN:
             log_dict = {
                 "message": f"Model Management: Potential {error_type.value} error detected: ... {excerpt} ...",
                 "model_name": model.name,
             }
-            logging.error(json_dumps(log_dict))
+            logging.warning(json_dumps(log_dict))
 
         return False, error_type, excerpt

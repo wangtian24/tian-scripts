@@ -24,6 +24,7 @@ from ypl.backend.llm.model.model import (
     update_model,
 )
 from ypl.backend.llm.model.model_onboarding import verify_onboard_specific_model
+from ypl.backend.llm.provider.provider_clients import load_models_with_providers
 from ypl.backend.llm.routing.route_data_type import InstantaneousLanguageModelStatistics, LanguageModelStatistics
 from ypl.backend.llm.running_statistics import RunningStatisticsTracker
 from ypl.backend.llm.utils import post_to_slack_channel
@@ -42,12 +43,16 @@ router = APIRouter()
 
 async def async_verify_onboard_specific_models(model_id: UUID) -> None:
     try:
+        # Invalidate the cache before verifying onboarded models
+        if hasattr(load_models_with_providers, "cache_clear"):
+            load_models_with_providers.cache_clear()
+
         await verify_onboard_specific_model(model_id)
     except Exception as e:
         log_dict = {
             "message": f"Error in verify_onboard_specific_model for model_id {model_id}: {str(e)}",
         }
-        logging.exception(json_dumps(log_dict))
+        logging.warning(json_dumps(log_dict))
 
 
 class CreateLanguageModelRequest(BaseModel):
