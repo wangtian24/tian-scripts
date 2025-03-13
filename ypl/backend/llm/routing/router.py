@@ -4,7 +4,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 
 from ypl.backend.config import settings
 from ypl.backend.llm.constants import IMAGE_CATEGORY, IMAGE_GEN_CATEGORY, ONLINE_CATEGORY, PDF_CATEGORY
-from ypl.backend.llm.db_helpers import deduce_original_providers, get_all_active_models, is_user_internal
+from ypl.backend.llm.db_helpers import deduce_original_providers, get_active_models_for_routing, is_user_internal
 from ypl.backend.llm.promotions import PromotionModelProposer
 from ypl.backend.llm.provider.provider_clients import get_internal_provider_client
 from ypl.backend.llm.ranking import Ranker, get_ranker
@@ -185,7 +185,7 @@ async def get_simple_pro_router(
             | Inject(user_selected_models or [], score=50_000_000)
             # exclude inactive models after injection, this is necessary in case we are injecting models inferred
             # from the history of the chat but they are no longer active.
-            | Exclude(name="-inactive", whitelisted_models=await get_all_active_models(include_internal_models))
+            | Exclude(name="-inactive", whitelisted_models=await get_active_models_for_routing(include_internal_models))
             # exclude Yapp models in SMM rounds.
             | (Exclude(name="-yapp", providers={"Yapp"}) if show_me_more else Passthrough())
             # Don't apply semantic group filter for image turns, since we don't have many supporting models.

@@ -5,8 +5,9 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from ypl.backend.llm.db_helpers import get_all_active_models, is_user_internal
+from ypl.backend.llm.db_helpers import get_active_models_for_routing, is_user_internal
 from ypl.backend.llm.routing.policy import SelectionCriteria
+from ypl.db.language_models import LanguageModelTierEnum
 
 
 class RouterState(BaseModel):
@@ -180,7 +181,13 @@ class RouterState(BaseModel):
         rs = RouterState(
             selected_models={},
             excluded_models=set(),
-            all_models=await get_all_active_models(include_internal_models),
+            all_models=await get_active_models_for_routing(
+                include_internal_models,
+                [
+                    LanguageModelTierEnum.PICKER_AND_ROUTER,
+                    LanguageModelTierEnum.ROUTER_ONLY,
+                ],
+            ),
         )
         rs.model_journey = {model: "" for model in rs.all_models}
         return rs

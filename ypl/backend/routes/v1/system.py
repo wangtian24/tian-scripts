@@ -7,6 +7,7 @@ from ypl.backend.llm.db_helpers import (
     deduce_original_providers,
     deduce_semantic_groups,
     get_active_models,
+    get_active_models_for_routing,
     get_all_fast_models,
     get_all_live_models,
     get_all_pro_and_strong_models,
@@ -36,6 +37,7 @@ CACHED_FUNCS: dict[str, list] = {
     ],
     "active-models": [
         get_active_models,
+        get_active_models_for_routing,
         get_image_attachment_models,
         get_pdf_attachment_models,
         load_models_with_providers,

@@ -29,6 +29,12 @@ class LanguageModelStatusEnum(Enum):
     PROBATION = "PROBATION"
 
 
+class LanguageModelTierEnum(Enum):
+    PICKER_ONLY = "PICKER_ONLY"
+    ROUTER_ONLY = "ROUTER_ONLY"
+    PICKER_AND_ROUTER = "PICKER_AND_ROUTER"
+
+
 class LicenseEnum(Enum):
     unknown = "Unknown"
     apache_2_0 = "Apache license 2.0"
@@ -201,6 +207,11 @@ class LanguageModel(BaseModel, table=True):
         sa_column=Column(sa_Enum(LanguageModelStatusEnum), server_default=LanguageModelStatusEnum.SUBMITTED.name),
     )
 
+    tier: LanguageModelTierEnum = Field(
+        default=LanguageModelTierEnum.PICKER_AND_ROUTER,
+        sa_column=Column(sa_Enum(LanguageModelTierEnum), server_default=LanguageModelTierEnum.PICKER_AND_ROUTER.name),
+    )
+
     # Whether the model is considered a pro model.
     is_pro: bool | None = Field(nullable=True, default=None, index=True)
     # Whether the model is considered a strong model, not exposed to users but used for routing.
@@ -355,6 +366,11 @@ class LanguageModelTaxonomy(BaseModel, table=True):
 
     # a priority number to rank model types in the UI, larger number means more front positions.
     priority: int | None = Field(nullable=True, default=None)
+
+    tier: LanguageModelTierEnum = Field(
+        default=LanguageModelTierEnum.PICKER_AND_ROUTER,
+        sa_column=Column(sa_Enum(LanguageModelTierEnum), server_default=LanguageModelTierEnum.PICKER_AND_ROUTER.name),
+    )
 
     # relationships
     language_model: LanguageModel = Relationship(back_populates="taxonomy")

@@ -15,7 +15,14 @@ from tenacity import after_log, retry, retry_if_exception_type, stop_after_attem
 from ypl.backend.db import get_async_session
 from ypl.backend.llm.attachment import supports_image, supports_pdf
 from ypl.backend.llm.routing.route_data_type import LanguageModelStatistics
-from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, LanguageModelTaxonomy, LicenseEnum, Provider
+from ypl.db.language_models import (
+    LanguageModel,
+    LanguageModelStatusEnum,
+    LanguageModelTaxonomy,
+    LanguageModelTierEnum,
+    LicenseEnum,
+    Provider,
+)
 from ypl.utils import async_timed_cache
 
 
@@ -51,6 +58,7 @@ class LanguageModelStruct(BaseModel):
     is_internal: bool | None
     keywords: list[str] | None  # a list of keywords the client can match on in typeahead
     priority: int | None
+    tier: LanguageModelTierEnum | None
 
 
 def clean_provider_name(provider_name: str) -> str:
@@ -206,6 +214,7 @@ class ModelTaxonomyResponse(BaseModel):
     is_internal: bool | None
     keywords: list[str] | None  # a list of keywords the client can match on in typeahead
     priority: int | None
+    tier: LanguageModelTierEnum | None
 
 
 MAX_NEW_MODEL_AGE_DAYS = 30
@@ -260,7 +269,12 @@ async def get_model_taxonomies(query: ModelTaxonomyQuery) -> list[ModelTaxonomyR
         sql_query = select(LanguageModelTaxonomy).join(LanguageModel)
 
         if query.pickable_only:
-            sql_query = sql_query.where(LanguageModelTaxonomy.is_pickable.is_(True))  # type: ignore
+            sql_query = sql_query.where(
+                LanguageModelTaxonomy.is_pickable.is_(True),  # type: ignore
+                LanguageModelTaxonomy.tier.in_(  # type: ignore
+                    [LanguageModelTierEnum.PICKER_AND_ROUTER, LanguageModelTierEnum.PICKER_ONLY]
+                ),
+            )
         if query.leaf_node_only:
             sql_query = sql_query.where(LanguageModelTaxonomy.is_leaf_node.is_(True))  # type: ignore
         if query.has_active_providers:
@@ -273,7 +287,6 @@ async def get_model_taxonomies(query: ModelTaxonomyQuery) -> list[ModelTaxonomyR
                     .scalar_subquery()
                 )
             )
-
         if query.taxonomy_id:
             # search by taxonomy id, will ignore all other fields
             sql_query = sql_query.where(LanguageModelTaxonomy.language_model_taxonomy_id == query.taxonomy_id)
@@ -378,12 +391,12 @@ def _infer_flags_from_model(model: LanguageModel) -> list[str]:
         flag
         for flag, value in {
             "NEW": _is_new(model.created_at),
-            "PRO": model.is_pro,
-            "STRONG": model.is_strong,
-            "LIVE": model.is_live,
+            "PRO": model.is_pro or (model.taxonomy and model.taxonomy.is_pro),
+            "STRONG": model.is_strong or (model.taxonomy and model.taxonomy.is_strong),
+            "LIVE": model.is_live or (model.taxonomy and model.taxonomy.is_live),
             "FAST": model.provider.is_fast,
-            "REASONING": model.is_reasoning,
-            "IMAGE_GENERATION": model.is_image_generation,
+            "REASONING": model.is_reasoning or (model.taxonomy and model.taxonomy.is_reasoning),
+            "IMAGE_GENERATION": model.is_image_generation or (model.taxonomy and model.taxonomy.is_image_generation),
             "IMAGE": (model.supported_attachment_mime_types and supports_image(model.supported_attachment_mime_types)),
             "PDF": model.supported_attachment_mime_types and supports_pdf(model.supported_attachment_mime_types),
         }.items()
@@ -426,13 +439,25 @@ def _create_language_model_struct(model: LanguageModel) -> LanguageModelStruct:
                 "model_release",
                 "taxonomy_id",
                 "priority",
+                "avatar_url",
             }
         ),
-        model_publisher=model.taxonomy.model_publisher if model.taxonomy else model.model_publisher,
-        model_family=model.taxonomy.model_family if model.taxonomy else model.family,
-        model_class=model.taxonomy.model_class if model.taxonomy else model.model_class,
-        model_version=model.taxonomy.model_version if model.taxonomy else model.model_version,
-        model_release=model.taxonomy.model_release if model.taxonomy else model.model_release,
+        avatar_url=(model.taxonomy.avatar_url if model.taxonomy and model.taxonomy.avatar_url else model.avatar_url),
+        model_publisher=(
+            model.taxonomy.model_publisher
+            if model.taxonomy and model.taxonomy.model_publisher
+            else model.model_publisher
+        ),
+        model_family=(model.taxonomy.model_family if model.taxonomy and model.taxonomy.model_family else model.family),
+        model_class=(
+            model.taxonomy.model_class if model.taxonomy and model.taxonomy.model_class else model.model_class
+        ),
+        model_version=(
+            model.taxonomy.model_version if model.taxonomy and model.taxonomy.model_version else model.model_version
+        ),
+        model_release=(
+            model.taxonomy.model_release if model.taxonomy and model.taxonomy.model_release else model.model_release
+        ),
         organization_name=model.organization.organization_name if model.organization else None,
         provider_name=model.provider.name if model.provider else None,
         taxonomy_id=model.taxonomy_id,

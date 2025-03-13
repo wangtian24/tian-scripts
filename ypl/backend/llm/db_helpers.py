@@ -37,7 +37,7 @@ from ypl.db.chats import (
     MessageType,
     Turn,
 )
-from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, Provider
+from ypl.db.language_models import LanguageModel, LanguageModelStatusEnum, LanguageModelTierEnum, Provider
 from ypl.db.model_promotions import ModelPromotionStatus
 from ypl.db.users import User
 from ypl.db.yapps import Yapp
@@ -684,18 +684,22 @@ async def is_user_internal(user_id: str) -> bool:
 
 
 @async_timed_cache(seconds=300)  # 5 min cache
-async def get_all_active_models(include_internal_models: bool = False) -> set[str]:
-    sql_query = (
-        select(LanguageModel.internal_name)
-        .join(Provider)
-        .where(
-            LanguageModel.deleted_at.is_(None),  # type: ignore
-            LanguageModel.status == LanguageModelStatusEnum.ACTIVE,
-            Provider.deleted_at.is_(None),  # type: ignore
-            Provider.is_active.is_(True),  # type: ignore
-            or_(LanguageModel.is_internal.is_(None), LanguageModel.is_internal.is_(False), include_internal_models),  # type: ignore
-        )
-    )
+async def get_active_models_for_routing(
+    include_internal_models: bool = False, tiers: list[LanguageModelTierEnum] | None = None
+) -> set[str]:
+    conditions = [
+        LanguageModel.deleted_at.is_(None),  # type: ignore
+        LanguageModel.status == LanguageModelStatusEnum.ACTIVE,
+        Provider.deleted_at.is_(None),  # type: ignore
+        Provider.is_active.is_(True),  # type: ignore
+    ]
+    if not include_internal_models:
+        conditions.append(or_(LanguageModel.is_internal.is_(None), LanguageModel.is_internal.is_(False)))  # type: ignore
+
+    if tiers:
+        conditions.append(LanguageModel.tier.in_(tiers))  # type: ignore
+
+    sql_query = select(LanguageModel.internal_name).join(Provider).where(*conditions)
 
     async with get_async_session() as session:
         model_rows = await session.exec(sql_query)
