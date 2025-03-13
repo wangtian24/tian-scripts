@@ -101,9 +101,12 @@ class CashoutLimitError(HTTPException):
         if limit_type == CashoutLimitType.RATE_LIMIT:
             detail = f"Please wait {max_value} seconds before submitting another cash out request"
         elif limit_type == CashoutLimitType.DISABLED:
-            detail = "Cash out is disabled for your account.\nPlease contact support if you think this is an error."
+            detail = "Cash out is disabled for your account.\nContact support if this seems incorrect."
         elif limit_type == CashoutLimitType.INSUFFICIENT_CREDIT_BALANCE:
-            detail = "You have insufficient credits to cash out"
+            detail = (
+                "You have insufficient YUPP credits to cash out.\nEarn YUPP by giving feedback or reporting issues."
+            )
+
         elif limit_type == CashoutLimitType.MINIMUM_CREDITS_PER_CASHOUT:
             detail = f"You must cash out at least {min_value} credits"
         else:
