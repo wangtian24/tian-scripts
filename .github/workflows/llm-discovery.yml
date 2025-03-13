@@ -4,7 +4,6 @@ on:
   schedule:
     - cron: "*/15 * * * *"  # Runs every 15 minutes
   workflow_dispatch:  # Allows manual execution
-
 jobs:
   monitor_llm:
     runs-on: ubuntu-latest
@@ -13,18 +12,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Download previous llm-monitor-log artifact
-        run: |
-          echo "Attempting to download artifact from the previous run..."
-          # List runs for this workflow (using its name) and pick the second one (i.e. the last completed run)
-          PREV_RUN_ID=$(gh run list --workflow="LLM Monitor Cronjob" --limit 2 --json id,status,conclusion | jq -r '.[1].id // empty')
-          if [ -n "$PREV_RUN_ID" ]; then
-            echo "Downloading artifact from run ID: $PREV_RUN_ID"
-            gh run download "$PREV_RUN_ID" --name llm-monitor-log
-          else
-            echo "No previous artifact found; creating an empty log directory."
-            mkdir -p llm-monitor-log
-          fi
+      - name: Download LLM Monitor Log Artifact
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: llm-monitor-log
+          path: llm-monitor-log/
+
+      - name: Ensure log directory exists
+        run: mkdir -p ./llm-monitor-log
 
       - name: Run LLM monitor script with secrets
         env:
@@ -42,7 +38,7 @@ jobs:
           ./scripts/llm-monitor.sh ./llm-monitor-log
 
       - name: Upload LLM Monitor Log Artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: llm-monitor-log
           path: llm-monitor-log/
