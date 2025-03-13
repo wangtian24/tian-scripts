@@ -213,6 +213,7 @@ jobs:
         echo "AZURE_API_KEY: '${{ secrets.AZURE_API_KEY_PRODUCTION }}'" >> .env.yml
         echo "BASESCAN_API_KEY: '${{ secrets.BASESCAN_API_KEY_PRODUCTION }}'" >> .env.yml
         echo "BASESCAN_API_URL: '${{ secrets.BASESCAN_API_URL_PRODUCTION }}'" >> .env.yml
+        echo "COHERE_API_KEY: '${{ secrets.COHERE_API_KEY_PRODUCTION }}'" >> .env.yml
         echo "COINBASE_RETAIL_API_KEY_NAME: '${{ secrets.COINBASE_RETAIL_API_KEY_NAME_PRODUCTION }}'" >> .env.yml
         echo "COINBASE_RETAIL_API_SECRET: '${{ secrets.COINBASE_RETAIL_API_SECRET_PRODUCTION }}'" >> .env.yml
         echo "DEEPSEEK_API_KEY: '${{ secrets.DEEPSEEK_API_KEY_PRODUCTION }}'" >> .env.yml
@@ -268,6 +269,7 @@ jobs:
         echo "AZURE_API_KEY: '${{ secrets.AZURE_API_KEY_STAGING }}'" >> .env.yml
         echo "BASESCAN_API_KEY: '${{ secrets.BASESCAN_API_KEY_STAGING }}'" >> .env.yml
         echo "BASESCAN_API_URL: '${{ secrets.BASESCAN_API_URL_STAGING }}'" >> .env.yml
+        echo "COHERE_API_KEY: '${{ secrets.COHERE_API_KEY_STAGING }}'" >> .env.yml
         echo "COINBASE_RETAIL_API_KEY_NAME: '${{ secrets.COINBASE_RETAIL_API_KEY_NAME_STAGING }}'" >> .env.yml
         echo "COINBASE_RETAIL_API_SECRET: '${{ secrets.COINBASE_RETAIL_API_SECRET_STAGING }}'" >> .env.yml
         echo "DEEPSEEK_API_KEY: '${{ secrets.DEEPSEEK_API_KEY_STAGING }}'" >> .env.yml
