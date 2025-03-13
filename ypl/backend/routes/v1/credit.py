@@ -56,7 +56,7 @@ from ypl.db.payments import (
 router = APIRouter()
 
 CREDITS_TO_INR_RATE = Decimal("0.05")
-CREDITS_TO_USD_RATE = Decimal("0.002")
+CREDITS_TO_USD_RATE = Decimal("0.001")
 USD_TO_INR_RATE = Decimal("85")  # TODO: Get this from the exchange rate API. Hardcoded to match superset
 
 SLACK_WEBHOOK_CASHOUT = settings.SLACK_WEBHOOK_CASHOUT
