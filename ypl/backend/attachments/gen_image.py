@@ -118,7 +118,7 @@ async def persist_generated_image(file_url: str, message_id: UUID) -> UUID | Non
     return attachment_id
 
 
-URL_CHECK_INTERVAL = timedelta(minutes=65)
+URL_CHECK_INTERVAL = timedelta(minutes=24 * 60)  # 1 day
 
 
 class ImageGenCallback(AsyncCallbackHandler):
@@ -136,7 +136,7 @@ async def do_backfill_gen_image_urls() -> None:
     """
     async with get_async_session() as session:
         query = (
-            select(ChatMessage.message_id, ChatMessage.content, Attachment.url)  # type: ignore
+            select(ChatMessage.message_id, ChatMessage.content, Attachment.attachment_id)  # type: ignore
             .join(Attachment, ChatMessage.message_id == Attachment.chat_message_id)
             .where(
                 ChatMessage.deleted_at.is_(None),  # type: ignore
@@ -158,16 +158,18 @@ async def do_backfill_gen_image_urls() -> None:
                 }
             </yapp>
 
-        We will replace the url part with a new gs:// resource url.
+        We will replace the url part with "image_id": "<attachment_id>"
         """
+        num_updated = 0
         for result in results:
-            message_id, content, attachment_url = result
-            new_content = re.sub(r'("url"\s*:\s*)"[^"]*"', f'\\1"{attachment_url}"', content)
-            await session.exec(
-                update(ChatMessage).where(ChatMessage.message_id == message_id).values(content=new_content)
-            )  # type: ignore
-            print(f"Updated message {message_id}")
-
+            message_id, content, attachment_id = result
+            new_content = re.sub(r'"url"\s*:\s*"[^"]*"', f'"image_id": "{attachment_id}"', content)
+            if new_content != content:
+                await session.exec(
+                    update(ChatMessage).where(ChatMessage.message_id == message_id).values(content=new_content)
+                )  # type: ignore
+                logging.info(f"Updated message {message_id}")
+                num_updated += 1
         await session.commit()
 
-        logging.info(f"Backfilled {len(results)} messages with new persisted image urls.")
+        logging.info(f"Updated {num_updated} out of {len(results)} messages with url replaced with image_id.")
