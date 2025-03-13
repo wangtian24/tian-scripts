@@ -38,6 +38,7 @@ class AbuseEventType(enum.Enum):
     SIGNUP_SIMILAR_NAME_AS_RECENT_USER = "signup_similar_name_as_recent_user"
     ACTIVITY_VOLUME = "activity_volume"
     CONTENT_LOW_QUALITY_MODEL_FEEDBACK = "content_low_quality_model_feedback"
+    IMPOSSIBLE_TRAVEL = "impossible_travel"
 
 
 class AbuseEvent(BaseModel, table=True):
