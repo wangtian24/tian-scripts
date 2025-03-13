@@ -333,10 +333,9 @@ class StripeFacilitator(BaseFacilitator):
                 if code:
                     account_id = await self.verify_stripe_payment_confirmation_code(code)
                     if not account_id:
-                        raise PaymentInstrumentError("Invalid payment confirmation code - Key not found")
+                        raise ValueError("Payment already processed")
                     if account_id != recipient_account_id:
-                        logging.info(f"Recipient account ID: {recipient_account_id}")
-                        raise PaymentInstrumentError("Invalid payment confirmation code - Account ID mismatch")
+                        raise ValueError("Invalid payment confirmation code")
 
             try:
                 payment_transaction_request = PaymentTransactionRequest(
@@ -486,6 +485,16 @@ class StripeFacilitator(BaseFacilitator):
                     customer_reference_id=receipt_url,
                 )
 
+            except ValueError as e:
+                log_dict = {
+                    "message": "Stripe: Failed to process Stripe payout",
+                    "user_id": user_id,
+                    "amount": str(amount),
+                    "destination_identifier": destination_identifier,
+                    "error": str(e),
+                }
+                logging.exception(json_dumps(log_dict))
+                raise ValueError(str(e)) from e
             except StripePayoutError as e:
                 log_dict = {
                     "message": "Stripe: Failed to process Stripe payout",
@@ -535,6 +544,8 @@ class StripeFacilitator(BaseFacilitator):
                 )
                 raise PaymentProcessingError("Stripe: Failed to process Stripe payout") from e
 
+        except ValueError:
+            raise
         except Exception as e:
             log_dict = {
                 "message": "Stripe: Unexpected error in Stripe payout processing",
