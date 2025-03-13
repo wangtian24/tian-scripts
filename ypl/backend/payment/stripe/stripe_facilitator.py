@@ -8,8 +8,9 @@ from decimal import Decimal
 from uuid import UUID
 
 from sqlmodel import select
+from ypl.backend.config import settings
 from ypl.backend.db import get_async_session
-from ypl.backend.llm.utils import post_to_slack_bg
+from ypl.backend.llm.utils import post_to_slack_bg, post_to_slack_with_user_name_bg
 from ypl.backend.payment.facilitator import (
     BaseFacilitator,
     PaymentInstrumentError,
@@ -283,7 +284,7 @@ class StripeFacilitator(BaseFacilitator):
                         "currency": str(self.currency),
                     }
                     logging.info(json_dumps(log_dict))
-                    post_to_slack_bg(json_dumps(log_dict))
+                    post_to_slack_bg(json_dumps(log_dict), webhook_url=settings.SLACK_WEBHOOK_CASHOUT)
 
                 if balance < amount:
                     log_dict = {
@@ -475,7 +476,9 @@ class StripeFacilitator(BaseFacilitator):
                     "receipt_url": receipt_url,
                 }
                 logging.info(json_dumps(log_dict))
-                post_to_slack_bg(json_dumps(log_dict))
+                post_to_slack_with_user_name_bg(
+                    user_id, json_dumps(log_dict), webhook_url=settings.SLACK_WEBHOOK_CASHOUT
+                )
                 return PaymentResponse(
                     payment_transaction_id=payment_transaction_id,
                     transaction_status=PaymentTransactionStatusEnum.PENDING,
@@ -685,7 +688,7 @@ class StripeFacilitator(BaseFacilitator):
             }
             logging.error(json_dumps(log_dict))
 
-            post_to_slack_bg(json_dumps(log_dict))
+            post_to_slack_with_user_name_bg(user_id, json_dumps(log_dict), webhook_url=settings.SLACK_WEBHOOK_CASHOUT)
 
         except Exception as e:
             log_dict = {

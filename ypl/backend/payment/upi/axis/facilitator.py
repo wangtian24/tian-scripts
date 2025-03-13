@@ -281,7 +281,7 @@ class AxisUpiFacilitator(BaseFacilitator):
                 "facilitator": self.facilitator,
             }
             logging.exception(json_dumps(log_dict))
-            post_to_slack_bg(json_dumps(log_dict), SLACK_WEBHOOK_CASHOUT)
+            post_to_slack_bg(json_dumps(log_dict), webhook_url=settings.SLACK_WEBHOOK_CASHOUT)
 
     async def _check_payment_status_with_retry(
         self,

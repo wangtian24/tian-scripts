@@ -13,6 +13,7 @@ import httpx
 import jwt
 from cryptography.hazmat.primitives import serialization
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from ypl.backend.config import settings
 from ypl.backend.llm.utils import post_to_slack_bg
 from ypl.backend.payment.payout_utils import MIN_BALANCES
 from ypl.backend.utils.json import json_dumps
@@ -474,7 +475,7 @@ async def create_transaction(
             "error": str(e),
         }
         logging.warning(json_dumps(log_dict))
-        post_to_slack_bg(json_dumps(log_dict))
+        post_to_slack_bg(json_dumps(log_dict), webhook_url=settings.SLACK_WEBHOOK_CASHOUT)
         return {"id": "", "status": TransactionStatus.PENDING.value}
 
 
