@@ -12,9 +12,9 @@ ONLINE_LABELER: YuppOnlinePromptLabeler | None = None
 TOPIC_LABELER: YuppMultilabelClassifier | None = None
 YAPP_MATCHER: YappAgentClassifier | None = None
 
-CATEGORY_LABELING_MODEL = "gemini-1.5-flash-8b"
-ONLINE_LABELING_MODEL = "gemini-1.5-flash-8b"
-YAPP_MATCHING_MODEL = "gpt-4o-mini"
+CATEGORY_LABELING_MODEL = "gemini-2.0-flash-001"
+ONLINE_LABELING_MODEL = "gemini-2.0-flash-001"
+YAPP_MATCHING_MODEL = "gemini-2.0-flash-001"
 
 
 def merge_categories(

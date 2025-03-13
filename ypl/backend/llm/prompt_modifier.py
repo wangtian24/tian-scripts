@@ -7,7 +7,7 @@ from ypl.backend.llm.routing.router import get_default_routing_llm
 
 MODIFIER_LABELER: PromptModifierLabeler | None = None
 
-PROMPT_MODIFIER_MODEL = "gemini-1.5-flash-8b"
+PROMPT_MODIFIER_MODEL = "gemini-2.0-flash-001"
 
 
 async def get_prompt_modifiers(
