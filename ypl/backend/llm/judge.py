@@ -52,6 +52,7 @@ from ypl.backend.prompts.suggestions import (
     JUDGE_CONVERSATION_STARTERS_PROMPT_TEMPLATE,
     JUDGE_SUGGESTED_FOLLOWUPS_PROMPT_TEMPLATE,
     JUDGE_SUGGESTED_PROMPTBOX_PROMPT_TEMPLATE,
+    JUDGE_TRENDING_TOPICS_PROMPT_TEMPLATE,
 )
 from ypl.backend.prompts.system_prompts import fill_cur_datetime
 from ypl.db.chats import PromptModifier
@@ -536,6 +537,22 @@ class ConversationStartersLabeler(LLMLabeler[list[list[BaseMessage]], list[dict[
 
     def _parse_output(self, output: BaseMessage) -> list[dict[str, str]]:
         """Output is a list of suggestions and a labels for them, in a format similar to SuggestedFollowupsLabeler."""
+        return _load_json_suggested_prompts(str(output.content))
+
+    @property
+    def error_value(self) -> list[dict[str, str]]:
+        return []
+
+
+class TrendingTopicConversationStartersLabeler(LLMLabeler[str, list[dict[str, str]]]):
+    def _prepare_llm(self, llm: BaseChatModel) -> BaseChatModel:
+        return JUDGE_TRENDING_TOPICS_PROMPT_TEMPLATE | llm  # type: ignore
+
+    def _prepare_input(self, input: str) -> dict[str, str]:
+        return dict(trending_topic=input)
+
+    def _parse_output(self, output: BaseMessage) -> list[dict[str, str]]:
+        """Output is a list of suggestions and a labels for them, in a format similar to ConversationStartersLabeler."""
         return _load_json_suggested_prompts(str(output.content))
 
     @property

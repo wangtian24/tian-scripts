@@ -54,7 +54,7 @@ They should explore related areas, or introduce fresh angles while staying relev
 The conversation starters should not directly continue a previous conversation, but rather introduce a new, potentially
 controversial or interesting topic, in an area that the user is interested in, based on the conversation history.
 Give more weight to later conversations, but try to generate a diverse set of conversation starters.
-Return the list of follow-up questions as a JSON array, where each item contains:
+Return the list of conversation starters as a JSON array, where each item contains:
 - the suggestion,
 - a short 2-5 word label for it in title case - make sure to correctly capitalize any proper nouns and abbreviations such as "AI" or "US",
 - an explanation of why it was selected, referring to the conversation history elements used.
@@ -72,6 +72,31 @@ JUDGE_CONVERSATION_STARTERS_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages(
     [("human", JUDGE_CONVERSATION_STARTERS_PROMPT)]
 )
 
+
+JUDGE_TRENDING_TOPICS_PROMPT = """
+You are an assistant skilled at suggesting engaging conversation starters between a user and an LLM.
+
+Below is information about a recently trending topic and news articles associated with it.
+Based on these and your other knowledge, generate 1-2 engaging conversation starters for new chats a user may want to initiate with an LLM.
+These conversation starters are intended to be used by the user to ask the LLM, not for the LLM to ask the user.
+
+Return the list of conversation starters as a JSON array, where each item contains:
+- the suggestion, as a short and concise sentence;
+- a short 2-5 word label for it in title case - make sure to correctly capitalize any proper nouns and abbreviations such as "AI" or "US".
+This label should assume that the reader may not be aware that the topic is in the news.
+
+Each item should be a separate conversation starter, not be a continuation of the previous item.
+
+Output format:
+[{{"suggestion": "...", "label": "..."}}, {{"suggestion": "...", "label": "..."}}]
+
+Do not explain; only return the list as JSON. Do not include "```json" or "```" in your response.
+
+Trending topic:
+{trending_topic}
+"""
+
+JUDGE_TRENDING_TOPICS_PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([("human", JUDGE_TRENDING_TOPICS_PROMPT)])
 
 JUDGE_CHAT_TITLE_PROMPT = """
 You are an assistant skilled at creating titles of a conversation between a user and one or more LLMs.
