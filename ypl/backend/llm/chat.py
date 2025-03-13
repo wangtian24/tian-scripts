@@ -390,6 +390,7 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
             chat_id=request.chat_id,
             intent=request.intent,
             with_fallback=True,
+            model_features=model_features,
         )
         stopwatch.record_split("routing_create_chain")
         # actually run the router chain

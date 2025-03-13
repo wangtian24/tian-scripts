@@ -495,6 +495,7 @@ def test_fast_compute_all_conf_overlap_diffs() -> None:
 
 # These patches must be in the resverse order of the argument list below,
 # and the path is where they are called rather than where they are defined.
+@patch("ypl.backend.llm.routing.router.get_all_image_gen_models", return_value=[])
 @patch("ypl.backend.llm.routing.router.is_user_internal", return_value=False)
 @patch("ypl.backend.llm.routing.router.get_active_models_for_routing")
 @patch("ypl.backend.llm.routing.router_state.is_user_internal", return_value=False)
@@ -545,6 +546,7 @@ async def test_simple_pro_router(
     mock_is_user_internal1: Mock,
     mock_get_active_models_for_routing2: Mock,
     mock_is_user_internal2: Mock,
+    mock_get_all_image_gen_models: Mock,
 ) -> None:
     mock_table = Mock()
     mock_table.apply.return_value = ({}, set())  # empty accept_map and rejected_models
@@ -781,6 +783,7 @@ def test_context_length_filter(mock_context_lengths: Mock) -> None:
 @patch("ypl.backend.llm.prompt_modifier.PromptModifierLabeler")
 @patch("ypl.backend.llm.category_labeler.YuppMultilabelClassifier")
 @patch("ypl.backend.llm.category_labeler.YuppOnlinePromptLabeler")
+@patch("ypl.backend.llm.routing.router.get_all_image_gen_models", return_value=[])
 @patch("ypl.backend.llm.routing.router.is_user_internal", return_value=False)
 @patch("ypl.backend.llm.routing.router.get_active_models_for_routing", return_value=set(ACTIVE_MODELS))
 @patch("ypl.backend.llm.routing.router_state.is_user_internal", return_value=False)
@@ -863,6 +866,7 @@ async def test_select_models_plus(
     mock_is_user_internal1: Mock,
     mock_get_active_models_for_routing2: Mock,
     mock_is_user_internal2: Mock,
+    mock_get_all_image_gen_models: Mock,
     MockOnlineYupp: Mock,
     MockTopicCategorizer: Mock,
     MockModifierLabeler: Mock,

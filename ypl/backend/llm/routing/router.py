@@ -4,11 +4,17 @@ from langchain_core.language_models.chat_models import BaseChatModel
 
 from ypl.backend.config import settings
 from ypl.backend.llm.constants import IMAGE_CATEGORY, IMAGE_GEN_CATEGORY, ONLINE_CATEGORY, PDF_CATEGORY
-from ypl.backend.llm.db_helpers import deduce_original_providers, get_active_models_for_routing, is_user_internal
+from ypl.backend.llm.db_helpers import (
+    deduce_original_providers,
+    get_active_models_for_routing,
+    get_all_image_gen_models,
+    is_user_internal,
+)
 from ypl.backend.llm.promotions import PromotionModelProposer
 from ypl.backend.llm.provider.provider_clients import get_internal_provider_client
 from ypl.backend.llm.ranking import Ranker, get_ranker
 from ypl.backend.llm.routing.common import SelectIntent
+from ypl.backend.llm.routing.features import ModelSetFeatures
 from ypl.backend.llm.routing.modules.base import RouterModule
 from ypl.backend.llm.routing.modules.decision import RoutingDecisionLogger
 from ypl.backend.llm.routing.modules.filters import (
@@ -82,6 +88,18 @@ def _get_good_and_bad_models(preference: RoutingPreference, has_pdf: bool) -> tu
     return all_good_models, all_bad_models
 
 
+def has_selected_image_gen_model(user_selected_models: list[str] | None, features: ModelSetFeatures | None) -> bool:
+    """
+    Check if the user has selected an image gen model.
+    """
+    if features is None or user_selected_models is None:
+        return False
+    return any(
+        model in features.model_features and features.model_features[model].is_image_generation
+        for model in user_selected_models
+    )
+
+
 async def get_simple_pro_router(
     prompt: str,
     num_models: int,
@@ -95,6 +113,7 @@ async def get_simple_pro_router(
     turn_id: str | None = None,
     intent: SelectIntent = SelectIntent.NEW_CHAT,
     with_fallback: bool = False,
+    model_features: ModelSetFeatures | None = None,
 ) -> RouterModule:
     """
     The main routing function.
@@ -134,12 +153,21 @@ async def get_simple_pro_router(
     has_image = IMAGE_CATEGORY in categories
     has_pdf = PDF_CATEGORY in categories
     has_attachment = has_image or has_pdf
-    needs_online_access = ONLINE_CATEGORY in categories
     needs_image_gen = IMAGE_GEN_CATEGORY in categories
+    needs_online_access = ONLINE_CATEGORY in categories and not needs_image_gen  # image-gen has priority
+    should_exclude_image_gen = not needs_image_gen and not has_selected_image_gen_model(
+        user_selected_models or [], model_features
+    )
+
     image_filter = SupportsImageAttachmentModelFilter() if IMAGE_CATEGORY in categories else Passthrough()
     pdf_filter = SupportsPdfAttachmentModelFilter() if PDF_CATEGORY in categories else Passthrough()
     attachment_filter = image_filter | pdf_filter
     live_model_filter = LiveModelFilter() if needs_online_access and not has_attachment else Passthrough()
+    maybe_exclude_image_gen = (
+        Exclude(name="-exclImageGen", exclude_models=set(get_all_image_gen_models()))
+        if should_exclude_image_gen
+        else Passthrough()
+    )
 
     rule_proposer = RoutingRuleProposer(*categories)
     rule_filter = RoutingRuleFilter(*categories)
@@ -161,6 +189,7 @@ async def get_simple_pro_router(
             | rule_filter
             | ContextLengthFilter(prompt)
             | attachment_filter
+            | maybe_exclude_image_gen
             | live_model_filter
             | error_filter
         )
