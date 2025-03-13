@@ -685,7 +685,7 @@ async def is_user_internal(user_id: str) -> bool:
 
 @async_timed_cache(seconds=300)  # 5 min cache
 async def get_active_models_for_routing(
-    include_internal_models: bool = False, tiers: list[LanguageModelTierEnum] | None = None
+    include_internal_models: bool = False, tiers: tuple[LanguageModelTierEnum, ...] | None = None
 ) -> set[str]:
     conditions = [
         LanguageModel.deleted_at.is_(None),  # type: ignore

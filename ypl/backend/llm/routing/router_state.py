@@ -183,10 +183,10 @@ class RouterState(BaseModel):
             excluded_models=set(),
             all_models=await get_active_models_for_routing(
                 include_internal_models,
-                [
+                (
                     LanguageModelTierEnum.PICKER_AND_ROUTER,
                     LanguageModelTierEnum.ROUTER_ONLY,
-                ],
+                ),
             ),
         )
         rs.model_journey = {model: "" for model in rs.all_models}
