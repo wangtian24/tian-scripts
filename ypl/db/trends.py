@@ -1,11 +1,15 @@
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Column, DateTime, String
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlmodel import Field, Relationship
 
 from ypl.db.base import BaseModel
+
+if TYPE_CHECKING:
+    from ypl.db.chats import SuggestedTrendingTopicPrompt
 
 
 class TrendingTopic(BaseModel, table=True):
@@ -28,6 +32,9 @@ class TrendingTopic(BaseModel, table=True):
     keywords: list[str] = Field(sa_column=Column(ARRAY(String), nullable=False, server_default="{}"))
 
     news_stories: list["NewsStory"] = Relationship(
+        back_populates="trending_topic", sa_relationship_kwargs={"cascade": "all, delete-orphan"}
+    )
+    suggested_prompts: list["SuggestedTrendingTopicPrompt"] = Relationship(
         back_populates="trending_topic", sa_relationship_kwargs={"cascade": "all, delete-orphan"}
     )
 

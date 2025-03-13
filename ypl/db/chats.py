@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from ypl.db.embeddings import ChatMessageEmbedding
     from ypl.db.rewards import Reward, RewardActionLog
     from ypl.db.routing_info import RoutingInfo
+    from ypl.db.trends import TrendingTopic
 
 
 # A chat can contain multiple conversations.
@@ -491,6 +492,18 @@ class SuggestedUserPrompt(BaseModel, table=True):
     prompt: str = Field(nullable=False)
     summary: str = Field(nullable=False)
     explanation: str = Field(nullable=True)
+
+
+class SuggestedTrendingTopicPrompt(BaseModel, table=True):
+    """A suggested conversation starter based on a trending topic."""
+
+    __tablename__ = "suggested_trending_topic_prompts"
+
+    suggested_trending_topic_prompt_id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    trending_topic_id: uuid.UUID = Field(foreign_key="trending_topics.trending_topic_id", nullable=False, index=True)
+    trending_topic: "TrendingTopic" = Relationship(back_populates="suggested_prompts")
+    prompt: str = Field(nullable=False)
+    summary: str = Field(nullable=False)
 
 
 class ChatInstrumentation(BaseModel, table=True):
