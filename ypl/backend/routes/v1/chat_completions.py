@@ -27,6 +27,7 @@ from ypl.backend.config import settings
 from ypl.backend.db import get_async_engine, get_async_session
 from ypl.backend.jobs.tasks import astore_language_code
 from ypl.backend.llm.attachment import get_attachments, link_attachments
+from ypl.backend.llm.chat import kick_off_label_turn_quality
 from ypl.backend.llm.chat_instrumentation_service import (
     ChatInstrumentationRequest,
     EventSource,
@@ -399,6 +400,14 @@ async def upsert_chat_message(
             raise
 
 
+def _is_first_non_qt_message(turn_seq_num: int) -> bool:
+    # turn_seq_num starts from 1 for every turn.
+    # Quicktake has turn_seq_num=1; the first two models have turn_seq_num=2,3.
+    # "Show more" will have turn_seq_num=4,5, etc.
+    # We only want to kick off turn labeling once, so we do it on the first non-QT message.
+    return turn_seq_num == 2
+
+
 async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequest) -> AsyncIterator[str]:
     eager_persist_task: asyncio.Task[Any] | None = None
     stop_stream_task: asyncio.Task[Any] | None = None
@@ -409,6 +418,8 @@ async def _stream_chat_completions(client: BaseChatModel, chat_request: ChatRequ
     stopwatch.start_lap("total_time_to_first_token")
     stopwatch.start_lap("total_time_to_last_token")
     try:
+        if _is_first_non_qt_message(chat_request.turn_seq_num):
+            kick_off_label_turn_quality(chat_request.prompt, str(chat_request.chat_id), str(chat_request.turn_id))
         start_time = datetime.now()
         # Create task keep checking for "Stop Stream" signal from user
         stop_stream_task = asyncio.create_task(

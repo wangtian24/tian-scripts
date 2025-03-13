@@ -18,7 +18,6 @@ from ypl.backend.llm.db_helpers import (
     get_chat_required_models,
     get_preferences,
     get_user_message,
-    notnull,
 )
 from ypl.backend.llm.prompt_modifier import get_prompt_modifiers
 from ypl.backend.llm.prompt_selector import (
@@ -295,17 +294,15 @@ async def select_models_plus(request: SelectModelsV2Request) -> SelectModelsV2Re
         create_background_task(check_activity_volume_abuse(request.user_id, time_windows=SHORT_TIME_WINDOWS))
 
     # Prepare the prompt and past turn information
-    prompt = None
+    prompt = request.prompt or ""
     match request.intent:
         case SelectIntent.NEW_CHAT:
-            prompt = kick_off_label_turn_quality(notnull(request.prompt), request.chat_id, request.turn_id)
             preference = RoutingPreference(
                 turns=[],
                 same_turn_shown_models=[],
                 user_id=request.user_id,
             )
         case SelectIntent.NEW_TURN:
-            prompt = kick_off_label_turn_quality(notnull(request.prompt), request.chat_id, request.turn_id)
             preference = get_preferences(request.user_id, request.chat_id, request.turn_id, request.required_models)
         case SelectIntent.SHOW_ME_MORE:
             prompt = get_user_message(request.turn_id)
