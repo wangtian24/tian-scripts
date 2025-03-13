@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, cast
 
-from fastapi import APIRouter, Header, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 from stripe import Event, SignatureVerificationError, Webhook
@@ -39,6 +39,42 @@ class StripeOutboundPaymentEventEnum(str, Enum):
 router = APIRouter(tags=["stripe"])
 
 SLACK_WEBHOOK_CASHOUT = settings.SLACK_WEBHOOK_CASHOUT
+
+
+async def validate_stripe_ip(request: Request) -> None:
+    """Validate that the request is coming from an allowed Stripe IP.
+
+    Args:
+        request: FastAPI request object
+
+    Raises:
+        HTTPException: If the request IP is not in the allowed list
+    """
+    forwarded_for = request.headers.get("X-Forwarded-For", "")
+    client_ip = forwarded_for.split(",")[0].strip() if forwarded_for else None
+
+    if not client_ip and request.client:
+        client_ip = request.client.host
+
+    if not client_ip:
+        logging.error("Could not determine client IP address")
+        raise HTTPException(status_code=400, detail="Could not determine client IP")
+
+    stripe_config = settings.STRIPE_CONFIG
+    allowed_ips = stripe_config.get("webhook_allowed_ips", [])
+
+    if not allowed_ips:
+        logging.warning("No Stripe webhook allowed IPs configured")
+        return
+
+    if client_ip not in allowed_ips:
+        log_dict = {
+            "message": "Stripe webhook: Unauthorized IP for Stripe webhook",
+            "ip": client_ip,
+            "allowed_ips": allowed_ips,
+        }
+        logging.warning(json.dumps(log_dict))
+        raise HTTPException(status_code=403, detail="Unauthorized IP address")
 
 
 async def validate_stripe_signature(
@@ -87,6 +123,7 @@ async def handle_stripe_webhook(
     request: Request,
     webhook_token: str,
     stripe_signature: str = Header(None, alias="Stripe-Signature"),
+    _: None = Depends(validate_stripe_ip),
 ) -> dict[str, Any]:
     """Handle incoming Stripe webhook events.
 
