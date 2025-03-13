@@ -4,6 +4,7 @@ import logging
 import re
 from dataclasses import dataclass
 from datetime import datetime
+from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
@@ -26,6 +27,7 @@ from ypl.backend.db import get_async_session
 from ypl.backend.utils.async_utils import create_background_task
 from ypl.backend.utils.json import json_dumps
 from ypl.db.attachments import Attachment
+from ypl.utils import async_timed_cache
 
 router = APIRouter()
 
@@ -41,6 +43,28 @@ class AttachmentResponse(BaseModel):
 MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024
 
 SUPPORTED_MIME_TYPES_PATTERN = "image/.*|application/pdf"
+
+
+@dataclass
+class GSUrl:
+    bucket: str
+    object_path: str
+
+
+def _parse_gs_url(gs_url: str) -> GSUrl:
+    """
+    Parse a GCS URL and returns bucket name and object path.
+    E.g. gs://bucket/path/to/object -> GCSUrl("bucket", "path/to/object")
+    Throws ValueError if the URL is not a valid GCS URL.
+    """
+    parsed = urlparse(gs_url)
+    if parsed.scheme != "gs":
+        raise ValueError("Not a gcs url")
+
+    bucket = parsed.netloc
+    object_path = parsed.path.lstrip("/")
+
+    return GSUrl(bucket=bucket, object_path=object_path)
 
 
 @router.post("/file/upload", response_model=AttachmentResponse)
@@ -355,3 +379,56 @@ async def create_attachment_route(request: CreateAttachmentRequest) -> Attachmen
     except Exception as e:
         logging.exception(f"Attachments: Error creating attachment: {str(e)}")
         raise e
+
+
+@dataclass
+class SignedUrlForFileResponse:
+    signed_url: str
+    attachment_id: str
+    content_type: str
+
+
+GS_SIGNED_URL_CACHE_TTL_SECONDS = 3 * 24 * 60 * 60  # 3 days
+
+
+@async_timed_cache(seconds=6 * 60 * 60)  # 6 hour cache, its an LRU cache 128 items. Not too costly.
+async def _get_signed_url(full_gs_url: str) -> str:
+    gs_url = _parse_gs_url(full_gs_url)
+    async with Storage() as async_client:
+        bucket = async_client.get_bucket(gs_url.bucket)
+        blob = await bucket.get_blob(gs_url.object_path)
+        signed_url = await blob.get_signed_url(expiration=GS_SIGNED_URL_CACHE_TTL_SECONDS)
+        return signed_url
+
+
+@router.get("/file/{attachment_id}/signed-url")
+async def get_signed_url_for_file_route(attachment_id: str) -> SignedUrlForFileResponse:
+    async with get_async_session() as session:
+        result = await session.exec(select(Attachment).where(Attachment.attachment_id == attachment_id))
+        attachment = result.one_or_none()
+
+    if not attachment:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+
+    if not attachment.url:
+        raise HTTPException(status_code=404, detail="Attachment does not have a URL")
+
+    signed_url = await _get_signed_url(attachment.url)
+
+    logging.info(
+        {
+            "message": f"Returning signed url for attachment {str(attachment.attachment_id)}",
+            "chat_message_id": str(attachment.chat_message_id),
+            "gs_url": attachment.url,
+            "original_url": attachment.file_name,
+            "signed_url": signed_url,
+            "created_at": attachment.created_at,
+            "content_type": attachment.content_type,
+        }
+    )
+
+    return SignedUrlForFileResponse(
+        signed_url=signed_url,
+        attachment_id=str(attachment.attachment_id),
+        content_type=attachment.content_type,
+    )
