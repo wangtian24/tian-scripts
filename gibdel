@@ -26,15 +26,40 @@ while IFS= read -r branch; do
     
     ((i++))
 done < <(git branch)
-
 # Sort branches by last commit date (oldest first) and print
 i=0
 while IFS= read -r branch_info; do
     IFS='|' read -r epoch branch created last_commit_date last_commit_msg <<< "$branch_info"
     
+    # Calculate time difference
+    now=$(date +%s)
+    diff=$((now - epoch))
+    
+    # Format time difference as "X days/hours/mins ago"
+    if [ $diff -ge 86400 ]; then
+        # Days
+        days=$((diff / 86400))
+        time_ago="${days} day"
+        [ $days -ne 1 ] && time_ago="${time_ago}s"
+        time_ago="${time_ago} ago"
+    elif [ $diff -ge 3600 ]; then
+        # Hours
+        hours=$((diff / 3600))
+        time_ago="${hours} hour"
+        [ $hours -ne 1 ] && time_ago="${time_ago}s"
+        time_ago="${time_ago} ago"
+    else
+        # Minutes
+        mins=$((diff / 60))
+        [ $mins -lt 1 ] && mins=1
+        time_ago="${mins} min"
+        [ $mins -ne 1 ] && time_ago="${time_ago}s"
+        time_ago="${time_ago} ago"
+    fi
+    
     # Print branch info in one line
-    printf "%d) %-30s Created: %-30s Last: %-30s Msg: %-50s\n" \
-           $i "$branch" "$created" "$last_commit_date" "$last_commit_msg"
+    printf "%d) %-40s Last: %-20s Msg: %-50s\n" \
+           $i "$branch" "$time_ago" "$last_commit_msg"
     
     # Store sorted branch info without epoch for later use
     branches[$i]="$branch|$created|$last_commit_date|$last_commit_msg"

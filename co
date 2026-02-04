@@ -5,30 +5,52 @@
 # it will then find all matching branches, if there is only one, it will check it out,
 # if not, it prints out all matching ones and you can further drill down by providing
 # another keyword. It does automatic stashing and unstashing as well.
+# Matching branches are listed by most recent commit date (newest first); Git does not
+# track branch "access" time, so we use committerdate as the best available proxy.
+# Use -s to sort alphabetically instead.
 
-key=$1
+sort_alphabetical=0
+key=""
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -s) sort_alphabetical=1; shift ;;
+        *)  key=$1; shift; break ;;
+    esac
+done
 
 if [[ $key == "" ]]; then
-    git branch
+    if [[ $sort_alphabetical -eq 1 ]]; then
+        git branch --sort=refname
+    else
+        git branch --sort=-committerdate
+    fi
     exit 0
 fi
 
 file=/tmp/co_matches
 
-cur_branch=$(git branch | grep "*" | cut -d" " -f2)
-git branch | grep -v "*" | egrep "$key" > $file
+cur_branch=$(git branch --show-current 2>/dev/null || git branch | grep "*" | cut -d" " -f2)
+if [[ $sort_alphabetical -eq 1 ]]; then
+    git for-each-ref refs/heads --format='%(refname:short)' --sort=refname | grep -E "$key" > "$file"
+else
+    git for-each-ref refs/heads --format='%(refname:short)' --sort=-committerdate | grep -E "$key" > "$file"
+fi
+# Exclude current branch from matches (so "no matches" can mean "you're already on it")
+if [[ -n "$cur_branch" ]]; then
+    grep -Fx -v "$cur_branch" "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+fi
 
 while true; do
-    numlines=$(cat $file | wc -l | sed 's/ //g')
+    numlines=$(wc -l < "$file" | tr -d ' ')
     if [[ $numlines == "0" ]]; then
 	echo "No such branch, or you are on it right now."
 	echo
 	tput bel
 	exit 0
     elif [[ $numlines == "1" ]]; then
-	branch=$(cat $file)
+	branch=$(head -n1 "$file")
 	echo "Checking out branch '$branch'..."
-	git checkout $branch 
+	git checkout "$branch"
 	if [[ $? != 0 ]]; then
 	    tput bel
 	    echo -n "Checkout failed, stash your current branch and try again (y/n)? "
@@ -37,7 +59,7 @@ while true; do
 		echo "Stashing your current branch..."
 		git stash
 		echo "Checking out again branch '$branch'..."
-		git checkout $branch || tput bel
+		git checkout "$branch" || tput bel
 		echo "Checkout Done"
 	    else
 		echo "Please stash or commit what you have on this branch before switching to another."
@@ -48,14 +70,19 @@ while true; do
 	echo
 	exit 0
     else
-	echo "Multiple branches match your keyword:"
+	if [[ $sort_alphabetical -eq 1 ]]; then
+	    echo "Multiple branches match your keyword (alphabetical):"
+	else
+	    echo "Multiple branches match your keyword (newest first):"
+	fi
 	echo
-	cat $file
+	cat "$file"
 	echo
 	echo -n "Type a new keyword to grep with: "
 	read newkey
-	cp $file ${file}_tmp
-	cat ${file}_tmp | egrep "$newkey" > $file
+	cp "$file" "${file}_tmp"
+	grep -E "$newkey" "${file}_tmp" > "$file"
+	[[ $sort_alphabetical -eq 1 ]] && sort -o "$file" "$file"
     fi
 done
 
