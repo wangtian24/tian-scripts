@@ -1,4 +1,12 @@
 #!/bin/bash
+set -euo pipefail
 
-git branch $1
-git checkout $1
+# Create and checkout a new branch.
+# Usage: gib <branch-name>
+
+if [[ $# -eq 0 ]]; then
+    echo "Usage: gib <branch-name>"
+    exit 1
+fi
+
+git switch -c "$1"

@@ -32,7 +32,7 @@ alias ga='git add'
 alias gc='git commit -m'
 alias gp='git push'
 alias pbblame='pbpaste | xargs git blame' # git blame the file with the path in the pasteboard
-alias gcom='git commit -m $1'
+# Note: aliases don't support positional args; use `gc` above instead
 alias gdiff='git diff'
 alias gdiffm='git diff main'
 alias diffn='git diff main --stat'
@@ -45,7 +45,8 @@ alias ll='ls -lah'
 alias la='ls -A'
 
 # Add your custom PATH
-export PATH="$HOME/bin:$PATH:/Users/wangtian/workspace/tian-scripts"
+# Add tian-scripts to PATH (adjust the path to where you cloned the repo)
+export PATH="$HOME/bin:$PATH:$HOME/workspace/tian-scripts"
 
 # Enable auto-completion (if applicable)
 if [ -f /usr/share/bash-completion/bash_completion ]; then
@@ -54,5 +55,6 @@ elif [ -f /etc/bash_completion ]; then
   . /etc/bash_completion
 fi
 
-export GOOGLE_APPLICATION_CREDENTIALS=/Users/wangtian/.secrets/gcp_cred.json
+# Set path to your GCP credentials file
+# export GOOGLE_APPLICATION_CREDENTIALS="$HOME/.secrets/gcp_cred.json"
 
