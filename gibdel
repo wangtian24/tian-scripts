@@ -34,7 +34,7 @@ while IFS= read -r branch; do
     epoch=$(git log -1 --pretty=format:"%ct" "$branch" 2>/dev/null || echo "0")
     last_commit_msg=$(git log -1 --pretty=format:"%s" "$branch" 2>/dev/null || echo "")
 
-    branches[$i]="$epoch|$branch|$last_commit_msg"
+    branches[i]="$epoch|$branch|$last_commit_msg"
 
     ((i++))
 done < <(git branch)
@@ -72,7 +72,7 @@ while IFS= read -r branch_info; do
            "$i" "$branch" "$time_ago" "$last_commit_msg"
 
     # Store sorted branch info without epoch for later use
-    branches[$i]="$branch|$last_commit_msg"
+    branches[i]="$branch|$last_commit_msg"
 
     ((i++))
 done < <(printf '%s\n' "${branches[@]}" | sort -t'|' -k1n)
