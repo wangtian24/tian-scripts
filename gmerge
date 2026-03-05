@@ -1,6 +1,8 @@
 #!/bin/bash
+set -euo pipefail
 
-# merge with main
+# Merge main into the current feature branch.
+# Handles stashing, pulling latest main, and merging back.
 
 # Get current branch name
 current_branch=$(git rev-parse --abbrev-ref HEAD)
@@ -12,10 +14,12 @@ if [ "$current_branch" = "main" ]; then
 fi
 
 # Check for uncommitted changes
+did_stash=0
 if [ -n "$(git status --porcelain)" ]; then
-    read -p "You have uncommitted changes. Would you like to stash them? [y/N] " answer
+    read -r -p "You have uncommitted changes. Would you like to stash them? [y/N] " answer
     if [[ "$answer" =~ ^[Yy]$ ]]; then
         git stash
+        did_stash=1
         echo "Changes stashed"
     else
         echo "Changes not stashed, exiting..."
@@ -23,24 +27,39 @@ if [ -n "$(git status --porcelain)" ]; then
     fi
 fi
 
+# Helper to pop stash if we stashed earlier
+pop_stash() {
+    if [[ $did_stash -eq 1 ]]; then
+        echo "Restoring stashed changes..."
+        git stash pop
+    fi
+}
+
 # Switch to main and pull
 echo "Switching to main branch..."
-git checkout main
+if ! git checkout main; then
+    echo "Error: could not switch to main branch"
+    pop_stash
+    exit 1
+fi
 
 echo "Pulling latest changes..."
 if git pull; then
     # Switch back and merge
     echo "Switching back to $current_branch..."
     git checkout "$current_branch"
-    
+
     echo "Merging main into $current_branch..."
     if ! git merge main -m "merge with main"; then
-        echo "⚠️  Merge conflicts detected. Please resolve conflicts and commit changes."
+        echo "Merge conflicts detected. Please resolve conflicts and commit changes."
+        pop_stash
         exit 1
     fi
+    pop_stash
 else
     echo "Error pulling from main branch"
     git checkout "$current_branch"
+    pop_stash
     exit 1
 fi
 

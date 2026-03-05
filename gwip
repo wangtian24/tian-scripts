@@ -1,8 +1,12 @@
 #!/bin/bash
+set -euo pipefail
 
-git add .
+# Quick WIP commit. Uses `git add -u` (tracked files only) to avoid
+# accidentally staging untracked files like .env or build artifacts.
+
+git add -u
 if [ $# -eq 0 ]; then
-    read -p "Enter commit message (default: WIP): " message
+    read -r -p "Enter commit message (default: WIP): " message
     if [ -z "$message" ]; then
         git commit -m "WIP"
     else

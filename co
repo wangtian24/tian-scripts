@@ -1,4 +1,6 @@
 #!/bin/bash
+set -uo pipefail
+
 # Smart git checkout.
 # Just do:
 #    co [part of the branch name]
@@ -27,17 +29,20 @@ if [[ $key == "" ]]; then
     exit 0
 fi
 
-file=/tmp/co_matches
+# Use mktemp for safe temp files; clean up on exit
+file=$(mktemp /tmp/co_matches.XXXXXX)
+file_tmp=$(mktemp /tmp/co_matches_tmp.XXXXXX)
+trap 'rm -f "$file" "$file_tmp"' EXIT
 
-cur_branch=$(git branch --show-current 2>/dev/null || git branch | grep "*" | cut -d" " -f2)
+cur_branch=$(git branch --show-current)
 if [[ $sort_alphabetical -eq 1 ]]; then
-    git for-each-ref refs/heads --format='%(refname:short)' --sort=refname | grep -E "$key" > "$file"
+    git for-each-ref refs/heads --format='%(refname:short)' --sort=refname | grep -E "$key" > "$file" || true
 else
-    git for-each-ref refs/heads --format='%(refname:short)' --sort=-committerdate | grep -E "$key" > "$file"
+    git for-each-ref refs/heads --format='%(refname:short)' --sort=-committerdate | grep -E "$key" > "$file" || true
 fi
 # Exclude current branch from matches (so "no matches" can mean "you're already on it")
 if [[ -n "$cur_branch" ]]; then
-    grep -Fx -v "$cur_branch" "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+    grep -Fxv "$cur_branch" "$file" > "$file_tmp" && mv "$file_tmp" "$file"
 fi
 
 while true; do
@@ -50,11 +55,10 @@ while true; do
     elif [[ $numlines == "1" ]]; then
 	branch=$(head -n1 "$file")
 	echo "Checking out branch '$branch'..."
-	git checkout "$branch"
-	if [[ $? != 0 ]]; then
+	if ! git checkout "$branch"; then
 	    tput bel
 	    echo -n "Checkout failed, stash your current branch and try again (y/n)? "
-	    read answer
+	    read -r answer
 	    if [[ $answer == "y" ]]; then
 		echo "Stashing your current branch..."
 		git stash
@@ -79,9 +83,9 @@ while true; do
 	cat "$file"
 	echo
 	echo -n "Type a new keyword to grep with: "
-	read newkey
-	cp "$file" "${file}_tmp"
-	grep -E "$newkey" "${file}_tmp" > "$file"
+	read -r newkey
+	cp "$file" "$file_tmp"
+	grep -E "$newkey" "$file_tmp" > "$file" || true
 	[[ $sort_alphabetical -eq 1 ]] && sort -o "$file" "$file"
     fi
 done
