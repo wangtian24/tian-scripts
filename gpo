@@ -1,18 +1,130 @@
-#! /bin/bash
+#!/bin/bash
+
+force_push=0
+base_branch="main"
+commit_message_arg=""
+
+usage() {
+    echo "Usage: $0 [-f|--force] [-b|--base <branch>] [commit-message]"
+    echo "Examples:"
+    echo "  $0                               # squash with prompt for message"
+    echo "  $0 'squash message'              # squash with provided message"
+    echo "  $0 -f                            # force push after squash"
+    echo "  $0 -b dev                        # use 'dev' as base branch"
+    echo "  $0 -f 'message'                  # force push and use 'message'"
+    exit 1
+}
+
+# Parse options and collect positional args
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -f|--force)
+            force_push=1
+            shift
+            ;;
+        -b|--base)
+            if [[ -z "$2" ]]; then
+                echo "Missing argument for $1"
+                usage
+            fi
+            base_branch="$2"
+            shift 2
+            ;;
+        --)
+            shift
+            break
+            ;;
+        -*)
+            echo "Unknown option: $1"
+            usage
+            ;;
+        *)
+            # First non-option is taken as commit message
+            commit_message_arg="$1"
+            shift
+            # Allow only first arg as message
+            if [[ $# -gt 0 ]]; then
+                echo "Too many positional arguments."
+                usage
+            fi
+            ;;
+    esac
+done
 
 # Check if there are uncommitted changes
 if [[ -n $(git status -s) ]]; then
     echo "Warning: You have uncommitted changes:"
+    git status -s
     exit 1
 fi
 
 # Get current branch name
 current_branch=$(git rev-parse --abbrev-ref HEAD)
 
-# Push to origin
-read -p "Are you sure you want to push to origin/$current_branch? (y/N) " push_response
+# Find merge-base
+merge_base=$(git merge-base HEAD "$base_branch" 2>/dev/null)
+if [[ -z "$merge_base" ]]; then
+    echo "Error: Could not find merge-base between HEAD and $base_branch"
+    exit 1
+fi
+
+commit_count=$(git rev-list --count "$merge_base"..HEAD)
+
+# Always squash if there are commits to squash (>0, including if only 1 non-WIP/empty remains after filtering)
+# Otherwise, just perform a push
+if [[ "$commit_count" -ge 1 ]]; then
+    # Get list of commit messages (drop empty and WIP)
+    combined_message=$(git log --format="%s" "$merge_base"..HEAD | tac | grep -viE '^\s*$|^WIP$|^WIP\b|^wip$|^wip\b')
+
+    git reset --soft "$merge_base"
+
+    # Determine commit message
+    squash_msg=""
+    if [[ -n "$commit_message_arg" ]]; then
+        squash_msg="$commit_message_arg"
+    else
+        if [[ -n "$combined_message" ]]; then
+            echo "Filtered commit messages (excluded empty/WIP):"
+            echo "---"
+            echo "$combined_message"
+            echo "---"
+            read -p "Enter squash commit message (leave empty to use all filtered messages): " squash_msg
+            if [[ -z "$squash_msg" ]]; then
+                squash_msg="$combined_message"
+            fi
+        else
+            echo "(All commit messages were empty or WIP; no message to use.)"
+            read -p "Enter a non-empty commit message for the squash: " squash_msg
+        fi
+    fi
+
+    # Ensure non-empty, non-WIP commit message (interactive fallback loop if still empty/WIP)
+    while [[ -z "$squash_msg" || "$squash_msg" =~ ^[Ww][Ii][Pp]$ || "$squash_msg" =~ ^[Ww][Ii][Pp][[:space:]] ]]; do
+        echo "No valid, non-empty, non-WIP commit message provided."
+        read -p "Please enter a real commit message for the squash: " squash_msg
+    done
+
+    git commit -m "$squash_msg"
+    echo "Squashed into single commit: $squash_msg"
+    force_push=1
+else
+    echo "No new commits (or nothing but empty/WIP) since $base_branch — nothing to squash."
+fi
+
+push_desc="origin/$current_branch"
+if [[ $force_push -eq 1 ]]; then
+    push_desc="$push_desc (force)"
+fi
+
+read -p "Are you sure you want to push to $push_desc? (Y/n) " push_response
+push_response="${push_response:-Y}"
 if [[ ! "$push_response" =~ ^[Yy]$ ]]; then
     echo "Push cancelled"
     exit 1
 fi
-git push origin "$current_branch"
+
+if [[ $force_push -eq 1 ]]; then
+    git push --force origin "$current_branch"
+else
+    git push origin "$current_branch"
+fi

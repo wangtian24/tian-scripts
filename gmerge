@@ -17,6 +17,9 @@ if [ -n "$(git status --porcelain)" ]; then
     if [[ "$answer" =~ ^[Yy]$ ]]; then
         git stash
         echo "Changes stashed"
+    else
+        echo "Changes not stashed, exiting..."
+        exit 0
     fi
 fi
 
