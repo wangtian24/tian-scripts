@@ -1,0 +1,130 @@
+#!/bin/bash
+set -uo pipefail
+
+# Smart cd into a repo under ~/workspace.
+#    cdo [pattern]
+# Pattern is plain text or regex (case-insensitive).
+# Match ranking (highest non-empty tier wins):
+#    1. exact name
+#    2. prefix
+#    3. infix
+#    4. regex
+# Multiple matches: prints a numbered list; pick a number, or type a new
+# pattern to refine within the current matches.
+#
+# This script PRINTS the chosen path on stdout. It cannot change the
+# parent shell's directory itself. Source a wrapper in your shell rc:
+#
+#    cdo() { local d; d=$(command cdo "$@") || return; [ -n "$d" ] && cd "$d"; }
+#
+# Override the search root with $CDO_WORKSPACE.
+
+WORKSPACE="${CDO_WORKSPACE:-$HOME/workspace}"
+
+err() { printf '%s\n' "$*" >&2; }
+
+if [[ $# -lt 1 ]]; then
+    err "usage: cdo <pattern>"
+    exit 2
+fi
+
+if [[ ! -d $WORKSPACE ]]; then
+    err "workspace dir not found: $WORKSPACE"
+    exit 2
+fi
+
+cur=$(mktemp /tmp/cdo_cur.XXXXXX)
+nxt=$(mktemp /tmp/cdo_nxt.XXXXXX)
+trap 'rm -f "$cur" "$nxt"' EXIT
+
+# Prefer /dev/tty so prompts work even when stdout is captured via $().
+# Fall back to stdin if /dev/tty isn't usable (piped input, sandbox, etc.).
+if (: </dev/tty) 2>/dev/null; then
+    use_tty=1
+else
+    use_tty=0
+fi
+read_input() {
+    if (( use_tty )); then
+        IFS= read -r "$1" </dev/tty
+    else
+        IFS= read -r "$1"
+    fi
+}
+
+# Seed: all direct subdirs of workspace, alphabetical.
+for d in "$WORKSPACE"/*/; do
+    [[ -d $d ]] || continue
+    basename "$d"
+done | LC_ALL=C sort > "$cur"
+
+# filter <query> <src_file> <dst_file>
+# Picks the highest non-empty tier of matches.
+filter() {
+    local query="$1" src="$2" dst="$3"
+    local lower_q
+    lower_q=$(printf '%s' "$query" | tr '[:upper:]' '[:lower:]')
+
+    # tier 1: exact (case-insensitive)
+    awk -v q="$lower_q" 'tolower($0)==q' "$src" > "$dst"
+    [[ -s $dst ]] && return
+
+    # tier 2: prefix
+    awk -v q="$lower_q" 'index(tolower($0), q)==1' "$src" > "$dst"
+    [[ -s $dst ]] && return
+
+    # tier 3: infix
+    awk -v q="$lower_q" 'index(tolower($0), q)>0' "$src" > "$dst"
+    [[ -s $dst ]] && return
+
+    # tier 4: regex (extended, case-insensitive)
+    grep -iE -- "$query" "$src" > "$dst" 2>/dev/null || true
+}
+
+query="$1"
+filter "$query" "$cur" "$nxt"
+mv "$nxt" "$cur"
+
+while true; do
+    n=$(wc -l < "$cur" | tr -d ' ')
+    if [[ $n == "0" ]]; then
+        err "no repo matches: $query"
+        exit 1
+    elif [[ $n == "1" ]]; then
+        name=$(head -n1 "$cur")
+        printf '%s/%s\n' "$WORKSPACE" "$name"
+        exit 0
+    else
+        err ""
+        err "multiple matches:"
+        i=0
+        while IFS= read -r name; do
+            i=$((i+1))
+            err "  $i) $name"
+        done < "$cur"
+        err ""
+        printf 'Pick number or new pattern: ' >&2
+        if ! read_input input; then
+            err "cancelled"
+            exit 1
+        fi
+        if [[ -z $input ]]; then
+            err "cancelled"
+            exit 1
+        fi
+        if [[ $input =~ ^[0-9]+$ ]]; then
+            idx=$input
+            if (( idx >= 1 && idx <= n )); then
+                name=$(sed -n "${idx}p" "$cur")
+                printf '%s/%s\n' "$WORKSPACE" "$name"
+                exit 0
+            else
+                err "invalid number"
+                continue
+            fi
+        fi
+        query="$input"
+        filter "$query" "$cur" "$nxt"
+        mv "$nxt" "$cur"
+    fi
+done

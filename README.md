@@ -18,6 +18,7 @@ You can also copy settings from `.bashrc-example` into your `~/.bashrc`.
 | Script | Description |
 |--------|-------------|
 | `co`   | **Smart git checkout.** Fuzzy-match branch names, auto-stash, interactive drill-down. Sorts by most recent commit (use `-s` for alphabetical). |
+| `cdo`  | **Smart cd into a `~/workspace` repo.** Ranks matches: exact > prefix > infix > regex. Multiple matches: pick by number or refine with another pattern. Requires the wrapper function from `.bashrc-example` to actually change directory. Override search root with `$CDO_WORKSPACE`. |
 | `gib`  | **Create and checkout** a new branch in one step. |
 | `gibdel` | **Interactive branch deletion.** Lists branches sorted by age, lets you pick by number/range, protects `main`/`master`. |
 | `gmerge` | **Merge main into current branch.** Handles stashing, pulling latest main, and restoring your stash on success or failure. |

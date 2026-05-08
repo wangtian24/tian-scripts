@@ -39,6 +39,13 @@ alias diffn='git diff main --stat'
 
 # alias mact='mamba activate ys-dev'
 
+# Wrapper for the `cdo` script: it prints the chosen path; this cd's into it.
+cdo() {
+  local d
+  d=$(command cdo "$@") || return
+  [ -n "$d" ] && cd "$d"
+}
+
 # Make 'ls' colorful and human-readable
 alias ls='ls --color=auto -h'
 alias ll='ls -lah'
