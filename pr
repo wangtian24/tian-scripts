@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+#
+# pr — open or list GitHub pull requests for any repo in your workspace, fast.
+#
+#   pr arti 90          open PR #90 in the arti repo (web)
+#   pr couch            open couch's open-PR list (web)
+#   pr couch open       same as above
+#   pr couch close      open couch's closed-PR list (web)   (also: closed)
+#   pr couch merged     open couch's merged-PR list (web)
+#   pr couch mine       open PRs you authored (web)
+#   pr <repo> ... -t     list in the terminal via `gh` instead of opening web
+#
+# The <repo> is prefix-matched against directories in your workspace. An exact
+# name always wins; an unambiguous prefix is used directly; otherwise you get a
+# numbered menu to pick from.
+
+set -uo pipefail
+
+WORKSPACE="${PR_WORKSPACE:-$HOME/workspace}"
+
+die() { printf 'pr: %s\n' "$*" >&2; exit 1; }
+
+usage() {
+  sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//'
+  exit "${1:-0}"
+}
+
+# --- resolve which repo the user means ------------------------------------
+# Echoes the absolute path of the chosen repo dir, or dies.
+resolve_repo() {
+  local query="$1"
+  [[ -n "$query" ]] || die "no repo given (try: pr --help)"
+
+  # Exact match wins outright.
+  if [[ -d "$WORKSPACE/$query/.git" ]]; then
+    printf '%s\n' "$WORKSPACE/$query"
+    return
+  fi
+
+  # Collect prefix matches that are actually git repos.
+  local matches=() d name
+  for d in "$WORKSPACE/$query"*/; do
+    [[ -d "$d" ]] || continue
+    d="${d%/}"
+    [[ -d "$d/.git" ]] || continue
+    matches+=("$d")
+  done
+
+  case "${#matches[@]}" in
+    0) die "no repo in $WORKSPACE matching '$query'" ;;
+    1) printf '%s\n' "${matches[0]}"; return ;;
+  esac
+
+  # Ambiguous: present a numbered menu, read choice from the terminal.
+  printf 'Multiple repos match "%s":\n' "$query" >&2
+  local i
+  for i in "${!matches[@]}"; do
+    printf '  %d) %s\n' "$((i + 1))" "$(basename "${matches[$i]}")" >&2
+  done
+  printf 'Choose [1-%d]: ' "${#matches[@]}" >&2
+  local choice
+  read -r choice </dev/tty || die "no selection"
+  [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#matches[@]} )) \
+    || die "invalid selection: $choice"
+  printf '%s\n' "${matches[$((choice - 1))]}"
+}
+
+# --- owner/repo from the origin remote ------------------------------------
+slug_from_repo() {
+  local repo_dir="$1" url
+  url="$(git -C "$repo_dir" remote get-url origin 2>/dev/null)" \
+    || die "$(basename "$repo_dir") has no 'origin' remote"
+  # git@github.com:owner/repo.git  or  https://github.com/owner/repo(.git)
+  url="${url%.git}"
+  url="${url#git@github.com:}"
+  url="${url#https://github.com/}"
+  url="${url#ssh://git@github.com/}"
+  [[ "$url" == */* ]] || die "can't parse GitHub slug from origin: $url"
+  printf '%s\n' "$url"
+}
+
+# --- main ------------------------------------------------------------------
+[[ $# -eq 0 ]] && usage 1
+case "$1" in -h|--help|help) usage 0 ;; esac
+
+terminal=0
+args=()
+for a in "$@"; do
+  case "$a" in
+    -t|--terminal|-l|--list) terminal=1 ;;
+    *) args+=("$a") ;;
+  esac
+done
+
+repo_query="${args[0]:-}"
+selector="${args[1]:-open}"   # default view: open PRs
+
+repo_dir="$(resolve_repo "$repo_query")" || exit 1
+slug="$(slug_from_repo "$repo_dir")"      || exit 1
+
+# Classify the selector.
+mode="" ; number="" ; state=""
+if [[ "$selector" =~ ^[0-9]+$ ]]; then
+  mode="number"; number="$selector"
+else
+  case "$selector" in
+    open)          mode="list"; state="open" ;;
+    close|closed)  mode="list"; state="closed" ;;
+    merged)        mode="list"; state="merged" ;;
+    mine)          mode="list"; state="mine" ;;
+    *) die "don't understand '$selector' (use a PR number, or: open|close|merged|mine)" ;;
+  esac
+fi
+
+if [[ "$terminal" -eq 1 ]]; then
+  command -v gh >/dev/null || die "gh CLI not found (needed for -t); install it or drop -t"
+  if [[ "$mode" == "number" ]]; then
+    exec gh pr view "$number" -R "$slug"
+  fi
+  case "$state" in
+    open)   exec gh pr list -R "$slug" --state open ;;
+    closed) exec gh pr list -R "$slug" --state closed ;;
+    merged) exec gh pr list -R "$slug" --state merged ;;
+    mine)   exec gh pr list -R "$slug" --author @me ;;
+  esac
+fi
+
+# Web mode: build the URL and open it.
+base="https://github.com/$slug"
+if [[ "$mode" == "number" ]]; then
+  url="$base/pull/$number"
+else
+  case "$state" in
+    open)   url="$base/pulls" ;;
+    closed) url="$base/pulls?q=is%3Apr+is%3Aclosed" ;;
+    merged) url="$base/pulls?q=is%3Apr+is%3Amerged" ;;
+    mine)   url="$base/pulls?q=is%3Apr+author%3A%40me" ;;
+  esac
+fi
+
+printf 'Opening %s\n' "$url"
+open "$url"
