@@ -88,20 +88,20 @@ if [[ "$commit_count" -ge 1 ]]; then
             echo "---"
             echo "$combined_message"
             echo "---"
-            read -p "Enter squash commit message (leave empty to use all filtered messages): " squash_msg
+            read -r -p "Enter squash commit message (leave empty to use all filtered messages): " squash_msg
             if [[ -z "$squash_msg" ]]; then
                 squash_msg="$combined_message"
             fi
         else
             echo "(All commit messages were empty or WIP; no message to use.)"
-            read -p "Enter a non-empty commit message for the squash: " squash_msg
+            read -r -p "Enter a non-empty commit message for the squash: " squash_msg
         fi
     fi
 
     # Ensure non-empty, non-WIP commit message (interactive fallback loop if still empty/WIP)
     while [[ -z "$squash_msg" || "$squash_msg" =~ ^[Ww][Ii][Pp]$ || "$squash_msg" =~ ^[Ww][Ii][Pp][[:space:]] ]]; do
         echo "No valid, non-empty, non-WIP commit message provided."
-        read -p "Please enter a real commit message for the squash: " squash_msg
+        read -r -p "Please enter a real commit message for the squash: " squash_msg
     done
 
     git commit -m "$squash_msg"
@@ -116,7 +116,7 @@ if [[ $force_push -eq 1 ]]; then
     push_desc="$push_desc (force)"
 fi
 
-read -p "Are you sure you want to push to $push_desc? (Y/n) " push_response
+read -r -p "Are you sure you want to push to $push_desc? (Y/n) " push_response
 push_response="${push_response:-Y}"
 if [[ ! "$push_response" =~ ^[Yy]$ ]]; then
     echo "Push cancelled"
