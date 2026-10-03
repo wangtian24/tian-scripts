@@ -59,6 +59,7 @@ filter() {
     local lower_q
     lower_q=$(printf '%s' "$query" | tr '[:upper:]' '[:lower:]')
 
+    # shellcheck disable=SC2016  # awk program, not shell
     local base='{ k=split($0, p, "/"); n=tolower(p[k]) }'
 
     # tier 1: exact (case-insensitive)
