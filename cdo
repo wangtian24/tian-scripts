@@ -16,10 +16,8 @@ set -uo pipefail
 # parent shell's directory itself. Source a wrapper in your shell rc:
 #
 #    cdo() { local d; d=$(command cdo "$@") || return; [ -n "$d" ] && cd "$d"; }
-#
-# Override the search roots with $CDO_ROOTS (space-separated).
 
-ROOTS="${CDO_ROOTS:-$HOME/workspace $HOME/docs}"
+ROOTS=("$HOME/docs" "$HOME/workspace")
 
 err() { printf '%s\n' "$*" >&2; }
 
@@ -48,7 +46,7 @@ read_input() {
 }
 
 # Seed: full paths of all direct subdirs of each root, in root order.
-for r in $ROOTS; do
+for r in "${ROOTS[@]}"; do
     for d in "$r"/*/; do
         [[ -d $d ]] && printf '%s\n' "${d%/}"
     done
