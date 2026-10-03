@@ -41,6 +41,7 @@ alias diffn='git diff main --stat'
 
 # Wrapper for the `cdo` script: it prints the chosen path; this cd's into it.
 cdo() {
+  if [ $# -eq 0 ]; then cd ~/docs && cld; return; fi
   local d
   d=$(command cdo "$@") || return
   [ -n "$d" ] && cd "$d"
